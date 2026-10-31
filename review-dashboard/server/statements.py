@@ -15,6 +15,7 @@ import sys
 import threading
 from pypdf import PdfReader, PdfWriter
 from agent import now
+from draft_time import client_context, ensure_context
 from settings import APPLICATION
 from transactions import Transaction, jj, clean, refresh
 from ledger_lock import ledger_lock, LOCK_FD_ENV
@@ -80,7 +81,7 @@ class Statements:
             session = json.loads((self.folder(identity) / 'session.json').read_text())
             if session.get('discarded_until') and not include_discarded:
                 raise FileNotFoundError('Discarded statement session')
-            return session
+            return ensure_context(session)
 
     def all(self):
         with self.mutex:
@@ -92,7 +93,8 @@ class Statements:
                 if s['id'] not in self.in_flight and s.get('discarded_until') and datetime.fromisoformat(s['discarded_until']) <= datetime.now(timezone.utc):
                     shutil.rmtree(self.folder(s['id']))
 
-    def create(self, data, original_name, upload_id=None):
+    def create(self, data, original_name, upload_id=None, *, client_time=None, client_zone=None):
+        context = client_context(client_time, client_zone)
         if not data.startswith(b'%PDF-'):
             raise ValueError('Choose a credit-card statement PDF.')
         try:
@@ -107,7 +109,7 @@ class Statements:
         if not name.lower().endswith('.pdf'):
             name += '.pdf'
         session = dict(id=secrets.token_hex(16), state='locked' if locked else 'reading', original_name=name,
-                       created_at=now(), queued_at=now(), decisions=[], result=None, error=None, waiting=None, runs=[], upload_id=upload_id, pdf_hash=sha256(data).hexdigest())
+                       created_at=now(), queued_at=now(), decisions=[], result=None, error=None, waiting=None, runs=[], upload_id=upload_id, pdf_hash=sha256(data).hexdigest(), **context)
         with self.mutex:
             if upload_id and self.upload_marker(upload_id).exists():
                 raise ValueError('This upload was cancelled. Choose the file again to start a new upload.')
@@ -237,6 +239,7 @@ class Statements:
                 return
             import agent
             fallback = dict(id=session['id'], statement_task=True, text='', pieces=None, saved_at=session['created_at'], questions=[], check_errors=[parser_error], statement_accounts=statement_accounts(documents, self.ledger), files=[dict(name='read.pdf', original_name=session['original_name'])])
+            fallback.update({key: ensure_context(session)[key] for key in ('client_time', 'client_zone')})
             # The runner's attachment layout is drafts/<id>/files. An isolated
             # temporary folder supplies it without copying the password.
             import tempfile

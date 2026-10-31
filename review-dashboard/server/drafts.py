@@ -9,6 +9,7 @@ import shutil
 import threading
 
 from agent import now
+from draft_time import client_context, ensure_context
 
 
 class Drafts:
@@ -30,7 +31,7 @@ class Drafts:
             draft = json.loads((self.folder(identity) / 'draft.json').read_text())
             if draft.get('discarded_until') and not include_discarded:
                 raise FileNotFoundError('Discarded draft')
-            return draft
+            return ensure_context(draft)
 
     def put(self, draft):
         with self.mutex:
@@ -45,14 +46,19 @@ class Drafts:
                 os.fsync(handle.fileno())
             temporary.replace(path)
 
-    def create(self, text='', pieces=None):
+    def create(self, text='', pieces=None, client_time=None, client_zone=None):
         draft = dict(id=secrets.token_hex(16), state='editing', text=text, pieces=pieces,
                      created_at=now(), saved_at=None, queued_at=None, files=[], runs=[],
-                     questions=[], check_errors=[], result=None, error=None, waiting=None)
+                     questions=[], check_errors=[], result=None, error=None, waiting=None,
+                     **client_context(client_time, client_zone))
         with self.mutex:
             self.put(draft)
             (self.folder(draft['id']) / 'files').mkdir()
         return draft
+
+    def save_time(self, draft, client_time=None, client_zone=None):
+        context = client_context(client_time, client_zone)
+        draft.update(saved_at=now(), **context)
 
     def all(self, *, include_discarded=False):
         with self.mutex:

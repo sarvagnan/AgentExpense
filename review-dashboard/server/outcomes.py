@@ -6,12 +6,15 @@ import subprocess
 from transactions import Transaction, jj
 from audit import append, audit_path, event, records
 from ledger_lock import LOCK_FD_ENV
+from draft_time import ensure_context
 
 
 def draft_event(draft, outcome, result=None):
+    draft = ensure_context(dict(draft))
     result = result or draft.get('result') or {}
     sources = result.get('sources', [])
     return event('draft', draft_id=draft['id'], outcome=outcome, text=draft['text'], saved_at=draft['saved_at'],
+                 client_time=draft['client_time'], client_zone=draft['client_zone'],
                  pieces=deepcopy(draft.get('pieces')), files=[dict(original_name=f['original_name'], **({'filed_path': sources[i]} if i < len(sources) else {})) for i, f in enumerate(draft['files'])],
                  questions=deepcopy(draft['questions']), runs=deepcopy(draft['runs']), proposal=deepcopy(draft.get('proposal')),
                  doubts=list(dict.fromkeys(x for r in draft['runs'] for x in r.get('doubts', []))),

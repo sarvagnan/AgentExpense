@@ -22,7 +22,7 @@ Dashboard additions use this reviewable commit format. Typed words and questions
 Add <entry description> via dashboard
 
 Typed: "<typed words>"
-Saved: <YYYY-MM-DD HH:MM> Asia/Kolkata
+Saved: <YYYY-MM-DD HH:MM> <±HH:MM> <IANA zone>
 Total: <payment amount and commodity>, <payment account>
 Evidence: <filed paths, comma-separated>
 Asked: "<question>" Answered: "<answer>"

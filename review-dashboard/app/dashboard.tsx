@@ -1,3 +1,4 @@
+import {formatTimestamp} from './date-time';
 import { reviewKeys } from '../scripts/account-metadata.mjs';
 import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -125,8 +126,7 @@ function unreviewedCount() {
 }
 
 function DataBuilt() {
-  const generated = new Date(data.meta.generatedAt);
-  return <p className="data-built"><strong>{data.meta.ledger.name}</strong>Data built {generated.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, {generated.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</p>;
+  return <p className="data-built"><strong>{data.meta.ledger.name}</strong>Data built {formatTimestamp(data.meta.generatedAt)}</p>;
 }
 
 function Sidebar({ active, month, attention, status, unreviewed, onHelp }: { active: View; month: string; attention: number; status: string; unreviewed: number; onHelp: () => void }) {
@@ -229,7 +229,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
         <span className="posting-amount">{money(Math.abs(posting.amount), posting.currency)}{'cost' in posting && posting.cost !== undefined && <span className="row-sub" title="Cost in INR">Cost {inr(Math.abs(posting.cost))}</span>}</span>
       </div>)}
     </div></section>
-    {transaction.provenance && <section className="inspector-section" aria-label="Added from the live page"><h3>Added from the live page</h3>{transaction.provenance.text.length>240?<details className="provenance-original"><summary><span className="provenance-preview">{transaction.provenance.text}</span><span className="provenance-disclose">Show full typed words</span></summary><p className="provenance-words">{transaction.provenance.text}</p></details>:<p className="provenance-words">{transaction.provenance.text || 'Files only — no typed words.'}</p>}<p className="live-hint">{new Date(transaction.provenance.time).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})} · Asia/Kolkata<br/>{transaction.provenance.models.join(', ') || 'No agent run'}</p>{transaction.provenance.questions.map((q,i)=><div className="earlier-answer" key={i}><p>{q.question}</p><p><strong>You:</strong> {q.answer || 'Unanswered'}</p></div>)}<p><strong>Doubts:</strong> {transaction.provenance.doubts.join('; ') || 'None reported'}</p></section>}
+    {transaction.provenance && <section className="inspector-section" aria-label="Added from the live page"><h3>Added from the live page</h3>{transaction.provenance.text.length>240?<details className="provenance-original"><summary><span className="provenance-preview">{transaction.provenance.text}</span><span className="provenance-disclose">Show full typed words</span></summary><p className="provenance-words">{transaction.provenance.text}</p></details>:<p className="provenance-words">{transaction.provenance.text || 'Files only — no typed words.'}</p>}<p className="live-hint">{formatTimestamp(transaction.provenance.savedAt || transaction.provenance.time)}<br/>{transaction.provenance.models.join(', ') || 'No agent run'}</p>{transaction.provenance.questions.map((q,i)=><div className="earlier-answer" key={i}><p>{q.question}</p><p><strong>You:</strong> {q.answer || 'Unanswered'}</p></div>)}<p><strong>Doubts:</strong> {transaction.provenance.doubts.join('; ') || 'None reported'}</p></section>}
     <section className="inspector-section" aria-label="Source evidence"><h3><Icon name="source"/>Evidence</h3>
       <ul className="source-list">{transaction.sources.map((source) => <SourceItem key={source} path={source} onCopied={setCopied}/>)}</ul>
       {transaction.sourceReference && <dl className="facts"><dt>Reference</dt><dd>{transaction.sourceReference}</dd></dl>}

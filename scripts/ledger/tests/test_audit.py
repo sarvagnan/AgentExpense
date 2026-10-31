@@ -42,6 +42,28 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(missing_entries(self.root,set()),[(one['id'],'b'*16)])
         self.assertEqual(missing_entries(self.root,{'b'*16}),[])
 
+    def test_local_save_context_is_optional_and_legacy_lines_are_preserved(self):
+        legacy = draft(); self.add(legacy)
+        path = audit_path(self.root, legacy); before = path.read_bytes()
+        context = dict(client_time='2000-01-01T23:30:00-05:00', client_zone='America/Chicago')
+        current = draft(**context); self.add(current)
+        self.assertTrue(path.read_bytes().startswith(before))
+        self.assertEqual(records(self.root), [legacy, current])
+        for changes in ({'client_time':'2000-01-01T00:00:00+14:01'}, {'client_zone':'UTC\nForged: metadata'}):
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                self.add(draft(**{**context, **changes}))
+        with self.assertRaises(ValidationError):
+            self.add(draft(client_zone='UTC'))
+
+    def test_review_since_calendar_date_uses_server_local_midnight(self):
+        import subprocess
+        for zone, expected in [('America/Chicago','2026-10-30T00:00:00-05:00'),
+                               ('Europe/Paris','2026-10-30T00:00:00+01:00')]:
+            code = 'from audit import since_time; print(since_time("2026-10-30").isoformat())'
+            result = subprocess.check_output([sys.executable, '-c', code],
+                env={**os.environ, 'TZ':zone, 'PYTHONPATH':str(Path(__file__).resolve().parents[1])}, text=True)
+            self.assertEqual(result.strip(), expected)
+
     def test_schema_required_types_unique_ids_year_and_duplicate_keys(self):
         base=draft()
         for change in ({'version':2},{'kind':'unknown'},{'time':'yesterday'},{'id':'bad'},{'unexpected':True},{'outcome':'maybe'}):

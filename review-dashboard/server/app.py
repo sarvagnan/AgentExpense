@@ -18,6 +18,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import pypdfium2 as pdfium
 
 from agent import now
+from draft_time import client_context
 from agent_gate import get_gate
 from drafts import Drafts
 from settings import Settings
@@ -30,7 +31,13 @@ MAX_FILES = 10
 FORMATS = {'JPEG': ('.jpg', 'image/jpeg'), 'PNG': ('.png', 'image/png'), 'WEBP': ('.webp', 'image/webp')}
 
 
-class Edit(BaseModel):
+class SaveTime(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    client_time: str | None = None
+    client_zone: str | None = None
+
+
+class Edit(SaveTime):
     model_config = ConfigDict(extra='forbid')
     text: str = Field(default='', max_length=100_000)
     pieces: dict | None = None
@@ -171,7 +178,10 @@ def create_app(settings=None, *, start_worker=True):
     @app.post('/api/drafts', status_code=201)
     def create(body: Edit | None = None):
         body = body or Edit()
-        draft = drafts.create(body.text, body.pieces)
+        try:
+            draft = drafts.create(body.text, body.pieces, body.client_time, body.client_zone)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
         draft['client_updated_at'] = body.client_updated_at
         drafts.put(draft)
         return draft
@@ -190,7 +200,13 @@ def create_app(settings=None, *, start_worker=True):
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'editing')
-            draft.update(body.model_dump(exclude_unset=True))
+            values = body.model_dump(exclude_unset=True)
+            if 'client_time' in values or 'client_zone' in values:
+                try:
+                    values.update(client_context(body.client_time, body.client_zone))
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc))
+            draft.update(values)
             drafts.put(draft)
             return draft
 
@@ -281,11 +297,15 @@ def create_app(settings=None, *, start_worker=True):
             return draft
 
     @app.post('/api/drafts/{identity}/save')
-    def save(identity: str):
+    def save(identity: str, body: SaveTime | None = None):
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'editing')
-            draft['saved_at'] = now()
+            body = body or SaveTime()
+            try:
+                drafts.save_time(draft, body.client_time, body.client_zone)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc))
             return queue(draft)
 
     @app.post('/api/drafts/{identity}/answer')
@@ -381,12 +401,17 @@ def create_app(settings=None, *, start_worker=True):
         return dict(summary=summary, rows=[{**r, 'entry_id': members[r['serial']]['id'], 'entry_description': members[r['serial']]['description'], 'conversion_notes': [n for n in members[r['serial']].get('notes', []) if 'replaces' in n and 'INR' in n]} if r['serial'] in members else r for r in rows])
 
     @app.post('/api/statements',status_code=201)
-    def create_statement(file: UploadFile=File(...), upload_id: str=Form('')):
+    def create_statement(file: UploadFile=File(...), upload_id: str=Form(''),
+                         client_time: str | None=Form(None), client_zone: str | None=Form(None)):
+        try:
+            context = client_context(client_time, client_zone)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
         data=file.file.read(MAX_BYTES+1)
         if len(data)>MAX_BYTES:
             raise HTTPException(413,'At most 25 MB per statement')
         try:
-            session=statements.create(data,file.filename,upload_id or None)
+            session=statements.create(data,file.filename,upload_id or None, **context)
         except ValueError as exc:
             raise HTTPException(409 if 'cancelled' in str(exc) else 415,str(exc))
         worker.wake.set()
@@ -508,7 +533,8 @@ def create_app(settings=None, *, start_worker=True):
             file=next((f for f in d['files'] if f['id']==d.get('statement_file')),None)
             if not file:
                 raise HTTPException(409,'This draft has no recognised statement.')
-            session=statements.create((drafts.folder(identity)/'files'/file['name']).read_bytes(),file['original_name'])
+            session=statements.create((drafts.folder(identity)/'files'/file['name']).read_bytes(),file['original_name'],
+                                      client_time=d['client_time'], client_zone=d['client_zone'])
             session['handover_draft']=identity
             session['handover_until']=(datetime.now(timezone.utc)+timedelta(hours=24)).isoformat()
             statements.put(session)

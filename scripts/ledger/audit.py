@@ -150,11 +150,11 @@ def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make
 
 
 def since_time(value, at=None):
-    at = at or datetime.now(timezone.utc)
+    at = at or datetime.now().astimezone()
     if re.fullmatch(r'\d+d', value):
         return at - timedelta(days=int(value[:-1]))
     parsed = datetime.fromisoformat(value)
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.astimezone()
 
 
 def main(argv=None):

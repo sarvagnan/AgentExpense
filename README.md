@@ -1,6 +1,6 @@
 # AgentExpense
 
-AgentExpense is an expense ledger application with a dashboard, evidence-backed drafts, statement reconciliation and an audit trail. A restricted Codex agent proposes entries; the server validates and applies them. JSON is the source of truth and hledger checks the generated journal. The current application uses INR and Asia/Kolkata, with fuel, investments and an example card statement reader.
+AgentExpense is an expense ledger application with a dashboard, evidence-backed drafts, statement reconciliation and an audit trail. A restricted Codex agent proposes entries; the server validates and applies them. JSON is the source of truth and hledger checks the generated journal. The current application uses INR, with fuel, investments and an example card statement reader. Draft dates follow the browser's local save time; timestamps display in the viewer's zone.
 
 The built-in [card statement reader](scripts/statements/README.md) uses a documented fictional layout.
 

@@ -12,5 +12,10 @@ test('provenance publishes addition words, answers and doubts without tool paylo
   await writeFile(root+'/data/additions/2026.jsonl',JSON.stringify(record)+'\n'+JSON.stringify({...record,id:'c'.repeat(32),outcome:'failed',entry_id:null})+'\n');
   const map=await auditProvenance(root), p=map.get(record.entry_id);
   assert.equal(map.size,1);assert.equal(p.text,'Lunch');assert.deepEqual(p.questions,[{question:'Which bank?',answer:'Savings Account'}]);assert.deepEqual(p.models,['fake · offline']);assert.deepEqual(p.doubts,['No receipt']);assert.ok(!JSON.stringify(p).includes('full payload'));
+  assert.equal(p.savedAt, null);
+  const local = '2026-10-30T01:30:00-05:00';
+  await writeFile(root+'/data/additions/2026.jsonl',JSON.stringify({...record,client_time:local,client_zone:'America/Chicago'})+'\n');
+  const current = (await auditProvenance(root)).get(record.entry_id);
+  assert.equal(current.savedAt, local);assert.equal(current.time, record.time);
  }finally{await rm(root,{recursive:true,force:true});}
 });

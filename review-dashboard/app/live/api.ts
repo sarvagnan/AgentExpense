@@ -1,9 +1,10 @@
 import type { Piece } from './builder';
+import {clientTime} from '../date-time';
 export type Attachment = { id: string; original_name: string; media_type: string; size: number };
 export type Draft = {
   id: string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
   pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
-  statement_file?: string; handover_session?: string; created_at: string; saved_at: string | null; queued_at: string | null; files: Attachment[];
+  statement_file?: string; handover_session?: string; client_time?: string; client_zone?: string; created_at: string; saved_at: string | null; queued_at: string | null; files: Attachment[];
   runs: { start: string; doubts: string[]; error?: string | null }[];
   questions: { question: string; answer: string | null }[]; unsent_answer?: {question_index: number; answer: string; updated_at?: number}; error: string | null; waiting: string | null;
   result: null | { outcome: string; explanation?: string; entry_id?: string; description?: string; total?: string; payment_account?: string; new_accounts?: string[]; sources?: string[]; data_stale?: boolean; refresh_error?: string };
@@ -41,9 +42,9 @@ export const api = {
   health: (signal?: AbortSignal) => request<{ok: boolean}>('health', {signal}, 5000),
   list: (signal?: AbortSignal) => request<Draft[]>('drafts?include_added=true', {signal}),
   get: (id: string) => request<Draft>(`drafts/${encodeURIComponent(id)}`),
-  create: (text: string, pieces: unknown, client_updated_at=0) => request<Draft>('drafts', json('POST', {text, pieces, client_updated_at})),
-  edit: (id: string, text: string, pieces: unknown, client_updated_at=0) => request<Draft>(`drafts/${id}`, json('PATCH', {text, pieces, client_updated_at})),
-  save: (id: string) => request<Draft>(`drafts/${id}/save`, json('POST')),
+  create: (text: string, pieces: unknown, client_updated_at=0) => request<Draft>('drafts', json('POST', {text, pieces, client_updated_at, ...clientTime()})),
+  edit: (id: string, text: string, pieces: unknown, client_updated_at=0) => request<Draft>(`drafts/${id}`, json('PATCH', {text, pieces, client_updated_at, ...clientTime()})),
+  save: (id: string) => request<Draft>(`drafts/${id}/save`, json('POST', clientTime())),
   answer: (id: string, answer: string) => request<Draft>(`drafts/${id}/answer`, json('POST', {answer})),
   retry: (id: string) => request<Draft>(`drafts/${id}/retry`, json('POST')),
   keepAnswer: (id: string, question_index: number, answer: string, updated_at=0) => request<Draft>(`drafts/${id}/unsent-answer`, json('PATCH', {question_index, answer, updated_at})),

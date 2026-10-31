@@ -87,7 +87,7 @@ class AgentInputTests(Fixture):
             self.assertEqual(args[-2], '--')
             prompt = args[-1]
             for text in ('Runtime policy marker', '## Before adding', '## Fuel entries', 'Which account?',
-                         'Cash', 'Fix the balance', 'Asia/Kolkata', 'category', 'lunch'):
+                         'Cash', 'Fix the balance', draft['client_zone'], 'category', 'lunch'):
                 self.assertIn(text, prompt)
             self.assertNotIn('## Rebuild and verify', prompt)
             self.assertIn('not_expense', call['schema']['properties']['status']['enum'])

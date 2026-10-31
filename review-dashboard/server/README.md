@@ -39,20 +39,34 @@ ledger locations are refused.
 | Method and path | Body / effect |
 | --- | --- |
 | GET `api/health` | Health, worker status and `agent: {state, reason}` |
-| POST `api/drafts` | Optional JSON `{text, pieces, client_updated_at}`; returns editing draft (201) |
+| POST `api/drafts` | Optional JSON `{text, pieces, client_updated_at, client_time, client_zone}`; returns editing draft (201) |
 | GET `api/drafts` | Active drafts; `?include_added=true` includes retained results |
 | GET `api/drafts/{id}` | Full record, including runs, questions, result and error |
-| PATCH `api/drafts/{id}` | Partial `{text, pieces, client_updated_at}` while editing |
+| PATCH `api/drafts/{id}` | Partial `{text, pieces, client_updated_at, client_time, client_zone}` while editing |
 | POST `api/drafts/{id}/files` | Multipart `files` repeated; upload while editing (201) |
 | GET `api/drafts/{id}/files/{file_id}` | Original upload for thumbnail/preview |
 | DELETE `api/drafts/{id}/files/{file_id}` | Remove while editing |
 | DELETE `api/drafts/{id}/uploads/{upload_id}` | Cancel one upload, including a late arrival |
 | PATCH `api/drafts/{id}/unsent-answer` | `{question_index, answer, updated_at}`; keep an answer without sending |
 | POST `api/drafts/{id}/restore` | Undo Discard within 30 seconds |
-| POST `api/drafts/{id}/save` | Save time and FIFO queue |
+| POST `api/drafts/{id}/save` | JSON `{client_time, client_zone}`; save time and FIFO queue |
 | POST `api/drafts/{id}/answer` | `{answer: "…"}` from question state; queue again |
 | POST `api/drafts/{id}/retry` | Failed draft; reset check-repair allowance and queue |
 | DELETE `api/drafts/{id}` | Soft discard except while working (204); Undo for 30 seconds |
+
+Add's create, edit and Save requests and statement uploads carry `client_time` (ISO local time with
+an explicit ±HH:MM offset within ±14:00) and `client_zone` (a known IANA name).
+Both must be supplied together; times more than 48 hours ahead are rejected, but
+older save times remain valid for retries. Requests without these fields and old
+stored drafts use the server's local zone, recorded in the same fields. Retries,
+answers and statement handover retain the original save context. Receipt and
+statement calendar dates remain as printed; undated entries and relative dates
+use the draft's local save date. Displays use the viewer's zone and the ledger's
+optional locale, otherwise the viewer's locale.
+
+The commit's save line is `Saved: <YYYY-MM-DD HH:MM> <±HH:MM> <IANA zone>`.
+Draft audit events optionally carry `client_time` and `client_zone`; version 1
+lines written before these fields were introduced remain valid and unchanged.
 
 `client_updated_at` and unsent-answer `updated_at` are client revision timestamps
 used to choose between local recovery and a newer server copy. Keeping an unsent
@@ -256,7 +270,7 @@ stored rows and cannot be applied again.
 | Method/path | Purpose |
 | --- | --- |
 | GET `api/statements` | Sessions, filed summaries, declared accounts |
-| POST `api/statements` | Multipart `file` (PDF, at most 25 MiB) |
+| POST `api/statements` | Multipart `file` (PDF, at most 25 MiB), `client_time`, `client_zone` |
 | GET `api/statements/filed/{end}` | Stored summary and reconciliation rows |
 | GET `api/statements/{id}` | Durable state, checks, checklist and result |
 | POST `api/statements/{id}/unlock` | JSON `{password}`; memory only, never echoed |

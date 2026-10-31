@@ -1,3 +1,4 @@
+import {formatCalendarDate} from './date-time';
 import { accountMetadata } from './account-metadata';
 import { accountLabel as metadataLabel } from '../scripts/account-metadata.mjs';
 // Shared formatting, icons, page chrome and keyboard behavior for every dashboard view.
@@ -43,16 +44,13 @@ export function Delta({ value, base, suffix }: { value: number; base: number; su
 }
 export const percent = (value: number) => `${Math.abs(value).toFixed(Math.abs(value) >= 10 ? 0 : 1)}%`;
 
-// Dates: "26 Oct 2026", "26 Oct", "October 2026", "Oct 2026". English month names are fixed so
-// September is always "Sep", never the locale's "Sept".
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const parts = (key: string) => ({ year: Number(key.slice(0, 4)), month: Number(key.slice(5, 7)) - 1, day: Number(key.slice(8, 10)) });
-export const dayLabel = (key: string) => { const { year, month, day } = parts(key); return `${day} ${MONTHS[month].slice(0, 3)} ${year}`; };
-export const dayShort = (key: string) => { const { month, day } = parts(key); return `${day} ${MONTHS[month].slice(0, 3)}`; };
-export const monthLong = (key: string) => { const { year, month } = parts(key); return `${MONTHS[month]} ${year}`; };
-export const monthShort = (key: string) => { const { year, month } = parts(key); return `${MONTHS[month].slice(0, 3)} ${year}`; };
-export const monthName = (key: string) => MONTHS[parts(key).month];
-export const monthAbbr = (key: string) => MONTHS[parts(key).month].slice(0, 3);
+// Calendar labels use the ledger or viewer locale without interpreting dates as UTC.
+export const dayLabel = (key: string) => formatCalendarDate(key);
+export const dayShort = (key: string) => formatCalendarDate(key, { day: 'numeric', month: 'short' });
+export const monthLong = (key: string) => formatCalendarDate(key.slice(0, 7), { month: 'long', year: 'numeric' });
+export const monthShort = (key: string) => formatCalendarDate(key.slice(0, 7), { month: 'short', year: 'numeric' });
+export const monthName = (key: string) => formatCalendarDate(key.slice(0, 7), { month: 'long' });
+export const monthAbbr = (key: string) => formatCalendarDate(key.slice(0, 7), { month: 'short' });
 export const daysInMonth = (key: string) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)), 0).getDate();
 export const plural = (count: number, one: string, many = `${one}s`) => `${count.toLocaleString('en-IN')} ${count === 1 ? one : many}`;
 

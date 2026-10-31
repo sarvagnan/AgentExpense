@@ -7,7 +7,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { buildPatterns, patternOf } from '../scripts/add-patterns.mjs';
 import { loadExpenseStore } from '../scripts/expense-store.mjs';
-import { buildSentence, draftPieces, PATTERN_DEFS, payLabel, todayInIndia } from '../app/live/builder.ts';
+import { buildSentence, draftPieces, PATTERN_DEFS, payLabel } from '../app/live/builder.ts';
 const PAYS = {savings:bank, card, cash:'Pocket', wallet};
 const data={patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
 const build=(text,edits={},files=false)=>buildSentence(text,data,edits,files,'2026-10-30');
@@ -43,7 +43,6 @@ test('dates, payment hints, merchant text and word boundaries handle edge cases'
  assert.equal(build('chocolate 40').pattern,'new');assert.equal(build('fuel 100 at Fable Fuels').fields.outlet.value,'fable fuels');
  assert.equal(build('cab 96 to office').fields.route.value,'to office');assert.equal(build('Liora paid me back 430 coffee').fields.person.value,'liora');
  assert.equal(build('paper lantern renewed $5').fields.currency.value,'USD');assert.equal(build('lube ₹450 Fablemart card').fields.what.value,'lube fablemart');
- assert.equal(todayInIndia(new Date('2026-10-29T19:00:00Z')),'2026-10-30');
 });
 test('pattern statistics use the selected store and are deterministic for fixtures',async()=>{
  const tx=(id,date,amount,pay=bank)=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});

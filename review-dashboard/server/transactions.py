@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unicodedata
 
-from agent import saved_local
+from draft_time import saved_local
 from settings import APPLICATION
 
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
@@ -155,7 +155,7 @@ def message_for(settings, draft, entry, new, answer):
     quote = lambda text: json.dumps(text, ensure_ascii=False)
     paid = payment(entry)
     lines = [f"Add {entry['description']} via dashboard", '', f"Typed: {quote(draft['text'])}",
-             f'Saved: {saved_local(draft)} Asia/Kolkata',
+             f'Saved: {saved_local(draft)}',
              f"Total: {paid['total']}, {paid['payment_account']}",
              'Evidence: ' + ', '.join(entry.get('sources', []))]
     lines += [f"Asked: {quote(q['question'])} Answered: {quote(q['answer'])}" for q in draft['questions'] if q.get('answer') is not None]

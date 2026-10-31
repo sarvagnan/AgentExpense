@@ -273,6 +273,18 @@
     },
     "reviewer": {
       "type": "string"
+    },
+    "client_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?[+-](?:(?:0\\d|1[0-3]):[0-5]\\d|14:00)$",
+      "description": "Local save time with explicit UTC offset; optional on version 1 draft events."
+    },
+    "client_zone": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_+/-]+$",
+      "description": "IANA zone at save time, or the server local zone for non-browser and legacy drafts."
     }
   },
   "allOf": [
@@ -337,5 +349,13 @@
         ]
       }
     }
-  ]
+  ],
+  "dependentRequired": {
+    "client_time": [
+      "client_zone"
+    ],
+    "client_zone": [
+      "client_time"
+    ]
+  }
 }

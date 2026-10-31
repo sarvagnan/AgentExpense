@@ -37,7 +37,7 @@ class LifecycleTests(Fixture):
             self.assertIn('Expenses:Food:Cafe', json.loads((self.ledger / 'data/accounts.json').read_text())['accounts'])
             message = self.jj('log', '-r', '@-', '--no-graph', '-T', 'description')
             self.assertTrue(message.startswith('Add Cafe — lunch — cash via dashboard\n\nTyped: '))
-            for line in ['Saved:', 'Asia/Kolkata', 'Total: 100.00 INR, Assets:Cash', 'Evidence: Bills/2026-10-29/Cafe-Receipt.png',
+            for line in ['Saved:', draft['client_zone'], 'Total: 100.00 INR, Assets:Cash', 'Evidence: Bills/2026-10-29/Cafe-Receipt.png',
                          'Agent doubts: No bank reference supplied', 'New accounts: Expenses:Food:Cafe',
                          f'Draft: {identity}', 'Added-by: dashboard agent (gpt-6.1-terra, xhigh)']:
                 self.assertIn(line, message)

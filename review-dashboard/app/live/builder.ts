@@ -1,4 +1,5 @@
 import type { Accounts } from '../account-metadata';
+import { localDate } from '../../scripts/date-time.mjs';
 import { accountLabel, paymentAccounts } from '../../scripts/account-metadata.mjs';
 /** Pure sentence builder. Values are suggestions for the draft agent, never ledger writes. */
 export type Source = 'typed' | 'usual' | 'agent' | 'missing';
@@ -22,11 +23,7 @@ const NEW: Pattern = { id: 'new', name: 'Something new', pieces: ['what', 'amoun
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const words = (s: string) => new RegExp(`(?<![\\p{L}\\p{N}_])${escape(s)}(?![\\p{L}\\p{N}_])`, 'iu');
 const validDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
-export function todayInIndia(now = new Date()) {
-  const parts=new Intl.DateTimeFormat('en', { timeZone:'Asia/Kolkata', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(now);
-  return ['year','month','day'].map(key=>parts.find(p=>p.type===key)!.value).join('-');
-}
-export function buildSentence(text: string, data: PatternData, edits: Record<string, string> = {}, hasFiles = false, today = todayInIndia()) {
+export function buildSentence(text: string, data: PatternData, edits: Record<string, string> = {}, hasFiles = false, today = localDate()) {
   const low = text.toLowerCase().replace(/’/g, "'");
   // A repayment mentioning coffee is still a repayment; specific financial patterns win.
   const priority = [...PATTERN_DEFS.filter(p => ['payback', 'cardbill', 'rewards'].includes(p.id)), ...PATTERN_DEFS.filter(p => !['payback', 'cardbill', 'rewards'].includes(p.id))];

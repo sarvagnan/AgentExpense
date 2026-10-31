@@ -1,3 +1,4 @@
+import {formatTimestamp} from '../date-time';
 import { reviewKeys } from '../../scripts/account-metadata.mjs';
 import { fuelLedgerEntry } from '../fuel-links';
 import { useWorkStore, useReviewEditor } from './storage';
@@ -425,7 +426,7 @@ export default function Review() {
       <div className="review-progress" title={`${counts.resolved} resolved, ${counts.followup} for follow-up`}>
         <span><strong>{counts.resolved}</strong> of {counts.all} resolved</span>
         <progress max={counts.all} value={counts.resolved} aria-label={`${resolvedShare}% resolved`}/>
-        <span className={`export-state ${workCount && workFingerprint !== exportedWork ? 'warning' : ''}`}>{lastExport ? `${workFingerprint !== exportedWork ? 'Changes since last export · ' : 'Last exported '}${dayShort(lastExport.slice(0, 10))}, ${new Date(lastExport).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}` : workCount ? `${Object.keys(drafts).length ? plural(Object.keys(drafts).length, 'draft') + ' not exported · ' : ''}Not exported from this browser yet` : 'Nothing to export yet'}{unmatchedCount ? ` · ${unmatchedCount} kept for entries no longer pending` : ''}</span>
+        <span className={`export-state ${workCount && workFingerprint !== exportedWork ? 'warning' : ''}`}>{lastExport ? `${workFingerprint !== exportedWork ? 'Changes since last export · ' : 'Last exported '}${formatTimestamp(lastExport)}` : workCount ? `${Object.keys(drafts).length ? plural(Object.keys(drafts).length, 'draft') + ' not exported · ' : ''}Not exported from this browser yet` : 'Nothing to export yet'}{unmatchedCount ? ` · ${unmatchedCount} kept for entries no longer pending` : ''}</span>
       </div>
       <button type="button" className="button" aria-pressed={fuelOpen} aria-controls="fuel-log" onClick={() => setFuelOpen(!fuelOpen)}><Icon name="fuel"/>Fuel Log</button>
       <button type="button" className="button" aria-haspopup="menu" onClick={(event) => menu.openBelow(event.currentTarget, [

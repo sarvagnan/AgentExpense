@@ -13,7 +13,7 @@ export async function auditProvenance(root=ledgerRoot()) {
       if(record.version!==1 || !/^[a-f0-9]{32}$/.test(record.id) || ids.has(record.id))throw Error('Invalid or duplicate audit record');
       ids.add(record.id);
       if(record.kind==='draft' && record.outcome==='added' && record.entry_id) result.set(record.entry_id,{
-        auditId:record.id, text:record.text, time:record.time, savedAt:record.saved_at,
+        auditId:record.id, text:record.text, time:record.time, savedAt:record.client_time || record.saved_at,
         questions:record.questions.map(q=>({question:q.question,answer:q.answer})),
         doubts:record.doubts, models:[...new Set(record.runs.map(r=>`${r.model} · ${r.effort}`))],
       });
