@@ -67,6 +67,7 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
     results = []
     unbilled = []
     for account, filed in sorted(by_account.items()):
+        currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
         filed.sort(key=lambda statement: statement["end"])
         openings = [entry for entry in actuals if entry["date"] <= filed[0]["start"]
                     and any(p["account"].startswith("Equity:Opening Balances") for p in entry["postings"])
@@ -74,8 +75,8 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
         if len(openings) != 1:
             raise ValueError(f"{account}: expected one opening-equity entry, found {len(openings)}")
         opening_postings = [p for p in openings[0]["postings"] if p["account"] == account]
-        if any(p["commodity"] != "INR" for p in opening_postings):
-            raise ValueError(f"{account}: opening balance must be INR")
+        if any(p["commodity"] != currency for p in opening_postings):
+            raise ValueError(f"{account}: opening balance must be {currency}")
         previous = -sum((Decimal(p["amount"]) for p in opening_postings), Decimal(0))
         for statement in filed:
             end = statement["end"]
@@ -83,8 +84,8 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
             if len(rows) != statement["rows"]:
                 raise ValueError(f"{end}: row count {len(rows)} != {statement['rows']} for {account}")
             postings = [p for entry in rows for p in entry["postings"] if p["account"] == account]
-            if any(p["commodity"] != "INR" for p in postings):
-                raise ValueError(f"{end}: statement card postings must be INR")
+            if any(p["commodity"] != currency for p in postings):
+                raise ValueError(f"{end}: statement card postings must be {currency}")
             amounts = [Decimal(p["amount"]) for p in postings]
             purchases = -sum((a for a in amounts if a < 0), Decimal(0))
             credits = sum((a for a in amounts if a > 0), Decimal(0))
@@ -110,7 +111,7 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
             card = [p for p in entry["postings"] if p["account"] == account]
             if card:
                 unbilled.append(dict(id=entry["id"], account=account, date=entry["date"],
-                                     description=entry["description"], amount=str(sum((Decimal(p["amount"]) for p in card), Decimal(0)))))
+                                     description=entry["description"], currency=documents[root / "data/accounts.json"]["accounts"][account]["currency"], amount=str(sum((Decimal(p["amount"]) for p in card), Decimal(0)))))
     return dict(statements=results, unbilled=unbilled)
 
 
@@ -183,7 +184,7 @@ def check(root: Path = ROOT) -> None:
     print(f"Verified {len(membership['statements'])} card statements by membership ({sum(s['rows'] for s in membership['statements'])} rows)")
     print(f"Unbilled card entries through latest statement end: {len(membership['unbilled'])}")
     for entry in membership["unbilled"]:
-        print(f"  unbilled {entry['date']} {entry['id']} {entry['amount']} INR — {entry['description']}")
+        print(f"  unbilled {entry['date']} {entry['id']} {entry['amount']} {entry['currency']} — {entry['description']}")
     check_forecasts(documents, root)
     check_price_coverage(documents, root)
     print(f"Verified {len(entries(documents))} actual entries, {len(documents[root / 'data/forecast.json'])} forecast rules, {len(evidence)} Bills paths and {len(documents) + 1} canonical files")

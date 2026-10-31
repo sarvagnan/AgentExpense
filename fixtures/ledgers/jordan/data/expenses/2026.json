@@ -40,6 +40,16 @@
     ]
   },
   {
+    "id": "0000000000000100",
+    "date": "2026-10-01",
+    "status": "confirmed",
+    "description": "Opening balance — Willow Travel",
+    "postings": [
+      {"account": "Assets:Bank:Willow Travel", "amount": "650.00", "commodity": "EUR", "assert": {"amount": "650.00", "commodity": "EUR"}},
+      {"account": "Equity:Opening Balances", "amount": "-650.00", "commodity": "EUR"}
+    ]
+  },
+  {
     "id": "0000000000000005",
     "date": "2026-10-02",
     "status": "confirmed",
@@ -232,6 +242,23 @@
     "postings": [
       {"account": "Expenses:Groceries", "amount": "8.25", "commodity": "USD"},
       {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-8.25", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000101",
+    "date": "2026-10-29",
+    "status": "confirmed",
+    "description": "Juniper Table dinner",
+    "sources": [
+      "Bills/2026-10-29/Juniper-Table.md"
+    ],
+    "original-amount": {
+      "amount": "46.80",
+      "commodity": "EUR"
+    },
+    "postings": [
+      {"account": "Expenses:Food:Dining", "amount": "46.80", "commodity": "EUR", "cost": {"amount": "51.48", "commodity": "USD", "per": "total"}},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-51.48", "commodity": "USD"}
     ]
   }
 ]

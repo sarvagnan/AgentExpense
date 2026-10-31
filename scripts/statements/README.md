@@ -14,7 +14,7 @@ header lines below, each exactly once. Header labels and Debit/Credit are case
 insensitive. Dates are `YYYY-MM-DD`; the period start must precede or equal its
 end. The card identifier contains exactly four digits. Amounts are nonnegative
 with two decimal places; optional thousands separators use groups of three.
-Amounts charged to the card and all summary values are INR in this phase.
+Amounts charged to the card and all summary values use the selected account’s currency. An optional `Statement currency: USD` header explicitly identifies the printed unit; a mismatch stops the import before any agent fallback. Foreign row amounts always require their own explicit currency.
 
 The table starts with the exact column names below, separated by `|`. Each row
 has seven cells: date, unique serial (letters, digits or hyphens), description,

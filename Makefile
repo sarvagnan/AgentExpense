@@ -77,3 +77,10 @@ personas:
 	  LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) test-scanner; \
 	  printf 'PASS %s\n' "$${persona##*/}"; \
 	done
+
+.PHONY: set-account-currency set-default-currency
+set-account-currency:
+	uv run --with jsonschema python scripts/ledger/set_account_currency.py $(ARGS)
+
+set-default-currency:
+	uv run --with jsonschema python scripts/ledger/set_default_currency.py $(ARGS)

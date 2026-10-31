@@ -45,7 +45,7 @@ test('the loader preserves IDs, structured fields, source order and entry dates'
   assert.deepEqual(transactions[0].postings[1], { account: original.postings[1].account, currency: 'INR', amount: -100 });
   assert.equal(transactions[0].date, '2026-01-30', 'Entry/expense month stays in January');
   assert.deepEqual(rules[0].schedule, rule().schedule);
-  assert.deepEqual(prices, [{ commodity: 'FUND', dates: ['2026-01-01'], navs: [12.3456] }]);
+  assert.deepEqual(prices, [{ commodity: 'FUND', currency: 'INR', dates: ['2026-01-01'], navs: [12.3456] }]);
   assert.equal(JSON.parse(await readFile(path.join(root, 'data/expenses/2026.json')))[0].postings[0].amount, '100.00');
 });
 
@@ -73,7 +73,8 @@ test('investment costs retain signed total/unit cost calculation and two-decimal
   assert.equal(toTransaction(entry({ postings: [fund] }), {'Assets:Investments:Test':{kind:'investment'}}).postings[0].cost, Number((123.4567 * 1.234).toFixed(2)));
   assert.equal(toTransaction(entry({ postings: [{ ...fund, amount: '-1.234', cost: { ...fund.cost, amount: '100.005', per: 'total' } }] }), {'Assets:Investments:Test':{kind:'investment'}}).postings[0].cost, Number((-100.005).toFixed(2)));
   const expense = { ...fund, account: 'Expenses:Test' };
-  assert.equal('cost' in toTransaction(entry({ postings: [expense] })).postings[0], false);
+  assert.equal(toTransaction(entry({ postings: [expense] })).postings[0].costCurrency, 'INR');
+  assert.equal(toTransaction(entry({ postings: [expense] })).postings[0].cost, Number((123.4567 * 1.234).toFixed(2)));
 });
 
 test('year files load in order and preserve stable same-date array order', async (t) => {
@@ -95,9 +96,9 @@ test('duplicate/invalid IDs across actuals and rules and unordered actuals fail 
 
 test('prices preserve raw NAV precision and reject invalid lines, duplicates and reversed dates', () => {
   assert.deepEqual(parsePrices('; comment\n\nP 2026-01-01 "B" 2.000001 INR\nP 2026-01-01 A 3.0 INR\n'), [
-    { commodity: 'A', dates: ['2026-01-01'], navs: [3] }, { commodity: 'B', dates: ['2026-01-01'], navs: [2.000001] },
+    { commodity: 'A', currency: 'INR', dates: ['2026-01-01'], navs: [3] }, { commodity: 'B', currency: 'INR', dates: ['2026-01-01'], navs: [2.000001] },
   ]);
-  for (const text of ['P 2026-01-01 FUND 1 USD', 'P 2026-01-01 FUND -1 INR', 'garbage']) assert.throws(() => parsePrices(text), /Unexpected price/);
+  for (const text of ['P 2026-01-01 FUND 1', 'P 2026-01-01 FUND -1 INR', 'garbage']) assert.throws(() => parsePrices(text), /Unexpected price/);
   for (const day of ['2026-01-02', '2026-01-01']) assert.throws(() => parsePrices(`P 2026-01-02 FUND 1 INR\nP ${day} FUND 2 INR`), /date order/);
 });
 

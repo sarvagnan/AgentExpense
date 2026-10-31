@@ -1,6 +1,7 @@
 {
   "commodities": [
-    "USD"
+    "USD",
+    "EUR"
   ],
   "accounts": {
     "Assets:Bank:Alder Checking": {
@@ -47,6 +48,15 @@
     "Expenses:Groceries": {},
     "Expenses:Food:Dining": {},
     "Expenses:Transport": {},
-    "Expenses:Housing:Rent": {}
+    "Expenses:Housing:Rent": {},
+    "Assets:Bank:Willow Travel": {
+      "kind": "bank",
+      "currency": "EUR",
+      "label": "Willow Travel",
+      "aliases": [
+        "willow",
+        "travel account"
+      ]
+    }
   }
 }

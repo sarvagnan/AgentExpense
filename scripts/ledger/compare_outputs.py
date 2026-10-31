@@ -67,7 +67,7 @@ def snapshot(root, *, format_zero_settings=None):
                 raise ValueError(f'Unable to generate {name} output.')
             result[name] = run.stdout
         application = scratch / 'application'
-        for relative in ['scripts/project-paths.mjs', 'schema/ledger.schema.json', 'schema/store.schema.json']:
+        for relative in ['scripts/project-paths.mjs', 'schema/ledger.schema.json', 'schema/store.schema.json', 'schema/currencies.json']:
             target = application / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(APPLICATION_ROOT / relative, target)

@@ -47,7 +47,8 @@ test('every selected account balance reconciles to hledger at historical and cur
    const amounts = JSON.parse(output)[0].flatMap(account => account[3]);
    const commodity = amounts.filter(amount => amount.acommodity === row.currency);
    assert.ok(commodity.length, `${row.account} retains commodity ${row.currency}`);
-   const expected = commodity.reduce((sum, amount) => sum + Number(amount.aquantity.decimalMantissa) / 10 ** amount.aquantity.decimalPlaces, 0);
+   const scale = Math.max(...commodity.map(amount => amount.aquantity.decimalPlaces));
+   const expected = commodity.reduce((sum, amount) => sum + Number(amount.aquantity.decimalMantissa) * 10 ** (scale - amount.aquantity.decimalPlaces), 0) / 10 ** scale;
    assert.equal(row.balance, expected, `${row.account} at ${asOf}`);
    assert.equal(accountActivity(data.transactions, row.account, row.currency, asOf).at(-1).balance, expected);
   }

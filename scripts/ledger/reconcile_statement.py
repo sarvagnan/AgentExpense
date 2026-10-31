@@ -61,6 +61,11 @@ def validate_rows(rows: list) -> list[dict]:
             raise ValueError('Missing row description')
         if not isinstance(row['amount'], str) or not DECIMAL.fullmatch(row['amount']):
             raise ValueError('Row amount must be a nonnegative decimal string')
+        foreign, currency = row.get('foreignAmount'), row.get('foreignCurrency')
+        if bool(foreign) != bool(currency) or (currency and not re.fullmatch(r'[A-Z]{3}', currency)):
+            raise ValueError('Foreign amount needs an explicit currency')
+        if foreign is not None and (not isinstance(foreign, str) or not DECIMAL.fullmatch(foreign)):
+            raise ValueError('Foreign amount must be a nonnegative decimal string')
         if row['direction'] not in ('Debit', 'Credit'):
             raise ValueError('Row direction must be Debit or Credit')
         if type(row['page']) is not int or row['page'] < 1:
@@ -94,9 +99,13 @@ def extract_rows(root: Path, end: str, account: str | None = None) -> tuple[list
     if len(statements) != 1:
         raise ValueError(f'Expected one extracted statement for {end}, found {len(statements)}')
     statement = statements[0]
+    account = select_account(load(root), root, statement.get('card_last4'), account)
+    currency = read_json(root / 'data/accounts.json')['accounts'][account]['currency']
+    if statement.get('currency') and statement['currency'] != currency:
+        raise ValueError(f'Statement currency {statement["currency"]} differs from account currency {currency}')
     # Accept both decimal strings and older numeric extracts without float arithmetic.
     rows = [dict(date=r['date'][:10], serial=r['serialNumber'], description=r['description'],
-                 amount=format(Decimal(str(r['amountInr'])), '.2f'), direction=r['direction'], page=r['pageNumber'])
+                 amount=format(Decimal(str(r['amount'] if 'amount' in r else r['amountInr'])), '.2f'), direction=r['direction'], page=r['pageNumber'])
             for r in data['transactions'] if r['statementEnd'][:10] == end and r['sourceFile'] == statement['sourceFile']]
     return validate_rows(rows), dict(source=statement['sourceFile'], start=statement['periodStart'][:10], identifier=statement.get('card_last4'), account=account)
 
@@ -105,8 +114,8 @@ def card_amount(entry: dict, account: str) -> Decimal | None:
     postings = [p for p in entry['postings'] if p['account'] == account]
     if not postings:
         return None
-    if len(postings) != 1 or postings[0]['commodity'] != 'INR':
-        raise ValueError(f"{entry['id']}: reconciliation needs exactly one INR card posting")
+    if len(postings) != 1:
+        raise ValueError(f"{entry['id']}: reconciliation needs exactly one card posting")
     return Decimal(postings[0]['amount'])
 
 
@@ -119,6 +128,7 @@ def activity(entry: dict, account: str) -> bool:
 def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str | None = None, identifier: str | None = None,
               total_due: str | None = None, source: str | None = None, root: Path = ROOT) -> dict:
     account = select_account(documents, root, identifier, account)
+    currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
     validate_rows(rows)
     date.fromisoformat(start)
     date.fromisoformat(end)
@@ -201,8 +211,8 @@ def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str
             expense_amount += '' if '.' in expense_amount else '.00'
             proposal = dict(date=row['date'], status='pending', description=row['description'], **fields,
                             notes=['Pending classification from statement row; allocate an id and cite the filed PDF before adding.'],
-                            postings=[dict(account='Expenses:Uncategorized', amount=expense_amount, commodity='INR'),
-                                      dict(account=account, amount=amount, commodity='INR')])
+                            postings=[dict(account='Expenses:Uncategorized', amount=expense_amount, commodity=currency),
+                                      dict(account=account, amount=amount, commodity=currency)])
             if source:
                 proposal['sources'] = [source]
             result['newRows'].append(dict(row=row, proposedEntry=proposal))

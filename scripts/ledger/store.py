@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -126,6 +127,7 @@ def validators():
         result[kind] = Draft202012Validator(
             {**{k: v for k, v in schema.items() if k != 'oneOf'}, '$ref': f'#/$defs/{kind}'},
             format_checker=FormatChecker())
+    result['currency-codes'] = set(read_json(SCHEMA_PATH.with_name('currencies.json')))
     result['manifest'] = Draft202012Validator(read_json(SCHEMA_PATH.with_name('ledger.schema.json')),
                                              format_checker=FormatChecker())
     return result
@@ -173,6 +175,21 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
                     raise ValueError(f"{path.name}: statements out of end-date order at {identity}")
                 previous = entry["end"]
                 continue
+            declarations = documents[root / 'data/accounts.json']['accounts']
+            for posting in entry['postings']:
+                metadata = declarations.get(posting['account'], {})
+                currency = metadata.get('currency')
+                if not currency:
+                    continue
+                unit_holding = metadata.get('kind') == 'investment' and posting['commodity'] not in checks['currency-codes']
+                if posting['commodity'] != currency and not unit_holding:
+                    raise ValueError(f"{identity}: {posting['account']} must use its account currency {currency}, got {posting['commodity']}")
+                if unit_holding and Decimal(posting['amount']) != 0 and (not posting.get('cost') or posting['cost']['commodity'] not in checks['currency-codes']):
+                    raise ValueError(f"{identity}: investment units need a cost in a currency")
+                assertion = posting.get('assert')
+                if assertion and assertion['commodity'] != currency and not (
+                        metadata.get('kind') == 'investment' and assertion['commodity'] not in checks['currency-codes']):
+                    raise ValueError(f"{identity}: assertion must use its account currency {currency} or investment units")
             if kind == "expenses":
                 if entry["date"][:4] != path.stem:
                     raise ValueError(f"{identity}: date {entry['date']} does not belong in {path.name}")

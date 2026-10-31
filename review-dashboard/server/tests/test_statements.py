@@ -125,7 +125,7 @@ class StatementTests(Fixture):
         s=sessions.get(s['id'])
         self.assertEqual(s['state'], 'found', s.get('error'))
         self.assertTrue(all(c['ok'] for c in s['checks']))
-        self.assertEqual(s['statement'], {**parse_text(TEXT), 'account':CARD, 'accountLabel':'Test Card'})
+        self.assertEqual(s['statement'], {**parse_text(TEXT), 'currency':'INR', 'account':CARD, 'accountLabel':'Test Card'})
         sessions.decide(s['id'], 'EX-001', dict(action='account', account='Expenses:Food'))
         sessions.decide(s['id'], 'EX-002', dict(action='account', account='Assets:Bank:Savings Account'))
         sessions.queue_apply(s['id']);sessions.work(threading.Event())

@@ -1,19 +1,20 @@
+import { money, currencySymbol, moneySettings } from '../../scripts/formatting.mjs';
 import type { Accounts } from '../account-metadata';
 import { localDate } from '../../scripts/date-time.mjs';
 import { accountLabel, paymentAccounts } from '../../scripts/account-metadata.mjs';
 /** Pure sentence builder. Values are suggestions for the draft agent, never ledger writes. */
 export type Source = 'typed' | 'usual' | 'agent' | 'missing';
 export type Piece = { value: string; source: Source; shown: string };
-export type PatternStats = { count: number; last: { date: string; description: string; amount: string; litres?: string }[]; usualPay: string | null; usualShare: number; usualExpense: string | null; usualCategory?: string | null; known?: string[] };
+export type PatternStats = { count: number; last: { date: string; description: string; amount: string; currency?: string | null; litres?: string }[]; usualPay: string | null; usualShare: number; usualExpense: string | null; usualCategory?: string | null; known?: string[] };
 export type PatternData = { patterns: Record<string, PatternStats>; people: string[]; accounts: string[]; payments?: Accounts };
-export const LABELS: Record<string, string> = { amount: 'Amount', currency: 'Currency', litres: 'Litres', km: 'Trip', outlet: 'Outlet', pay: 'Paid with', date: 'Date', vehicle: 'Vehicle', service: 'Service', route: 'Route', plan: 'Plan', inr: 'In rupees', items: 'Items', place: 'Place', person: 'From', purpose: 'For', what: 'What', category: 'Category' };
+export const LABELS: Record<string, string> = { amount: 'Amount', currency: 'Currency', litres: 'Litres', km: 'Trip', outlet: 'Outlet', pay: 'Paid with', date: 'Date', vehicle: 'Vehicle', service: 'Service', route: 'Route', plan: 'Plan', charged: 'Charged amount', items: 'Items', place: 'Place', person: 'From', purpose: 'For', what: 'What', category: 'Category' };
 export const SOURCES: Record<Source, string> = { typed: 'You typed it', usual: 'Usual for this', agent: 'The agent reads it', missing: 'Missing' };
 export const payLabel = (value: string, accounts: Accounts = {}) => accountLabel(value, accounts);
 type Pattern = { id: string; name: string; keys?: string[]; pieces: string[]; sentence: string };
 export const PATTERN_DEFS: Pattern[] = [
   {id:'fuel', name:'Fuel', keys:['petrol','fuel','diesel','bunk'], pieces:['amount','litres','km','outlet','pay','date','vehicle'], sentence:'Fuel at {outlet} for {amount}: {litres} over {km}, paid with {pay}, {date}, for {vehicle}.'},
   {id:'ride', name:'Auto or cab', keys:['auto','cab','taxi','ride'], pieces:['amount','service','route','pay','date'], sentence:'{service} {route} for {amount}, paid with {pay}, {date}.'},
-  {id:'sub', name:'Subscription renewal', keys:['renewed','renewal','subscription'], pieces:['service','amount','plan','pay','inr','date'], sentence:'{service} renewed for {amount}, plan {plan}, on {pay}, {inr} in rupees, {date}.'},
+  {id:'sub', name:'Subscription renewal', keys:['renewed','renewal','subscription'], pieces:['service','amount','plan','pay','charged','date'], sentence:'{service} renewed for {amount}, plan {plan}, on {pay}, {charged} charged to the account, {date}.'},
   {id:'dining', name:'Eating out', keys:['dinner','lunch','breakfast','snacks','coffee'], pieces:['amount','place','pay','date'], sentence:'Eating out at {place} for {amount}, paid with {pay}, {date}.'},
   {id:'payback', name:'Paid back', keys:['paid back','paid me back','repaid','sent me','returned'], pieces:['person','amount','purpose','pay','date'], sentence:'{person} paid you back {amount} for {purpose}, into {pay}, {date}.'},
   {id:'cardbill', name:'Card bill payment', keys:['card bill','bill payment','paid my card','credit card bill'], pieces:['amount','pay','date'], sentence:'Card bill of {amount} paid from {pay}, {date}.'},
@@ -45,9 +46,15 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
     take(/\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?\b/, 'date', m => { const n = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].slice(0,3)) + 1; const day = `${m[3] || today.slice(0,4)}-${String(n).padStart(2,'0')}-${m[1].padStart(2,'0')}`; return validDay(day) ? day : ''; });
   take(/\b(\d+(?:\.\d+)?)\s*(?:litres?|liters?|ltr|l)\b/, 'litres');
   take(/\b(\d+(?:\.\d+)?)\s*km\b/, 'km');
-  const usd = take(/\$\s*(\d+(?:\.\d+)?)|\b(\d+(?:\.\d+)?)\s*(?:usd|dollars?)\b/, 'amount', m => m[1] || m[2]);
-  if (usd) typed.currency = 'USD';
-  if (!typed.amount) take(/(?:₹\s*|\brs\.?\s*|\binr\s*)?(\d[\d,]*(?:\.\d+)?)(?![\d.])/, 'amount', m => m[1].replace(/,/g, ''));
+  // Explicit ISO codes and recognizable currency symbols are evidence. An
+  // unmarked amount inherits its selected payment account's currency below.
+  const codes = [...new Set([moneySettings().defaultCurrency, ...Object.values(payments).map(meta => meta.currency), ...Intl.supportedValuesOf('currency')].filter((code): code is string => !!code && /^[A-Z]{3}$/.test(code)))];
+  for (const code of codes) {
+    const symbol = currencySymbol(code);
+    const marker = `(?:(?<![a-z])${escape(code)}(?![a-z])${symbol && symbol !== code ? `|${escape(symbol)}` : ''})`;
+    if (take(new RegExp(`${marker}\\s*(\\d[\\d,]*(?:\\.\\d+)?)|(?:\\b)(\\d[\\d,]*(?:\\.\\d+)?)\\s*${marker}(?![a-z])`, 'i'), 'amount', m => (m[1] || m[2]).replace(/,/g, ''))) { typed.currency = code; break; }
+  }
+  if (!typed.amount) take(/(\d[\d,]*(?:\.\d+)?)(?![\d.])/, 'amount', m => m[1].replace(/,/g, ''));
   const generic = new Set(['card','bank','cash','wallet','loan','person']);
   const matches = new Set<string>();
   let ambiguousPay = false;
@@ -75,26 +82,27 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   if (hit) rest = rest.replace(words(hit), ' ');
   if (known) rest = rest.replace(words(known), ' ');
   if (pattern.id === 'ride') take(/\b((?:from\s+.+?\s+)?to\s+.+?)\s*$/, 'route');
-  rest = rest.replace(/\b(for|on|via|with|paid|the|a|an|at|rs|inr|my|i|just|got|bought|and|of|in|from)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  rest = rest.replace(/\b(for|on|via|with|paid|the|a|an|at|my|i|just|got|bought|and|of|in|from)\b/g, ' ').replace(/\s+/g, ' ').trim();
   const fields: Record<string, Piece> = {};
   const set = (key: string, value: string, source: Source, shown = value) => { fields[key] = { value, source, shown }; };
   const vary = (key: string, value = '') => value ? set(key, value, 'typed') : set(key, '', hasFiles ? 'agent' : 'missing', hasFiles ? 'from your upload' : `${LABELS[key].toLowerCase()}?`);
   for (const key of [...pattern.pieces, 'currency', 'category']) {
     if (typed[key]) set(key, typed[key], 'typed');
     else if (key === 'date') set(key, today, 'usual', 'today');
-    else if (key === 'currency') set(key, usd ? 'USD' : 'INR', usd ? 'typed' : 'usual');
+    else if (key === 'currency') set(key, payments[edits.pay || typed.pay || stats?.usualPay || '']?.currency || moneySettings().defaultCurrency || Object.values(payments)[0]?.currency || '', 'usual');
     else if (key === 'pay' && !ambiguousPay && stats?.usualPay && payments[stats.usualPay]) set(key, stats.usualPay, 'usual');
     else if (key === 'category' && stats?.usualExpense) set(key, stats.usualExpense, 'usual');
     else if (key === 'category') set(key, '', 'agent', 'the agent works it out');
     else if (key === 'outlet' || key === 'place') vary(key, known || rest);
     else if (key === 'service') vary(key, known || (pattern.id === 'ride' ? hit : rest));
     else if (key === 'what' || key === 'purpose' || key === 'items') vary(key, rest);
-    else if (key === 'inr' && !usd) set(key, typed.amount || '', typed.amount ? 'typed' : 'agent');
+    else if (key === 'charged' && !typed.currency) set(key, typed.amount || '', typed.amount ? 'typed' : 'agent');
     else vary(key);
   }
-  for (const [key, value] of Object.entries(edits)) if (fields[key]) set(key, value, value ? 'typed' : hasFiles ? 'agent' : 'missing');
+  for (const [key, value] of Object.entries({...edits, ...(edits.inr && !edits.charged ? {charged: edits.inr} : {})})) if (fields[key]) set(key, value, value ? 'typed' : hasFiles ? 'agent' : 'missing');
   for (const [key, piece] of Object.entries(fields)) if (piece.value) {
-    piece.shown = key === 'amount' ? `${fields.currency.value === 'USD' ? '$' : '₹'}${piece.value}` : key === 'litres' ? `${piece.value} L` : key === 'km' ? `${piece.value} km` : key === 'pay' ? payLabel(piece.value, payments) : piece.value;
+    piece.shown = key === 'amount' ? fields.currency.value ? money(Number(piece.value), fields.currency.value) : piece.value
+      : key === 'charged' && payments[fields.pay?.value]?.currency ? money(Number(piece.value), payments[fields.pay.value].currency) : key === 'litres' ? `${piece.value} L` : key === 'km' ? `${piece.value} km` : key === 'pay' ? payLabel(piece.value, payments) : piece.value;
     if (key === 'category' && piece.source === 'usual') piece.shown = stats?.usualCategory || piece.value;
     if (key === 'date' && piece.source === 'usual' && piece.value === today) piece.shown = 'today';
   }

@@ -71,8 +71,6 @@ def to_store(answer, root, file_count):
         if a.get(key):
             entry[field] = a[key]
     if a.get('original_amount'):
-        if a['original_amount']['commodity'].upper() == 'INR':
-            raise ProposalError('original-amount is allowed only for a non-INR commodity')
         entry['original-amount'] = {**a['original_amount'], 'amount': amount(a['original_amount']['amount'])}
     if a['notes']:
         entry['notes'] = a['notes']
@@ -100,6 +98,16 @@ def to_store(answer, root, file_count):
                 raise ProposalError(f'Cannot infer kind for new account: {account}')
             metadata = {'kind': kind, 'currency': read_manifest(root)['defaultCurrency']}
         accounts[account] = metadata
+    payments = [p for p in entry['postings'] if accounts.get(p['account'], {}).get('currency') and Decimal(p['amount']) < 0]
+    funding = next((p for p in payments if accounts[p['account']].get('kind') not in ('investment', 'person')), payments[0] if payments else None)
+    if funding:
+        currency = accounts[funding['account']]['currency']
+        if entry.get('original-amount', {}).get('commodity') == currency:
+            raise ProposalError(f'original-amount must differ from the paying account currency {currency}')
+        for p in entry['postings']:
+            if p['account'].startswith('Expenses:') and p['commodity'] != currency:
+                if not p.get('cost') or p['cost']['commodity'] != currency or Decimal(p['cost']['amount']) <= 0:
+                    raise ProposalError(f'Expense in {p["commodity"]} on {funding["account"]} ({currency}) needs the amount charged or a rate as a cost in {currency}; ask the user when neither is known')
     return entry, {**declared, 'accounts': accounts}, new
 
 

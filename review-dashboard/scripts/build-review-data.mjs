@@ -1,3 +1,4 @@
+import { transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions } from './currency.mjs';
 import { sourceType } from './source-labels.mjs';
 import { compact, loadExpenseStore } from './expense-store.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, '..');
 const outputPath = path.join(projectDir, 'app', 'data', 'pending-transactions.json');
 
-const { transactions, accounts } = await loadExpenseStore();
+const { transactions, accounts, manifest } = await loadExpenseStore();
 
 
 function patternFor(description, source) {
@@ -18,9 +19,10 @@ function patternFor(description, source) {
 
 const pending = transactions
   .filter((transaction) => transaction.status === 'pending')
+  .flatMap(transaction => fundedTransactions(transaction, accounts))
   .map((transaction) => {
     const reviewPosting = transaction.postings.find(
-      (posting) => posting.currency === 'INR' && (posting.account.startsWith('Expenses:') || posting.account.startsWith('Income:')),
+      (posting) => (posting.account.startsWith('Expenses:') || posting.account.startsWith('Income:')),
     );
     if (!reviewPosting) return null;
 
@@ -32,15 +34,23 @@ const pending = transactions
         ? 'Expense'
         : 'Refund'
       : 'Income';
-    const amount = Math.abs(reviewPosting.amount);
+    const currency = transactionCurrency(transaction, accounts, manifest.defaultCurrency);
+    const allocation = isExpense
+      ? chargedExpenses(transaction, currency).reduce((sum, posting) => sum + posting.amount, 0)
+      : transaction.postings.filter(posting => posting.account.startsWith('Income:')).reduce((sum, posting) => sum + postingValue(posting, currency), 0);
+    const foreignExpense = isExpense && transaction.postings.some(posting => posting.account.startsWith('Expenses:') && posting.currency !== currency);
+    const signedAmount = foreignExpense ? Number(allocation.toFixed(2)) : allocation;
+    const amount = Math.abs(signedAmount);
     return {
       id: transaction.id,
+      ...(transaction.storeId ? {storeId: transaction.storeId} : {}),
       date: transaction.date,
       originalDate: transaction.date,
       description: transaction.description,
       pattern: patternFor(transaction.description, source),
       amount,
-      signedAmount: reviewPosting.amount,
+      currency,
+      signedAmount,
       kind,
       currentAccount: reviewPosting.account,
       source,
@@ -54,21 +64,19 @@ const pending = transactions
 
 const totals = pending.reduce(
   (summary, transaction) => {
-    summary.net += transaction.signedAmount;
-    summary.absolute += transaction.amount;
     summary.byKind[transaction.kind] = (summary.byKind[transaction.kind] || 0) + 1;
     summary.bySource[transaction.sourceType] = (summary.bySource[transaction.sourceType] || 0) + 1;
     return summary;
   },
-  { net: 0, absolute: 0, byKind: {}, bySource: {} },
+  { byKind: {}, bySource: {} },
 );
 
 const payload = {
   meta: {
     ledger: 'data/expenses/*.json',
     pendingTransactionCount: pending.length,
-    pendingNetAmount: Number(totals.net.toFixed(2)),
-    pendingAbsoluteAmount: Number(totals.absolute.toFixed(2)),
+    pendingNetAmount: sumCurrencies(pending, row => row.signedAmount),
+    pendingAbsoluteAmount: sumCurrencies(pending),
     byKind: totals.byKind,
     bySource: totals.bySource,
   },

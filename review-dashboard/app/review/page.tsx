@@ -4,7 +4,7 @@ import { fuelLedgerEntry } from '../fuel-links';
 import { useWorkStore, useReviewEditor } from './storage';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type CSSProperties, type ReactNode } from 'react';
 import { dashboard as dashboardData, fuel as fuelData, review as reviewData, type DashboardData, type ReviewData } from '../data';
-import { EvidenceName, Dialog, entryDragProps, hasSelectedText, Icon, PageHeader, SearchField, breakable, dayShort, evidenceHref, modalOpen, copyAndAnnounce, usePaneWidth, useElementScroll, sessionRead, useColumnWidths, rowTitle, evidenceAction, copyText, dayLabel, inr, isTyping, plural, useContextMenu, useQueryState, useRowNavigation, type MenuItem } from '../ui';
+import { EvidenceName, Dialog, entryDragProps, hasSelectedText, Icon, PageHeader, SearchField, breakable, dayShort, evidenceHref, modalOpen, copyAndAnnounce, usePaneWidth, useElementScroll, sessionRead, useColumnWidths, rowTitle, evidenceAction, copyText, dayLabel, money, isTyping, plural, useContextMenu, useQueryState, useRowNavigation, type MenuItem } from '../ui';
 
 type Transaction = ReviewData['transactions'][number];
 type LedgerTransaction = DashboardData['transactions'][number];
@@ -31,7 +31,7 @@ const EMPTY_DRAFT: Draft = { account: '', label: '', notes: '' };
 const STATUS_LABEL: Record<ReviewStatus, string> = { unreviewed: 'Unreviewed', followup: 'Follow-Up', resolved: 'Resolved' };
 
 const isMoneyIn = (transaction: Transaction) => transaction.kind !== 'Expense';
-const signed = (transaction: Transaction) => `${isMoneyIn(transaction) ? '+' : ''}${inr(transaction.amount)}`;
+const signed = (transaction: Transaction) => `${isMoneyIn(transaction) ? '+' : ''}${money(transaction.amount, transaction.currency)}`;
 const STATUSES: ReviewStatus[] = ['unreviewed', 'resolved', 'followup'];
 const KNOWN_IDS = () => new Set(reviewData.transactions.map((item) => item.id));
 const isText = (value: unknown) => typeof value === 'string';
@@ -100,10 +100,10 @@ function FuelLog({ onClose }: { onClose: () => void }) {
   </th>;
   return <aside ref={panel} id="fuel-log" className="panel fuel-panel" aria-labelledby="fuel-title" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
     <div className="panel-header"><div><h2 id="fuel-title">Fuel Log</h2><p>Fills, trips and ledger matches</p></div><button type="button" className="icon-button" aria-label="Close the fuel log" title="Close (Esc)" onClick={onClose}><Icon name="close"/></button></div>
-    <div className="table-scroll" tabIndex={0} aria-label="Fuel log entries"><table className="data-table fuel-table"><colgroup><col/><col style={{ width: widths.cost }}/><col style={{ width: widths.litres }}/><col style={{ width: widths.tripKm }}/></colgroup><thead><tr>{heading('date', 'Date / Ledger')}{heading('cost', 'INR', true)}{heading('litres', 'L', true)}{heading('tripKm', 'km', true)}</tr></thead>
+    <div className="table-scroll" tabIndex={0} aria-label="Fuel log entries"><table className="data-table fuel-table"><colgroup><col/><col style={{ width: widths.cost }}/><col style={{ width: widths.litres }}/><col style={{ width: widths.tripKm }}/></colgroup><thead><tr>{heading('date', 'Date / Ledger')}{heading('cost', 'Cost', true)}{heading('litres', 'L', true)}{heading('tripKm', 'km', true)}</tr></thead>
       <tbody>{entries.map((item) => { const linked = fuelLedgerEntry(item, dashboardData.transactions); return <tr key={item.id}>
         <td className="date">{item.date ? dayLabel(item.date) : 'No date'}<span className="fuel-match">{item.ledgerStatus === 'Linked' ? linked ? <a className="fuel-entry-link" href={`${import.meta.env.BASE_URL}explorer/?month=${linked.month}&entry=${linked.id}`} target="_blank" rel="noopener" title={linked.description} aria-label={`Open linked ledger entry ${linked.sequence + 1}: ${linked.description}`}><Icon name="check"/>Entry {linked.sequence + 1}</a> : <span className="status pending">Marked linked · reference unavailable</span> : <span className="status pending"><Icon name="pending"/>{item.ledgerStatus}</span>}</span><span className="fuel-payment">Paid with {item.payment || 'not recorded'}</span></td>
-        <td className="num">{item.cost === null ? '—' : inr(item.cost)}</td><td className="num">{item.litres === null ? '—' : item.litres.toFixed(2)}</td><td className="num">{item.tripKm === null ? '—' : item.tripKm.toFixed(1)}</td>
+        <td className="num">{item.cost === null ? '—' : money(item.cost, item.currency)}</td><td className="num">{item.litres === null ? '—' : item.litres.toFixed(2)}</td><td className="num">{item.tripKm === null ? '—' : item.tripKm.toFixed(1)}</td>
       </tr>; })}</tbody></table></div>
   </aside>;
 }
@@ -168,7 +168,7 @@ export default function Review() {
     const needle = query.trim().toLowerCase();
     return reviewData.transactions.filter((item) => {
       const decision = decisionFor(item.id);
-      const haystack = `${item.description} ${item.pattern} ${item.sourceReference} ${item.source} ${item.amount.toFixed(2)} ${inr(item.amount)} ${dayLabel(item.originalDate)} ${decision.account} ${decision.label} ${decision.notes}`.toLowerCase();
+      const haystack = `${item.description} ${item.pattern} ${item.sourceReference} ${item.source} ${item.amount.toFixed(2)} ${money(item.amount, item.currency)} ${dayLabel(item.originalDate)} ${decision.account} ${decision.label} ${decision.notes}`.toLowerCase();
       return (!needle || haystack.includes(needle)) && (statusFilter === 'all' || decision.status === statusFilter)
         && (sourceFilter === 'all' || item.sourceType === sourceFilter) && (kindFilter === 'all' || item.kind === kindFilter);
     }).sort((a, b) => sort === 'recent' ? b.originalDate.localeCompare(a.originalDate) : sort === 'name' ? a.description.localeCompare(b.description) : b.amount - a.amount);
@@ -304,8 +304,8 @@ export default function Review() {
     setNotice({ tone: 'success', text: `Restored unsaved work for ${plural(recoveryCount, 'entry', 'entries')}. Newer saved work on other entries was kept.`, undo: true });
   }); }
   function exportCsv() {
-    const headers = ['id', 'date', 'description', 'amount_inr', 'kind', 'source', 'source_reference', 'current_account', 'review_status', 'chosen_account', 'label', 'notes'];
-    const rows = reviewData.transactions.map((item) => { const decision = decisionFor(item.id); return [item.id, item.originalDate, item.description, item.signedAmount, item.kind, item.source, item.sourceReference, item.currentAccount, decision.status, decision.account, decision.label, decision.notes]; });
+    const headers = ['id', 'date', 'description', 'amount', 'currency', 'kind', 'source', 'source_reference', 'current_account', 'review_status', 'chosen_account', 'label', 'notes'];
+    const rows = reviewData.transactions.map((item) => { const decision = decisionFor(item.id); return [item.id, item.originalDate, item.description, item.signedAmount, item.currency, item.kind, item.source, item.sourceReference, item.currentAccount, decision.status, decision.account, decision.label, decision.notes]; });
     saveBlob([headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\n'), 'text/csv;charset=utf-8', 'expense-review-decisions.csv');
     setNotice({ tone: 'success', text: 'Download requested: expense-review-decisions.csv, a spreadsheet of every decision. Import reads the JSON file, not this one.' });
   }
@@ -521,10 +521,10 @@ export default function Review() {
         </form>
 
         <section className="inspector-section"><h3><Icon name="postings"/>Postings{draft.account ? ' with this account' : ''}</h3><div className="postings">
-          {(ledgerTransaction?.postings || [{ account: selected.currentAccount, amount: selected.amount, currency: 'INR', label: selected.currentAccount }]).map((posting, index) => { const account = posting.account === selected.currentAccount && draft.account ? draft.account : posting.account; return <div className="posting" key={`${posting.account}-${index}`}>
+          {(ledgerTransaction?.postings || [{ account: selected.currentAccount, amount: selected.amount, currency: selected.currency, label: selected.currentAccount }]).map((posting, index) => { const account = posting.account === selected.currentAccount && draft.account ? draft.account : posting.account; return <div className="posting" key={`${posting.account}-${index}`}>
             <span className="posting-side" title={posting.amount >= 0 ? 'Debit' : 'Credit'}>{posting.amount >= 0 ? 'Dr' : 'Cr'}</span>
             <span><span className="posting-name">{account.split(':').slice(-2).join(' · ')}</span><span className="posting-path">{account}</span></span>
-            <span className="posting-amount">{inr(Math.abs(posting.amount))}</span>
+            <span className="posting-amount">{money(Math.abs(posting.amount), posting.currency)}</span>
           </div>; })}
         </div></section>
       </> : <div className="empty"><strong>No entry selected</strong><span>Choose an entry on the left to see its evidence and classify it.</span></div>}</section>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { dashboard as data, type DashboardData } from './data';
-import { Delta, Icon, PageHeader, useColumnWidths, useQueryState, useRowNavigation, PanelHeader, axisInr, dayShort, daysInMonth, inrWhole, monthAbbr, monthLong, monthShort, plural } from './ui';
+import { moneyWhole as formatWhole, axisMoney as formatAxis } from './formatting';
+import { Delta, Icon, PageHeader, useColumnWidths, useQueryState, useRowNavigation, PanelHeader, dayShort, daysInMonth, monthAbbr, monthLong, monthShort, plural } from './ui';
 
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 // Earlier months take a fixed slot while selected, so adding or removing another month never repaints them.
@@ -19,10 +20,16 @@ function cumulative(increments: Map<number, number>, from: number, to: number, s
 }
 
 export default function Forecast() {
-  const { forecast } = data;
+  const active = data.forecasts.filter(forecast => forecast.items.length || data.months.some(month => month.currency === forecast.currency && month.count));
+  return <>{(active.length ? active : [data.forecast]).map(forecast => <CurrencyForecast key={forecast.currency} forecast={forecast} mixed={active.length > 1}/>)}</>;
+}
+function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast']; mixed: boolean}) {
+  const moneyWhole = (value: number) => formatWhole(value, forecast.currency);
+  const axisMoney = (value: number, max: number) => formatAxis(value, max, forecast.currency);
+  const months = data.months.filter(item => item.currency === forecast.currency);
   const currentMonth = forecast.asOf.slice(0, 7);
   const asOfDay = Number(forecast.asOf.slice(8, 10));
-  const complete = data.months.filter((item) => item.month >= forecast.firstFullMonth && item.month < currentMonth);
+  const complete = months.filter((item) => item.month >= forecast.firstFullMonth && item.month < currentMonth);
   const earlier = complete.slice(-12).reverse();
   const forecastMonths = forecast.months.map((item) => item.month);
   // Every choice is kept in the address, so a reload or a bookmark shows the same chart.
@@ -75,7 +82,7 @@ export default function Forecast() {
     forecastIncrements.set(day, (forecastIncrements.get(day) || 0) + item.signedExpense);
   }
   if (includeVariable) for (let day = isCurrent ? asOfDay + 1 : 1; day <= focusDays; day += 1) forecastIncrements.set(day, (forecastIncrements.get(day) || 0) + variableOn(day, focusDays));
-  const recordedDaily = (month: string) => new Map((data.months.find((item) => item.month === month)?.daily || []).map((item) => [item.day, item.amount]));
+  const recordedDaily = (month: string) => new Map((months.find((item) => item.month === month)?.daily || []).map((item) => [item.day, item.amount]));
   const focusRecorded = isCurrent ? cumulative(recordedDaily(currentMonth), 0, asOfDay) : [];
   const focusForecast = cumulative(forecastIncrements, isCurrent ? asOfDay : 0, focusDays, focusRecorded.at(-1)?.value || 0);
   const focusTotal = focusForecast.at(-1)!.value;
@@ -174,7 +181,7 @@ export default function Forecast() {
     ...earlier.slice().reverse().map((item) => ({ month: item.month, phase: 'actual' as const, recorded: item.total, committed: 0, variable: 0 })),
     ...forecast.months.slice(0, Math.max(7, forecastMonths.indexOf(focus) + 1)).map((item) => {
       const current = item.month === currentMonth;
-      return { month: item.month, phase: current ? 'current' as const : 'forecast' as const, recorded: current ? data.months.find((row) => row.month === currentMonth)?.total || 0 : 0, committed: item.committed, variable: includeVariable ? variableAfter(item.month, current ? asOfDay : 0) : 0 };
+      return { month: item.month, phase: current ? 'current' as const : 'forecast' as const, recorded: current ? months.find((row) => row.month === currentMonth)?.total || 0 : 0, committed: item.committed, variable: includeVariable ? variableAfter(item.month, current ? asOfDay : 0) : 0 };
     }),
   ].map((row) => ({ ...row, total: row.recorded + row.committed + row.variable }))
     .map((row, index, all) => ({ ...row, previousTotal: index ? all[index - 1].total : null }));
@@ -191,18 +198,18 @@ export default function Forecast() {
 
 
   return <section className="page forecast">
-    <PageHeader title="Forecast" subtitle="Cumulative expenses by day · amounts rounded to the rupee.">
+    <PageHeader title={`Forecast${mixed ? ` · ${forecast.currency}` : ''}`} subtitle="Cumulative expenses by day · amounts rounded to the rupee.">
       <label className="compact-field"><span>Month</span><select className="field" value={focus} onChange={(event) => setFocus(event.target.value)}>{forecastMonths.map((month) => <option key={month} value={month}>{monthLong(month)}{month === currentMonth ? ' (current)' : ''}</option>)}</select></label>
       <label className="compact-field"><span>Comparison average</span><select className="field" value={compare} onChange={(event) => setCompare(Number(event.target.value))}>{[3, 6, 12].filter((n) => n <= complete.length).map((n) => <option key={n} value={n}>Last {n} full months</option>)}</select></label>
       <label className="checkbox"><input type="checkbox" checked={includeVariable} onChange={(event) => setIncludeVariable(event.target.checked)}/>Include estimated variable spending</label>
     </PageHeader>
 
     <section className="metrics" aria-label="Forecast summary">
-      <div className="metric"><p className="metric-label">{monthLong(focus)} {isCurrent ? 'projected' : 'forecast'}</p><p className="metric-value">{inrWhole(focusTotal)}</p><p className="metric-note"><Delta value={focusTotal} base={average} suffix={`vs ${compare}-month average`}/></p></div>
-      {isCurrent ? <div className="metric"><p className="metric-label">Recorded through {dayShort(forecast.asOf)}</p><p className="metric-value">{inrWhole(focusRecordedTotal)}</p><p className="metric-note">{previousMonth ? <Delta value={focusRecordedTotal} base={previousAtDay} suffix={`vs ${monthAbbr(previousMonth.month)} by day ${asOfDay}`}/> : 'No earlier month'}</p></div>
-        : <div className="metric"><p className="metric-label">Committed in {monthShort(focus)}</p><p className="metric-value">{inrWhole(focusCommitted)}</p><p className="metric-note">{plural(focusItems.length, 'forecast entry', 'forecast entries')}</p></div>}
-      <div className="metric"><p className="metric-label">{compare}-month average</p><p className="metric-value">{inrWhole(average)}</p><p className="metric-note">{window.length ? `${monthShort(window[0].month)} – ${monthShort(window.at(-1)!.month)}, recorded` : 'No full months yet'}</p></div>
-      <div className="metric"><p className="metric-label">Variable spending still to come</p><p className="metric-value">{includeVariable ? inrWhole(focusVariable) : 'Not included'}</p><p className="metric-note">Based on {variable.months.length} full months · {inrWhole(averageVariable)} in a typical month</p></div>
+      <div className="metric"><p className="metric-label">{monthLong(focus)} {isCurrent ? 'projected' : 'forecast'}</p><p className="metric-value">{moneyWhole(focusTotal)}</p><p className="metric-note"><Delta value={focusTotal} base={average} suffix={`vs ${compare}-month average`}/></p></div>
+      {isCurrent ? <div className="metric"><p className="metric-label">Recorded through {dayShort(forecast.asOf)}</p><p className="metric-value">{moneyWhole(focusRecordedTotal)}</p><p className="metric-note">{previousMonth ? <Delta value={focusRecordedTotal} base={previousAtDay} suffix={`vs ${monthAbbr(previousMonth.month)} by day ${asOfDay}`}/> : 'No earlier month'}</p></div>
+        : <div className="metric"><p className="metric-label">Committed in {monthShort(focus)}</p><p className="metric-value">{moneyWhole(focusCommitted)}</p><p className="metric-note">{plural(focusItems.length, 'forecast entry', 'forecast entries')}</p></div>}
+      <div className="metric"><p className="metric-label">{compare}-month average</p><p className="metric-value">{moneyWhole(average)}</p><p className="metric-note">{window.length ? `${monthShort(window[0].month)} – ${monthShort(window.at(-1)!.month)}, recorded` : 'No full months yet'}</p></div>
+      <div className="metric"><p className="metric-label">Variable spending still to come</p><p className="metric-value">{includeVariable ? moneyWhole(focusVariable) : 'Not included'}</p><p className="metric-note">Based on {variable.months.length} full months · {moneyWhole(averageVariable)} in a typical month</p></div>
     </section>
 
     <section className="panel forecast-chart-panel">
@@ -222,10 +229,10 @@ export default function Forecast() {
           <option value="">{full ? `${SLOTS.length} months shown` : 'Add a month…'}</option>{lines.filter((line) => !line.color).map((line) => <option key={line.month} value={line.month}>{monthLong(line.month)}</option>)}</select></label>
         {visibleLines.length > 0 ? <button type="button" className="button plain" onClick={() => setAssigned({})}>Remove All</button> : <button type="button" className="button plain" onClick={() => setAssigned(latest(3))}>Show Latest 3</button>}
       </div>
-      {compactChart && <p className="forecast-chart-caption"><strong>{inrWhole(focusTotal)}</strong> · {monthShort(focus)} {isCurrent ? 'projected' : 'forecast'}</p>}
+      {compactChart && <p className="forecast-chart-caption"><strong>{moneyWhole(focusTotal)}</strong> · {monthShort(focus)} {isCurrent ? 'projected' : 'forecast'}</p>}
       <div className="forecast-chart" onPointerLeave={(event) => { if (event.pointerType !== 'touch') setHoverDay(null); }}><div className="forecast-chart-inner" ref={chartRef}>
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Cumulative expenses by day for ${monthLong(focus)}, ${isCurrent ? `recorded through day ${asOfDay}, then forecast` : 'forecast'} to ${inrWhole(focusTotal)}, compared with ${visibleLines.length} earlier months. Monthly totals are in the table below. For daily values, Tab to Chart values by day and use the left and right arrow keys; Home and End select the first and last day. Escape hides the tooltip.`}>
-          {ticks.map((tick) => <g key={tick}><path d={`M${left},${y(tick)}H${W - right}`} className="chart-grid"/><text x={left - 8} y={y(tick) + 4} textAnchor="end" className="chart-axis">{axisInr(tick, top)}</text></g>)}
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Cumulative expenses by day for ${monthLong(focus)}, ${isCurrent ? `recorded through day ${asOfDay}, then forecast` : 'forecast'} to ${moneyWhole(focusTotal)}, compared with ${visibleLines.length} earlier months. Monthly totals are in the table below. For daily values, Tab to Chart values by day and use the left and right arrow keys; Home and End select the first and last day. Escape hides the tooltip.`}>
+          {ticks.map((tick) => <g key={tick}><path d={`M${left},${y(tick)}H${W - right}`} className="chart-grid"/><text x={left - 8} y={y(tick) + 4} textAnchor="end" className="chart-axis">{axisMoney(tick, top)}</text></g>)}
           {dayTicks.map((day) => <text key={day} x={x(day)} y={H - 10} textAnchor="middle" className="chart-axis">{day}</text>)}
           {visibleLines.slice().reverse().map((line) => <path key={line.month} className="comparison-line" data-compare-slot={line.slot} d={path(line.points)} fill="none" style={{ stroke: line.color }} strokeWidth={highlight === line.month ? 3 : 2} strokeLinejoin="round" strokeLinecap="round" opacity={highlight && highlight !== line.month ? 0.25 : 1}/>)}
           {visibleLines.map((line) => { const end = line.points.at(-1)!; return <circle key={line.month} cx={x(end.day)} cy={y(end.value)} r="4" style={{ fill: line.color, stroke: 'var(--surface)' }} strokeWidth="2" opacity={highlight && highlight !== line.month ? 0.25 : 1}/>; })}
@@ -234,7 +241,7 @@ export default function Forecast() {
           <path d={path(focusForecast)} fill="none" style={{ stroke: FOCUS }} strokeWidth="2.5" strokeLinecap="round" strokeDasharray="0.1 6" className="forecast-dotted"/>
           {isCurrent && <circle cx={x(asOfDay)} cy={y(focusRecordedTotal)} r="4.5" style={{ fill: FOCUS, stroke: 'var(--surface)' }} strokeWidth="2"/>}
           <circle cx={x(focusDays)} cy={y(focusTotal)} r="4.5" style={{ fill: 'var(--surface)', stroke: FOCUS }} strokeWidth="2"/>
-          {!compactChart && <><text x={x(focusDays) + 9} y={y(focusTotal) - 2} className="chart-label strong">{axisInr(Math.round(focusTotal / 1000) * 1000, focusTotal)}</text>
+          {!compactChart && <><text x={x(focusDays) + 9} y={y(focusTotal) - 2} className="chart-label strong">{axisMoney(Math.round(focusTotal / 1000) * 1000, focusTotal)}</text>
           <text x={x(focusDays) + 9} y={y(focusTotal) + 13} className="chart-axis">{monthAbbr(focus)} {isCurrent ? 'projected' : 'forecast'}</text></>}
           {hoverDay !== null && <path d={`M${x(hoverDay)},${topPad}V${topPad + plotH}`} className="chart-crosshair"/>}
           <rect x={left} y={topPad} width={plotW} height={plotH} fill="transparent" tabIndex={0} className="chart-focus" aria-label="Chart values by day. Use the left and right arrow keys to move between days, Home and End for the first and last day, and Escape to hide the tooltip."
@@ -243,25 +250,25 @@ export default function Forecast() {
         </svg>
         {hoverDay !== null && <div className="chart-tooltip" style={{ left: Math.max(0, Math.min(x(hoverDay) + 12, W - tooltipWidth)), width: tooltipWidth }} role="status">
           <p className="chart-tooltip-title">Day {hoverDay}, cumulative</p>
-          {hoverFocus !== undefined && <p><svg width="14" height="4" aria-hidden="true"><path d="M1 2H13" style={{ stroke: FOCUS }} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={isCurrent && hoverDay <= asOfDay ? undefined : '0.1 4'}/></svg><strong>{inrWhole(hoverFocus)}</strong><span>{monthShort(focus)} {isCurrent && hoverDay <= asOfDay ? 'recorded' : 'forecast'}{endNote(focusForecast, hoverDay)}</span></p>}
-          {visibleLines.map((line) => { const value = valueAt(line.points, hoverDay); return value === undefined ? null : <p key={line.month}><svg className="compare-key" data-compare-slot={line.slot} width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: line.color }} strokeWidth="2" strokeLinecap="round"/></svg><strong>{inrWhole(value)}</strong><span>{slotName(line.slot)} · {monthShort(line.month)}{endNote(line.points, hoverDay)}</span></p>; })}
+          {hoverFocus !== undefined && <p><svg width="14" height="4" aria-hidden="true"><path d="M1 2H13" style={{ stroke: FOCUS }} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={isCurrent && hoverDay <= asOfDay ? undefined : '0.1 4'}/></svg><strong>{moneyWhole(hoverFocus)}</strong><span>{monthShort(focus)} {isCurrent && hoverDay <= asOfDay ? 'recorded' : 'forecast'}{endNote(focusForecast, hoverDay)}</span></p>}
+          {visibleLines.map((line) => { const value = valueAt(line.points, hoverDay); return value === undefined ? null : <p key={line.month}><svg className="compare-key" data-compare-slot={line.slot} width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: line.color }} strokeWidth="2" strokeLinecap="round"/></svg><strong>{moneyWhole(value)}</strong><span>{slotName(line.slot)} · {monthShort(line.month)}{endNote(line.points, hoverDay)}</span></p>; })}
         </div>}
       </div></div>
-      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with USD subscriptions at their planning rate{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({inrWhole(averageVariable)} a month on average across {variable.months.length} full months)</> : '. Variable spending is not included, so the line rises only on commitment dates'}. Investments are left out.</p>
+      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with foreign-currency commitments at their recorded planning cost{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({moneyWhole(averageVariable)} a month on average across {variable.months.length} full months)</> : '. Variable spending is not included, so the line rises only on commitment dates'}. Investments are left out.</p>
     </section>
 
     <div className="forecast-detail-grid">
       <section className="panel forecast-month">
-        <PanelHeader title={isCurrent ? `Rest of ${monthLong(focus)}` : monthLong(focus)} meta={isCurrent ? 'Recorded so far, then what is still expected' : 'What is expected this month'}><span className="summary-total">{inrWhole(focusTotal)}</span></PanelHeader>
+        <PanelHeader title={isCurrent ? `Rest of ${monthLong(focus)}` : monthLong(focus)} meta={isCurrent ? 'Recorded so far, then what is still expected' : 'What is expected this month'}><span className="summary-total">{moneyWhole(focusTotal)}</span></PanelHeader>
         <dl className="facts panel-body forecast-breakdown">
-          {isCurrent && <><dt>Recorded so far</dt><dd className="num">{inrWhole(focusRecordedTotal)}</dd></>}
-          <dt>Commitments</dt><dd className="num">{inrWhole(focusCommitted)}</dd>
-          {includeVariable && <><dt>Estimated variable</dt><dd className="num">{inrWhole(focusVariable)}</dd></>}
+          {isCurrent && <><dt>Recorded so far</dt><dd className="num">{moneyWhole(focusRecordedTotal)}</dd></>}
+          <dt>Commitments</dt><dd className="num">{moneyWhole(focusCommitted)}</dd>
+          {includeVariable && <><dt>Estimated variable</dt><dd className="num">{moneyWhole(focusVariable)}</dd></>}
           <dt>Against the {compare}-month average</dt><dd className="num"><Delta value={focusTotal} base={average}/></dd>
         </dl>
         <ol className="ranked-list forecast-items">{focusRows.map(({ item, estimate }, index) => item
-          ? <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{inrWhole(item.amount)}</span></li>
-          : <li key={`estimate-${estimate!.portion.from}`} className="estimate"><span className="date">{estimate!.from === estimate!.to ? estimate!.from : `${estimate!.from}–${estimate!.to}`} {monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">Days {portionLabel(estimate!.portion, focusDays)}{estimate!.to - estimate!.from + 1 < estimate!.days ? `, ${estimate!.to - estimate!.from + 1} of ${estimate!.days} days left` : ''} · {variable.months.length}-month average {inrWhole(estimate!.portion.average)}</span></span><span className="num">{inrWhole(estimate!.amount)}</span></li>)}
+          ? <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{moneyWhole(item.amount)}</span></li>
+          : <li key={`estimate-${estimate!.portion.from}`} className="estimate"><span className="date">{estimate!.from === estimate!.to ? estimate!.from : `${estimate!.from}–${estimate!.to}`} {monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">Days {portionLabel(estimate!.portion, focusDays)}{estimate!.to - estimate!.from + 1 < estimate!.days ? `, ${estimate!.to - estimate!.from + 1} of ${estimate!.days} days left` : ''} · {variable.months.length}-month average {moneyWhole(estimate!.portion.average)}</span></span><span className="num">{moneyWhole(estimate!.amount)}</span></li>)}
         </ol>
         {!focusItems.length && <p className="panel-note">No recurring commitments fall in this month.</p>}
       </section>
@@ -275,29 +282,29 @@ export default function Forecast() {
             <td>{row.phase === 'actual'
               ? <label className="month-check" title={!(row.month in assigned) && full ? `Up to ${SLOTS.length} months at once` : undefined}><input type="checkbox" checked={row.month in assigned} disabled={!(row.month in assigned) && full} onChange={() => toggle(row.month)}/><span className="row-title">{monthShort(row.month)}</span>{row.month in assigned && <i className="swatch" style={{ background: SLOTS[assigned[row.month]] }}/>}</label>
               : <span className="month-forecast"><span><span className="row-title">{monthShort(row.month)}</span><span className="row-sub">{row.phase === 'current' ? 'In progress' : 'Forecast'}</span></span>{row.month === focus ? <span className="row-sub">Charted</span> : <button type="button" className="button plain" aria-label={`Show the ${monthLong(row.month)} forecast on the chart`} onClick={() => setFocus(row.month)}>Show</button>}</span>}</td>
-            <td className="num">{row.recorded ? inrWhole(row.recorded) : '—'}</td><td className="num">{row.committed ? inrWhole(row.committed) : '—'}</td><td className="num">{row.variable ? inrWhole(row.variable) : '—'}</td>
-            <td className="num"><strong>{inrWhole(row.total)}</strong></td><td className="num">{row.previousTotal !== null ? <Delta value={row.total} base={row.previousTotal}/> : '—'}</td><td className="num"><Delta value={row.total} base={average}/></td>
+            <td className="num">{row.recorded ? moneyWhole(row.recorded) : '—'}</td><td className="num">{row.committed ? moneyWhole(row.committed) : '—'}</td><td className="num">{row.variable ? moneyWhole(row.variable) : '—'}</td>
+            <td className="num"><strong>{moneyWhole(row.total)}</strong></td><td className="num">{row.previousTotal !== null ? <Delta value={row.total} base={row.previousTotal}/> : '—'}</td><td className="num"><Delta value={row.total} base={average}/></td>
           </tr>)}</tbody></table></div>
       </section>
     </div>
 
     <section className="panel forecast-variable">
-      <PanelHeader title="How the variable estimate is built" meta={`Spending outside recurring commitments, by week of the month, ${monthShort(variable.months[0])} – ${monthShort(variable.months.at(-1)!)}`}><span className="summary-total">{inrWhole(averageVariable)} a month</span></PanelHeader>
+      <PanelHeader title="How the variable estimate is built" meta={variable.months.length ? `Spending outside recurring commitments, by week of the month, ${monthShort(variable.months[0])} – ${monthShort(variable.months.at(-1)!)}` : 'No full recorded months yet'}><span className="summary-total">{moneyWhole(averageVariable)} a month</span></PanelHeader>
       <div className="table-scroll"><table className="data-table forecast-variable-table">
         <thead><tr><th>Days</th><th><span className="sr-only">Each month's spending in these days</span><span aria-hidden="true">Each dot is one month · <i className="forecast-variable-key"/> average</span></th><th className="th-num">Average</th><th className="th-num">Median</th><th className="th-num">Lowest – Highest</th><th className="th-num">Share</th></tr></thead>
         <tbody>{variable.portions.map((portion) => <tr key={portion.from}>
           <td>{portionLabel(portion)}{portion.to === 31 && <span className="row-sub">to month end</span>}</td>
-          <td><div className="forecast-strip" role="img" aria-label={`Days ${portionLabel(portion)}: ${variable.months.length} months from ${inrWhole(portion.min)} to ${inrWhole(portion.max)}, average ${inrWhole(portion.average)}`}>
-            {portion.byMonth.map((value, index) => <i key={variable.months[index]} className={value < 0 ? 'net-refund' : undefined} style={{ left: stripPosition(value) }} title={`${monthShort(variable.months[index])}: ${inrWhole(value)}`}/>)}
+          <td><div className="forecast-strip" role="img" aria-label={`Days ${portionLabel(portion)}: ${variable.months.length} months from ${moneyWhole(portion.min)} to ${moneyWhole(portion.max)}, average ${moneyWhole(portion.average)}`}>
+            {portion.byMonth.map((value, index) => <i key={variable.months[index]} className={value < 0 ? 'net-refund' : undefined} style={{ left: stripPosition(value) }} title={`${monthShort(variable.months[index])}: ${moneyWhole(value)}`}/>)}
             <b style={{ left: stripPosition(portion.average) }}/>
           </div></td>
-          <td className="num"><strong>{inrWhole(portion.average)}</strong></td><td className="num">{inrWhole(portion.median)}</td><td className="num">{inrWhole(portion.min)} – {inrWhole(portion.max)}</td><td className="num">{(portion.average / averageVariable * 100).toFixed(0)}%</td>
+          <td className="num"><strong>{moneyWhole(portion.average)}</strong></td><td className="num">{moneyWhole(portion.median)}</td><td className="num">{moneyWhole(portion.min)} – {moneyWhole(portion.max)}</td><td className="num">{averageVariable ? `${(portion.average / averageVariable * 100).toFixed(0)}%` : '—'}</td>
         </tr>)}</tbody>
       </table></div>
       <p className="panel-note">Each week’s average comes from all {variable.months.length} full months and is spread evenly over that week’s days in the forecast month; the last portion runs to the month’s end. Occasional large purchases raise the average, so most months come in below it (compare the median).</p>
       {variable.excluded.length > 0 && <section className="excluded"><h3>Left out of the estimate</h3><p>Card instalment plans, and entries the ledger tags <code>variable-estimate: excluded</code>.</p>
         <div className="table-scroll"><table className="data-table"><thead><tr><th>Entry</th><th>Reason</th><th>Months</th><th className="th-num">Amount</th></tr></thead>
-          <tbody>{variable.excluded.map((plan) => <tr key={plan.description}><td>{plan.description}</td><td>{plan.reason.charAt(0).toUpperCase() + plan.reason.slice(1)}</td><td className="date">{plan.from === plan.to ? monthShort(plan.from) : `${monthShort(plan.from)} – ${monthShort(plan.to)}`}</td><td className="num">{inrWhole(plan.amount)}</td></tr>)}</tbody></table></div></section>}
+          <tbody>{variable.excluded.map((plan) => <tr key={plan.description}><td>{plan.description}</td><td>{plan.reason.charAt(0).toUpperCase() + plan.reason.slice(1)}</td><td className="date">{plan.from === plan.to ? monthShort(plan.from) : `${monthShort(plan.from)} – ${monthShort(plan.to)}`}</td><td className="num">{moneyWhole(plan.amount)}</td></tr>)}</tbody></table></div></section>}
     </section>
   </section>;
 }

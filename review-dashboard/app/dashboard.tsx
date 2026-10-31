@@ -1,3 +1,4 @@
+import { money as amountMoney } from './formatting';
 import {formatTimestamp} from './date-time';
 import { reviewKeys } from '../scripts/account-metadata.mjs';
 import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
@@ -19,8 +20,8 @@ import { useEntryTextTooltip } from './entry-text-tooltip';
 import Forecast from './forecast';
 import { sortTransactions, type SortKey, type SortDirection } from './transaction-sort';
 import {
-  EntryLink, entryUrl, useSlidingPane, useDocumentScrollLock, Delta, Dialog, Icon, MonthStepper, accountLabel, EvidenceName, evidenceKind, rowTitle, evidenceAction, hasSelectedText, breakable, isTyping, modalOpen, trapModalTab, useScrollMemory, useAppearance, evidenceHref, isFileReference, announce, copyAndAnnounce, useColumnWidths, usePaneWidth, useContextMenu, useWindowActivity, type MenuItem, PageHeader, PanelHeader, SearchField, compactInr, copyText, dayLabel, dayShort, daysInMonth, inr,
-  money, monthLong, monthName, monthShort, plural, useEscape, useQueryState, useRowNavigation, type IconName,
+  EntryLink, entryUrl, useSlidingPane, useDocumentScrollLock, Delta, Dialog, Icon, MonthStepper, accountLabel, EvidenceName, evidenceKind, rowTitle, evidenceAction, hasSelectedText, breakable, isTyping, modalOpen, trapModalTab, useScrollMemory, useAppearance, evidenceHref, isFileReference, announce, copyAndAnnounce, useColumnWidths, usePaneWidth, useContextMenu, useWindowActivity, type MenuItem, PageHeader, PanelHeader, SearchField, compactMoney, copyText, dayLabel, dayShort, daysInMonth,
+  currencySymbol, moneyTotal, sumCurrencies, currencyOrder, money, monthLong, monthName, monthShort, plural, useEscape, useQueryState, useRowNavigation, type IconName,
 } from './ui';
 
 export type View = 'explorer' | 'atlas' | 'journal' | 'forecast' | 'review' | 'accounts' | 'add' | 'drafts' | 'statements';
@@ -41,11 +42,14 @@ export const VIEWS: { id: View; label: string; href: string; icon: IconName; car
 
 const MONEY_IN = new Set(['Income', 'Refund', 'Reimbursement']);
 /** Expenses show plain; money coming in shows "+"; transfers and reimbursable purchases move money without spending it. */
-export function signedAmount(transaction: Pick<Transaction, 'kind' | 'amount'>) {
-  return `${MONEY_IN.has(transaction.kind) ? '+' : ''}${inr(transaction.amount)}`;
+export function signedAmount(transaction: Pick<Transaction, 'kind' | 'amount'> & Partial<Pick<Transaction, 'currency'>>) {
+  return `${MONEY_IN.has(transaction.kind) ? '+' : ''}${money(transaction.amount, transaction.currency)}`;
 }
 const amountClass = (transaction: Pick<Transaction, 'kind'>) => MONEY_IN.has(transaction.kind) ? 'credit' : transaction.kind === 'Transfer' || transaction.kind === 'Reimbursable purchase' ? 'neutral-amount' : '';
-const monthKeys = () => data.months.map((month) => month.month);
+const monthKeys = () => [...new Set(data.months.map((month) => month.month))];
+// An opening-only foreign account affects balances, not spending charts.
+const spendingMonths = () => data.months.filter(item => item.count > 0 || (!data.months.some(row => row.month === item.month && row.count > 0)
+  && item === (data.months.find(row => row.month === item.month && row.currency === data.meta.ledger.defaultCurrency) || data.months.find(row => row.month === item.month))));
 const describe = (item: { description: string }) => item.description;
 const fullEntryText = (item: Transaction) => `${item.description}. ${item.category}. ${item.displayType}. ${signedAmount(item)}. Payment account: ${paymentSide(item).full}. From ${routeSide(item, -1).full}. To ${routeSide(item, 1).full}. ${item.status === 'Pending' ? 'Unclassified' : 'Cleared'}`;
 const searchText = (item: Transaction) => `${item.description} ${item.ledgerAccount} ${item.paymentAccount} ${item.paymentLabel} ${item.postings.map(p => `${p.account} ${p.label} ${displayAccountLabel(p.account)}`).join(' ')} ${item.amount.toFixed(2)}`;
@@ -135,7 +139,7 @@ function Sidebar({ active, month, attention, status, unreviewed, onHelp }: { act
   const appearanceLabel = `Switch to ${nextAppearance === 'light' ? 'Light' : 'Dark'} appearance`;
   const query = month !== data.meta.defaultMonth ? `?month=${month}` : '';
   return <aside className="sidebar">
-    <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">₹</span><span className="sidebar-label">Ledger</span></a>
+    <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">A</span><span className="sidebar-label">Ledger</span></a>
     <nav aria-label="Views">{VIEWS.map((view) => <a key={view.id} href={`${import.meta.env.BASE_URL}${view.href}${view.carriesMonth ? query : ''}`} aria-current={view.id === active ? 'page' : undefined} title={view.label}>
       <Icon name={view.icon}/><span className="sidebar-label">{view.label}</span>{view.id === 'review' && unreviewed > 0 && <span className="nav-count"><span className="sr-only">, </span>{unreviewed}<span className="sr-only"> to review</span></span>}
       {view.id === 'drafts' && attention > 0 && <span className="nav-count"><span className="sr-only">, </span>{attention}<span className="sr-only"> need attention</span></span>}
@@ -187,7 +191,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
   const step = (delta: number) => { const next = entries[index + delta]; if (next && index >= 0) onStep?.(next.id); };
   const pane = usePaneWidth('ledger-inspector-width', 360, 300, 'Entry inspector');
   useEffect(() => { document.documentElement.style.setProperty('--inspector-width', `${pane.width}px`); }, [pane.width]);
-  const group = data.reimbursementGroups.find((item) => item.id === transaction.reimbursementGroup);
+  const group = data.reimbursementGroups.find((item) => item.id === transaction.reimbursementGroup && item.currency === transaction.currency);
   const reimbursable = transaction.kind === 'Reimbursable purchase';
   const [copied, setCopied] = useState<boolean | null>(null);
   const [linkCopied, setLinkCopied] = useState<boolean | null>(null);
@@ -212,21 +216,21 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
       {transaction.kind === 'Transfer' ? <>
         <dt>From</dt><dd>{transaction.postings.filter((posting) => posting.amount < 0).map((posting) => posting.label).join(' + ')}</dd>
         <dt>To</dt><dd>{transaction.postings.filter((posting) => posting.amount > 0).map((posting) => posting.label).join(' + ')}</dd>
-        <dt>Personal expense impact</dt><dd>{inr(transaction.signedExpense)}</dd>
+        <dt>Personal expense impact</dt><dd>{money(transaction.signedExpense, transaction.currency)}</dd>
       </> : <><dt>{transaction.kind === 'Reimbursement' ? 'Received in' : 'Paid using'}</dt><dd>{transaction.paymentLabel}</dd></>}
-      {transaction.reimbursementParty && <><dt>{reimbursable ? 'Reimbursable from' : 'Reimbursement from'}</dt><dd>{transaction.reimbursementParty}</dd><dt>Personal expense impact</dt><dd>{inr(transaction.signedExpense)}</dd></>}
+      {transaction.reimbursementParty && <><dt>{reimbursable ? 'Reimbursable from' : 'Reimbursement from'}</dt><dd>{transaction.reimbursementParty}</dd><dt>Personal expense impact</dt><dd>{money(transaction.signedExpense, transaction.currency)}</dd></>}
       <dt>Classification</dt><dd>{transaction.classification || 'Not supplied'}</dd>
     </dl>
     {group && <section className="inspector-section" aria-label={group.label}><h3>{group.label}</h3><dl className="facts">
-      <dt>Matched purchases</dt><dd>{inr(group.purchases)}</dd>
-      <dt>Received{group.paymentDate ? ` ${dayShort(group.paymentDate)}` : ''}</dt><dd>{inr(group.received)}</dd>
-      <dt>{group.outstanding >= 0 ? 'Still owed' : 'Credit remaining'}</dt><dd>{inr(Math.abs(group.outstanding))}<span className="row-sub">Across this group</span></dd>
+      <dt>Matched purchases</dt><dd>{money(group.purchases, group.currency)}</dd>
+      <dt>Received{group.paymentDate ? ` ${dayShort(group.paymentDate)}` : ''}</dt><dd>{money(group.received, group.currency)}</dd>
+      <dt>{group.outstanding >= 0 ? 'Still owed' : 'Credit remaining'}</dt><dd>{money(Math.abs(group.outstanding), group.currency)}<span className="row-sub">Across this group</span></dd>
     </dl></section>}
     <section className="inspector-section" aria-label="Double-entry postings"><h3><Icon name="postings"/>Postings</h3><div className="postings">
       {transaction.postings.map((posting, index) => <div className="posting" key={`${posting.account}-${index}`}>
         <span className="posting-side" title={posting.amount >= 0 ? 'Debit' : 'Credit'}>{posting.amount >= 0 ? 'Dr' : 'Cr'}</span>
         <span><span className="posting-name">{posting.label}</span><span className="posting-path">{breakable(posting.account)}</span></span>
-        <span className="posting-amount">{money(Math.abs(posting.amount), posting.currency)}{'cost' in posting && posting.cost !== undefined && <span className="row-sub" title="Cost in INR">Cost {inr(Math.abs(posting.cost))}</span>}</span>
+        <span className="posting-amount">{money(Math.abs(posting.amount), posting.currency)}{'cost' in posting && posting.cost !== undefined && <span className="row-sub" title={`Cost in ${posting.costCurrency}`}>Cost {money(Math.abs(posting.cost), posting.costCurrency)}</span>}</span>
       </div>)}
     </div></section>
     {transaction.provenance && <section className="inspector-section" aria-label="Added from the live page"><h3>Added from the live page</h3>{transaction.provenance.text.length>240?<details className="provenance-original"><summary><span className="provenance-preview">{transaction.provenance.text}</span><span className="provenance-disclose">Show full typed words</span></summary><p className="provenance-words">{transaction.provenance.text}</p></details>:<p className="provenance-words">{transaction.provenance.text || 'Files only — no typed words.'}</p>}<p className="live-hint">{formatTimestamp(transaction.provenance.savedAt || transaction.provenance.time)}<br/>{transaction.provenance.models.join(', ') || 'No agent run'}</p>{transaction.provenance.questions.map((q,i)=><div className="earlier-answer" key={i}><p>{q.question}</p><p><strong>You:</strong> {q.answer || 'Unanswered'}</p></div>)}<p><strong>Doubts:</strong> {transaction.provenance.doubts.join('; ') || 'None reported'}</p></section>}
@@ -260,6 +264,7 @@ function ExplorerDayFilter({ month, current, day, onDay }: Parameters<typeof Spe
 
 /** Mon-first calendar of the month's spending; a day filters the entries below. */
 function SpendingCalendar({ month, current, day, onDay }: { month: string; current: Month; day: number | null; onDay: (day: number | null) => void }) {
+  const money = (value: number) => amountMoney(value, current.currency);
   const days = daysInMonth(month);
   const amounts = new Map(current.daily.map((item) => [item.day, item.amount]));
   const max = Math.max(1, ...current.daily.map((item) => item.amount));
@@ -275,17 +280,18 @@ function SpendingCalendar({ month, current, day, onDay }: { month: string; curre
       {Array.from({ length: days }, (_, index) => {
         const date = index + 1; const amount = amounts.get(date) || 0;
         return <button key={date} type="button" className={`calendar-day level-${level(amount)}`} aria-pressed={day === date} {...nav.rowProps(date)}
-          aria-label={`${date} ${monthName(month)}: ${amount < 0 ? `net refund ${inr(amount)}` : amount !== 0 ? inr(amount) : 'no spending'}`} title={amount !== 0 ? `${dayShort(`${month}-${String(date).padStart(2, '0')}`)}: ${inr(amount)}${amount < 0 ? ' net refund' : ''}` : undefined}
+          aria-label={`${date} ${monthName(month)}: ${amount < 0 ? `net refund ${money(amount)}` : amount !== 0 ? money(amount) : 'no spending'}`} title={amount !== 0 ? `${dayShort(`${month}-${String(date).padStart(2, '0')}`)}: ${money(amount)}${amount < 0 ? ' net refund' : ''}` : undefined}
           onClick={() => onDay(day === date ? null : date)}>
-          <span className="calendar-date">{date}</span><span className={`calendar-amount${amount < 0 ? ' credit' : ''}`}>{amount !== 0 ? compactInr(amount).replace('₹', '') : ''}</span>
+          <span className="calendar-date">{date}</span><span className={`calendar-amount${amount < 0 ? ' credit' : ''}`}>{amount !== 0 ? compactMoney(amount, current.currency).replace(currencySymbol(current.currency), '') : ''}</span>
         </button>;
       })}
     </div>
-    <div className="calendar-legend" aria-hidden="true"><span>Amounts in ₹ · Less</span>{[1, 2, 3, 4].map((step) => <i key={step} className={`level-${step}`}/>)}<span>More</span></div>
+    <div className="calendar-legend" aria-hidden="true"><span>Amounts in {current.currency} · Less</span>{[1, 2, 3, 4].map((step) => <i key={step} className={`level-${step}`}/>)}<span>More</span></div>
   </div>;
 }
 
 function CategoryComparison({ current, previous }: { current: Month; previous?: Month }) {
+  const money = (value: number) => amountMoney(value, current.currency);
   const before = new Map(previous?.categories.map((item) => [item.category, item.amount]) || []);
   const rows = current.categories.slice(0, 8);
   const max = Math.max(1, ...rows.map((item) => Math.max(Math.abs(item.amount), Math.abs(before.get(item.category) || 0))));
@@ -293,7 +299,7 @@ function CategoryComparison({ current, previous }: { current: Month; previous?: 
     {rows.map((item) => { const old = before.get(item.category) || 0; return <div key={item.category} className="category-row">
       <span className="category-name">{item.category}</span>
       <span className="category-bars" aria-hidden="true"><i className={`bar-current${item.amount < 0 ? ' net-refund' : ''}`} style={{ width: `${item.amount ? Math.max(1, Math.abs(item.amount) / max * 100) : 0}%` }}/>{previous && <i className={`bar-previous${old < 0 ? ' net-refund' : ''}`} style={{ width: `${old ? Math.max(1, Math.abs(old) / max * 100) : 0}%` }}/>}</span>
-      <span className={`category-amount${item.amount < 0 ? ' credit' : ''}`}>{inr(item.amount)}</span>
+      <span className={`category-amount${item.amount < 0 ? ' credit' : ''}`}>{money(item.amount)}</span>
       <span className="category-change">{!previous ? '' : old ? <Delta value={item.amount} base={old}/> : <span className="delta flat">New</span>}</span>
     </div>; })}
   </div>;
@@ -314,8 +320,13 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   const { widths, resizer } = useColumnWidths('ledger-explorer-columns', { date: 84, category: 120, payment: 152, amount: 112 });
   const [cursor, setCursor] = useState<string | null>(null);
   const textTooltip = useEntryTextTooltip();
-  const current = data.months.find((item) => item.month === month) as Month;
-  const previous = data.months[data.months.findIndex((item) => item.month === month) - 1];
+  const currents = spendingMonths().filter(item => item.month === month);
+  const current = currents[0];
+  const previousKey = monthKeys()[monthKeys().indexOf(month) - 1];
+  const previous = data.months.find(item => item.month === previousKey && item.currency === current?.currency);
+  const totals = Object.fromEntries(currents.map(item => [item.currency, item.total]));
+  const count = currents.reduce((sum, item) => sum + item.count, 0);
+  const pending = currents.reduce((sum, item) => sum + item.pending, 0);
   const monthTransactions = useMemo(() => data.transactions.filter((item) => item.month === month), [month]);
   const selected = monthTransactions.find((item) => item.id === selectedId) || null;
   const categories = [...new Set(monthTransactions.map((item) => item.category))].sort();
@@ -323,10 +334,11 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   const filtered = sortTransactions(monthTransactions.filter((item) => (!category || item.category === category) && (!day || Number(item.date.slice(8, 10)) === day)
     && (!needle || searchText(item).toLowerCase().includes(needle))), sortKey, sortDirection, sortKey === 'paymentLabel' ? item => paymentSide(item).short : undefined);
   const expenses = monthTransactions.filter((item) => item.kind === 'Expense');
-  const largest = [...expenses].sort((a, b) => b.amount - a.amount)[0];
+  const largestRows = currencyOrder(expenses.map(item => item.currency)).map(currency => expenses.filter(item => item.currency === currency).sort((a, b) => b.amount - a.amount)[0]);
+  const largest = largestRows[0];
   const days = daysInMonth(month);
   const filtersActive = !!(category || day || needle);
-  const matchingExpenses = filtered.reduce((sum, item) => sum + item.signedExpense, 0);
+  const matchingExpenses = sumCurrencies(filtered, (item: Transaction) => item.signedExpense);
   const showAll = () => { setQuery(''); setCategory(''); setDay(null); requestAnimationFrame(() => document.getElementById('explorer-search')?.focus({ preventScroll: true })); };
   const changeMonth = (value: string) => { setMonth(value); setCategory(''); setDay(null); setSelectedId(''); };
   const select = useCallback((item: Transaction) => { setSelectedId(item.id); setCursor(item.id); }, [setSelectedId]);
@@ -353,10 +365,10 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
         <SearchField id="explorer-search" value={query} onChange={setQuery} label="Search this month's entries" placeholder="Search entries" scope={monthShort(month)}/>
       </PageHeader>
       <section className="metrics" data-expanded={summaryExpanded} aria-label={filtersActive ? 'Whole month summary' : 'Month summary'}>
-        <div className="metric"><p className="metric-label">{filtersActive ? 'Spent · whole month' : 'Spent'}</p><p className="metric-value">{inr(current.total)}</p><p className="metric-note">{previous ? <Delta value={current.total} base={previous.total} suffix={`vs ${monthName(previous.month)}`}/> : 'First recorded month'}</p></div>
-        <div className="metric" id="explorer-summary-average"><p className="metric-label">Average per calendar day</p><p className="metric-value">{inr(current.total / days)}</p><p className="metric-note">Total ÷ {days} days</p></div>
-        <div className="metric" id="explorer-summary-count"><p className="metric-label">Expenses</p><p className="metric-value">{current.count}</p><p className="metric-note">{current.pending ? <a href={`${import.meta.env.BASE_URL}review/`}>{current.pending} unclassified</a> : 'All classified'} · {plural(monthTransactions.length, 'ledger entry', 'ledger entries')}</p></div>
-        <div className="metric" id="explorer-summary-largest"><p className="metric-label">Largest expense</p><p className="metric-value">{largest ? inr(largest.amount) : '—'}</p><p className="metric-note" title={largest?.description}>{largest?.description || 'No expenses'}</p></div>
+        <div className="metric"><p className="metric-label">{filtersActive ? 'Spent · whole month' : 'Spent'}</p><p className="metric-value">{moneyTotal(totals)}</p><p className="metric-note">{currents.length > 1 ? 'Totals stay in each currency' : previous ? <Delta value={current.total} base={previous.total} suffix={`vs ${monthName(previous.month)}`}/> : 'First recorded month'}</p></div>
+        <div className="metric" id="explorer-summary-average"><p className="metric-label">Average per calendar day</p><p className="metric-value">{moneyTotal(Object.fromEntries(currents.map(item => [item.currency, item.total / days])))}</p><p className="metric-note">Total ÷ {days} days</p></div>
+        <div className="metric" id="explorer-summary-count"><p className="metric-label">Expenses</p><p className="metric-value">{count}</p><p className="metric-note">{pending ? <a href={`${import.meta.env.BASE_URL}review/`}>{pending} unclassified</a> : 'All classified'} · {plural(monthTransactions.length, 'ledger entry', 'ledger entries')}</p></div>
+        <div className="metric" id="explorer-summary-largest"><p className="metric-label">Largest expense{currents.length > 1 ? ' · per currency' : ''}</p><p className="metric-value">{largest ? moneyTotal(Object.fromEntries(largestRows.map(item => [item.currency, item.amount]))) : '—'}</p><p className="metric-note" title={largest?.description}>{largestRows.map(item => item.description).join(' + ') || 'No expenses'}</p></div>
         <button type="button" className="button plain summary-toggle" aria-expanded={summaryExpanded} aria-controls="explorer-summary-average explorer-summary-count explorer-summary-largest" onClick={() => setSummaryExpanded(value => !value)}>{summaryExpanded ? 'Fewer month figures' : 'More month figures'}<Icon name="chevron-up-down"/></button>
       </section>
       <div className="explorer-body with-aside">
@@ -366,7 +378,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
           <label className="sr-only" htmlFor="explorer-category">Category</label>
           <select id="explorer-category" className="field" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select>
         </PanelHeader>
-        {filtersActive && <p className="matching-total" role="status">{filtered.length} matching · <strong>{inr(matchingExpenses)}</strong> net expenses <span>· transfers excluded</span></p>}
+        {filtersActive && <p className="matching-total" role="status">{filtered.length} matching · <strong>{moneyTotal(matchingExpenses)}</strong> net expenses <span>· transfers excluded</span></p>}
         <div className="table-scroll"><table className="data-table entries-table" role="table">
           <colgroup><col className="col-date" style={{ width: widths.date }}/><col/><col className="col-category" style={{ width: widths.category }}/><col className="col-payment" style={{ width: widths.payment }}/><col className="col-amount" style={{ width: widths.amount }}/></colgroup>
           <thead><tr>{columns.map(({ key, label, numeric, className, width }) => <th key={key} className={`${numeric ? 'th-num' : ''} ${className || ''}`} aria-label={label} aria-sort={sortKey === key ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
@@ -387,8 +399,8 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
         </table>{filtered.length === 0 && <div className="empty"><strong>No matching entries</strong><span>Try another search or category, or show all entries.</span><button type="button" className="button" onClick={showAll}>Show All</button></div>}</div>
       </section>
       <aside className="explorer-aside panel" aria-label="The month at a glance">
-        <ExplorerDayFilter month={month} current={current} day={day} onDay={setDay}/>
-        <section className="aside-section"><div className="aside-section-head"><h3>Categories</h3><p>{previous ? <><span className="key key-current"/>{monthName(month)} <span className="key key-previous"/>{monthName(previous.month)}</> : monthLong(month)}</p></div><CategoryComparison current={current} previous={previous}/></section>
+        {currents.map(item => <div key={item.currency}>{currents.length > 1 && <h3>{item.currency}</h3>}<ExplorerDayFilter month={month} current={item} day={day} onDay={setDay}/></div>)}
+        <section className="aside-section"><div className="aside-section-head"><h3>Categories</h3><p>{previous ? <><span className="key key-current"/>{monthName(month)} <span className="key key-previous"/>{monthName(previous.month)}</> : monthLong(month)}</p></div>{currents.map(item => <div key={item.currency}>{currents.length > 1 && <h3>{item.currency}</h3>}<CategoryComparison current={item} previous={data.months.find(row => row.month === previousKey && row.currency === item.currency)}/></div>)}</section>
       </aside>
       </div>
     </section>
@@ -397,20 +409,27 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   </div>;
 }
 
-function Atlas({ month, setMonth }: { month: string; setMonth: (month: string, mode?: 'push' | 'replace') => void }) {
-  const keys = monthKeys();
+function Atlas(props: {month: string; setMonth: (month: string, mode?: 'push'|'replace') => void}) {
+  const currencies = currencyOrder(spendingMonths().map(item => item.currency));
+  return <>{currencies.map(currency => <CurrencyAtlas mixed={currencies.length > 1} key={currency} {...props} month={data.months.some(item => item.currency === currency && item.month === props.month) ? props.month : data.months.filter(item => item.currency === currency).at(-1)!.month} currency={currency}/>)}</>;
+}
+
+function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; currency: string; month: string; setMonth: (month: string, mode?: 'push' | 'replace') => void }) {
+  const money = (value: number) => amountMoney(value, currency);
+  const currencyMonths = spendingMonths().filter(item => item.currency === currency);
+  const keys = currencyMonths.map(item => item.month);
   const selectedIndex = keys.indexOf(month);
   const [windowEnd, setWindowEnd] = useState(() => Math.max(Math.min(11, keys.length - 1), selectedIndex));
   const windowStart = Math.max(0, windowEnd - 11);
-  const months = data.months.slice(windowStart, windowEnd + 1);
-  const current = data.months[selectedIndex];
+  const months = currencyMonths.slice(windowStart, windowEnd + 1);
+  const current = currencyMonths[selectedIndex] || currencyMonths.at(-1)!;
   const days = daysInMonth(month);
   const daily = Array.from({ length: days }, (_, index) => current.daily.find((item) => item.day === index + 1)?.amount || 0);
   const maxDay = Math.max(1, ...daily);
   const minDay = Math.min(0, ...daily);
   const barStyle = (amount: number, low: number, high: number, minimum: number) => ({ height: `${amount ? Math.max(minimum, Math.abs(amount) / (high - low) * 100) : 0}%`, bottom: `${(Math.min(0, amount) - low) / (high - low) * 100}%` });
   const average = current.total / days;
-  const monthEntries = data.transactions.filter((item) => item.month === month);
+  const monthEntries = data.transactions.filter((item) => item.month === month && item.currency === currency);
   const topDays = daily.map((amount, index) => ({ day: index + 1, amount })).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount).slice(0, 5).map((item) => {
     const key = `${month}-${String(item.day).padStart(2, '0')}`;
     const entries = monthEntries.filter((entry) => entry.date === key && entry.kind === 'Expense').sort((a, b) => b.amount - a.amount);
@@ -428,7 +447,7 @@ function Atlas({ month, setMonth }: { month: string; setMonth: (month: string, m
     if (selectedIndex > end) setMonth(keys[end]);
   };
   return <section className="page atlas">
-    <PageHeader title="Atlas" subtitle="Daily spending across twelve months. Bars are scaled within each month. Choose a month to see its detail.">
+    <PageHeader title={`Atlas${mixed ? ` · ${currency}` : ''}`} subtitle="Daily spending across twelve months. Bars are scaled within each month. Choose a month to see its detail.">
       <div className="segmented" role="group" aria-label="Twelve-month window">
         <button type="button" className="icon-button" aria-label="Earlier months" title="Earlier months" disabled={windowEnd <= Math.min(11, keys.length - 1)} onClick={() => shift(-1)}><Icon name="chevron-left"/></button>
         <span className="segmented-label">{monthShort(months[0].month)} – {monthShort(months.at(-1)!.month)}</span>
@@ -438,19 +457,19 @@ function Atlas({ month, setMonth }: { month: string; setMonth: (month: string, m
     <div className="atlas-grid" role="group" aria-label="Months. Use the arrow keys to move between months." onKeyDown={cards.onKeyDown}>{months.map((item) => {
       const localMax = Math.max(1, ...item.daily.map((entry) => entry.amount));
       const localMin = Math.min(0, ...item.daily.map((entry) => entry.amount));
-      return <button key={item.month} type="button" className="atlas-card" aria-label={`${monthLong(item.month)} · ${inr(item.total)} · ${plural(item.count, 'expense')}`} title={`${monthLong(item.month)} · ${inr(item.total)}`} aria-pressed={item.month === month} {...cards.rowProps(item)} onClick={() => setMonth(item.month)}>
-        <span className="atlas-card-head"><span>{monthLong(item.month)}</span><span>{compactInr(item.total)}</span></span>
+      return <button key={item.month} type="button" className="atlas-card" aria-label={`${monthLong(item.month)} · ${money(item.total)} · ${plural(item.count, 'expense')}`} title={`${monthLong(item.month)} · ${money(item.total)}`} aria-pressed={item.month === month} {...cards.rowProps(item)} onClick={() => setMonth(item.month)}>
+        <span className="atlas-card-head"><span>{monthLong(item.month)}</span><span>{compactMoney(item.total, currency)}</span></span>
         <span className="mini-bars" aria-hidden="true">{Array.from({ length: daysInMonth(item.month) }, (_, index) => { const amount = item.daily.find((entry) => entry.day === index + 1)?.amount || 0; return <i key={index} className={amount < 0 ? 'net-refund' : undefined} style={barStyle(amount, localMin, localMax, 4)}/>; })}{localMin < 0 && <b className="net-zero" style={{ bottom: `${-localMin / (localMax - localMin) * 100}%` }}/>}</span>
         <span className="atlas-card-foot">{plural(item.count, 'expense')}</span>
       </button>;
     })}</div>
     <section className="panel atlas-detail">
-      <PanelHeader title={monthLong(month)} meta={`${plural(current.count, 'expense')} · ${days} days · ${inr(average)} per calendar day (total ÷ ${days})`}><span className="atlas-total">{inr(current.total)}</span></PanelHeader>
+      <PanelHeader title={monthLong(month)} meta={`${plural(current.count, 'expense')} · ${days} days · ${money(average)} per calendar day (total ÷ ${days})`}><span className="atlas-total">{money(current.total)}</span></PanelHeader>
       <div className="atlas-detail-grid">
         <section><h3>Daily spending</h3>
-          <div className="day-chart" role="img" aria-label={`Daily spending in ${monthLong(month)}; highest ${inr(maxDay)}, average ${inr(average)}${minDay < 0 ? `; net refunds below zero, lowest ${inr(minDay)}` : ''}`}>
-            <span className="day-chart-max">{compactInr(maxDay)}</span>
-            <div className="day-chart-bars">{daily.map((amount, index) => <i key={index} className={amount < 0 ? 'net-refund' : undefined} title={`${index + 1} ${monthName(month)}: ${inr(amount)}${amount < 0 ? ' net refund' : ''}`} style={barStyle(amount, minDay, maxDay, 2)}/>)}
+          <div className="day-chart" role="img" aria-label={`Daily spending in ${monthLong(month)}; highest ${money(maxDay)}, average ${money(average)}${minDay < 0 ? `; net refunds below zero, lowest ${money(minDay)}` : ''}`}>
+            <span className="day-chart-max">{compactMoney(maxDay)}</span>
+            <div className="day-chart-bars">{daily.map((amount, index) => <i key={index} className={amount < 0 ? 'net-refund' : undefined} title={`${index + 1} ${monthName(month)}: ${money(amount)}${amount < 0 ? ' net refund' : ''}`} style={barStyle(amount, minDay, maxDay, 2)}/>)}
               {minDay < 0 && <b className="net-zero" style={{ bottom: `${-minDay / (maxDay - minDay) * 100}%` }}><span>0</span></b>}
               <b className="day-chart-average" style={{ bottom: `${(average - minDay) / (maxDay - minDay) * 100}%` }}><span>Average</span></b></div>
             <div className="day-chart-axis"><span>1</span><span>8</span><span>15</span><span>22</span><span>{days}</span></div>
@@ -459,7 +478,7 @@ function Atlas({ month, setMonth }: { month: string; setMonth: (month: string, m
         <section><h3>Highest-spending days</h3><ol className="ranked-list">{topDays.map((item) => <li key={item.day}><a className="ranked-link" href={`${import.meta.env.BASE_URL}explorer/?month=${month}&day=${item.day}`} title={`List ${dayShort(item.key)} in Explorer`}>
           <span className="date">{dayShort(item.key)}</span>
           <span><span className="row-title">{plural(item.entries.length, 'expense')}</span><span className="row-sub" title={item.entries[0]?.description}>{item.entries.length > 1 ? 'Largest: ' : ''}{item.entries[0]?.description}</span></span>
-          <span className="num">{inr(item.amount)}</span>
+          <span className="num">{money(item.amount)}</span>
         </a></li>)}</ol></section>
         <section><h3>Latest entries</h3><ol className="ranked-list">{recent.map((item) => <li key={item.id}><a className="ranked-link" href={`${import.meta.env.BASE_URL}explorer/?month=${month}&entry=${item.id}`} title="Show in Explorer">
           <span className="date">{dayShort(item.date)}</span>
@@ -472,8 +491,8 @@ function Atlas({ month, setMonth }: { month: string; setMonth: (month: string, m
   </section>;
 }
 
-function JournalSummary({ month, rows }: { month: string; rows: Transaction[] }) {
-  const current = data.months.find((item) => item.month === month) as Month;
+function CurrencyJournalSummary({ month, rows, current }: { month: string; rows: Transaction[]; current: Month }) {
+  const money = (value: number) => amountMoney(value, current.currency);
   const days = daysInMonth(month);
   const cumulative: number[] = [];
   for (let day = 1; day <= days; day += 1) cumulative.push((cumulative.at(-1) || 0) + (current.daily.find((item) => item.day === day)?.amount || 0));
@@ -483,17 +502,21 @@ function JournalSummary({ month, rows }: { month: string; rows: Transaction[] })
   const recordedDays = latest.startsWith(month) ? Number(latest.slice(8, 10)) : days;
   const points = cumulative.slice(0, recordedDays).map((value, index) => `${index / (days - 1) * 300},${96 - (value - lineMin) / (lineMax - lineMin) * 88}`).join(' ');
   const maxCategory = Math.max(1, ...current.categories.map((item) => Math.abs(item.amount)));
-  const all = data.transactions.filter((item) => item.month === month);
+  const all = data.transactions.filter((item) => item.month === month && item.currency === current.currency);
   const withSource = all.filter((item) => item.sources.length > 0).length;
   return <aside className="journal-summary panel" aria-label="Month summary">
-    <section><PanelHeader title={monthLong(month)} meta="Spent this month"><span className="summary-total">{inr(current.total)}</span></PanelHeader>
-      <div className="panel-body"><svg className="sparkline" viewBox="0 0 300 100" preserveAspectRatio="none" role="img" aria-label={`Cumulative spending reached ${inr(cumulative[recordedDays - 1] || 0)} by day ${recordedDays}`}><polyline points={points} fill="none" vectorEffect="non-scaling-stroke"/></svg>
+    <section><PanelHeader title={`${monthLong(month)} · ${current.currency}`} meta="Spent this month"><span className="summary-total">{money(current.total)}</span></PanelHeader>
+      <div className="panel-body"><svg className="sparkline" viewBox="0 0 300 100" preserveAspectRatio="none" role="img" aria-label={`Cumulative spending reached ${money(cumulative[recordedDays - 1] || 0)} by day ${recordedDays}`}><polyline points={points} fill="none" vectorEffect="non-scaling-stroke"/></svg>
         <div className="sparkline-axis"><span>1 {monthName(month).slice(0, 3)}</span><span>Cumulative</span><span>{days} {monthName(month).slice(0, 3)}</span></div></div></section>
     <section className="summary-section"><h3>{current.categories.length > 8 ? `Top 8 of ${current.categories.length} categories` : 'By category'}</h3>
-      <div className="summary-categories">{current.categories.slice(0, 8).map((item) => <div key={item.category}><span>{item.category}</span><span className={`num${item.amount < 0 ? ' credit' : ''}`}>{inr(item.amount)}</span><i className={item.amount < 0 ? 'net-refund' : undefined} style={{ width: `${Math.abs(item.amount) / maxCategory * 100}%` }}/></div>)}</div></section>
+      <div className="summary-categories">{current.categories.slice(0, 8).map((item) => <div key={item.category}><span>{item.category}</span><span className={`num${item.amount < 0 ? ' credit' : ''}`}>{money(item.amount)}</span><i className={item.amount < 0 ? 'net-refund' : undefined} style={{ width: `${Math.abs(item.amount) / maxCategory * 100}%` }}/></div>)}</div></section>
     <section className="summary-section"><h3>Ledger integrity</h3><p>Every entry keeps its postings and its source.</p>
       <dl className="facts"><dt>Entries</dt><dd className="num">{all.length}</dd><dt>Unclassified</dt><dd className="num">{current.pending}</dd><dt>With source evidence</dt><dd className="num">{withSource} of {all.length}</dd>{rows.length !== all.length && <><dt>Shown by search</dt><dd className="num">{rows.length}</dd></>}</dl></section>
   </aside>;
+}
+
+function JournalSummary({month, rows}: {month: string; rows: Transaction[]}) {
+  return <div>{spendingMonths().filter(item => item.month === month).map(current => <CurrencyJournalSummary key={current.currency} month={month} rows={rows.filter(item => item.currency === current.currency)} current={current}/>)}</div>;
 }
 
 /** One side of an entry's movement: its accounts, summarized when an order has many item postings. */
@@ -518,7 +541,7 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
     const days = [...new Set(matches.map((item) => item.date))].sort((a, b) => order === 'newest' ? b.localeCompare(a) : a.localeCompare(b));
     const factor = sortDirection === 'asc' ? 1 : -1;
     return days.map((date) => [date, matches.filter((item) => item.date === date).sort((a, b) => !sortKey ? (order === 'newest' ? b.sequence - a.sequence : a.sequence - b.sequence)
-      : factor * (sortKey === 'amount' ? a.amount - b.amount : String(sortKey === 'type' ? a.displayType : a.description).localeCompare(String(sortKey === 'type' ? b.displayType : b.description))))] as [string, Transaction[]]);
+      : factor * (sortKey === 'amount' ? a.currency.localeCompare(b.currency) || a.amount - b.amount : String(sortKey === 'type' ? a.displayType : a.description).localeCompare(String(sortKey === 'type' ? b.displayType : b.description))))] as [string, Transaction[]]);
   }, [month, needle, order, sortKey, sortDirection]);
   const rows = useMemo(() => grouped.flatMap(([, entries]) => entries), [grouped]);
   const selected = rows.find((item) => item.id === selectedId) || null;
@@ -547,8 +570,8 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
           <div className="table-scroll"><table className="data-table journal-table" role="table">
             <colgroup><col/><col style={{ width: widths.type }}/><col style={{ width: widths.route }}/><col style={{ width: widths.amount }}/></colgroup>
             <thead><tr>{heading('description', 'Description')}{heading('type', 'Type', 'type')}<th aria-label="From → To">From → To{resizer('route', 'From → To')}</th>{heading('amount', 'Amount', 'amount', true)}</tr></thead>
-            {grouped.map(([date, entries]) => { const net = entries.filter((item) => item.kind === 'Expense' || item.kind === 'Refund').reduce((sum, item) => sum + item.signedExpense, 0); return <tbody key={date} onKeyDown={nav.onKeyDown}>
-              <tr className="journal-day-row"><th colSpan={4} scope="rowgroup"><span className="journal-day-name">{dayLabel(date)}</span><span className="journal-day-total">{plural(entries.length, 'entry', 'entries')} · Net expenses for the day <strong>{inr(net)}</strong></span></th></tr>
+            {grouped.map(([date, entries]) => { const net = sumCurrencies(entries.filter((item) => item.kind === 'Expense' || item.kind === 'Refund'), (item: Transaction) => item.signedExpense); return <tbody key={date} onKeyDown={nav.onKeyDown}>
+              <tr className="journal-day-row"><th colSpan={4} scope="rowgroup"><span className="journal-day-name">{dayLabel(date)}</span><span className="journal-day-total">{plural(entries.length, 'entry', 'entries')} · Net expenses for the day <strong>{moneyTotal(net)}</strong></span></th></tr>
               {entries.map((item) => { const from = routeSide(item, -1); const to = routeSide(item, 1);
                 return <tr key={item.id} className="interactive" data-selected={item.id === selectedId} onClick={(event) => { if (!hasSelectedText(event)) choose(item); }} onContextMenu={(event) => openMenu(event, item, event.currentTarget)}>
                   <td><EntryLink entryId={item.id} className="row-open" {...nav.rowProps(item)} aria-label={fullEntryText(item)} title={item.description} aria-current={item.id === selectedId ? 'true' : undefined} aria-controls="transaction-inspector" data-copy={copyLine(item)}

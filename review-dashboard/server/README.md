@@ -324,3 +324,7 @@ existing transaction guarantees. Stale fingerprints return `failure_reason:
 stale_checklist`, keep the old choices, and refuse another Apply on that checklist.
 Stored rows include entry links and conversion notes only where actual membership
 and recorded notes establish them; no historical matching rule is inferred.
+
+## Currency settings
+
+The currency endpoints, opening-balance lock rules and generated amount contracts are documented in [Account currencies](../../docs/CURRENCIES.md). Both settings writes use the existing write-access checks and the locked, verified commit path.

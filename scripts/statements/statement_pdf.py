@@ -43,6 +43,24 @@ def card_identifier(text):
     return value
 
 
+def printed_currency(text):
+    first = text.split('\f')[0]
+    if not re.search(r'^\s*Statement currency:', first, re.I | re.M):
+        return None
+    value = header(first, 'Statement currency')
+    if not re.fullmatch(r'[A-Z]{3}', value):
+        raise ValueError('Statement currency must be an explicit three-letter currency code')
+    return value
+
+
+def account_currency(statement, currency):
+    printed = statement.get('currency')
+    if printed and printed != currency:
+        raise ValueError(f'Statement currency {printed} differs from account currency {currency}; choose a matching account. Nothing has been saved.')
+    statement['currency'] = currency
+    return statement
+
+
 def recognised(text, expected_last4=''):
     # Recognition is deliberately lighter than parsing so incomplete example
     # statements can still reach the pipeline's checked second reading.
@@ -68,7 +86,7 @@ def parse_text(text, *, expected_last4=''):
     start, end = map(iso_date, period)
     if start > end:
         raise ValueError('Statement start is after end')
-    result = dict(card_last4=card_identifier(first), periodStart=start, periodEnd=end,
+    result = dict(currency=printed_currency(first), card_last4=card_identifier(first), periodStart=start, periodEnd=end,
                   dueDate=iso_date(header(first, 'Due date')), rows=[])
     for label, key in [('Previous balance', 'previousBalance'), ('Purchases', 'purchasesCharges'),
                        ('Cash advances', 'cashAdvances'), ('Credits', 'paymentsCredits'),
@@ -159,10 +177,11 @@ def parse_pdf(path, *, expected_last4=''):
 
 
 def checks(statement, previous=None):
+    currency = statement.get('currency') or 'account currency'
     rows = statement['rows']
     debit = sum((Decimal(r['amount']) for r in rows if r['direction'] == 'Debit'), Decimal(0))
     credit = sum((Decimal(r['amount']) for r in rows if r['direction'] == 'Credit'), Decimal(0))
-    return [dict(ok=debit == Decimal(statement['purchasesCharges']), text=f"Purchases: rows {debit:.2f} INR; printed {statement['purchasesCharges']} INR"),
-            dict(ok=credit == Decimal(statement['paymentsCredits']), text=f"Credits: rows {credit:.2f} INR; printed {statement['paymentsCredits']} INR"),
+    return [dict(ok=debit == Decimal(statement['purchasesCharges']), text=f"Purchases: rows {debit:.2f} {currency}; printed {statement['purchasesCharges']} {currency}"),
+            dict(ok=credit == Decimal(statement['paymentsCredits']), text=f"Credits: rows {credit:.2f} {currency}; printed {statement['paymentsCredits']} {currency}"),
             dict(ok=Decimal(statement['previousBalance']) + Decimal(statement['purchasesCharges']) + Decimal(statement.get('cashAdvances', '0')) - Decimal(statement['paymentsCredits']) == Decimal(statement['totalDue']), text='Previous balance + purchases + cash advances − credits equals total due'),
-            dict(ok=previous is None or Decimal(statement['previousBalance']) == Decimal(previous), text=f"Previous balance {statement['previousBalance']} INR" + (f'; last filed total {previous} INR' if previous is not None else '; no earlier filed statement'))]
+            dict(ok=previous is None or Decimal(statement['previousBalance']) == Decimal(previous), text=f"Previous balance {statement['previousBalance']} {currency}" + (f'; last filed total {previous} {currency}' if previous is not None else '; no earlier filed statement'))]

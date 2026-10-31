@@ -70,6 +70,34 @@ class MigrationTests(Fixture):
         self.assertEqual(before, self.source_bytes())
         self.assertFalse((self.root / '.lock').exists())
 
+    def test_assertion_only_investment_units_preserve_every_output(self):
+        path = self.root / 'data/accounts.json'
+        declarations = read_json(path)
+        account = 'Assets:Investments:Demo Units'
+        declarations['accounts'].append(account)
+        declarations['commodities'].append('LOT')
+        path.write_text(json.dumps(declarations) + '\n')
+        purchase = entry(identity='0000000000000002', day='2026-01-03')
+        purchase['postings'] = [
+            dict(account=account, amount='2.000', commodity='LOT',
+                 cost=dict(amount='10.00', commodity='INR', per='total')),
+            dict(account='Assets:Bank:Savings Account', amount='-10.00', commodity='INR'),
+        ]
+        assertion = entry(identity='0000000000000003', day='2026-01-04')
+        assertion['postings'] = [dict(account=account, amount='0.000', commodity='LOT',
+                                     **{'assert': dict(amount='2.000', commodity='LOT')})]
+        dump(self.year, [entry(), purchase, assertion])
+        prices = self.root / 'data/prices/mutual-funds.prices'
+        prices.parent.mkdir()
+        prices.write_text('P 2026-01-03 LOT 5 INR\n')
+        self.run_command('jj', 'commit', '-m', 'Fictional holdings check')
+        before = snapshot(self.root)
+        self.run_upgrade()
+        after = snapshot(self.root)
+        self.assertTrue(compare(before, after, ignores=('meta.ledger',), emit=False))
+        self.assertEqual(load(self.root)[self.year][-1], assertion)
+        self.assertNotIn(assertion['id'], [row['id'] for row in after['dashboard/dashboard.json']['transactions']])
+
     def test_person_at_root_payable_and_receivable_preserve_every_output(self):
         from check_store import check
         from generate_ledger import render

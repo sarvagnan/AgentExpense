@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "a006c34b-3581-4620-88d6-e1e4f813ec26",
+  "name": "Sam Okafor",
+  "defaultCurrency": "EUR",
+  "locale": "en-GB",
+  "startDate": "2026-02-01",
+  "modules": {
+    "fuel": false,
+    "investments": {
+      "prices": null
+    },
+    "history": {
+      "oldLedger": null
+    },
+    "weeklyReview": false
+  },
+  "review": {
+    "storageKey": null
+  }
+}

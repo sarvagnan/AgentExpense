@@ -44,7 +44,7 @@ def statement_pdf(text=TEXT, password=None):
 
 
 def statement_answer():
-    return dict(read_ok=True, card_last4='5678', uncertain=[], period_start='2026-01-01', period_end='2026-01-28',
+    return dict(read_ok=True, currency=None, card_last4='5678', uncertain=[], period_start='2026-01-01', period_end='2026-01-28',
                 previous_balance='0.00', purchases='120.00', cash_advances='0.00', credits='30.00', total_due='90.00',
                 minimum_due='9.00', due_date='2026-02-15', transactions=[
                     dict(date='2026-01-02', serial='EX-001', description='Fable Shop', amount='120.00', is_credit=False, page=1, foreign_amount='2.00', foreign_currency='USD'),

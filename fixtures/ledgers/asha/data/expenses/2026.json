@@ -554,5 +554,17 @@
       {"account": "Expenses:Uncategorized", "amount": "265.00", "commodity": "INR"},
       {"account": "Assets:Bank:Saffron Reserve", "amount": "-265.00", "commodity": "INR"}
     ]
+  },
+  {
+    "id": "000000000000002a",
+    "date": "2026-09-27",
+    "status": "confirmed",
+    "description": "Demo Index holdings check",
+    "sources": [
+      "Bills/2026-09-27/fictional-holdings-check.md"
+    ],
+    "postings": [
+      {"account": "Assets:Investments:Mutual Funds:Demo Index", "amount": "0.000", "commodity": "DEMOFUND", "assert": {"amount": "5.000", "commodity": "DEMOFUND"}}
+    ]
   }
 ]

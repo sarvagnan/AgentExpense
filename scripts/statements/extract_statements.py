@@ -20,7 +20,7 @@ def extract(source_dir):
                           dict(sourceFile=source, transactionCount=len(statement['rows'])))
         for row in statement['rows']:
             transactions.append(dict(date=row['date'], serialNumber=row['serial'], description=row['description'],
-                                     amountInr=row['amount'], direction=row['direction'], pageNumber=row['page'],
+                                     amount=row['amount'], currency=statement.get('currency'), direction=row['direction'], pageNumber=row['page'],
                                      internationalAmount=row['foreignAmount'], internationalCurrency=row['foreignCurrency'],
                                      statementEnd=statement['periodEnd'], sourceFile=source))
     return dict(statements=statements, transactions=transactions, errors=[])

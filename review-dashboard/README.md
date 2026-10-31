@@ -1,12 +1,12 @@
 # AgentExpense dashboard
 
-A React/Vite dashboard for the JSON ledger, with Overview, Explorer, Journal, Accounts, Forecast, Review, Add, Drafts and Statements. INR reporting, fuel links, mutual-fund valuations and the example card statement reader remain built in during early development.
+A React/Vite dashboard for the JSON ledger, with Overview, Explorer, Journal, Accounts, Forecast, Review, Add, Drafts and Statements. Each account keeps its own currency; totals and charts keep currencies separate. Fuel links, fund valuations and the example card statement reader are built in.
 
 From the application root set `LEDGER_DIR` to an absolute ledger directory, then run `make dashboard`. The fictional `fixtures/ledgers/asha/` is the public example. JSON under `app/data/` and compressed payloads under `public/data/` are generated locally; keep them out of version control. `npm --prefix review-dashboard test` runs Node unit and server-rendering checks with disposable application copies and no browser. See [tests/BROWSERS.md](tests/BROWSERS.md) for future browser coverage.
 
 ## Data and reporting
 
-Builders read the JSON store directly through `scripts/expense-store.mjs`. Account declarations and schema validation belong to the ledger Python tools. The data checker verifies stable unique store IDs, review membership and generated Add patterns for any selected ledger. Forecast rules are commitments kept separate from actuals. Funds hold units at recorded INR cost, valued using the selected ledger's price file. `data/fuel-log.json` and `data/prices/mutual-funds.prices` are currently required even when empty.
+Builders read the JSON store directly through `scripts/expense-store.mjs`. Account declarations and schema validation belong to the ledger Python tools. The data checker verifies stable unique row IDs derived from store IDs and separately funded currencies, review membership and generated Add patterns for any selected ledger. Forecast rules are commitments kept separate from actuals. Funds hold units at recorded costs with their own currencies, valued in the selected price's quote currency. Fuel and price files are optional. See [Account currencies](../docs/CURRENCIES.md) for the generated data contract and currency-change commands.
 
 Sources retain their original order; explicit statement membership takes priority in evidence labels. Receipt/image matching and fuel links need explicit confirmation. An amount/date coincidence is not proof. Reimbursements retain their group and party and do not become personal expenses. Typed variable-estimate exclusions and policy terms stay in the store.
 

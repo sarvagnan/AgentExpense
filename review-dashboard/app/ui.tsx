@@ -5,35 +5,8 @@ import { accountLabel as metadataLabel } from '../scripts/account-metadata.mjs';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentPropsWithRef, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
-// Money: two decimals everywhere except compact chart labels, in Indian digit grouping.
-const INR_FORMAT = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const INR_WHOLE = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
-// A true minus sign, and no "−₹0.00" for amounts that round to zero.
-const withMinus = (text: string) => text.replace(/^-/, '−');
-const tidy = (value: number) => Math.abs(value) < 0.005 ? 0 : value;
-export const inr = (value: number) => withMinus(INR_FORMAT.format(tidy(value)));
-export const inrWhole = (value: number) => withMinus(INR_WHOLE.format(Math.abs(value) < 0.5 ? 0 : value));
-const UNITS_FORMAT = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
-/** Mutual fund units, to the thousandth a statement shows. */
-export const units = (value: number) => withMinus(UNITS_FORMAT.format(Math.abs(value) < 0.0005 ? 0 : value));
-// A ledger commodity that isn't an ISO currency code, such as a fund's DEMOFUND, is a count of units.
-export const money = (value: number, currency = 'INR') => currency === 'INR' ? inr(value) : !/^[A-Z]{3}$/.test(currency) ? `${units(value)} units`
-  : withMinus(new Intl.NumberFormat('en-IN', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(tidy(value)));
-/** Short amounts for charts and tiles: ₹740, ₹45K, ₹1.4L. One rule for every view. */
-export function compactInr(value: number) {
-  const size = Math.abs(value);
-  const prefix = value < 0 && Math.round(size) !== 0 ? '−₹' : '₹';
-  // Round on whole tenths first: (165294 / 100000).toFixed(1) would give "1.6" through binary rounding.
-  if (size >= 99950) return `${prefix}${(Math.round(size / 10000) / 10).toFixed(1)}L`;
-  if (size >= 999.5) return `${prefix}${Math.round(size / 1000)}K`;
-  return `${prefix}${Math.round(size)}`;
-}
-/** Axis ticks share one unit, chosen by the largest tick, so a lakh axis never mixes in K. */
-export function axisInr(value: number, max: number) {
-  if (max >= 100000) return value === 0 ? '₹0' : `₹${(Math.round(value / 10000) / 10).toFixed(value % 100000 ? 1 : 0)}L`;
-  if (max >= 1000) return value === 0 ? '₹0' : `₹${Math.round(value / 1000)}K`;
-  return `₹${value}`;
-}
+import { count as formatCount } from './formatting';
+export { money, moneyWhole, compactMoney, axisMoney, currencySymbol, count, units, moneyTotal, sumCurrencies, currencyOrder } from './formatting';
 const change = (value: number, base: number) => base ? (value - base) / base * 100 : null;
 /** Change against a comparison, with an arrow and words. More spending reads as negative. */
 export function Delta({ value, base, suffix }: { value: number; base: number; suffix?: string }) {
@@ -52,7 +25,7 @@ export const monthShort = (key: string) => formatCalendarDate(key.slice(0, 7), {
 export const monthName = (key: string) => formatCalendarDate(key.slice(0, 7), { month: 'long' });
 export const monthAbbr = (key: string) => formatCalendarDate(key.slice(0, 7), { month: 'short' });
 export const daysInMonth = (key: string) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)), 0).getDate();
-export const plural = (count: number, one: string, many = `${one}s`) => `${count.toLocaleString('en-IN')} ${count === 1 ? one : many}`;
+export const plural = (count: number, one: string, many = `${one}s`) => `${formatCount(count)} ${count === 1 ? one : many}`;
 
 export type IconName = 'explorer' | 'atlas' | 'journal' | 'forecast' | 'accounts' | 'review' | 'search' | 'source' | 'calendar'
   | 'chevron-left' | 'chevron-right' | 'close' | 'postings' | 'integrity' | 'copy' | 'pending' | 'flag' | 'check' | 'undo'

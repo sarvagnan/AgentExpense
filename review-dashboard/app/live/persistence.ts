@@ -9,8 +9,8 @@ export const answerKey = (id: string, index: number, question: string) => `ledge
 export function validatePiece(key: string, value: string): string {
   const text=value.trim();
   if (!text) return '';
-  if (['amount','litres','km','inr'].includes(key) && (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(text) || !Number.isFinite(Number(text)) || Number(text)<=0)) return 'Enter a number greater than zero, or leave blank for the agent.';
-  if (key==='currency' && (!/^[A-Z]{3}$/.test(text) || !Intl.supportedValuesOf('currency').includes(text))) return 'Enter a three-letter currency code, such as INR or USD, or leave blank.';
+  if (['amount','litres','km','charged','inr'].includes(key) && (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(text) || !Number.isFinite(Number(text)) || Number(text)<=0)) return 'Enter a number greater than zero, or leave blank for the agent.';
+  if (key==='currency' && (!/^[A-Z]{3}$/.test(text) || !Intl.supportedValuesOf('currency').includes(text))) return 'Enter a three-letter currency code, such as USD or EUR, or leave blank.';
   if (key==='date' && (!/^\d{4}-\d{2}-\d{2}$/.test(text) || !Number.isFinite(Date.parse(text)) || new Date(text).toISOString().slice(0,10)!==text || text.startsWith('0000'))) return 'Enter a real date as YYYY-MM-DD, or leave blank.';
   return '';
 }

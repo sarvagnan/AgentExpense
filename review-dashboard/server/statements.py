@@ -23,7 +23,7 @@ from store import load, entries, dump, new_id, store_paths
 from add_entry import add_entry
 from audit import event, append, audit_path
 sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
-from statement_pdf import parse_text, extract_text, checks, recognised, card_identifier
+from statement_pdf import parse_text, extract_text, checks, recognised, card_identifier, printed_currency, account_currency
 from statement_rules import plan, convert
 from reconcile_statement import select_account, statement_accounts, reconciliation_path
 
@@ -219,6 +219,10 @@ class Statements:
             except ValueError:
                 identifier = None
             account = select_account(documents, self.ledger, identifier)
+        # A printed mismatch is a hard failure, never an invitation to reinterpret
+        # the statement through an agent.
+        if text is not None and account:
+            account_currency({'currency': printed_currency(text)}, documents[self.ledger / 'data/accounts.json']['accounts'][account]['currency'])
         parser_error = None
         try:
             if extraction_error:
@@ -226,6 +230,7 @@ class Statements:
             statement = parse_text(text)
             account = select_account(documents, self.ledger, statement.get('card_last4'), account)
             metadata = documents[self.ledger / 'data/accounts.json']['accounts'][account]
+            account_currency(statement, metadata['currency'])
             statement.update(account=account, accountLabel=metadata.get('label') or account.split(':')[-1])
             earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
             previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
@@ -256,6 +261,7 @@ class Statements:
             statement = agent.statement_result(answer)
             account = select_account(documents, self.ledger, statement.get('card_last4'), account)
             metadata = documents[self.ledger / 'data/accounts.json']['accounts'][account]
+            account_currency(statement, metadata['currency'])
             statement.update(account=account, accountLabel=metadata.get('label') or account.split(':')[-1])
             earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
             previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
@@ -402,6 +408,8 @@ class StatementTransaction(Transaction):
         statement, checklist = s['statement'], s['plan']['items']
         account = select_account(documents, self.root, statement.get('card_last4'), statement['account'])
         metadata = documents[self.root/'data/accounts.json']['accounts'][account]
+        currency = metadata['currency']
+        account_currency(statement, currency)
         label = metadata.get('label') or account.split(':')[-1]
         if any(i['needs_user'] and not i['decision'] for i in checklist):
             raise ValueError('There are undecided statement rows')
@@ -440,11 +448,11 @@ class StatementTransaction(Transaction):
                 else:
                     if decision:
                         amount=Decimal(row['amount'])*(1 if row['direction']=='Debit' else -1)
-                        posting=dict(account=decision['account'],amount=f'{amount:.2f}',commodity='INR')
+                        posting=dict(account=decision['account'],amount=f'{amount:.2f}',commodity=currency)
                         if row.get('foreignAmount'):
                             original=Decimal(row['foreignAmount'])*(1 if row['direction']=='Debit' else -1)
-                            posting.update(amount=f'{original:.2f}',commodity=row['foreignCurrency'],cost=dict(amount=row['amount'],commodity='INR',per='total'))
-                        postings=[posting,dict(account=account,amount=f'{-amount:.2f}',commodity='INR')]
+                            posting.update(amount=f'{original:.2f}',commodity=row['foreignCurrency'],cost=dict(amount=row['amount'],commodity=currency,per='total'))
+                        postings=[posting,dict(account=account,amount=f'{-amount:.2f}',commodity=currency)]
                     else:
                         postings=deepcopy(item['postings'])
                     if not postings:
@@ -457,7 +465,7 @@ class StatementTransaction(Transaction):
                 entry.setdefault('sources',[])
                 if source not in entry['sources']:
                     entry['sources'].append(source)
-                entry.setdefault('notes',[]).extend(['statement merchant: '+row['description'],f"statement charge: {row['amount']} INR ({row['direction']})"])
+                entry.setdefault('notes',[]).extend(['statement merchant: '+row['description'],f"statement charge: {row['amount']} {currency} ({row['direction']})"])
             # Re-sort all years after printed-date corrections; preserve IDs and
             # relocate a cross-year match rather than leaving it in the old file.
             actual = list(actuals.values())
@@ -481,7 +489,7 @@ class StatementTransaction(Transaction):
                 dump(path,document)
             for entry in new_entries:
                 added.append(add_entry(entry,root=self.root))
-            dump(reconciliation,{key:statement[key] for key in ('account','accountLabel','card_last4','periodStart','periodEnd','previousBalance','purchasesCharges','paymentsCredits','totalDue','rows')}|{'source':source})
+            dump(reconciliation,{key:statement[key] for key in ('account','accountLabel','currency','card_last4','periodStart','periodEnd','previousBalance','purchasesCharges','paymentsCredits','totalDue','rows')}|{'source':source})
             record['entry_ids']=changed+added
             append(self.root,record)
             result=dict(entry_ids=changed+added,changed=len(changed),added=len(added),converted=sum(i['rule']=='foreign_currency' and not i['decision'] for i in checklist),source=source,end=statement['periodEnd'],audit_id=record['id'])

@@ -1,31 +1,34 @@
+import {money as formatMoney} from './formatting';
 import { displayAccountLabel } from './account-labels';
 import { defaultAccount } from '../scripts/account-metadata.mjs';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { dashboard as data, type DashboardData } from './data';
-import { accountActivity, balanceAccounts, groups, isFund, marketValue, priceOn, valueSeries, type PriceSeries } from './account-balances';
+import { accountActivity, balanceAccounts, groups, isFund, marketValue, priceOn, valueSeries } from './account-balances';
 import { TransactionDetails, entryMenu, navigate } from './dashboard';
-import { EntryLink, Icon, PageHeader, announce, hasSelectedText, breakable, copyAndAnnounce, useColumnWidths, type MenuItem, PanelHeader, SearchField, dayLabel, dayShort, inr, inrWhole, money, plural, units, useContextMenu, useEscape, useQueryState, useRowNavigation } from './ui';
+import { EntryLink, Icon, PageHeader, announce, hasSelectedText, breakable, copyAndAnnounce, useColumnWidths, type MenuItem, PanelHeader, SearchField, dayLabel, dayShort, moneyWhole, money, moneyTotal, sumCurrencies, currencyOrder, plural, units, useContextMenu, useEscape, useQueryState, useRowNavigation } from './ui';
 
 type Transaction = DashboardData['transactions'][number];
 const short = displayAccountLabel;
 const GROUP_LABEL: Record<string, { total: string; note: string }> = {
-  Banks: { total: 'In bank accounts', note: 'INR' },
-  Prepaid: { total: 'In prepaid balances', note: 'INR' },
+  Banks: { total: 'In bank accounts', note: 'In each account’s currency' },
+  Prepaid: { total: 'In prepaid balances', note: 'In each account’s currency' },
   'Credit cards': { total: 'Owed on cards', note: 'Ledger balance, not the statement amount due' },
   Investments: { total: 'In investments', note: 'Mutual funds at market value, others at contributions' },
 };
 const PERIODS: Record<string, string> = { month: 'This month to date', '30': 'Last 30 days', all: 'All recorded history' };
 // The Investments heading in the account list opens every holding together.
 const PORTFOLIO = 'Investments';
-const NAV_FORMAT = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 4, maximumFractionDigits: 4 });
-const nav = (value: number) => NAV_FORMAT.format(value);
-const gain = (value: number) => `${value >= 0.005 ? '+' : ''}${inr(value)}`;
+const nav = (value: number, currency?: string) => money(value, currency, 4);
+const gain = (value: number, currency?: string) => `${value >= 0.005 ? '+' : ''}${money(value, currency)}`;
 const percent = (value: number, base: number) => base ? `${value >= 0 ? '+' : '−'}${Math.abs(value / base * 100).toFixed(2)}%` : '';
 
 type ValuePoint = { day: string; value: number; cost: number; navNote?: string };
 
 /** Market value against cost, with a crosshair and tooltip for the nearest NAV date. */
-function ValueChart({ points, label, caption }: { points: ValuePoint[]; label: string; caption: string }) {
+function ValueChart({ points, label, caption, currency, showCost = true }: { points: ValuePoint[]; label: string; caption: string; currency: string; showCost?: boolean }) {
+  const money = (value: number) => formatMoney(value, currency);
+  const moneyWhole = (value: number) => formatMoney(value, currency, 0);
+  const gain = (value: number) => `${value >= 0.005 ? '+' : ''}${formatMoney(value, currency)}`;
   const [keyboard, setKeyboard] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
   const selectedPoint = useRef(points.length - 1);
@@ -85,7 +88,7 @@ function ValueChart({ points, label, caption }: { points: ValuePoint[]; label: s
   }, [hover, points, revealRequest]);
   const first = points[0].day;
   const last = points.at(-1)!.day;
-  const values = points.flatMap((point) => [point.value, point.cost]);
+  const values = points.flatMap((point) => showCost ? [point.value, point.cost] : [point.value]);
   const low = Math.min(...values);
   const high = Math.max(...values);
   const time = (day: string) => new Date(`${day}T12:00:00Z`).getTime();
@@ -115,23 +118,23 @@ function ValueChart({ points, label, caption }: { points: ValuePoint[]; label: s
     setHover(selectedPoint.current);
     reveal();
   };
-  const readout = (point: (typeof points)[number]) => `${dayLabel(point.day)}. Market value ${inr(point.value)}. Cost ${inr(point.cost)}. Unrealised gain ${gain(point.value - point.cost)}.${point.navNote ? ` ${point.navNote}.` : ''}`;
+  const readout = (point: (typeof points)[number]) => `${dayLabel(point.day)}. Market value ${money(point.value)}. ${showCost ? `Cost ${money(point.cost)}. Unrealised gain ${gain(point.value - point.cost)}.` : 'Cost is recorded in another currency.'}${point.navNote ? ` ${point.navNote}.` : ''}`;
   const point = hover === null ? null : points[hover];
   const readoutContent = (item: ValuePoint) => <>
     <p className="chart-tooltip-title">{dayLabel(item.day)}</p>
     {item.navNote && <p className="chart-tooltip-nav">{item.navNote}</p>}
-    <p><svg width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: 'var(--series-focus)' }} strokeWidth="2" strokeLinecap="round"/></svg><strong>{inr(item.value)}</strong><span>Market value</span></p>
-    <p><svg width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: 'var(--series-compare)' }} strokeWidth="2" strokeDasharray="5 4"/></svg><strong>{inr(item.cost)}</strong><span>Cost</span></p>
-    <p><span/><strong>{gain(item.value - item.cost)}</strong><span>Unrealised</span></p>
+    <p><svg width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: 'var(--series-focus)' }} strokeWidth="2" strokeLinecap="round"/></svg><strong>{money(item.value)}</strong><span>Market value</span></p>
+    {showCost && <p><svg width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: 'var(--series-compare)' }} strokeWidth="2" strokeDasharray="5 4"/></svg><strong>{money(item.cost)}</strong><span>Cost</span></p>}
+    {showCost && <p><span/><strong>{gain(item.value - item.cost)}</strong><span>Unrealised</span></p>}
   </>;
   return <>
     <div className="account-chart-plot value-chart-plot">
     <p id={instructionsId} className="sr-only">Use Left and Right to move between NAV dates (Up and Down also work), Home and End for the first and last date. Click or tap to select the nearest date. Escape hides the tooltip and keeps focus and the selected date.</p>
-    <div className="account-chart-scale"><span>{inrWhole(high)}</span><span>{inrWhole(low)}</span></div>
+    <div className="account-chart-scale"><span>{moneyWhole(high)}</span><span>{moneyWhole(low)}</span></div>
     <div className="value-chart" data-keyboard={keyboard} ref={plot} onPointerUp={(event) => { if (event.pointerType !== 'mouse' && !matchMedia('(max-width: 760px)').matches) reveal(); }} onPointerCancel={() => setHover(null)} onPointerLeave={(event) => { if (event.pointerType === 'mouse' && document.activeElement !== control.current) setHover(null); }}>
       <svg viewBox="0 0 1000 160" preserveAspectRatio="none" role="group" aria-label={label}>
         <path d="M0 14H1000 M0 82H1000 M0 150H1000" className="chart-grid" vectorEffect="non-scaling-stroke"/>
-        <polyline points={costSteps.map((item) => `${x(item.day)},${y(item.cost)}`).join(' ')} fill="none" style={{ stroke: 'var(--series-compare)' }} strokeWidth="2" strokeDasharray="5 4" vectorEffect="non-scaling-stroke"/>
+        {showCost && <polyline points={costSteps.map((item) => `${x(item.day)},${y(item.cost)}`).join(' ')} fill="none" style={{ stroke: 'var(--series-compare)' }} strokeWidth="2" strokeDasharray="5 4" vectorEffect="non-scaling-stroke"/>}
         <polyline points={points.map((item) => `${x(item.day)},${y(item.value)}`).join(' ')} fill="none" style={{ stroke: 'var(--series-focus)' }} strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke"/>
         {point && <path d={`M${x(point.day)},4V156`} className="chart-crosshair" vectorEffect="non-scaling-stroke"/>}
         <rect ref={control} x="0" y="0" width="1000" height="160" fill="transparent" vectorEffect="non-scaling-stroke" tabIndex={0} className="chart-focus" role="slider"
@@ -148,7 +151,7 @@ function ValueChart({ points, label, caption }: { points: ValuePoint[]; label: s
           onFocus={() => { setHover(selectedPoint.current); if (!pointerFocus.current) { setKeyboard(true); reveal(); } }} onBlur={() => { setHover(null); setKeyboard(false); }} onKeyDown={keyPoint}/>
       </svg>
       {points.length === 1 && <>
-        <span className="value-chart-dot value-chart-single cost-point" style={{ left: `${x(first) / 10}%`, top: `${y(points[0].cost)}px` }} aria-hidden="true"/>
+        {showCost && <span className="value-chart-dot value-chart-single cost-point" style={{ left: `${x(first) / 10}%`, top: `${y(points[0].cost)}px` }} aria-hidden="true"/>}
         <span className="value-chart-dot value-chart-single" style={{ left: `${x(first) / 10}%`, top: `${y(points[0].value)}px` }} aria-hidden="true"/>
       </>}
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{point ? readout(point) : ''}</p>
@@ -166,13 +169,12 @@ function ValueChart({ points, label, caption }: { points: ValuePoint[]; label: s
 }
 
 export default function AccountSummary() {
-  const prices = new Map<string, PriceSeries>(data.prices.map((series) => [series.commodity, series]));
   const recorded = data.transactions.reduce((last, entry) => entry.date > last ? entry.date : last, '');
   // A NAV published after the last recorded entry still moves fund values, so the date can reach it.
   const latest = data.prices.reduce((last, series) => series.dates.at(-1)! > last ? series.dates.at(-1)! : last, recorded);
   const earliest = data.transactions.reduce((first, entry) => entry.date < first ? entry.date : first, latest);
   const [asOf, setAsOf] = useQueryState('asOf', latest, (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= earliest && value <= latest);
-  // The address names the account, adding its currency only when it isn't rupees.
+  // The address names the account, adding its currency when it differs from the default.
   const [accountParam, setAccountParam] = useQueryState('account', defaultAccount(data.meta.accounts));
   const [query, setQuery] = useQueryState('find', '');
   const [period, setPeriod] = useQueryState('period', 'month', (value) => value in PERIODS);
@@ -183,7 +185,7 @@ export default function AccountSummary() {
   const matches = accounts.filter((account) => account.account === paramAccount && (!paramCurrency || account.currency === paramCurrency));
   const selected = !portfolio && matches.length === 1 ? matches[0] : undefined;
   useEffect(() => {
-    if (selected && !paramCurrency && selected.currency !== 'INR') setAccountParam(`${selected.account}|${selected.currency}`, 'replace');
+    if (selected && !paramCurrency && selected.currency !== data.meta.ledger.defaultCurrency) setAccountParam(`${selected.account}|${selected.currency}`, 'replace');
   }, [selected?.account, selected?.currency, paramCurrency, setAccountParam]);
   const [contextExpanded, setContextExpanded] = useState(false);
   const holdingsScroll = useRef<HTMLDivElement>(null);
@@ -206,9 +208,12 @@ export default function AccountSummary() {
   // Fund units at the latest NAV on or before the date, against the cost of the units held.
   const holdings = accounts.filter((account) => isFund(account.currency)).map((account) => {
     const activity = accountActivity(data.transactions, account.account, account.currency, asOf);
-    const series = prices.get(account.currency);
+    const series = data.prices.find(item => item.commodity === account.currency && item.currency === data.meta.accounts[account.account]?.currency) || data.prices.find(item => item.commodity === account.currency);
     const price = priceOn(series, asOf);
-    return { account, activity, prices: series, price, value: price ? marketValue(account.balance, price.nav) : 0, cost: activity.at(-1)?.cost || 0 };
+    const costCurrency = data.meta.accounts[account.account]?.currency || data.meta.ledger.defaultCurrency;
+    const currency = series?.currency || costCurrency;
+    const costs = activity.at(-1)?.costs || {};
+    return { account, activity, prices: series, price, currency, costCurrency, costs, value: price ? marketValue(account.balance, price.nav) : 0, cost: costs[currency] || 0 };
   });
   const holding = holdings.find((item) => item.account.key === selected?.key);
   const valueOf = (account: (typeof accounts)[number]) => holdings.find((item) => item.account.key === account.key)?.value ?? account.balance;
@@ -261,7 +266,7 @@ export default function AccountSummary() {
   const selectedEntry = rows.find((row) => row.entry.id === selectedId)?.entry as Transaction | undefined;
 
   const accountId = useCallback((account: { key: string }) => account.key, []);
-  const chooseAccount = useCallback((account: { account: string; currency: string }, mode: 'push' | 'replace' = 'push') => { setAccountParam(account.currency === 'INR' ? account.account : `${account.account}|${account.currency}`, mode); setSelectedId('', 'replace'); }, [setAccountParam, setSelectedId]);
+  const chooseAccount = useCallback((account: { account: string; currency: string }, mode: 'push' | 'replace' = 'push') => { setAccountParam(account.currency === data.meta.ledger.defaultCurrency ? account.account : `${account.account}|${account.currency}`, mode); setSelectedId('', 'replace'); }, [setAccountParam, setSelectedId]);
   const accountNav = useRowNavigation(listed, accountId, selected?.key || null, chooseAccount, 0, (account) => short(account.account));
   const accountMenu = (account: (typeof accounts)[number]): MenuItem[] => [
     { label: 'Show Activity', action: () => { chooseAccount(account); accountNav.focusRow(account.key); } },
@@ -281,11 +286,17 @@ export default function AccountSummary() {
   useEscape(!!selectedEntry, close);
 
   // Funds first, then the accounts valued at what's been paid in.
-  const investments = accounts.filter((account) => account.group === 'Investments' && (account.currency === 'INR' || isFund(account.currency)))
+  const investments = accounts.filter((account) => account.group === 'Investments')
     .sort((a, b) => Number(isFund(b.currency)) - Number(isFund(a.currency)));
-  const fundValue = holdings.reduce((sum, item) => sum + item.value, 0);
-  const fundCost = holdings.reduce((sum, item) => sum + item.cost, 0);
-  const contributions = investments.filter((account) => !isFund(account.currency)).reduce((sum, account) => sum + account.balance, 0);
+  const fundValue = sumCurrencies(holdings, (item: typeof holdings[number]) => item.value);
+  const fundCost: Record<string, number> = {};
+  for (const item of holdings) for (const [currency, cost] of Object.entries(item.costs)) fundCost[currency] = (fundCost[currency] || 0) + cost;
+  const contributions = sumCurrencies(investments.filter(account => !isFund(account.currency)), (account: typeof accounts[number]) => account.balance);
+  const combined = (...maps: Record<string, number>[]) => maps.reduce((sum, map) => { for (const [code, value] of Object.entries(map)) sum[code] = (sum[code] || 0) + value; return sum; }, {});
+  const gainTotals = sumCurrencies(holdings.filter(item => Object.keys(item.costs).every(code => code === item.currency)), (item: typeof holdings[number]) => item.value - item.cost);
+  const investmentTotals = combined(fundValue, contributions);
+  const valueCurrency = (account: typeof accounts[number]) => holdings.find(item => item.account.key === account.key)?.currency || account.currency;
+  const netWorth = sumCurrencies(accounts, (account: typeof accounts[number]) => valueOf(account), (account: typeof accounts[number]) => valueCurrency(account));
   useLayoutEffect(() => {
     const changedAccount = previousAccount.current !== accountParam;
     previousAccount.current = accountParam;
@@ -304,8 +315,8 @@ export default function AccountSummary() {
   useEffect(() => {
     if (announceDate.current !== asOf) return;
     announceDate.current = null;
-    const balance = portfolio ? `Investments ${inr(fundValue + contributions)}`
-      : selected ? `${short(selected.account)} ${holding ? 'market value' : 'balance'} ${holding ? inr(holding.value) : money(shown(selected.balance), selected.currency)}`
+    const balance = portfolio ? `Investments ${moneyTotal(investmentTotals)}`
+      : selected ? `${short(selected.account)} ${holding ? 'market value' : 'balance'} ${holding ? money(holding.value, holding.currency) : money(shown(selected.balance), selected.currency)}`
       : 'Account not found';
     announce(`Balances as of ${dayLabel(asOf)}; ${balance}.`);
   }, [asOf, portfolio, selected, holding, fundValue, contributions]);
@@ -318,17 +329,17 @@ export default function AccountSummary() {
   };
   const accountHref = (account: (typeof accounts)[number]) => {
     const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
-    params.set('account', account.currency === 'INR' ? account.account : `${account.account}|${account.currency}`);
+    params.set('account', account.currency === data.meta.ledger.defaultCurrency ? account.account : `${account.account}|${account.currency}`);
     params.delete('entry');
     return `?${params}`;
   };
   const periodSelect = <label className="compact-field"><span>Period</span><select className="field" value={period} onChange={(event) => { setPeriod(event.target.value); setSelectedId(''); }}>{Object.entries(PERIODS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>;
   const legend = <span className="value-chart-legend"><span><svg width="30" height="8" aria-hidden="true"><path d="M1 4H29" className="value-key"/></svg>Market value</span><span><svg width="30" height="8" aria-hidden="true"><path d="M1 4H29" className="cost-key" strokeDasharray="5 4"/></svg>Cost</span></span>;
-  const series = (items: typeof holdings): ValuePoint[] => valueSeries(items, start < earliest ? earliest : start, asOf).map(point => {
+  const series = (items: typeof holdings): ValuePoint[] => valueSeries(items.map(item => ({...item, activity: item.activity.map(row => ({...row, cost: row.costs[item.currency] || 0}))})), start < earliest ? earliest : start, asOf).map(point => {
     const carriedDates = [...new Set(items.filter(item => item.activity.some(row => row.date <= point.day && row.balance !== 0)).map(item => priceOn(item.prices, point.day)?.date).filter((date): date is string => !!date && date !== point.day))];
     return { ...point, navNote: carriedDates.length ? `NAV of ${carriedDates.map(dayLabel).join(' and ')} (carried forward)` : undefined };
   });
-  const describe = (name: string, items: { day: string; value: number; cost: number }[]) => `${name} from ${dayLabel(items[0].day)} to ${dayLabel(items.at(-1)!.day)}: market value ${inr(items[0].value)} to ${inr(items.at(-1)!.value)}, against a cost of ${inr(items.at(-1)!.cost)}.`;
+  const describe = (name: string, items: { day: string; value: number; cost: number }[], currency: string, showCost = true) => `${name} from ${dayLabel(items[0].day)} to ${dayLabel(items.at(-1)!.day)}: market value ${money(items[0].value, currency)} to ${money(items.at(-1)!.value, currency)}, ${showCost ? `against the cost recorded in ${currency}, ${money(items.at(-1)!.cost, currency)}.` : 'Cost remains in its recorded currency.'}`;
   const navNote = (price: { date: string } | null) => price ? `NAV of ${dayLabel(price.date)}` : 'No NAV yet';
 
   // The account list is already a column, so entry details float over the page instead of adding a third.
@@ -345,16 +356,17 @@ export default function AccountSummary() {
       {asOf !== latest && <button type="button" className="button" onClick={() => { changeDate(latest); }}>Latest</button>}
     </PageHeader>
     <button type="button" className="button plain accounts-context-toggle" aria-expanded={contextExpanded} aria-controls="account-totals account-context" onClick={() => setContextExpanded(value => !value)}>{contextExpanded ? 'Less account context' : 'More account context'}<Icon name="chevron-up-down"/></button>
+    <section className="panel"><PanelHeader title="Net worth"><span className="summary-total">{moneyTotal(netWorth)}</span></PanelHeader></section>
     <section className="metrics" id="account-totals" aria-label="Totals by kind of account">{['Banks', 'Prepaid', 'Credit cards', 'Investments'].map((group) => {
-      const members = accounts.filter((account) => account.group === group && (account.currency === 'INR' || isFund(account.currency)));
-      const total = members.reduce((sum, account) => sum + valueOf(account), 0) * (group === 'Credit cards' ? -1 : 1);
+      const members = accounts.filter((account) => account.group === group);
+      const total = sumCurrencies(members, (account: typeof accounts[number]) => valueOf(account) * (group === 'Credit cards' ? -1 : 1), (account: typeof accounts[number]) => valueCurrency(account));
       const note = group === 'Investments' && !holdings.length ? 'Contributions since the ledger began, not market value' : GROUP_LABEL[group].note;
-      return <div className="metric" key={group} data-selected={portfolio && group === PORTFOLIO}><p className="metric-label">{group === 'Credit cards' && total < 0 ? 'Credit on cards' : GROUP_LABEL[group].total}</p><p className="metric-value">{money(group === 'Credit cards' ? Math.abs(total) : total)}</p><p className="metric-note" title={note}>{plural(members.length, 'account')} · {note}</p></div>;
+      return <div className="metric" key={group} data-selected={portfolio && group === PORTFOLIO}><p className="metric-label">{group === 'Credit cards' && Object.values(total).every(value => (value as number) < 0) ? 'Credit on cards' : GROUP_LABEL[group].total}</p><p className="metric-value">{moneyTotal(total)}</p><p className="metric-note" title={note}>{plural(members.length, 'account')} · {note}</p></div>;
     })}</section>
-    <label className="compact-field accounts-picker"><span>Account</span><select className="field" aria-label="Choose account" value={portfolio ? PORTFOLIO : selected ? (selected.currency === 'INR' ? selected.account : `${selected.account}|${selected.currency}`) : ''} onChange={(event) => { setAccountParam(event.target.value); setSelectedId('', 'replace'); }}>
+    <label className="compact-field accounts-picker"><span>Account</span><select className="field" aria-label="Choose account" value={portfolio ? PORTFOLIO : selected ? (selected.currency === data.meta.ledger.defaultCurrency ? selected.account : `${selected.account}|${selected.currency}`) : ''} onChange={(event) => { setAccountParam(event.target.value); setSelectedId('', 'replace'); }}>
       {!portfolio && !selected && <option value="" disabled>Account not found</option>}
       <option value={PORTFOLIO}>Investments · portfolio</option>
-      {groups.map(group => <optgroup key={group} label={group}>{accounts.filter(account => account.group === group).map(account => <option key={account.key} value={account.currency === 'INR' ? account.account : `${account.account}|${account.currency}`}>{short(account.account)}{account.currency !== 'INR' && !isFund(account.currency) ? ` (${account.currency})` : ''}</option>)}</optgroup>)}
+      {groups.map(group => <optgroup key={group} label={group}>{accounts.filter(account => account.group === group).map(account => <option key={account.key} value={account.currency === data.meta.ledger.defaultCurrency ? account.account : `${account.account}|${account.currency}`}>{short(account.account)}{account.currency !== data.meta.ledger.defaultCurrency && !isFund(account.currency) ? ` (${account.currency})` : ''}</option>)}</optgroup>)}
     </select></label>
     <div className="accounts-workspace">
       <nav className="panel account-list" id="account-context" aria-label="Accounts">
@@ -365,11 +377,11 @@ export default function AccountSummary() {
             ? <h3><button type="button" className="account-group-open" aria-current={portfolio ? 'true' : undefined} title="Show every investment together" onClick={() => { setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}><span>{group}<Icon name="chevron-right"/></span><span>{members.length}</span></button></h3>
             : <h3>{group}<span>{members.length}</span></h3>}{members.map((account) => {
             const fund = holdings.find((item) => item.account.key === account.key);
-            const amount = fund ? inr(fund.value) : money(group === 'Credit cards' ? Math.abs(account.balance) : account.balance, account.currency);
+            const amount = fund ? money(fund.value, fund.currency) : money(group === 'Credit cards' ? Math.abs(account.balance) : account.balance, account.currency);
             return <button key={account.key} type="button" className="account-row" {...accountNav.rowProps(account)} aria-current={account.key === selected?.key ? 'true' : undefined} onClick={() => chooseAccount(account)}
             data-copy={[short(account.account), amount].join('\t')}
             onContextMenu={(event) => menu.open(event, accountMenu(account), event.currentTarget)} onKeyDownCapture={(event) => { if (menu.keyOpens(event)) menu.open(event, accountMenu(account), event.currentTarget); }}>
-            <span title={account.account}>{short(account.account)}{account.currency !== 'INR' && !fund && <span className="row-sub">{account.currency}</span>}</span>
+            <span title={account.account}>{short(account.account)}{account.currency !== data.meta.ledger.defaultCurrency && !fund && <span className="row-sub">{account.currency}</span>}</span>
             <span className="num">{amount}{fund && <span className="row-sub">{units(account.balance)} units</span>}{group === 'Credit cards' && <span className="row-sub">{account.balance <= 0 ? 'Owed' : 'In credit'}</span>}</span>
           </button>;
           })}</section> : null;
@@ -378,20 +390,20 @@ export default function AccountSummary() {
       {!portfolio && !selected && <section className="panel account-not-found"><PanelHeader title={matches.length > 1 ? 'Choose an account currency' : 'Account not found'}/><div className="empty"><p>{matches.length > 1 ? 'This account has more than one commodity. Choose the account and currency from the list.' : <>No account matches <code>{breakable(accountParam)}</code> on {dayLabel(asOf)}. Choose another account or a later date.</>}</p><button type="button" className="button" onClick={() => { focusDrill.current = true; setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}>Back to Investments</button></div></section>}
       {portfolio && <div className="stack">
         <section className="panel">
-          <PanelHeader title="Investments" headingRef={selectionHeading} meta="Mutual funds at market value; other investments at what's been paid in since the ledger began"><span className="summary-total">{inr(fundValue + contributions)}</span></PanelHeader>
+          <PanelHeader title="Investments" headingRef={selectionHeading} meta="Mutual funds at market value; other investments at what's been paid in since the ledger began"><span className="summary-total">{moneyTotal(investmentTotals)}</span></PanelHeader>
           <dl className="fund-stats">
-            <div><dt>Mutual funds</dt><dd>{inr(fundValue)}<span className="row-sub">{plural(holdings.length, 'fund')} at market value</span></dd></div>
-            <div><dt>Fund cost</dt><dd>{inr(fundCost)}<span className="row-sub">Of the units held</span></dd></div>
-            <div><dt>Unrealised gain</dt><dd>{gain(fundValue - fundCost)}<span className="row-sub">{percent(fundValue - fundCost, fundCost)} over cost</span></dd></div>
-            <div><dt>Other investments</dt><dd>{inr(contributions)}<span className="row-sub">Contributions</span></dd></div>
+            <div><dt>Mutual funds</dt><dd>{moneyTotal(fundValue)}<span className="row-sub">{plural(holdings.length, 'fund')} at market value</span></dd></div>
+            <div><dt>Fund cost</dt><dd>{moneyTotal(fundCost)}<span className="row-sub">Of the units held</span></dd></div>
+            <div><dt>Unrealised gain</dt><dd>{holdings.every(item => Object.keys(item.costs).every(code => code === item.currency)) ? moneyTotal(gainTotals) : 'Different cost currencies'}<span className="row-sub">{'Per currency'} over cost</span></dd></div>
+            <div><dt>Other investments</dt><dd>{moneyTotal(contributions)}<span className="row-sub">Contributions</span></dd></div>
           </dl>
-          {holdings.length ? (() => { const items = series(holdings); return <div className="account-chart">
-            <div className="account-chart-head"><h3>Mutual funds over time</h3>{legend}{periodSelect}</div>
-            <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} label={describe('All mutual funds', items)} caption="Units at the latest available NAV on each date, against the cost of the units held"/>
-          </div>; })() : null}
+          {holdings.length ? currencyOrder(holdings.map(item => item.currency)).map(currency => { const items = series(holdings.filter(item => item.currency === currency)); return <div className="account-chart" key={currency}>
+            <div className="account-chart-head"><h3>Mutual funds over time · {currency}</h3>{legend}{periodSelect}</div>
+            <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} showCost={holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency))} currency={currency} label={describe('All mutual funds', items, currency, holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency)))} caption="Units at the latest available NAV on each date, against the cost of the units held"/>
+          </div>; }) : null}
         </section>
         <section className="panel">
-          <PanelHeader title="Holdings" meta={`As of ${dayLabel(asOf)} · NAVs from AMFI`}/>
+          <PanelHeader title="Holdings" meta={`As of ${dayLabel(asOf)} · Latest recorded prices`}/>
           <p className="panel-note holdings-scroll-hint">Scroll across to compare units, NAV, cost, value and gain. Account names stay in view.</p>
           <div ref={holdingsScroll} className="table-scroll holdings-scroll" onScroll={(event) => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollLeft > 1); }} tabIndex={0} role="region" aria-label="Investment holdings"><table className="data-table holdings-table" role="table">
             <thead><tr><th>Account</th><th className="th-num">Units</th><th className="th-num">NAV</th><th className="th-num">Cost</th><th className="th-num">Value</th><th className="th-num">Gain</th></tr></thead>
@@ -406,28 +418,28 @@ export default function AccountSummary() {
                   event.preventDefault(); if (!hasSelectedText(event)) drillInto(account);
                 }}><span className="row-title">{short(account.account)}</span><span className="row-sub">{fund ? navNote(fund.price) : 'At contributions'}</span></a></td>
                 <td className="num" data-label="Units">{fund ? units(account.balance) : ''}</td>
-                <td className="num" data-label="NAV">{fund?.price ? nav(fund.price.nav) : ''}</td>
-                <td className="num" data-label="Cost">{inr(fund ? fund.cost : account.balance)}</td>
-                <td className="num" data-label="Value">{inr(fund ? fund.value : account.balance)}</td>
-                <td className="num" data-label="Gain">{fund ? <>{gain(fund.value - fund.cost)}<span className="row-sub">{percent(fund.value - fund.cost, fund.cost)}</span></> : ''}</td>
+                <td className="num" data-label="NAV">{fund?.price ? nav(fund.price.nav, fund.currency) : ''}</td>
+                <td className="num" data-label="Cost">{fund ? moneyTotal(fund.costs) : money(account.balance, account.currency)}</td>
+                <td className="num" data-label="Value">{money(fund ? fund.value : account.balance, fund?.currency || account.currency)}</td>
+                <td className="num" data-label="Gain">{fund ? <>{Object.keys(fund.costs).every(code => code === fund.currency) ? gain(fund.value - fund.cost, fund.currency) : 'Different cost currency'}<span className="row-sub">{Object.keys(fund.costs).every(code => code === fund.currency) ? percent(fund.value - fund.cost, fund.cost) : ''}</span></> : ''}</td>
               </tr>;
             })}</tbody>
-            <tfoot><tr><td>Total</td><td/><td/><td className="num">{inr(fundCost + contributions)}</td><td className="num">{inr(fundValue + contributions)}</td><td className="num">{holdings.length ? gain(fundValue - fundCost) : ''}</td></tr></tfoot>
+            <tfoot><tr><td>Total</td><td/><td/><td className="num">{moneyTotal(combined(fundCost, contributions))}</td><td className="num">{moneyTotal(investmentTotals)}</td><td className="num">{holdings.length ? moneyTotal(gainTotals) : ''}</td></tr></tfoot>
           </table></div>
         </section>
       </div>}
       {selected && <div className="stack">
         <section className="panel">
-          <PanelHeader title={short(selected.account)} headingRef={selectionHeading} meta={<>{holding ? 'Mutual fund' : selected.group} · <code>{breakable(selected.account)}</code></>}><span className={holding ? 'fund-headline-group' : undefined}>{holding && <span className="summary-total-label">Market value</span>}<span className={`summary-total${holding ? ' fund-headline' : ''}`}>{holding ? inr(holding.value) : money(card ? Math.abs(selected.balance) : selected.balance, selected.currency)}</span></span></PanelHeader>
+          <PanelHeader title={short(selected.account)} headingRef={selectionHeading} meta={<>{holding ? 'Mutual fund' : selected.group} · <code>{breakable(selected.account)}</code></>}><span className={holding ? 'fund-headline-group' : undefined}>{holding && <span className="summary-total-label">Market value</span>}<span className={`summary-total${holding ? ' fund-headline' : ''}`}>{holding ? money(holding.value, holding.currency) : money(card ? Math.abs(selected.balance) : selected.balance, selected.currency)}</span></span></PanelHeader>
           {holding && <dl className="fund-stats">
             <div><dt>Units</dt><dd>{units(selected.balance)}</dd></div>
-            <div><dt>NAV</dt><dd>{holding.price ? nav(holding.price.nav) : '—'}<span className="row-sub">{holding.price ? dayLabel(holding.price.date) : 'No NAV yet'}</span></dd></div>
-            <div><dt>Cost</dt><dd>{inr(holding.cost)}<span className="row-sub">{selected.balance ? `${nav(holding.cost / selected.balance)} a unit` : ''}</span></dd></div>
-            <div><dt>Unrealised gain</dt><dd>{gain(holding.value - holding.cost)}<span className="row-sub">{percent(holding.value - holding.cost, holding.cost)} over cost</span></dd></div>
+            <div><dt>NAV</dt><dd>{holding.price ? nav(holding.price.nav, holding.currency) : '—'}<span className="row-sub">{holding.price ? dayLabel(holding.price.date) : 'No NAV yet'}</span></dd></div>
+            <div><dt>Cost</dt><dd>{moneyTotal(holding.costs)}<span className="row-sub">{selected.balance ? `${moneyTotal(Object.fromEntries(Object.entries(holding.costs).map(([code, value]) => [code, value / selected.balance])), 4)} a unit` : ''}</span></dd></div>
+            <div><dt>Unrealised gain</dt><dd>{Object.keys(holding.costs).every(code => code === holding.currency) ? gain(holding.value - holding.cost, holding.currency) : 'Different cost currency'}<span className="row-sub">{Object.keys(holding.costs).every(code => code === holding.currency) ? percent(holding.value - holding.cost, holding.cost) : ''} over cost</span></dd></div>
           </dl>}
           {holding ? (() => { const items = series([holding]); return <div className="account-chart">
             <div className="account-chart-head"><h3>Market value over time</h3>{legend}{periodSelect}</div>
-            <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} label={describe(short(selected.account), items)} caption="Units held at the latest available NAV on each date"/>
+            <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} showCost={Object.keys(holding.costs).every(code => code === holding.currency)} currency={holding.currency} label={describe(short(selected.account), items, holding.currency, Object.keys(holding.costs).every(code => code === holding.currency))} caption="Units held at the latest available NAV on each date"/>
           </div>; })() : <div className="account-chart">
             <div className="account-chart-head"><h3>{card ? (selected.balance <= 0 ? 'Owed' : 'In credit') : selected.group === 'Investments' ? 'Contributions' : 'Balance'} over time</h3>
               {periodSelect}</div>
@@ -458,8 +470,8 @@ export default function AccountSummary() {
                 onKeyDown={(event) => { if (menu.keyOpens(event)) menu.open(event, entryMenu(row.entry as Transaction, () => setSelectedId(row.entry.id), 'journal', row.entry.date.slice(0, 7)), event.currentTarget.closest('tr')); }}><span className="row-title">{row.entry.description}</span><span className="row-sub">{row.entry.status === 'Pending' ? 'Unclassified' : 'Cleared'}</span></EntryLink></td>
               {holding ? <>
                 <td className={`num${row.change > 0 ? ' credit' : ''}`} data-label="Units">{row.change > 0 ? '+' : ''}{units(row.change)}</td>
-                <td className="num" data-label="Cost per unit">{row.change ? nav(Math.abs(row.costChange / row.change)) : ''}</td>
-                <td className="num" data-label="Cost">{inr(row.costChange)}</td>
+                <td className="num" data-label="Cost per unit">{row.change ? moneyTotal(Object.fromEntries(Object.entries(row.costChanges).map(([code, value]) => [code, Math.abs(value / row.change)])), 4) : ''}</td>
+                <td className="num" data-label="Cost">{moneyTotal(row.costChanges)}</td>
                 <td className="num activity-balance" data-label="Units held">{units(row.balance)}</td>
               </> : <>
                 <td className="num credit" data-label={card ? 'Paid' : 'In'}>{row.change > 0 ? money(row.change, selected.currency) : ''}</td>

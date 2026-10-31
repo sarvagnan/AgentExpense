@@ -1,6 +1,6 @@
 # AgentExpense
 
-AgentExpense is an expense ledger application with a dashboard, evidence-backed drafts, statement reconciliation and an audit trail. A restricted Codex agent proposes entries; the server validates and applies them. JSON is the source of truth and hledger checks the generated journal. The current application uses INR, with fuel, investments and an example card statement reader. Draft dates follow the browser's local save time; timestamps display in the viewer's zone.
+AgentExpense is an expense ledger application with a dashboard, evidence-backed drafts, statement reconciliation and an audit trail. A restricted Codex agent proposes entries; the server validates and applies them. JSON is the source of truth and hledger checks the generated journal. Accounts retain their own currencies; totals and charts keep currencies separate. Fuel, investments and an example card statement reader are built in. Draft dates follow the browser's local save time; timestamps display in the viewer's zone.
 
 The built-in [card statement reader](scripts/statements/README.md) uses a documented fictional layout.
 
@@ -25,7 +25,7 @@ npm --prefix review-dashboard run build
 python3 -m unittest discover -s scripts/tests -v
 ```
 
-`fixtures/ledgers/jordan/` demonstrates a USD ledger with opening balances and no optional files; `fixtures/ledgers/empty/` is a fresh ledger. Run `make personas` to verify, build and test every fixture. Currency formatting and account shortcuts still use the existing dashboard behavior in this release.
+`fixtures/ledgers/jordan/` demonstrates USD spending, an opening-only EUR travel account and an EUR dinner charged in USD. `fixtures/ledgers/sam/` demonstrates a move from GBP to EUR in July; `fixtures/ledgers/empty/` is a fresh ledger. Run `make personas` to verify, build and test every fixture. See [Account currencies](docs/CURRENCIES.md) for formatting, separate totals and currency-change commands.
 
 `make dashboard` installs the pinned npm dependencies when needed, generates dashboard data and builds static views. Server tests use disposable repositories and a fake agent; they run no model. Browser suites are separate and are not part of the commands above. See [dashboard documentation](review-dashboard/README.md) and [server documentation](review-dashboard/server/README.md).
 

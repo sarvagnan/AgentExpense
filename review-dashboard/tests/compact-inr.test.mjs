@@ -5,7 +5,8 @@ import { createTestServer } from './test-isolation.mjs';
 
 const server = await createTestServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
-const { compactInr } = await server.ssrLoadModule('/app/ui.tsx');
+const { compactMoney: compactInr, setMoneySettings } = await server.ssrLoadModule('/app/formatting.ts');
+setMoneySettings({locale:'en-IN', defaultCurrency:'INR'});
 
 test('negative compact amounts use a true minus before the rupee sign', () => {
   for (const [value, expected] of [[-740, '−₹740'], [-7914.77, '−₹8K'], [-150000, '−₹1.5L']]) {

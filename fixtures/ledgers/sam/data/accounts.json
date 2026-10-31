@@ -1,0 +1,55 @@
+{
+  "commodities": [
+    "GBP",
+    "EUR"
+  ],
+  "accounts": {
+    "Assets:Bank:Bramble Current": {
+      "kind": "bank",
+      "currency": "GBP",
+      "label": "Bramble Current",
+      "aliases": [
+        "bramble current"
+      ]
+    },
+    "Liabilities:Credit Cards:Bramble Card": {
+      "kind": "card",
+      "currency": "GBP",
+      "label": "Bramble Card",
+      "aliases": [
+        "bramble card"
+      ],
+      "statement": {
+        "reader": "example-card-pdf",
+        "identifier": "6201"
+      }
+    },
+    "Assets:Bank:Birken Current": {
+      "kind": "bank",
+      "currency": "EUR",
+      "label": "Birken Current",
+      "aliases": [
+        "birken current"
+      ]
+    },
+    "Liabilities:Credit Cards:Birken Card": {
+      "kind": "card",
+      "currency": "EUR",
+      "label": "Birken Card",
+      "aliases": [
+        "birken card"
+      ],
+      "statement": {
+        "reader": "example-card-pdf",
+        "identifier": "6202"
+      }
+    },
+    "Equity:Opening Balances": {},
+    "Income:Salary": {},
+    "Expenses:Home:Rent": {},
+    "Expenses:Food:Groceries": {},
+    "Expenses:Travel:Transit": {},
+    "Expenses:Other:Books": {},
+    "Expenses:Uncategorized": {}
+  }
+}

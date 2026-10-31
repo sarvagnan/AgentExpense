@@ -28,7 +28,7 @@ export function buildPatterns(transactions, metadata = {}) {
     if (pay) st.pays.set(pay.account, (st.pays.get(pay.account) || 0) + 1);
     if (expense) st.expenses.set(expense.account, (st.expenses.get(expense.account) || 0) + 1);
     st.names.set(entry.description, (st.names.get(entry.description) || 0) + 1);
-    st.last.push({date:entry.date, description:entry.description, amount:pay ? String(Math.abs(pay.amount)) : '', ...(entry['fuel-filled-litres'] ? {litres:entry['fuel-filled-litres']} : {})});
+    st.last.push({date:entry.date, description:entry.description, currency:pay ? metadata[pay.account]?.currency || pay.currency : null, amount:pay ? String(Math.abs(pay.amount)) : '', ...(entry['fuel-filled-litres'] ? {litres:entry['fuel-filled-litres']} : {})});
   }
   for (const st of Object.values(patterns)) {
     [st.usualPay, st.usualShare] = top(st.pays); [st.usualExpense] = top(st.expenses);

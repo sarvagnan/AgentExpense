@@ -1,4 +1,5 @@
 import { setCurrentAccounts } from '../scripts/account-metadata.mjs';
+import { setMoneySettings } from './formatting';
 import { setDateLocale } from './date-time';
 // Ledger data is fetched at runtime from public/data/*.json.gz, outside the JS bundle.
 import type { DashboardData, ReviewData, FuelData } from './data-types';
@@ -16,6 +17,7 @@ export function setData(next: { dashboard: DashboardData; review: ReviewData; fu
   ({ dashboard, review, fuel } = next);
   setCurrentAccounts(dashboard.meta?.accounts);
   setDateLocale(dashboard.meta?.ledger?.locale);
+  setMoneySettings(dashboard.meta?.ledger);
   version++;
   listeners.forEach(listener => listener());
 }

@@ -109,7 +109,19 @@ class LifecycleTests(Fixture):
         for kind in ('exit', 'timeout', 'noanswer', 'invalid'):
             with self.subTest(kind=kind):
                 self.set_answers({'kind': kind})
-                with self.client(timeout=.15) as client:
+                # Gate/login/probe use the ordinary generous fixture deadline.
+                # The agent timeout itself is triggered only after the fake process
+                # has recorded its invocation and reached its explicit sync point.
+                def synchronized_communicate(process, timeout):
+                    if kind != 'timeout' or json.loads(self.config.read_text())['steps'][0].get('kind') != 'timeout':
+                        return process.communicate()
+                    while True:
+                        line = process.stdout.readline()
+                        if line.strip() == 'FAKE_TIMEOUT_READY':
+                            raise subprocess.TimeoutExpired(process.args, timeout)
+                        if not line:
+                            self.fail('Fake agent exited before its timeout synchronization point')
+                with patch('agent.communicate', side_effect=synchronized_communicate), self.client(timeout=20) as client:
                     identity = self.create(client)
                     self.save(client, identity)
                     draft = self.wait(client, identity, 'failed')

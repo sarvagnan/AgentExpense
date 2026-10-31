@@ -56,6 +56,15 @@ class UnsentAnswer(BaseModel):
     answer: str = Field(max_length=100_000)
 
 
+class CurrencyChange(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    currency: str = Field(pattern=r'^[A-Z]{3}$')
+
+
+class AccountCurrencyChange(CurrencyChange):
+    account: str = Field(min_length=1)
+
+
 def sniff(data):
     try:
         with Image.open(io.BytesIO(data)) as image:
@@ -174,6 +183,22 @@ def create_app(settings=None, *, start_worker=True):
     def health():
         return {'ok': True, 'base_path': settings.base_path, 'worker': bool(worker.thread and worker.thread.is_alive()),
                 'agent': gate.status()}
+
+    @app.post('/api/settings/default-currency')
+    def default_currency(body: CurrencyChange):
+        from currency_settings import update_currency
+        try:
+            return update_currency(settings, body.currency)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/accounts/currency')
+    def account_currency_change(body: AccountCurrencyChange):
+        from currency_settings import update_currency
+        try:
+            return update_currency(settings, body.currency, body.account)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post('/api/drafts', status_code=201)
     def create(body: Edit | None = None):
@@ -398,7 +423,7 @@ def create_app(settings=None, *, start_worker=True):
             rows,_=extract_rows(settings.ledger,end,summary['account'])
         from store import entries
         members = {e.get('serial-number'): e for e in entries(load(settings.ledger)) if e.get('statement-end') == end and any(p['account'] == summary['account'] for p in e['postings'])}
-        return dict(summary=summary, rows=[{**r, 'entry_id': members[r['serial']]['id'], 'entry_description': members[r['serial']]['description'], 'conversion_notes': [n for n in members[r['serial']].get('notes', []) if 'replaces' in n and 'INR' in n]} if r['serial'] in members else r for r in rows])
+        return dict(summary=summary, rows=[{**r, 'entry_id': members[r['serial']]['id'], 'entry_description': members[r['serial']]['description'], 'conversion_notes': [n for n in members[r['serial']].get('notes', []) if 'replaces' in n and 'statement charge:' in n]} if r['serial'] in members else r for r in rows])
 
     @app.post('/api/statements',status_code=201)
     def create_statement(file: UploadFile=File(...), upload_id: str=Form(''),

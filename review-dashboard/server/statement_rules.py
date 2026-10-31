@@ -12,12 +12,12 @@ def normal(value):
     return re.sub(r'[^a-z0-9]+', ' ', value.casefold()).strip()
 
 
-def foreign(entry):
+def foreign(entry, currency):
     if entry.get('original-amount'):
         return entry['original-amount']
     totals = {}
     for p in entry['postings']:
-        if p['commodity'] != 'INR' and p.get('cost', {}).get('commodity') == 'INR':
+        if p['commodity'] != currency and p.get('cost', {}).get('commodity') == currency:
             totals[p['commodity']] = totals.get(p['commodity'], Decimal(0)) + Decimal(p['amount'])
     if len(totals) == 1:
         commodity, amount = next(iter(totals.items()))
@@ -30,9 +30,10 @@ def distance(entry, row):
 
 
 def scaled_postings(entry, row, account):
-    """Copy the known posting proportions, refusing complex/non-INR precedents."""
+    """Copy the known posting proportions, refusing complex or foreign-currency precedents."""
+    currency = next(p['commodity'] for p in entry['postings'] if p['account'] == account)
     old = card_amount(entry, account)
-    if not old or any(p['commodity'] != 'INR' or p.get('cost') or p.get('assert') or p.get('date') for p in entry['postings']):
+    if not old or any(p['commodity'] != currency or p.get('cost') or p.get('assert') or p.get('date') for p in entry['postings']):
         return None
     total = Decimal(row['amount']) * (-1 if row['direction'] == 'Debit' else 1)
     result = []
@@ -41,12 +42,13 @@ def scaled_postings(entry, row, account):
     for i, p in enumerate(noncard):
         amount = -total - allocated if i == len(noncard)-1 else (Decimal(p['amount']) * total / old).quantize(Decimal('.01'))
         allocated += amount
-        result.append(dict(account=p['account'], amount=f'{amount:.2f}', commodity='INR'))
-    return result + [dict(account=account, amount=f'{total:.2f}', commodity='INR')]
+        result.append(dict(account=p['account'], amount=f'{amount:.2f}', commodity=currency))
+    return result + [dict(account=account, amount=f'{total:.2f}', commodity=currency)]
 
 
 def plan(documents, statement, root):
     account = select_account(documents, root, statement.get('card_last4'), statement.get('account'))
+    currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
     rows = statement['rows']
     report = reconcile(documents, rows, end=statement['periodEnd'], start=statement['periodStart'], total_due=statement['totalDue'], root=root, account=account)
     actual = entries(documents)
@@ -67,17 +69,17 @@ def plan(documents, statement, root):
         bucket = buckets[row['serial']]
         if bucket.get('entryId'):
             if not bucket.get('warnings'):
-                settle(row, 'serial', 'The serial and signed INR amount match this entry.', by_id[bucket['entryId']])
-    # Reserve original-currency matches before the provisional INR can look like
+                settle(row, 'serial', 'The serial and signed account-currency amount match this entry.', by_id[bucket['entryId']])
+    # Reserve original-currency matches before the provisional amount can look like
     # an unrelated purchase with a similar provisional amount.
     for row in rows:
         if row['serial'] in decisions or not row.get('foreignAmount'):
             continue
         candidates = [e for e in available if e['id'] not in used and distance(e, row) <= 3 and
-                      (f := foreign(e)) and f['commodity'] == row['foreignCurrency'] and Decimal(f['amount']) == Decimal(row['foreignAmount']) and
+                      (f := foreign(e, currency)) and f['commodity'] == row['foreignCurrency'] and Decimal(f['amount']) == Decimal(row['foreignAmount']) and
                       card_amount(e, account) is not None and (card_amount(e, account) < 0) == (row['direction'] == 'Debit')]
         if len(candidates) == 1:
-            settle(row, 'foreign_currency', f"Same {row['foreignAmount']} {row['foreignCurrency']}; the billed INR replaces the provisional amount.", candidates[0])
+            settle(row, 'foreign_currency', f"Same {row['foreignAmount']} {row['foreignCurrency']}; the billed {currency} replaces the provisional amount.", candidates[0])
     for row in rows:
         if row['serial'] in decisions:
             continue
@@ -130,20 +132,21 @@ def plan(documents, statement, root):
 
 
 def convert(entry, row, account):
+    currency = next(p['commodity'] for p in entry['postings'] if p['account'] == account)
     old = card_amount(entry, account)
-    original = foreign(entry)
+    original = foreign(entry, currency)
     if original is None:
         raise ValueError('Original currency is missing')
     foreign_posts = [p for p in entry['postings'] if p['commodity'] == row['foreignCurrency']]
     if sum((Decimal(p['amount']) for p in foreign_posts), Decimal(0)) != Decimal(row['foreignAmount']):
         raise ValueError('Foreign allocation changed since review')
     if len(foreign_posts) == 1:
-        foreign_posts[0]['cost'] = dict(amount=row['amount'], commodity='INR', per='total')
+        foreign_posts[0]['cost'] = dict(amount=row['amount'], commodity=currency, per='total')
     else:
         rate = Decimal(row['amount']) / Decimal(row['foreignAmount'])
         for p in foreign_posts:
-            p['cost'] = dict(amount=f'{rate:.10f}', commodity='INR', per='unit')
+            p['cost'] = dict(amount=f'{rate:.10f}', commodity=currency, per='unit')
     for p in entry['postings']:
         if p['account'] == account:
             p['amount'] = '-' + row['amount'] if row['direction'] == 'Debit' else row['amount']
-    entry.setdefault('notes', []).append(f"statement charge: {row['amount']} INR for {row['foreignAmount']} {row['foreignCurrency']}; replaces {abs(old):.2f} INR prior card posting")
+    entry.setdefault('notes', []).append(f"statement charge: {row['amount']} {currency} for {row['foreignAmount']} {row['foreignCurrency']}; replaces {abs(old):.2f} {currency} prior card posting")

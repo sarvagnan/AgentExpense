@@ -1,0 +1,2833 @@
+[
+  {
+    "id": "0000000000000001",
+    "date": "2026-02-01",
+    "status": "confirmed",
+    "description": "Opening balance — Bramble Current",
+    "postings": [
+      {"account": "Assets:Bank:Bramble Current", "amount": "14045.25", "commodity": "GBP", "assert": {"amount": "14045.25", "commodity": "GBP"}},
+      {"account": "Equity:Opening Balances", "amount": "-14045.25", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000002",
+    "date": "2026-02-01",
+    "status": "confirmed",
+    "description": "Opening balance — Bramble Card",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "0.00", "commodity": "GBP", "assert": {"amount": "0.00", "commodity": "GBP"}},
+      {"account": "Equity:Opening Balances", "amount": "0.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000003",
+    "date": "2026-02-03",
+    "status": "confirmed",
+    "description": "Bramble House Rent",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1100.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-1100.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000004",
+    "date": "2026-02-04",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "54.29", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-54.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000005",
+    "date": "2026-02-04",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.33", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.33", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000006",
+    "date": "2026-02-04",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000007",
+    "date": "2026-02-05",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "54.29", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-54.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000008",
+    "date": "2026-02-05",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.33", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.33", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000009",
+    "date": "2026-02-05",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000000a",
+    "date": "2026-02-06",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "54.29", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-54.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000000b",
+    "date": "2026-02-06",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.33", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.33", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000000c",
+    "date": "2026-02-06",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000000d",
+    "date": "2026-02-07",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "54.29", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-54.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000000e",
+    "date": "2026-02-07",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.33", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.33", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000000f",
+    "date": "2026-02-07",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000010",
+    "date": "2026-02-08",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "54.29", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-54.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000011",
+    "date": "2026-02-08",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.33", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.33", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000012",
+    "date": "2026-02-08",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000013",
+    "date": "2026-02-09",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "54.29", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-54.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000014",
+    "date": "2026-02-09",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.35", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.35", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000015",
+    "date": "2026-02-09",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.65", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-11.65", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000016",
+    "date": "2026-02-10",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-02/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "54.26", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-54.26", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000017",
+    "date": "2026-02-28",
+    "status": "confirmed",
+    "description": "Bramble Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "267.87", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-267.87", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000018",
+    "date": "2026-03-03",
+    "status": "confirmed",
+    "description": "Bramble House Rent",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1180.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-1180.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000019",
+    "date": "2026-03-04",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "55.71", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-55.71", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000001a",
+    "date": "2026-03-04",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000001b",
+    "date": "2026-03-04",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000001c",
+    "date": "2026-03-05",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "55.71", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-55.71", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000001d",
+    "date": "2026-03-05",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000001e",
+    "date": "2026-03-05",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000001f",
+    "date": "2026-03-06",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "55.71", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-55.71", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000020",
+    "date": "2026-03-06",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000021",
+    "date": "2026-03-06",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000022",
+    "date": "2026-03-07",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "55.71", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-55.71", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000023",
+    "date": "2026-03-07",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000024",
+    "date": "2026-03-07",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000025",
+    "date": "2026-03-08",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "55.71", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-55.71", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000026",
+    "date": "2026-03-08",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000027",
+    "date": "2026-03-08",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000028",
+    "date": "2026-03-09",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "55.71", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-55.71", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000029",
+    "date": "2026-03-09",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.65", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.65", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000002a",
+    "date": "2026-03-09",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000002b",
+    "date": "2026-03-10",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-03/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "55.74", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-55.74", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000002c",
+    "date": "2026-03-31",
+    "status": "confirmed",
+    "description": "Bramble Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "274.12", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-274.12", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000002d",
+    "date": "2026-04-03",
+    "status": "confirmed",
+    "description": "Bramble House Rent",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1180.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-1180.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000002e",
+    "date": "2026-04-04",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "50.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-50.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000002f",
+    "date": "2026-04-04",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000030",
+    "date": "2026-04-04",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000031",
+    "date": "2026-04-05",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "50.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-50.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000032",
+    "date": "2026-04-05",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000033",
+    "date": "2026-04-05",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000034",
+    "date": "2026-04-06",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "50.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-50.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000035",
+    "date": "2026-04-06",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000036",
+    "date": "2026-04-06",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000037",
+    "date": "2026-04-07",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "50.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-50.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000038",
+    "date": "2026-04-07",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000039",
+    "date": "2026-04-07",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000003a",
+    "date": "2026-04-08",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "50.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-50.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000003b",
+    "date": "2026-04-08",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-23.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000003c",
+    "date": "2026-04-08",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-11.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000003d",
+    "date": "2026-04-09",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "50.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-50.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000003e",
+    "date": "2026-04-09",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "23.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-23.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000003f",
+    "date": "2026-04-09",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "11.65", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-11.65", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000040",
+    "date": "2026-04-10",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-04/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "50.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-50.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000041",
+    "date": "2026-04-30",
+    "status": "confirmed",
+    "description": "Bramble Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "253.99", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-253.99", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000042",
+    "date": "2026-05-03",
+    "status": "confirmed",
+    "description": "Bramble House Rent",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1180.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-1180.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000043",
+    "date": "2026-05-04",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "58.57", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-58.57", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000044",
+    "date": "2026-05-04",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "24.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-24.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000045",
+    "date": "2026-05-04",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000046",
+    "date": "2026-05-05",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "58.57", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-58.57", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000047",
+    "date": "2026-05-05",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "24.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-24.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000048",
+    "date": "2026-05-05",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000049",
+    "date": "2026-05-06",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "58.57", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-58.57", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000004a",
+    "date": "2026-05-06",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "24.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-24.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000004b",
+    "date": "2026-05-06",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000004c",
+    "date": "2026-05-07",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "58.57", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-58.57", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000004d",
+    "date": "2026-05-07",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "24.67", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-24.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000004e",
+    "date": "2026-05-07",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000004f",
+    "date": "2026-05-08",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "58.57", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-58.57", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000050",
+    "date": "2026-05-08",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "24.67", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-24.67", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000051",
+    "date": "2026-05-08",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000052",
+    "date": "2026-05-09",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "58.57", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-58.57", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000053",
+    "date": "2026-05-09",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "24.65", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-24.65", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000054",
+    "date": "2026-05-09",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "12.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-12.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000055",
+    "date": "2026-05-10",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-05/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "58.58", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-58.58", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000056",
+    "date": "2026-05-31",
+    "status": "confirmed",
+    "description": "Bramble Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "285.70", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-285.70", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000057",
+    "date": "2026-06-03",
+    "status": "confirmed",
+    "description": "Bramble House Rent",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1180.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-1180.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000058",
+    "date": "2026-06-04",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "42.24", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-42.24", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000059",
+    "date": "2026-06-04",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.14", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-17.14", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000005a",
+    "date": "2026-06-04",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.29", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-10.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000005b",
+    "date": "2026-06-05",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "42.24", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-42.24", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000005c",
+    "date": "2026-06-05",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.14", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-17.14", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000005d",
+    "date": "2026-06-05",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.29", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-10.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000005e",
+    "date": "2026-06-06",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "42.24", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-42.24", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000005f",
+    "date": "2026-06-06",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.14", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-17.14", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000060",
+    "date": "2026-06-06",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.29", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-10.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000061",
+    "date": "2026-06-07",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "42.24", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-42.24", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000062",
+    "date": "2026-06-07",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.14", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-17.14", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000063",
+    "date": "2026-06-07",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.29", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-10.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000064",
+    "date": "2026-06-08",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "42.24", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-42.24", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000065",
+    "date": "2026-06-08",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.14", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-17.14", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000066",
+    "date": "2026-06-08",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.29", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-10.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000067",
+    "date": "2026-06-09",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "42.24", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-42.24", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000068",
+    "date": "2026-06-09",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.14", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-17.14", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000069",
+    "date": "2026-06-09",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.29", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-10.29", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000006a",
+    "date": "2026-06-10",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "42.26", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-42.26", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000006b",
+    "date": "2026-06-10",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.16", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-17.16", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000006c",
+    "date": "2026-06-10",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.26", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-10.26", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000006d",
+    "date": "2026-06-15",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "74.30", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-74.30", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000006e",
+    "date": "2026-06-21",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "19.20", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-19.20", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000006f",
+    "date": "2026-06-24",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "36.40", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-36.40", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000070",
+    "date": "2026-06-28",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-06/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "48.60", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-48.60", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000071",
+    "date": "2026-06-30",
+    "status": "confirmed",
+    "description": "Bramble Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "313.21", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-313.21", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000072",
+    "date": "2026-07-03",
+    "status": "confirmed",
+    "description": "Bramble House Rent",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "590.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-590.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000073",
+    "date": "2026-07-04",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "26.80", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-26.80", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000074",
+    "date": "2026-07-04",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "19.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-19.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000075",
+    "date": "2026-07-04",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-10.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000076",
+    "date": "2026-07-05",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "26.80", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-26.80", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000077",
+    "date": "2026-07-05",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "19.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-19.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000078",
+    "date": "2026-07-05",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-10.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000079",
+    "date": "2026-07-06",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "26.80", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-26.80", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000007a",
+    "date": "2026-07-06",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "19.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-19.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000007b",
+    "date": "2026-07-06",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-10.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000007c",
+    "date": "2026-07-07",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "26.80", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-26.80", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000007d",
+    "date": "2026-07-07",
+    "status": "confirmed",
+    "description": "Silver Reed Rail",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "19.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-19.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000007e",
+    "date": "2026-07-07",
+    "status": "confirmed",
+    "description": "Pebble House Books",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "10.00", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-10.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "000000000000007f",
+    "date": "2026-07-08",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "26.80", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-26.80", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000080",
+    "date": "2026-07-14",
+    "status": "confirmed",
+    "description": "Thistle Pantry",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "52.40", "commodity": "GBP"},
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "-52.40", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000081",
+    "date": "2026-07-15",
+    "status": "confirmed",
+    "description": "Bramble Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Bramble Card", "amount": "164.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-164.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "0000000000000082",
+    "date": "2026-07-17",
+    "status": "confirmed",
+    "description": "Opening balance — Birken Current",
+    "postings": [
+      {"account": "Assets:Bank:Birken Current", "amount": "12779.80", "commodity": "EUR", "assert": {"amount": "12779.80", "commodity": "EUR"}},
+      {"account": "Equity:Opening Balances", "amount": "-12779.80", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000083",
+    "date": "2026-07-17",
+    "status": "confirmed",
+    "description": "Opening balance — Birken Card",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "0.00", "commodity": "EUR", "assert": {"amount": "0.00", "commodity": "EUR"}},
+      {"account": "Equity:Opening Balances", "amount": "0.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000084",
+    "date": "2026-07-17",
+    "status": "confirmed",
+    "description": "Move money to Germany",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Assets:Bank:Birken Current", "amount": "1160.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-1000.00", "commodity": "GBP", "cost": {"amount": "1160.00", "commodity": "EUR", "per": "total"}}
+    ]
+  },
+  {
+    "id": "0000000000000085",
+    "date": "2026-07-18",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "42.80", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-42.80", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000086",
+    "date": "2026-07-19",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "40.08", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-40.08", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000087",
+    "date": "2026-07-19",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.40", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-17.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000088",
+    "date": "2026-07-19",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "16.90", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-16.90", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000089",
+    "date": "2026-07-20",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "40.08", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-40.08", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000008a",
+    "date": "2026-07-20",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.40", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-17.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000008b",
+    "date": "2026-07-20",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "16.90", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-16.90", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000008c",
+    "date": "2026-07-21",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "40.08", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-40.08", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000008d",
+    "date": "2026-07-21",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.40", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-17.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000008e",
+    "date": "2026-07-21",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "16.90", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-16.90", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000008f",
+    "date": "2026-07-22",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "40.08", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-40.08", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000090",
+    "date": "2026-07-22",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "17.40", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-17.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000091",
+    "date": "2026-07-22",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "16.90", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-16.90", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000092",
+    "date": "2026-07-23",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "40.08", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-40.08", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000093",
+    "date": "2026-07-24",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.20", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-68.20", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000094",
+    "date": "2026-07-29",
+    "status": "confirmed",
+    "description": "Birch Courtyard Rent",
+    "sources": [
+      "Bills/2026-07/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "820.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-820.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000095",
+    "date": "2026-07-31",
+    "status": "confirmed",
+    "description": "Birken Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "259.76", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-259.76", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000096",
+    "date": "2026-08-03",
+    "status": "confirmed",
+    "description": "Birch Courtyard Rent",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1320.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-1320.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000097",
+    "date": "2026-08-04",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000098",
+    "date": "2026-08-04",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000099",
+    "date": "2026-08-04",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000009a",
+    "date": "2026-08-05",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000009b",
+    "date": "2026-08-05",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000009c",
+    "date": "2026-08-05",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000009d",
+    "date": "2026-08-06",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000009e",
+    "date": "2026-08-06",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "000000000000009f",
+    "date": "2026-08-06",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a0",
+    "date": "2026-08-07",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a1",
+    "date": "2026-08-07",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a2",
+    "date": "2026-08-07",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a3",
+    "date": "2026-08-08",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a4",
+    "date": "2026-08-08",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a5",
+    "date": "2026-08-08",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a6",
+    "date": "2026-08-09",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "73.80", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-73.80", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a7",
+    "date": "2026-08-09",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a8",
+    "date": "2026-08-09",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000a9",
+    "date": "2026-08-09",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000aa",
+    "date": "2026-08-10",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000ab",
+    "date": "2026-08-10",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000ac",
+    "date": "2026-08-10",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000ad",
+    "date": "2026-08-11",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "37.65", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-37.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000ae",
+    "date": "2026-08-11",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "16.75", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-16.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000af",
+    "date": "2026-08-11",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "7.50", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-7.50", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b0",
+    "date": "2026-08-18",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "42.60", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-42.60", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b1",
+    "date": "2026-08-25",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "38.40", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-38.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b2",
+    "date": "2026-08-30",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-08/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "64.80", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-64.80", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b3",
+    "date": "2026-08-31",
+    "status": "confirmed",
+    "description": "Birken Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "393.40", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-393.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b4",
+    "date": "2026-09-03",
+    "status": "confirmed",
+    "description": "Birch Courtyard Rent",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1320.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-1320.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b5",
+    "date": "2026-09-04",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "59.14", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-59.14", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b6",
+    "date": "2026-09-04",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "26.40", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-26.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b7",
+    "date": "2026-09-04",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "15.67", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-15.67", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b8",
+    "date": "2026-09-05",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "59.14", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-59.14", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000b9",
+    "date": "2026-09-05",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "26.40", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-26.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000ba",
+    "date": "2026-09-05",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "15.67", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-15.67", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000bb",
+    "date": "2026-09-06",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "59.14", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-59.14", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000bc",
+    "date": "2026-09-06",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "26.40", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-26.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000bd",
+    "date": "2026-09-06",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "15.67", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-15.67", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000be",
+    "date": "2026-09-07",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "59.14", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-59.14", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000bf",
+    "date": "2026-09-07",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "26.40", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-26.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c0",
+    "date": "2026-09-07",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "15.67", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-15.67", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c1",
+    "date": "2026-09-08",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "59.14", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-59.14", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c2",
+    "date": "2026-09-08",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "26.40", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-26.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c3",
+    "date": "2026-09-08",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "15.67", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-15.67", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c4",
+    "date": "2026-09-09",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "59.14", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-59.14", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c5",
+    "date": "2026-09-09",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "26.40", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-26.40", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c6",
+    "date": "2026-09-09",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "15.65", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-15.65", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c7",
+    "date": "2026-09-10",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-09/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "59.16", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-59.16", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c8",
+    "date": "2026-09-30",
+    "status": "confirmed",
+    "description": "Birken Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "303.61", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-303.61", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000c9",
+    "date": "2026-10-03",
+    "status": "confirmed",
+    "description": "Birch Courtyard Rent",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1320.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-1320.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000ca",
+    "date": "2026-10-04",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.31", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-68.31", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000cb",
+    "date": "2026-10-04",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "31.07", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-31.07", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000cc",
+    "date": "2026-10-04",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "17.77", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-17.77", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000cd",
+    "date": "2026-10-05",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.31", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-68.31", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000ce",
+    "date": "2026-10-05",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "31.07", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-31.07", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000cf",
+    "date": "2026-10-05",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "17.77", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-17.77", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d0",
+    "date": "2026-10-06",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.31", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-68.31", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d1",
+    "date": "2026-10-06",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "31.07", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-31.07", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d2",
+    "date": "2026-10-06",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "17.77", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-17.77", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d3",
+    "date": "2026-10-07",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.31", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-68.31", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d4",
+    "date": "2026-10-07",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "31.07", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-31.07", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d5",
+    "date": "2026-10-07",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "17.77", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-17.77", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d6",
+    "date": "2026-10-08",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.31", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-68.31", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d7",
+    "date": "2026-10-08",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "31.07", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-31.07", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d8",
+    "date": "2026-10-08",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "17.77", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-17.77", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000d9",
+    "date": "2026-10-09",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.31", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-68.31", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000da",
+    "date": "2026-10-09",
+    "status": "confirmed",
+    "description": "Linden Loop Transit",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Travel:Transit", "amount": "31.05", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-31.05", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000db",
+    "date": "2026-10-09",
+    "status": "confirmed",
+    "description": "Amber Spoke Repair",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Other:Books", "amount": "17.75", "commodity": "EUR"},
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "-17.75", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000dc",
+    "date": "2026-10-10",
+    "status": "confirmed",
+    "description": "Moss Lantern Market",
+    "sources": [
+      "Bills/2026-10/fictional-notes.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Groceries", "amount": "68.34", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-68.34", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000dd",
+    "date": "2026-10-31",
+    "status": "confirmed",
+    "description": "Birken Card payment",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Birken Card", "amount": "65.01", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-65.01", "commodity": "EUR"}
+    ]
+  }
+]

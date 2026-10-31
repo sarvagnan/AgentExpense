@@ -43,9 +43,10 @@ export function toTransaction(entry, accounts = {}) {
     postings: entry.postings.map((posting) => {
       const quantity = decimalNumber(posting.amount);
       const result = { account: compact(posting.account), amount: quantity, currency: posting.commodity };
-      // Fund units carry their INR cost, signed like the units; other costs were not published.
-      if (accounts[result.account]?.kind === 'investment' && posting.cost?.commodity === 'INR') {
+      // Costs retain their quote currency, signed like the posting quantity.
+      if (posting.cost) {
         const value = decimalNumber(posting.cost.amount);
+        result.costCurrency = posting.cost.commodity;
         result.cost = Number((Math.sign(quantity) * Math.abs(posting.cost.per === 'total' ? value : value * quantity)).toFixed(2));
       }
       return result;
@@ -56,12 +57,12 @@ export function toTransaction(entry, accounts = {}) {
 export function parsePrices(text) {
   const priceMap = new Map();
   for (const line of text.split(/\r?\n/).filter((line) => line.trim() && !/^\s*;/.test(line))) {
-    const match = line.match(/^P (\d{4}-\d{2}-\d{2}) "?([^" ]+)"? (\d+(?:\.\d+)?) INR$/);
+    const match = line.match(/^P (\d{4}-\d{2}-\d{2}) "?([^" ]+)"? (\d+(?:\.\d+)?) ([A-Z]{3})$/);
     if (!match) throw new Error(`Unexpected price line: ${line}`);
-    const series = priceMap.get(match[2]) || { commodity: match[2], dates: [], navs: [] };
+    const series = priceMap.get(`${match[2]}\0${match[4]}`) || { commodity: match[2], currency: match[4], dates: [], navs: [] };
     series.dates.push(match[1]);
     series.navs.push(Number(match[3]));
-    priceMap.set(match[2], series);
+    priceMap.set(`${match[2]}\0${match[4]}`, series);
   }
   const prices = [...priceMap.values()].sort((a, b) => a.commodity.localeCompare(b.commodity));
   for (const series of prices) {

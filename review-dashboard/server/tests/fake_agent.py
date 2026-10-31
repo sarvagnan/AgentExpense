@@ -115,6 +115,7 @@ kind = step.get('kind', 'answer')
 if kind == 'exit':
     sys.exit(7)
 if kind == 'timeout':
+    print('FAKE_TIMEOUT_READY', flush=True)
     time.sleep(30)
 if kind == 'noanswer':
     sys.exit(0)
