@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "3e51a632-6a71-46a8-9ec7-70f570463abc",
+  "name": "New ledger",
+  "defaultCurrency": "USD",
+  "locale": "en-US",
+  "startDate": "2026-10-01",
+  "modules": {
+    "fuel": false,
+    "investments": {
+      "prices": null
+    },
+    "history": {
+      "oldLedger": null
+    },
+    "weeklyReview": false
+  },
+  "review": {
+    "storageKey": null
+  }
+}

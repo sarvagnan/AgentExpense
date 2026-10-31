@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from project_paths import APPLICATION_ROOT, ledger_root
-from ledger_lock import ledger_lock
+from ledger_lock import ledger_lock, LOCK_FD_ENV
 
 
 def jj(root, *args):
@@ -17,8 +17,11 @@ def jj(root, *args):
 def commit(root, message):
     if not message.strip():
         raise ValueError('usage: make commit m="what changed, and on what evidence"')
-    with ledger_lock(root):
-        subprocess.run(['make', 'verify'], cwd=APPLICATION_ROOT, check=True)
+    from ledger_manifest import read_manifest
+    read_manifest(root)
+    with ledger_lock(root) as lock_fd:
+        subprocess.run(['make', 'verify'], cwd=APPLICATION_ROOT, check=True,
+                       env={**os.environ, LOCK_FD_ENV: str(lock_fd)}, pass_fds=(lock_fd,))
         jj(root, 'status')  # snapshot before recording the operation to restore
         operation = jj(root, 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id')
         try:

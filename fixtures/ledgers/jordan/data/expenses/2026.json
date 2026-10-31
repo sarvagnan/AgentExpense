@@ -1,0 +1,237 @@
+[
+  {
+    "id": "0000000000000001",
+    "date": "2026-10-01",
+    "status": "confirmed",
+    "description": "Opening balance",
+    "postings": [
+      {"account": "Assets:Bank:Alder Checking", "amount": "2400.00", "commodity": "USD", "assert": {"amount": "2400.00", "commodity": "USD"}},
+      {"account": "Equity:Opening Balances", "amount": "-2400.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000002",
+    "date": "2026-10-01",
+    "status": "confirmed",
+    "description": "Opening balance",
+    "postings": [
+      {"account": "Assets:Bank:Meadow Savings", "amount": "3500.00", "commodity": "USD", "assert": {"amount": "3500.00", "commodity": "USD"}},
+      {"account": "Equity:Opening Balances", "amount": "-3500.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000003",
+    "date": "2026-10-01",
+    "status": "confirmed",
+    "description": "Opening balance",
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-125.00", "commodity": "USD", "assert": {"amount": "-125.00", "commodity": "USD"}},
+      {"account": "Equity:Opening Balances", "amount": "125.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000004",
+    "date": "2026-10-01",
+    "status": "confirmed",
+    "description": "Opening balance",
+    "postings": [
+      {"account": "Assets:Cash", "amount": "80.00", "commodity": "USD", "assert": {"amount": "80.00", "commodity": "USD"}},
+      {"account": "Equity:Opening Balances", "amount": "-80.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000005",
+    "date": "2026-10-02",
+    "status": "confirmed",
+    "description": "Clover Pantry groceries",
+    "sources": [
+      "Bills/2026-10-02/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "48.25", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-48.25", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000006",
+    "date": "2026-10-03",
+    "status": "confirmed",
+    "description": "Cedar Kitchen lunch",
+    "sources": [
+      "Bills/2026-10-03/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining", "amount": "16.50", "commodity": "USD"},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-16.50", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000007",
+    "date": "2026-10-04",
+    "status": "confirmed",
+    "description": "Town shuttle",
+    "sources": [
+      "Bills/2026-10-04/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Transport", "amount": "5.00", "commodity": "USD"},
+      {"account": "Assets:Cash", "amount": "-5.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000008",
+    "date": "2026-10-05",
+    "status": "confirmed",
+    "description": "October rent",
+    "sources": [
+      "Bills/2026-10-05/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Housing:Rent", "amount": "800.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-800.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000009",
+    "date": "2026-10-06",
+    "status": "confirmed",
+    "description": "Weekend vegetables",
+    "sources": [
+      "Bills/2026-10-06/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "12.00", "commodity": "USD"},
+      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "000000000000000a",
+    "date": "2026-10-07",
+    "status": "confirmed",
+    "description": "Cedar Kitchen tea",
+    "sources": [
+      "Bills/2026-10-07/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining", "amount": "4.25", "commodity": "USD"},
+      {"account": "Assets:Cash", "amount": "-4.25", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "000000000000000b",
+    "date": "2026-10-09",
+    "status": "confirmed",
+    "description": "Clover Pantry staples",
+    "sources": [
+      "Bills/2026-10-09/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "37.80", "commodity": "USD"},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-37.80", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "000000000000000c",
+    "date": "2026-10-11",
+    "status": "confirmed",
+    "description": "Town shuttle pass",
+    "sources": [
+      "Bills/2026-10-11/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Transport", "amount": "25.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-25.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "000000000000000d",
+    "date": "2026-10-13",
+    "status": "confirmed",
+    "description": "Cedar Kitchen dinner",
+    "sources": [
+      "Bills/2026-10-13/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining", "amount": "28.00", "commodity": "USD"},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-28.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "000000000000000e",
+    "date": "2026-10-15",
+    "status": "confirmed",
+    "description": "Clover Pantry fruit",
+    "sources": [
+      "Bills/2026-10-15/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "19.45", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-19.45", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "000000000000000f",
+    "date": "2026-10-17",
+    "status": "confirmed",
+    "description": "Town shuttle",
+    "sources": [
+      "Bills/2026-10-17/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Transport", "amount": "5.00", "commodity": "USD"},
+      {"account": "Assets:Cash", "amount": "-5.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000010",
+    "date": "2026-10-19",
+    "status": "confirmed",
+    "description": "Cedar Kitchen lunch",
+    "sources": [
+      "Bills/2026-10-19/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining", "amount": "15.00", "commodity": "USD"},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-15.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000011",
+    "date": "2026-10-22",
+    "status": "confirmed",
+    "description": "Clover Pantry groceries",
+    "sources": [
+      "Bills/2026-10-22/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "52.10", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-52.10", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000012",
+    "date": "2026-10-25",
+    "status": "confirmed",
+    "description": "Cedar Kitchen tea",
+    "sources": [
+      "Bills/2026-10-25/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining", "amount": "3.50", "commodity": "USD"},
+      {"account": "Assets:Cash", "amount": "-3.50", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000013",
+    "date": "2026-10-29",
+    "status": "confirmed",
+    "description": "Clover Pantry bread",
+    "sources": [
+      "Bills/2026-10-29/confirmation.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "8.25", "commodity": "USD"},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-8.25", "commodity": "USD"}
+    ]
+  }
+]

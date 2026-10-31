@@ -26,6 +26,8 @@ class AuditTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='expense-audit-')
         self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
+        from store import dump
+        dump(self.root/'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
 
     def add(self,line):
         with ledger_lock(self.root): append(self.root,line)
@@ -142,7 +144,7 @@ class AuditTests(unittest.TestCase):
     def test_check_store_rejects_bad_log_but_warns_about_missing_entry(self):
         from store import dump
         from check_store import check
-        dump(self.root/'data/accounts.json',{'commodities':['INR'],'accounts':[]})
+        dump(self.root/'data/accounts.json',{'commodities':['INR'],'accounts':{}})
         dump(self.root/'data/expenses/2026.json',[])
         dump(self.root/'data/forecast.json',[])
         dump(self.root/'data/card-statements.json',[])

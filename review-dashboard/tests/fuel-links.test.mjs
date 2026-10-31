@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { fuelLedgerEntry } from '../app/fuel-links.ts';
-const dashboard = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
-const log = JSON.parse(await readFile(new URL('../app/data/fuel-log.json', import.meta.url)));
+import { personaData } from './persona-data.mjs';
+const { dashboard, fuel: log } = await personaData('asha');
 test('Every linked fuel-log row has one explicitly confirmed ledger association and physical readings', () => {
   const ids = log.entries.filter(row => row.ledgerStatus === 'Linked').map(row => row.entryId);
   assert.equal(new Set(ids).size, ids.length);

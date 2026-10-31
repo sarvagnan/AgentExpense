@@ -10,7 +10,7 @@
       "litres": 4,
       "tripKm": 100,
       "cost": 840,
-      "payment": "Savings Account"
+      "payment": "Saffron Reserve"
     },
     {
       "id": "linked",
@@ -20,7 +20,7 @@
       "litres": 8,
       "tripKm": 240,
       "cost": 840,
-      "payment": "Savings Account"
+      "payment": "Saffron Reserve"
     }
   ]
 }

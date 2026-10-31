@@ -450,7 +450,7 @@ class StatementTransaction(Transaction):
                     documents[path]=sorted((e for e in actual if e['date'][:4]==year),key=lambda e:e['date'])
             declared=documents[self.root/'data/accounts.json']
             if any(p['account']=='Expenses:Uncategorized' for e in new_entries for p in e['postings']):
-                declared['accounts']=sorted(set(declared['accounts'])|{'Expenses:Uncategorized'})
+                declared['accounts'].setdefault('Expenses:Uncategorized', {})
             used_ids={e['id'] for items in documents.values() if isinstance(items,list) for e in items if 'id' in e}
             summary=dict(id=new_id(used_ids),account=CARD,start=statement['periodStart'],end=statement['periodEnd'],source=source,
                          **{'previous-balance':statement['previousBalance'],'purchases':statement['purchasesCharges'],'credits':statement['paymentsCredits'],'total-due':statement['totalDue'],'rows':len(statement['rows'])})

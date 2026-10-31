@@ -4,19 +4,19 @@ AgentExpense is an expense ledger application with a dashboard, evidence-backed 
 
 The built-in [card statement reader](scripts/statements/README.md) uses a documented fictional layout.
 
-This is early development. Setup by a coding agent comes in a later release.
+This is early development. Setup by a coding agent comes in a later release; see the [roadmap](docs/ROADMAP.md).
 
 ## Application and ledger
 
-Keep the application and personal ledger in two separate repositories. The default ledger directory is `ledger/`, which the application ignores. Set `LEDGER_DIR` to choose another directory; relative paths resolve from the caller's working directory. Use an absolute path across commands that change directories. Ledger Python CLIs also accept `--root`. Schemas belong to the application in `schema/`.
+Keep the application and personal ledger in two separate repositories. The default ledger directory is `ledger/`, which the application ignores. Set `LEDGER_DIR` to choose another directory; relative paths resolve from the caller's working directory. Use an absolute path across commands that change directories. Ledger Python CLIs also accept `--root`. Schemas belong to the application in `schema/`. Ledgers use format 1: `ledger.json` holds settings and `data/accounts.json` holds ordered account metadata. An older ledger stops with an upgrade instruction; see [ledger migrations](migrations/README.md).
 
 ## Fictional example and checks
 
-Install Python 3.11+, uv, Node.js 22.13+ and hledger on PATH. Every value in `examples/asha/` is invented. From the application root:
+Install Python 3.11+, uv, Node.js 22.13+ and hledger on PATH. Every value in `fixtures/ledgers/asha/` is invented. From the application root:
 
 ```sh
 export PYTHONDONTWRITEBYTECODE=1
-export LEDGER_DIR="$PWD/examples/asha"
+export LEDGER_DIR="$PWD/fixtures/ledgers/asha"
 make verify
 make dashboard
 make test-server
@@ -24,6 +24,8 @@ npm --prefix review-dashboard test
 npm --prefix review-dashboard run build
 python3 -m unittest discover -s scripts/tests -v
 ```
+
+`fixtures/ledgers/jordan/` demonstrates a USD ledger with opening balances and no optional files; `fixtures/ledgers/empty/` is a fresh ledger. Run `make personas` to verify, build and test every fixture. Currency formatting and account shortcuts still use the existing dashboard behavior in this release.
 
 `make dashboard` installs the pinned npm dependencies when needed, generates dashboard data and builds static views. Server tests use disposable repositories and a fake agent; they run no model. Browser suites are separate and are not part of the commands above. See [dashboard documentation](review-dashboard/README.md) and [server documentation](review-dashboard/server/README.md).
 

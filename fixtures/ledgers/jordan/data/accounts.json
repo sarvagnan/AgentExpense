@@ -1,0 +1,48 @@
+{
+  "commodities": [
+    "USD"
+  ],
+  "accounts": {
+    "Assets:Bank:Alder Checking": {
+      "kind": "bank",
+      "currency": "USD",
+      "label": "Alder Checking",
+      "aliases": [
+        "alder",
+        "checking"
+      ]
+    },
+    "Assets:Bank:Meadow Savings": {
+      "kind": "bank",
+      "currency": "USD",
+      "label": "Meadow Savings",
+      "aliases": [
+        "meadow",
+        "savings"
+      ]
+    },
+    "Liabilities:Credit Cards:Lumen Card": {
+      "kind": "card",
+      "currency": "USD",
+      "label": "Lumen Card",
+      "aliases": [
+        "lumen",
+        "card"
+      ],
+      "statement": {
+        "reader": "example-card-pdf",
+        "identifier": "4321"
+      }
+    },
+    "Assets:Cash": {
+      "kind": "cash",
+      "currency": "USD"
+    },
+    "Equity:Opening Balances": {},
+    "Income:Salary": {},
+    "Expenses:Groceries": {},
+    "Expenses:Food:Dining": {},
+    "Expenses:Transport": {},
+    "Expenses:Housing:Rent": {}
+  }
+}

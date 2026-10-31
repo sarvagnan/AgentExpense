@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { ledgerRoot } from '../../scripts/project-paths.mjs';
+import { applicationRoot, ledgerRoot } from '../../scripts/project-paths.mjs';
+import { readManifest, validate } from './ledger-manifest.mjs';
 
 const storeRoot = ledgerRoot();
 export const compact = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -113,15 +114,21 @@ export function expandForecast(rules, start, end) {
 
 /** Read the JSON source once for both dashboard and review builders. Never read generated ledger text. */
 export async function loadExpenseStore(root = storeRoot) {
+  const manifest = await readManifest(root);
   const expenseDir = path.join(root, 'data', 'expenses');
-  const files = (await readdir(expenseDir)).filter((name) => name.endsWith('.json')).sort();
-  if (!files.length) throw new Error(`No expense files in ${expenseDir}`);
+  const files = (await readdir(expenseDir).catch(error => { if (error.code === 'ENOENT') return []; throw error; })).filter((name) => name.endsWith('.json')).sort();
   const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
-  const [years, rawRules, priceText] = await Promise.all([
+  const [years, rawRules, priceText, declarations] = await Promise.all([
     Promise.all(files.map((name) => readJson(path.join(expenseDir, name)))),
     readJson(path.join(root, 'data', 'forecast.json')),
-    readFile(path.join(root, 'data', 'prices', 'mutual-funds.prices'), 'utf8'),
+    readFile(path.join(root, 'data', 'prices', 'mutual-funds.prices'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; }),
+    readJson(path.join(root, 'data', 'accounts.json')),
   ]);
+  const schema = await readJson(path.join(applicationRoot, 'schema/store.schema.json'));
+  validate(declarations, schema.$defs.accounts, 'data/accounts.json', schema);
+  for (const metadata of Object.values(declarations.accounts)) {
+    if (metadata.aliases?.some(alias => alias !== alias.toLowerCase())) throw new Error('Account aliases must be lowercase.');
+  }
   if (years.some((year) => !Array.isArray(year)) || !Array.isArray(rawRules)) throw new Error('Store entries must be arrays');
   const actuals = years.flat();
   const ids = new Set();
@@ -136,5 +143,5 @@ export async function loadExpenseStore(root = storeRoot) {
     scheduleText(rule.schedule);
     return toTransaction(rule);
   });
-  return { transactions, rules, prices: parsePrices(priceText) };
+  return { transactions, rules, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
 }

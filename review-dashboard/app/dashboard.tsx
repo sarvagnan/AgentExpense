@@ -337,6 +337,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   function sortBy(key: SortKey) {
     setSort(`${key}-${key === sortKey ? (sortDirection === 'asc' ? 'desc' : 'asc') : key === 'amount' || key === 'date' ? 'desc' : 'asc'}`);
   }
+  if (!current) return <section className="page explorer"><PageHeader title="Explorer"/><div className="empty"><strong>No entries yet</strong><span>Add an expense to start your ledger.</span></div></section>;
   const columns: { key: SortKey; label: string; numeric?: boolean; className?: string; width?: string }[] = [
     { key: 'date', label: 'Date', width: 'date' }, { key: 'description', label: 'Description' }, { key: 'category', label: 'Category', className: 'col-category', width: 'category' },
     { key: 'paymentLabel', label: 'Payment account', className: 'col-payment', width: 'payment' }, { key: 'amount', label: 'Amount', numeric: true, width: 'amount' },

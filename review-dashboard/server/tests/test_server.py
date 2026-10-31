@@ -456,3 +456,44 @@ class ApiTests(Fixture):
             for path in ('/leak', '/bills/leak', '/data/leak', '/statements/../secret', '/%2e%2e/secret',
                          '/bills/%252e%252e/AGENTS.md', '/bills/%5c..%5csecret', '/.git/config'):
                 self.assertIn(client.get(path).status_code, (400, 404), path)
+
+class ManifestIntegrationTests(Fixture):
+    def test_format_checked_at_startup_and_again_per_request(self):
+        from store import dump
+        path = self.ledger / 'ledger.json'
+        original = path.read_bytes()
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, 'This ledger uses format 0; run make upgrade-ledger.'):
+            from app import create_app
+            create_app(self.settings, start_worker=False)
+        path.write_bytes(original)
+        with self.client(worker=False) as client:
+            dump(path, {'format': 2})
+            response = client.get('/api/statements')
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.json()['detail'], 'This app reads format 1; this ledger uses format 2; a newer AgentExpense is needed.')
+        path.write_bytes(original)
+
+    def test_proposed_balance_sheet_account_gets_metadata_without_reordering(self):
+        from store import dump, load
+        from transactions import to_store
+        path = self.ledger / 'ledger.json'
+        manifest = json.loads(path.read_text());manifest['defaultCurrency'] = 'USD';dump(path, manifest)
+        accounts_path = self.ledger / 'data/accounts.json'
+        document = load(self.ledger)[accounts_path]
+        document['accounts']['Assets:Bank:Example Checking'] = {'kind':'bank','currency':'INR'}
+        document['accounts']['Dev Sen:Accounts Payable:Opening'] = {'kind':'person','currency':'INR'}
+        document['accounts']['Dev Sen:Balances:Accounts Receivable:Opening'] = {'kind':'person','currency':'INR'}
+        dump(accounts_path, document)
+        answer = ready();answer['new_accounts'] = ['Assets:Bank:Example Savings', 'Expenses:Food:Cafe',
+                                                 'Dev Sen:Accounts Payable:Asha', 'Dev Sen:Balances:Accounts Receivable:Asha']
+        _, result, new = to_store(answer, self.ledger, 1)
+        self.assertEqual(list(result['accounts'])[:len(document['accounts'])], list(document['accounts']))
+        self.assertEqual(result['accounts']['Assets:Bank:Example Savings'], {'kind':'bank','currency':'USD'})
+        self.assertEqual(result['accounts']['Expenses:Food:Cafe'], {})
+        for name in answer['new_accounts'][2:]:
+            self.assertEqual(result['accounts'][name], {'kind':'person','currency':'USD'})
+        answer['new_accounts'] = ['Dev Sen:Other:Asha']
+        from transactions import ProposalError
+        with self.assertRaisesRegex(ProposalError, 'Cannot infer kind'):
+            to_store(answer, self.ledger, 1)

@@ -1,5 +1,7 @@
 # Live expense server
 
+For fictional local checks, select `LEDGER_DIR="$PWD/fixtures/ledgers/asha"` from the application root before changing directories. The server checks `ledger.json` at startup and on requests; older formats require `make upgrade-ledger` (see [migrations](../../migrations/README.md)).
+
 Build the existing dashboard with `make dashboard` at the application root.
 From this directory run `EXPENSES_DEV=1 uv run app.py`; it binds to 127.0.0.1.
 On the server host, `make service` installs the tracked `expense-dashboard.service` when changed, reloads systemd and restarts it. It stops with an explanation on hosts without a user systemd session. Customize the service template paths and access settings for your installation before using it.

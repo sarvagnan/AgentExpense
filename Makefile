@@ -14,7 +14,7 @@ export LEDGER_DIR
 ledger:
 	uv run --with jsonschema python scripts/ledger/generate_ledger.py
 
-test: test-ledger test-server
+test: test-ledger test-migrations test-server
 
 review-dashboard/node_modules/.package-lock.json: review-dashboard/package-lock.json
 	npm --prefix review-dashboard ci
@@ -37,6 +37,10 @@ service:
 test-ledger:
 	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/ledger/tests/run_tests.py
 
+.PHONY: test-migrations
+test-migrations:
+	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python -m unittest discover -s scripts/ledger/migration_tests -v
+
 # Ledger checks run only the ledger tests, so verify, commit and dashboard stay fast.
 check: test-ledger
 	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/ledger/check_store.py
@@ -45,7 +49,7 @@ check: test-ledger
 format:
 	uv run --with jsonschema python scripts/ledger/store.py --format
 
-dashboard: review-dashboard/node_modules/.package-lock.json verify
+dashboard: review-dashboard/node_modules/.package-lock.json verify test-migrations
 	npm --prefix review-dashboard run data
 	npm --prefix review-dashboard run build
 
@@ -61,3 +65,15 @@ scan:
 
 test-scanner:
 	python3 -m unittest discover -s scripts/tests -v
+
+.PHONY: upgrade-ledger personas
+upgrade-ledger:
+	uv run --with jsonschema python scripts/ledger/upgrade_ledger.py $(ARGS)
+
+personas:
+	@set -e; for persona in fixtures/ledgers/*; do \
+	  LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) dashboard test-server; \
+	  LEDGER_DIR="$(CURDIR)/$$persona" npm --prefix review-dashboard test; \
+	  LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) test-scanner; \
+	  printf 'PASS %s\n' "$${persona##*/}"; \
+	done

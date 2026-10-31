@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, '..');
 const outputPath = path.join(projectDir, 'app', 'data', 'dashboard.json');
-const { transactions, rules, prices } = await loadExpenseStore();
+const { transactions, rules, prices, manifest } = await loadExpenseStore();
 const provenance = await auditProvenance();
 
 
@@ -149,7 +149,8 @@ const reimbursementGroups = [...new Set(records.map(record => record.reimburseme
 // Forecast: the store's periodic rules from the day after the latest actual entry to the end
 // of the twelfth following month. Only occurrences inside this window are kept.
 const isoDay = (date) => date.toISOString().slice(0, 10);
-const asOf = records.reduce((latest, record) => record.date > latest ? record.date : latest, '');
+const asOf = records.reduce((latest, record) => record.date > latest ? record.date : latest, '')
+  || manifest.startDate || '1970-01-01';
 const forecastStart = new Date(`${asOf}T00:00:00Z`);
 forecastStart.setUTCDate(forecastStart.getUTCDate() + 1);
 const forecastEnd = new Date(Date.UTC(Number(asOf.slice(0, 4)), Number(asOf.slice(5, 7)) + 12, 1));
@@ -190,7 +191,7 @@ const months = monthKeys.map((month) => {
 
 const forecastMonthKeys = [...new Set(forecastRecords.map((record) => record.month))].sort();
 const firstDate = records.reduce((earliest, record) => record.date < earliest ? record.date : earliest, asOf);
-const firstFullMonth = firstDate.endsWith('-01') ? firstDate.slice(0, 7) : monthKeys[1];
+const firstFullMonth = firstDate.endsWith('-01') ? firstDate.slice(0, 7) : (monthKeys[1] || asOf.slice(0, 7));
 
 // Variable spending by portion of the month: expenses outside the recurring rule accounts,
 // averaged over every full recorded month. Card instalment plans (statement rows such as
@@ -272,14 +273,14 @@ const forecast = {
 
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-const defaultMonth = monthKeys.includes(currentMonth) ? currentMonth : monthKeys.at(-1);
+const defaultMonth = monthKeys.includes(currentMonth) ? currentMonth : (monthKeys.at(-1) || '');
 const payload = {
   meta: {
     ledger: 'data/expenses/*.json',
     generatedAt: new Date().toISOString(),
     defaultMonth,
-    firstMonth: monthKeys[0],
-    lastMonth: monthKeys.at(-1),
+    firstMonth: monthKeys[0] || '',
+    lastMonth: monthKeys.at(-1) || '',
     transactionCount: records.length,
   },
   months,

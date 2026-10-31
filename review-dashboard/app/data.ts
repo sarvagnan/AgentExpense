@@ -1,10 +1,6 @@
-// Ledger data is fetched at runtime from public/data/*.json.gz (written by `npm run data`),
-// so it stays out of the JS bundle. Type-only imports keep the JSON shapes without bundling it.
-type RawDashboard = typeof import('./data/dashboard.json');
-export type Provenance = {auditId:string;text:string;time:string;savedAt:string|null;questions:{question:string;answer:string|null}[];doubts:string[];models:string[]};
-export type DashboardData = Omit<RawDashboard,'transactions'> & {transactions:(Omit<RawDashboard['transactions'][number],'provenance'> & {provenance:Provenance|null})[]};
-export type ReviewData = typeof import('./data/pending-transactions.json');
-export type FuelData = typeof import('./data/fuel-log.json');
+// Ledger data is fetched at runtime from public/data/*.json.gz, outside the JS bundle.
+import type { DashboardData, ReviewData, FuelData } from './data-types';
+export type { DashboardData, ReviewData, FuelData, Provenance } from './data-types';
 
 export let dashboard: DashboardData;
 export let review: ReviewData;

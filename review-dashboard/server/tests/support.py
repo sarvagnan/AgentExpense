@@ -57,6 +57,7 @@ class Fixture(unittest.TestCase):
         self.application.mkdir()
         shutil.copytree(APPLICATION / 'scripts', self.application / 'scripts', ignore=shutil.ignore_patterns('__pycache__', '.fixture-*', '.app-fixture-*'))
         shutil.copytree(APPLICATION / 'schema', self.application / 'schema')
+        shutil.copytree(APPLICATION / 'migrations', self.application / 'migrations')
         shutil.copyfile(APPLICATION / 'Makefile', self.application / 'Makefile')
         dash = self.application / 'review-dashboard'
         shutil.copytree(APPLICATION / 'review-dashboard/scripts', dash / 'scripts')
@@ -64,7 +65,8 @@ class Fixture(unittest.TestCase):
         (dash / 'package.json').write_text(json.dumps(package))
         self.ledger = self.application / 'ledger'
         (self.ledger / 'data/expenses').mkdir(parents=True)
-        dump(self.ledger / 'data/accounts.json', {'commodities': ['INR', 'USD'], 'accounts': ['Assets:Cash', 'Expenses:Food']})
+        dump(self.ledger / 'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
+        dump(self.ledger / 'data/accounts.json', {'commodities': ['INR', 'USD'], 'accounts': {'Assets:Cash': dict(kind='cash', currency='INR'), 'Expenses:Food': {}}})
         dump(self.ledger / 'data/expenses/2026.json', [])
         dump(self.ledger / 'data/forecast.json', [])
         dump(self.ledger / 'data/card-statements.json', [])
@@ -72,7 +74,7 @@ class Fixture(unittest.TestCase):
         (self.ledger / 'data/prices/mutual-funds.prices').write_text('; test prices\n')
         (self.ledger / 'data/fuel-log.json').write_text('{"meta":{},"entries":[]}\n')
         (self.ledger / 'Bills').mkdir()
-        (self.ledger / 'AGENTS.md').write_text((APPLICATION / 'examples/asha/AGENTS.md').read_text())
+        (self.ledger / 'AGENTS.md').write_text((APPLICATION / 'fixtures/ledgers/asha/AGENTS.md').read_text())
         (self.ledger / '.gitignore').write_text('/drafts/\n/.lock\n/expense_ledger.ledger\n')
         self.jj('git', 'init', '--colocate', str(self.ledger), at=self.base)
         self.jj('commit', '-m', 'Fixture baseline')

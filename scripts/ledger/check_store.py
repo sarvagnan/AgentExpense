@@ -10,7 +10,7 @@ import shlex
 import subprocess
 from decimal import Decimal
 
-from store import ROOT, canonical_text, entries, load
+from store import ROOT, canonical_text, entries, load, read_json
 from audit import records, missing_entries
 
 
@@ -124,7 +124,8 @@ def check_price_coverage(documents: dict, root: Path = ROOT) -> None:
             if posting["account"].startswith("Assets:Investments:") and "cost" in posting and posting["commodity"] != posting["cost"]["commodity"] and Decimal(posting["amount"]) != 0:
                 first_held.setdefault(posting["commodity"], entry["date"])
     prices = {}
-    for line in (root / "data/prices/mutual-funds.prices").read_text(encoding="utf-8").splitlines():
+    price_file = root / "data/prices/mutual-funds.prices"
+    for line in (price_file.read_text(encoding="utf-8") if price_file.exists() else "").splitlines():
         if line and not line.startswith(";"):
             parts = shlex.split(line)
             if len(parts) < 5 or parts[0] != "P":
@@ -156,6 +157,9 @@ def check_forecasts(documents: dict, root: Path = ROOT) -> None:
 
 def check(root: Path = ROOT) -> None:
     documents = load(root)
+    manifest_path = root / 'ledger.json'
+    if manifest_path.read_bytes() != canonical_text(read_json(manifest_path)).encode('utf-8'):
+        raise ValueError('ledger.json is not canonical; run make format')
     audit_records = records(root)
     print(f"Verified {len(audit_records)} audit lines")
     for line, identity in missing_entries(root, {e["id"] for e in entries(documents)}):
@@ -180,7 +184,7 @@ def check(root: Path = ROOT) -> None:
         print(f"  unbilled {entry['date']} {entry['id']} {entry['amount']} INR — {entry['description']}")
     check_forecasts(documents, root)
     check_price_coverage(documents, root)
-    print(f"Verified {len(entries(documents))} actual entries, {len(documents[root / 'data/forecast.json'])} forecast rules, {len(evidence)} Bills paths and {len(documents)} canonical files")
+    print(f"Verified {len(entries(documents))} actual entries, {len(documents[root / 'data/forecast.json'])} forecast rules, {len(evidence)} Bills paths and {len(documents) + 1} canonical files")
 
 
 if __name__ == "__main__":

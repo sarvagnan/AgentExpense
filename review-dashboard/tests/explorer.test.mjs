@@ -12,7 +12,8 @@ try {
   const { default: Dashboard, Explorer } = await server.ssrLoadModule('/app/dashboard.tsx');
   const data = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
   const html = renderToStaticMarkup(createElement(Dashboard, { view: 'explorer' }));
-  const body = html.match(/<tbody>(.*?)<\/tbody>/s)[1];
+  const body = html.match(/<tbody[^>]*>(.*?)<\/tbody>/s)?.[1] || '';
+  if (!data.transactions.length) assert.match(html, /No entries yet/);
   const count = (body.match(/<tr\b/g) || []).length;
   const expected = data.transactions.filter(t => t.month === data.meta.defaultMonth).length;
   assert.equal(count, expected, 'Explorer must render every transaction in the selected month');

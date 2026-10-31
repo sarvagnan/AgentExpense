@@ -174,6 +174,11 @@ def main(argv=None):
     # A checkout without the ledger (such as an application worktree) must not read as an empty log.
     if not (root / 'data').is_dir():
         parser.error(f'No ledger at {root}: run from the project root, or set LEDGER_DIR')
+    from ledger_manifest import read_manifest
+    try:
+        read_manifest(root)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.command == 'list':
         lines = records(root)
         if args.unreviewed:

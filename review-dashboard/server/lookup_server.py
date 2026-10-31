@@ -17,6 +17,10 @@ parser.add_argument('--cutoff', default='9999-12-31')
 parser.add_argument('--exclude', action='append', default=[])
 args = parser.parse_args()
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from ledger_manifest import read_manifest
+read_manifest(args.ledger)
+
 ALL = [e for f in sorted((args.ledger / 'data/expenses').glob('*.json')) for e in json.loads(f.read_text())]
 VISIBLE = [e for e in ALL if (e['date'] < args.cutoff or e['date'] == args.cutoff) and e['id'] not in args.exclude]
 USED_ANYWHERE = {p['account'] for e in ALL for p in e['postings']}
@@ -130,6 +134,7 @@ for line in sys.stdin:
     elif method == 'tools/call':
         name, arguments = msg['params']['name'], msg['params'].get('arguments') or {}
         try:
+            read_manifest(args.ledger)
             result = TOOLS[name][0](**arguments)
             reply(msg_id, {'content': [{'type': 'text', 'text': json.dumps(result, ensure_ascii=False)}], 'isError': False})
         except Exception as exc:  # report tool errors to the agent

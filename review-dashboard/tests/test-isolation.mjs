@@ -102,7 +102,7 @@ export async function disposableDashboard(work = undefined) {
   const application = join(work, 'application'), dash = join(application, 'review-dashboard');
   const filter = path => !['node_modules', 'dist', '.venv', '__pycache__', '.git', '.jj'].includes(path.split(sep).at(-1));
   await mkdir(application, { recursive: true });
-  for (const name of ['scripts', 'schema', 'Makefile']) await cp(join(sourceApplication, name), join(application, name), { recursive: true, filter });
+  for (const name of ['scripts', 'schema', 'migrations', 'Makefile']) await cp(join(sourceApplication, name), join(application, name), { recursive: true, filter });
   // Copy the source and published data; a fixture refresh/build overwrites only this copy.
   for (const name of ['app', 'public', 'scripts', 'tests', 'server', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'index.html']) {
     await cp(join(sourceDashboard, name), join(dash, name), { recursive: true, filter });

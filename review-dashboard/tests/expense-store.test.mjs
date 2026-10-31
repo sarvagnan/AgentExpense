@@ -16,6 +16,8 @@ async function fixture(t, actuals = [entry()], rules = [rule()]) {
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'data/expenses'), { recursive: true });
   await mkdir(path.join(root, 'data/prices'));
+  await writeFile(path.join(root, 'ledger.json'), JSON.stringify({format:1,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
+  await writeFile(path.join(root, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:{'Expenses:Test':{}}}));
   await writeFile(path.join(root, 'data/expenses/2026.json'), JSON.stringify(actuals));
   await writeFile(path.join(root, 'data/forecast.json'), JSON.stringify(rules));
   await writeFile(path.join(root, 'data/prices/mutual-funds.prices'), '; source note\nP 2026-01-01 "FUND" 12.3456 INR\n');
@@ -108,4 +110,62 @@ test('published dashboard/review IDs are unique store IDs; review IDs are a subs
   assert.equal(ids.size, dashboard.transactions.length);
   assert.equal(new Set(review.transactions.map(entry => entry.id)).size, review.transactions.length);
   assert.ok(review.transactions.every(entry => ids.has(entry.id)));
+});
+
+test('manifest gates run before store reads and fill independent defaults', async t => {
+  const { readManifest } = await import('../scripts/ledger-manifest.mjs');
+  const root = await fixture(t);
+  const manifest = await readManifest(root);
+  assert.deepEqual(manifest.modules, { fuel: false, weeklyReview: false, investments: { prices: null }, history: { oldLedger: null } });
+  assert.deepEqual(manifest.review, { storageKey: null });
+  await rm(path.join(root, 'ledger.json'));
+  await assert.rejects(loadExpenseStore(root), { message: 'This ledger uses format 0; run make upgrade-ledger.' });
+  await writeFile(path.join(root, 'ledger.json'), JSON.stringify({ format: 2 }));
+  await assert.rejects(loadExpenseStore(root), { message: 'This app reads format 1; this ledger uses format 2; a newer AgentExpense is needed.' });
+});
+
+test('account metadata accepts any root and requires kind and currency outside Income, Expenses and Equity', async t => {
+  const root = await fixture(t);
+  const file = path.join(root, 'data/accounts.json');
+  const person = { kind: 'person', currency: 'USD' };
+  const accounts = {
+    'Dev Sen:Accounts Payable:Asha': person,
+    'Dev Sen:Balances:Accounts Receivable:Asha': person,
+    Custom: person,
+    'IncomeExtra:Test': person,
+    Income: {}, 'Income:Salary': {}, 'Expenses:Test': {}, 'Equity:Opening Balances': {},
+  };
+  const write = value => writeFile(file, JSON.stringify({ commodities: ['INR', 'USD'], accounts: value }));
+  await write(accounts);
+  assert.deepEqual((await loadExpenseStore(root)).accounts, accounts);
+  for (const [name, metadata] of [
+    ['Dev Sen:Accounts Payable:Asha', {}], ['Dev Sen:Balances:Accounts Receivable:Asha', { currency: 'USD' }],
+    ['Custom', { kind: 'person' }], ['IncomeExtra:Test', {}], ['Income:Salary', person], ['Expenses:Test', person],
+    ['Equity:Opening Balances', person], ['Custom', { kind: 'unknown', currency: 'USD' }],
+    ...['', ':Custom', 'Custom:', 'Custom::Test', 'Custom\nTest', 'Custom:Test\n', 'Custom\rTest'].map(name => [name, person]),
+  ]) {
+    await write({ ...accounts, [name]: metadata });
+    await assert.rejects(loadExpenseStore(root), /Invalid data\/accounts.json/);
+  }
+});
+
+test('empty ledger builds and checks without expenses, fuel or prices files', async t => {
+  const { disposableDashboard } = await import('./test-isolation.mjs');
+  const { execFileSync } = await import('node:child_process');
+  const copy = await disposableDashboard();
+  t.after(() => rm(copy.application, { recursive: true, force: true }));
+  const root = await fixture(t, [], []);
+  await rm(path.join(root, 'data/expenses'), { recursive: true });
+  await rm(path.join(root, 'data/prices'), { recursive: true });
+  const env = { ...copy.env, LEDGER_DIR: root };
+  for (const script of ['copy-fuel-log', 'build-dashboard-data', 'build-review-data', 'build-add-patterns', 'check-dashboard-data']) {
+    execFileSync(process.execPath, [path.join(copy.dash, 'scripts', script + '.mjs')], { env, stdio: 'pipe' });
+  }
+  const data = JSON.parse(await readFile(path.join(copy.dash, 'app/data/dashboard.json'), 'utf8'));
+  assert.deepEqual(data.transactions, []);
+  assert.deepEqual(data.months, []);
+  assert.deepEqual(data.prices, []);
+  assert.deepEqual(data.forecast.items, []);
+  assert.equal(data.forecast.asOf, '1970-01-01');
+  assert.equal(data.forecast.start, '1970-01-02');
 });

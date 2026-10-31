@@ -23,7 +23,7 @@ def diagnostic():
         mcp = json.loads(next(a.split('=', 1)[1] for a in args if a.startswith('mcp_servers.ledger.args=')))
         ledger = Path(mcp[mcp.index('--ledger') + 1])
         assert ledger.name == 'fixture-ledger'
-        account = json.loads((ledger / 'data/accounts.json').read_text())['accounts'][0]
+        account = next(iter(json.loads((ledger / 'data/accounts.json').read_text())['accounts']))
         if settings.get('probe_fail'):
             print('PRIVATE NETWORK ERROR', file=sys.stderr)
             sys.exit(1)

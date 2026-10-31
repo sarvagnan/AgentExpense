@@ -21,6 +21,7 @@ from agent import now
 from agent_gate import get_gate
 from drafts import Drafts
 from settings import Settings
+from ledger_manifest import read_manifest
 from worker import Worker
 from statements import Statements
 
@@ -81,6 +82,7 @@ class DashboardGZipMiddleware(GZipMiddleware):
 
 def create_app(settings=None, *, start_worker=True):
     settings = settings or Settings.from_env()
+    read_manifest(settings.ledger)
     drafts = Drafts(settings.ledger)
     worker = Worker(settings, drafts)
     statements = Statements(settings)
@@ -138,6 +140,11 @@ def create_app(settings=None, *, start_worker=True):
                     valid = False
                 if not valid:
                     return JSONResponse({'detail': 'Foreign Origin'}, status_code=403)
+        try:
+            read_manifest(settings.ledger)
+        except (ValueError, OSError) as exc:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({'detail': str(exc)}, status_code=409)
         return await call_next(request)
 
     def get(identity):
@@ -347,7 +354,7 @@ def create_app(settings=None, *, start_worker=True):
         from statement_rules import CARD
         statements.purge()
         documents = load(settings.ledger)
-        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('handover_undone')], filed=[s for s in documents[settings.ledger/'data/card-statements.json'] if s['account']==CARD], accounts=documents[settings.ledger/'data/accounts.json']['accounts'])
+        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('handover_undone')], filed=[s for s in documents[settings.ledger/'data/card-statements.json'] if s['account']==CARD], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']))
 
     @app.get('/api/statements/filed/{end}')
     def filed_statement(end: str):

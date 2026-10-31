@@ -37,7 +37,7 @@ class StatementTests(Fixture):
         from store import dump
         from statements import fingerprint
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'] += [CARD,'Equity:Opening Balances']
+        declarations['accounts'].update({CARD: dict(kind='card', currency='INR'), 'Equity:Opening Balances': {}})
         dump(self.ledger/'data/accounts.json',declarations)
         dump(self.ledger/'data/expenses/2026.json',[dict(id='a'*16,date='2026-09-01',status='confirmed',description='Fixture card opening',postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
         self.jj('commit','-m','Foreign row fixture baseline')
@@ -77,7 +77,7 @@ class StatementTests(Fixture):
     def test_locked_example_pdf_is_checked_decided_filed_and_audited(self):
         from store import dump
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'] += [CARD, 'Assets:Bank:Savings Account', 'Equity:Opening Balances']
+        declarations['accounts'].update({CARD: dict(kind='card', currency='INR'), 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}})
         dump(self.ledger/'data/accounts.json', declarations)
         dump(self.ledger/'data/expenses/2026.json', [dict(id='a'*16, date='2026-01-01', status='confirmed', description='Example opening', postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
         self.jj('commit','-m','Example card baseline')

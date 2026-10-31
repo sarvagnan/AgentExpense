@@ -82,10 +82,13 @@ def render(documents: dict, root: Path = ROOT) -> str:
     lines = [HEADER.rstrip(), "", *("commodity " + x for x in declarations["commodities"]), "", *("account " + x for x in declarations["accounts"]), ""]
     for entry in entries(documents):
         lines.extend(render_entry(entry))
-    lines.extend([
+    if (root / "data/prices/mutual-funds.prices").exists():
+        lines.extend([
         "; Mutual fund NAVs in INR from AMFI.",
         "; Valuation uses the latest NAV on or before each date.",
         "include data/prices/mutual-funds.prices", "",
+        ])
+    lines.extend([
         "; User-confirmed recurring commitments used by hledger --forecast.",
         "; These are forecast-only commitments, not historical transactions.", "",
     ])
@@ -98,8 +101,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT, help="Ledger repository root")
     root = parser.parse_args().root.resolve()
-    documents = load(root)
-    (root / "expense_ledger.ledger").write_text(render(documents, root), encoding="utf-8")
+    from ledger_manifest import read_manifest
+    from ledger_lock import ledger_lock
+    read_manifest(root)
+    with ledger_lock(root):
+        documents = load(root)
+        (root / "expense_ledger.ledger").write_text(render(documents, root), encoding="utf-8")
     print(f"Generated {len(entries(documents))} entries and {len(documents[root / 'data/forecast.json'])} forecast rules")
 
 

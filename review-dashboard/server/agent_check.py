@@ -80,11 +80,12 @@ def fixture(work):
     ledger = work / 'fixture-ledger'
     (ledger / 'data/expenses').mkdir(parents=True)
     account = 'Assets:AgentCheck:' + uuid.uuid4().hex
-    for path, value in [('accounts.json', {'accounts': [account], 'commodities': ['INR']}),
+    for path, value in [('accounts.json', {'accounts': {account: {'kind': 'cash', 'currency': 'INR'}}, 'commodities': ['INR']}),
                         ('forecast.json', []), ('expenses/2026.json', [])]:
         (ledger / 'data' / path).write_text(json.dumps(value))
     old = work / 'fixture-old.ledger'
     old.write_text('')
+    (ledger / 'ledger.json').write_text(json.dumps(dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline probe', defaultCurrency='INR')))
     return ledger, old, account
 
 

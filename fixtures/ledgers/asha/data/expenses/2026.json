@@ -8,10 +8,10 @@
       "Bills/2026-06-01/fictional-confirmation-1.md"
     ],
     "postings": [
-      {"account": "Assets:Bank:Savings Account", "amount": "48000.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "48000.00", "commodity": "INR"},
       {"account": "Assets:Cash", "amount": "1200.00", "commodity": "INR"},
       {"account": "Assets:Wallets:Shopping Wallet", "amount": "300.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "0.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "0.00", "commodity": "INR"},
       {"account": "Equity:Opening Balances", "amount": "-49500.00", "commodity": "INR"}
     ]
   },
@@ -24,7 +24,7 @@
       "Bills/2026-06-02/fictional-confirmation-2.md"
     ],
     "postings": [
-      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
       {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
     ]
   },
@@ -38,7 +38,7 @@
     ],
     "postings": [
       {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
     ]
   },
   {
@@ -55,7 +55,7 @@
     },
     "postings": [
       {"account": "Expenses:Groceries", "amount": "778.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-778.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-778.00", "commodity": "INR"}
     ]
   },
   {
@@ -81,7 +81,7 @@
     ],
     "postings": [
       {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
     ]
   },
   {
@@ -97,7 +97,7 @@
     "trip-km": "240.0",
     "postings": [
       {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
     ]
   },
   {
@@ -110,7 +110,7 @@
     ],
     "postings": [
       {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
     ]
   },
   {
@@ -135,8 +135,8 @@
       "Bills/2026-06-25/fictional-confirmation-10.md"
     ],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
     ]
   },
   {
@@ -148,7 +148,7 @@
       "Bills/2026-07-02/fictional-confirmation-11.md"
     ],
     "postings": [
-      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
       {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
     ]
   },
@@ -162,7 +162,7 @@
     ],
     "postings": [
       {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
     ]
   },
   {
@@ -175,7 +175,7 @@
     ],
     "postings": [
       {"account": "Expenses:Groceries", "amount": "781.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-781.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-781.00", "commodity": "INR"}
     ]
   },
   {
@@ -201,7 +201,7 @@
     ],
     "postings": [
       {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
     ]
   },
   {
@@ -214,7 +214,7 @@
     ],
     "postings": [
       {"account": "Assets:Investments:Mutual Funds:Demo Index", "amount": "5.000", "commodity": "DEMOFUND", "cost": {"amount": "500", "commodity": "INR", "per": "total"}},
-      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
     ]
   },
   {
@@ -230,7 +230,7 @@
     "trip-km": "240.0",
     "postings": [
       {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
     ]
   },
   {
@@ -243,7 +243,7 @@
     ],
     "postings": [
       {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
     ]
   },
   {
@@ -268,8 +268,8 @@
       "Bills/2026-07-25/fictional-confirmation-19.md"
     ],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
     ]
   },
   {
@@ -281,7 +281,7 @@
       "Bills/2026-08-02/fictional-confirmation-20.md"
     ],
     "postings": [
-      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
       {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
     ]
   },
@@ -295,7 +295,7 @@
     ],
     "postings": [
       {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
     ]
   },
   {
@@ -308,7 +308,7 @@
     ],
     "postings": [
       {"account": "Expenses:Groceries", "amount": "784.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-784.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-784.00", "commodity": "INR"}
     ]
   },
   {
@@ -336,7 +336,7 @@
     "reimbursement-label": "Shared supplies",
     "postings": [
       {"account": "Assets:Reimbursements:Dev Sen", "amount": "640.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-640.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-640.00", "commodity": "INR"}
     ]
   },
   {
@@ -349,7 +349,7 @@
     ],
     "postings": [
       {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
     ]
   },
   {
@@ -365,7 +365,7 @@
     "trip-km": "240.0",
     "postings": [
       {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
     ]
   },
   {
@@ -378,7 +378,7 @@
     ],
     "postings": [
       {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
     ]
   },
   {
@@ -403,8 +403,8 @@
       "Bills/2026-08-25/fictional-confirmation-28.md"
     ],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
     ]
   },
   {
@@ -416,7 +416,7 @@
       "Bills/2026-09-02/fictional-confirmation-29.md"
     ],
     "postings": [
-      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
       {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
     ]
   },
@@ -430,7 +430,7 @@
     ],
     "postings": [
       {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
     ]
   },
   {
@@ -443,7 +443,7 @@
     ],
     "postings": [
       {"account": "Expenses:Groceries", "amount": "787.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-787.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-787.00", "commodity": "INR"}
     ]
   },
   {
@@ -470,7 +470,7 @@
     "reimbursement-group": "demo-shared-supplies",
     "reimbursement-label": "Shared supplies",
     "postings": [
-      {"account": "Assets:Bank:Savings Account", "amount": "640.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "640.00", "commodity": "INR"},
       {"account": "Assets:Reimbursements:Dev Sen", "amount": "-640.00", "commodity": "INR"}
     ]
   },
@@ -484,7 +484,7 @@
     ],
     "postings": [
       {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
     ]
   },
   {
@@ -500,7 +500,7 @@
     "trip-km": "240.0",
     "postings": [
       {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
     ]
   },
   {
@@ -513,7 +513,7 @@
     ],
     "postings": [
       {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
     ]
   },
   {
@@ -538,8 +538,8 @@
       "Bills/2026-09-25/fictional-confirmation-37.md"
     ],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
     ]
   },
   {
@@ -552,7 +552,7 @@
     ],
     "postings": [
       {"account": "Expenses:Uncategorized", "amount": "265.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-265.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-265.00", "commodity": "INR"}
     ]
   }
 ]

@@ -24,7 +24,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from project_paths import ledger_root
 
+from ledger_manifest import read_manifest
 ROOT = ledger_root()
+read_manifest(ROOT)
 PRICES = ROOT / "data" / "prices" / "mutual-funds.prices"
 HISTORY_URL = "https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?mf={house}&frmdt={start}&todt={end}"
 # Optional ledger-local mapping: commodity -> [AMFI house, scheme code, ISIN].

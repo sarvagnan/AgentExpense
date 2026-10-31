@@ -33,6 +33,8 @@ test('generated payment accounts follow the paying side with unchanged expense a
   const ledger = join(work, 'ledger');
   await mkdir(join(ledger, 'data/expenses'), { recursive: true });
   await mkdir(join(ledger, 'data/prices'), { recursive: true });
+  await writeFile(join(ledger, 'ledger.json'), JSON.stringify({format:1,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
+  await writeFile(join(ledger, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:{}}));
   await writeFile(join(ledger, 'data/prices/mutual-funds.prices'), '');
   // Both posting orders must choose the same payer; IDs remain explicit store IDs.
   const entries = cases.flatMap((item, index) => [false, true].map((reverse, order) => ({

@@ -20,6 +20,8 @@ from settings import APPLICATION
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
 from store import dump, load, store_paths
+from ledger_manifest import read_manifest
+from account_metadata import infer_kind, is_balance_sheet
 from ledger_lock import ledger_lock, LOCK_FD_ENV
 sys.path.insert(0, str(APPLICATION / 'scripts/receipts'))
 from compress_images import compress
@@ -89,7 +91,16 @@ def to_store(answer, root, file_count):
             raise ProposalError(f'Invalid new account: {account}')
         if not any(account.startswith(parent + ':') for parent in paths):
             raise ProposalError(f'New account has no existing parent: {account}')
-    return entry, {**declared, 'accounts': sorted(existing | set(new))}, new
+    accounts = dict(declared['accounts'])
+    for account in new:
+        metadata = {}
+        if is_balance_sheet(account):
+            kind = infer_kind(account)
+            if kind is None:
+                raise ProposalError(f'Cannot infer kind for new account: {account}')
+            metadata = {'kind': kind, 'currency': read_manifest(root)['defaultCurrency']}
+        accounts[account] = metadata
+    return entry, {**declared, 'accounts': accounts}, new
 
 
 def check(entry, declarations, root):
@@ -100,6 +111,7 @@ def check(entry, declarations, root):
             dest = fixture / path.relative_to(root)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, dest)
+        shutil.copyfile(root / 'ledger.json', fixture / 'ledger.json')
         dump(fixture / 'data/accounts.json', declarations)
         candidate = {k: v for k, v in entry.items() if k != 'sources'}
         try:

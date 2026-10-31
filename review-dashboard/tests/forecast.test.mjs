@@ -9,9 +9,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { loadPublishedData } from './load-data.mjs';
 
-const data = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
+import { personaData } from './persona-data.mjs';
+const persona = await personaData('asha');
+const data = persona.dashboard;
 const { forecast } = data;
-const ledger = path.join(ledgerRoot(), 'expense_ledger.ledger');
+const ledger = path.join(persona.root, 'expense_ledger.ledger');
 const nextDay = (day) => { const date = new Date(`${day}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); };
 
 assert.equal(forecast.asOf, data.transactions.reduce((latest, row) => row.date > latest ? row.date : latest, ''), 'Forecast starts after the latest actual entry');
@@ -47,7 +49,7 @@ for (const portion of variable.portions) assert.ok(Math.abs(portion.average * va
 
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 try {
-  await loadPublishedData(server);
+  (await server.ssrLoadModule('/app/data.ts')).setData({ dashboard: data, review: persona.review, fuel: persona.fuel });
   const { default: Forecast } = await server.ssrLoadModule('/app/forecast.tsx');
   const html = renderToStaticMarkup(createElement(Forecast));
   const history = data.months.filter((month) => month.month >= forecast.firstFullMonth && month.month < forecast.asOf.slice(0, 7)).slice(-12).length;

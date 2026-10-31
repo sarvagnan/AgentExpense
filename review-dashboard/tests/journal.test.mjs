@@ -6,7 +6,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { loadPublishedData } from './load-data.mjs';
 
-const data = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
+import { personaData } from './persona-data.mjs';
+const persona = await personaData('asha');
+const data = persona.dashboard;
 for (const row of data.transactions.filter(row => row.kind === 'Transfer')) {
   const values = row.postings.map(p => p.currency === 'INR' ? p.amount : p.cost ?? 0);
   const debit = values.filter(value => value > 0).reduce((sum, value) => sum + value, 0);
@@ -20,7 +22,7 @@ for (const type of ['Card payment', 'Balance top-up', 'Balance adjustment']) {
 }
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 try {
-  await loadPublishedData(server);
+  (await server.ssrLoadModule('/app/data.ts')).setData({ dashboard: data, review: persona.review, fuel: persona.fuel });
   const { Journal } = await server.ssrLoadModule('/app/dashboard.tsx');
   for (const month of data.months) {
     const html = renderToStaticMarkup(createElement(Journal, { month: month.month, setMonth: () => {} }));

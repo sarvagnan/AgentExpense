@@ -4,6 +4,7 @@ set -eu
 cd "$(dirname "$0")/../.."
 LEDGER_DIR=$(uv run python scripts/project_paths.py)
 export LEDGER_DIR
+uv run python scripts/ledger_manifest.py
 # Hold the shared ledger lock through the price update, build and partial commit.
 # The internal argument is used only by the lock helper's child process.
 if [ "${1:-}" != "--ledger-locked" ]; then

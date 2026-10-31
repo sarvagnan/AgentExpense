@@ -44,10 +44,11 @@ class SeparateLedgerTests(Fixture):
 
     def test_dashboard_builders_read_separate_ledger(self):
         # Isolate generated outputs from both the real dashboard and parallel Node tests.
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent, prefix='.app-fixture-') as temp:
+        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-app-fixture-') as temp:
             application = Path(temp)
             (application / 'scripts').mkdir()
             shutil.copyfile(APPLICATION_ROOT / 'scripts/project-paths.mjs', application / 'scripts/project-paths.mjs')
+            shutil.copytree(APPLICATION_ROOT / 'schema', application / 'schema')
             scripts = application / 'review-dashboard/scripts'
             shutil.copytree(APPLICATION_ROOT / 'review-dashboard/scripts', scripts)
             env = {**os.environ, 'LEDGER_DIR': str(self.root)}

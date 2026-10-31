@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "655814fc-8e5b-4477-865d-c43ed6ce1494",
+  "name": "Jordan Lee",
+  "defaultCurrency": "USD",
+  "locale": "en-US",
+  "startDate": "2026-10-01",
+  "modules": {
+    "fuel": false,
+    "investments": {
+      "prices": null
+    },
+    "history": {
+      "oldLedger": null
+    },
+    "weeklyReview": false
+  },
+  "review": {
+    "storageKey": null
+  }
+}

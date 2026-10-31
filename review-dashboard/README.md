@@ -2,7 +2,7 @@
 
 A React/Vite dashboard for the JSON ledger, with Overview, Explorer, Journal, Accounts, Forecast, Review, Add, Drafts and Statements. INR reporting, fuel links, mutual-fund valuations and the example card statement reader remain built in during early development.
 
-From the application root set `LEDGER_DIR` to an absolute ledger directory, then run `make dashboard`. The fictional `examples/asha/` is the public example. JSON under `app/data/` and compressed payloads under `public/data/` are generated locally; keep them out of version control. `npm --prefix review-dashboard test` runs Node unit and server-rendering checks with disposable application copies and no browser. See [tests/BROWSERS.md](tests/BROWSERS.md) for future browser coverage.
+From the application root set `LEDGER_DIR` to an absolute ledger directory, then run `make dashboard`. The fictional `fixtures/ledgers/asha/` is the public example. JSON under `app/data/` and compressed payloads under `public/data/` are generated locally; keep them out of version control. `npm --prefix review-dashboard test` runs Node unit and server-rendering checks with disposable application copies and no browser. See [tests/BROWSERS.md](tests/BROWSERS.md) for future browser coverage.
 
 ## Data and reporting
 
@@ -21,3 +21,5 @@ The optional Python server serves the built dashboard, evidence and API; see [se
 Decisions use `agentexpense-review-v2` in the browser's local storage. Draft edits and export timestamps use the same application prefix. Export and Import move decisions across origins. Each browser/origin keeps separate decisions; phase 2 will provide a migration setting for existing ledger installations.
 
 For card statement parsing or adaptation, read [the example layout and reader](../scripts/statements/README.md). Payment shortcuts are `card` (Rewards card), `savings` (Savings account), `salary` (Salary account), `wallet` (Shopping wallet), `appstore` (App store balance) and `cash`. Both wallet accounts appear as prepaid balances, and bank-funded top-ups appear as Balance top-up.
+
+All data builders require a format-1 `ledger.json`. See [migrations](../migrations/README.md) for older ledgers. `make personas` builds and tests Asha, Jordan and the empty fixture. Missing optional fuel and price files produce empty data.

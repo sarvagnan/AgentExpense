@@ -31,6 +31,6 @@ test('every forecast occurrence matches hledger in date, description, posting ac
     id: row.id, date: row.date, description: row.description,
     postings: row.postings.map(posting => ({ account: posting.account, commodity: posting.commodity, amount: decimalNumber(posting.amount) })),
   }));
-  assert.ok(expected.length > 0);
+  assert.equal(expected.length > 0, rules.length > 0);
   assert.deepEqual(sort(actual), sort(expected));
 });

@@ -10,7 +10,7 @@
     },
     "postings": [
       {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
     ]
   },
   {
@@ -24,7 +24,7 @@
     },
     "postings": [
       {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
     ]
   }
 ]

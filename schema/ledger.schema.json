@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentExpense ledger manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "id",
+    "name",
+    "defaultCurrency"
+  ],
+  "properties": {
+    "format": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "defaultCurrency": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\s\";=@]+$"
+    },
+    "locale": {
+      "type": "string",
+      "pattern": "^(?:(?:[A-Za-z]{2,3}(?:-[A-Za-z]{3}){0,3}|[A-Za-z]{4}|[A-Za-z]{5,8})(?:-[A-Za-z]{4})?(?:-(?:[A-Za-z]{2}|[0-9]{3}))?(?:-(?:[A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3}))*(?:-[0-9A-WY-Za-wy-z](?:-[A-Za-z0-9]{2,8})+)*(?:-[xX](?:-[A-Za-z0-9]{1,8})+)?|[xX](?:-[A-Za-z0-9]{1,8})+|[eE][nN]-[gG][bB]-[oO][eE][dD]|[iI]-[aA][mM][iI]|[iI]-[bB][nN][nN]|[iI]-[dD][eE][fF][aA][uU][lL][tT]|[iI]-[eE][nN][oO][cC][hH][iI][aA][nN]|[iI]-[hH][aA][kK]|[iI]-[kK][lL][iI][nN][gG][oO][nN]|[iI]-[lL][uU][xX]|[iI]-[mM][iI][nN][gG][oO]|[iI]-[nN][aA][vV][aA][jJ][oO]|[iI]-[pP][wW][nN]|[iI]-[tT][aA][oO]|[iI]-[tT][aA][yY]|[iI]-[tT][sS][uU]|[sS][gG][nN]-[bB][eE]-[fF][rR]|[sS][gG][nN]-[bB][eE]-[nN][lL]|[sS][gG][nN]-[cC][hH]-[dD][eE]|[aA][rR][tT]-[lL][oO][jJ][bB][aA][nN]|[cC][eE][lL]-[gG][aA][uU][lL][iI][sS][hH]|[nN][oO]-[bB][oO][kK]|[nN][oO]-[nN][yY][nN]|[zZ][hH]-[gG][uU][oO][yY][uU]|[zZ][hH]-[hH][aA][kK][kK][aA]|[zZ][hH]-[mM][iI][nN]|[zZ][hH]-[mM][iI][nN]-[nN][aA][nN]|[zZ][hH]-[xX][iI][aA][nN][gG])$"
+    },
+    "startDate": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fuel": {
+          "type": "boolean",
+          "default": false
+        },
+        "investments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prices": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            }
+          }
+        },
+        "history": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "oldLedger": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            }
+          }
+        },
+        "weeklyReview": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "storageKey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

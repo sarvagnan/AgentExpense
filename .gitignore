@@ -11,6 +11,6 @@ __pycache__/
 .DS_Store
 /review-dashboard/app/data/
 /review-dashboard/public/data/
-/examples/asha/expense_ledger.ledger
-/examples/asha/drafts/
-/examples/asha/.lock
+/fixtures/ledgers/*/expense_ledger.ledger
+/fixtures/ledgers/*/drafts/
+/fixtures/ledgers/*/.lock

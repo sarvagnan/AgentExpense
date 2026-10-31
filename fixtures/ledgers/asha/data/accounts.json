@@ -1,0 +1,82 @@
+{
+  "commodities": [
+    "INR",
+    "USD",
+    "DEMOFUND"
+  ],
+  "accounts": {
+    "Assets:Bank:Saffron Reserve": {
+      "kind": "bank",
+      "currency": "INR",
+      "label": "Saffron Reserve",
+      "aliases": [
+        "saffron reserve"
+      ]
+    },
+    "Assets:Bank:Nila Current": {
+      "kind": "bank",
+      "currency": "INR",
+      "label": "Nila Current",
+      "aliases": [
+        "nila current"
+      ]
+    },
+    "Liabilities:Credit Cards:Mosaic Card": {
+      "kind": "card",
+      "currency": "INR",
+      "label": "Mosaic Card",
+      "aliases": [
+        "mosaic card"
+      ]
+    },
+    "Assets:Cash": {
+      "kind": "cash",
+      "currency": "INR",
+      "label": "Cash",
+      "aliases": [
+        "cash"
+      ]
+    },
+    "Assets:Wallets:Shopping Wallet": {
+      "kind": "wallet",
+      "currency": "INR",
+      "label": "Shopping Wallet",
+      "aliases": [
+        "shopping wallet"
+      ]
+    },
+    "Assets:Wallets:App Store Balance": {
+      "kind": "wallet",
+      "currency": "INR",
+      "label": "App Store Balance",
+      "aliases": [
+        "app store balance"
+      ]
+    },
+    "Assets:Reimbursements:Dev Sen": {
+      "kind": "person",
+      "currency": "INR",
+      "label": "Dev Sen",
+      "aliases": [
+        "dev sen"
+      ]
+    },
+    "Equity:Opening Balances": {},
+    "Income:Salary": {},
+    "Income:Card Rewards": {},
+    "Expenses:Groceries": {},
+    "Expenses:Food:Dining & Delivery": {},
+    "Expenses:Housing:Rent": {},
+    "Expenses:Transport:Fuel": {},
+    "Expenses:Subscriptions:Paper Lantern": {},
+    "Expenses:Uncategorized": {},
+    "Assets:Investments:Mutual Funds:Demo Index": {
+      "kind": "investment",
+      "currency": "DEMOFUND",
+      "label": "Demo Index",
+      "aliases": [
+        "demo index"
+      ]
+    }
+  }
+}

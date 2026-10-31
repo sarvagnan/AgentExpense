@@ -27,11 +27,12 @@ def entry(identity='0000000000000001', day='2026-01-02', amount='10.00', **field
 
 class Fixture(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=Path(__file__).parent, prefix='.fixture-')
+        self.temp = tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-ledger-fixture-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        dump(self.root / 'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
         self.year = self.root / 'data/expenses/2026.json'
-        dump(self.root / 'data/accounts.json', dict(commodities=['INR', 'USD'], accounts=[CARD, 'Expenses:Test', 'Assets:Bank:Savings Account', 'Equity:Opening Balances']))
+        dump(self.root / 'data/accounts.json', dict(commodities=['INR', 'USD'], accounts={CARD: dict(kind='card', currency='INR'), 'Expenses:Test': {}, 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}}))
         dump(self.year, [entry()])
         dump(self.root / 'data/forecast.json', [])
         dump(self.root / 'data/card-statements.json', [])

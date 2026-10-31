@@ -63,7 +63,14 @@ def main(argv=None) -> None:
     try:
         text = sys.stdin.read() if args.file is None or str(args.file) == '-' else args.file.read_text(encoding='utf-8')
         entry = json.loads(text, object_pairs_hook=_unique_object)
-        print(add_entry(entry, root=args.root, dry_run=args.dry_run))
+        from ledger_manifest import read_manifest
+        from ledger_lock import ledger_lock
+        read_manifest(args.root)
+        if args.dry_run:
+            print(add_entry(entry, root=args.root, dry_run=True))
+        else:
+            with ledger_lock(args.root):
+                print(add_entry(entry, root=args.root))
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(1, f'{error}\n')
 

@@ -638,16 +638,24 @@
           "description": "Hand-kept commodity directive arguments verbatim, including precision and quotes. Not inferred from postings."
         },
         "accounts": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
+          "type": "object",
+          "propertyNames": {
             "type": "string",
+            "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
             "not": {
               "pattern": "[\\r\\n]"
-            },
-            "minLength": 1
+            }
           },
-          "description": "Hand-kept declared account names in declaration order. Never inferred from postings; hledger check -s detects undeclared names."
+          "patternProperties": {
+            "^(Income|Expenses|Equity)(:|$)": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/account-metadata"
+          },
+          "description": "Declared accounts in insertion order. Income, Expenses and Equity have empty metadata; every other root requires balance-sheet metadata."
         }
       }
     },
@@ -733,6 +741,66 @@
         "$ref": "#/$defs/card-statement"
       },
       "description": "Filed card statements in end-date order; never inferred from transaction dates."
+    },
+    "account-metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "currency"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "bank",
+            "card",
+            "cash",
+            "wallet",
+            "loan",
+            "investment",
+            "person"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\s\";=@]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^A-Z\\r\\n]+$"
+          }
+        },
+        "statement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reader",
+            "identifier"
+          ],
+          "properties": {
+            "reader": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\r\\n]+$"
+            },
+            "identifier": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\r\\n]+$"
+            }
+          }
+        }
+      }
     }
   }
 }

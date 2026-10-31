@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from project_paths import SCHEMA_PATH, ledger_root
+from ledger_manifest import ordered_manifest, read_manifest
 
 ROOT = ledger_root()
 # Field order is also journal comment order. The right side is the original label.
@@ -38,7 +40,7 @@ ENTRY_KEYS = ("id", "date", "status", "description", "schedule", "sources", *FIE
 STATEMENT_KEYS = ("id", "account", "start", "end", "source", "previous-balance", "purchases", "cash-advances", "credits", "total-due", "rows")
 KEY_ORDER = {name: index for index, name in enumerate((
     *ENTRY_KEYS, "account", "amount", "commodity", "cost", "assert", "every", "from", "interval", "per",
-    "commodities", "accounts",
+    "commodities", "accounts", "reader", "identifier",
 ))}
 
 
@@ -65,6 +67,14 @@ def read_json(path: Path) -> Any:
 
 def ordered(value: Any) -> Any:
     if isinstance(value, dict):
+        if {'format', 'id', 'name', 'defaultCurrency'} <= value.keys():
+            return ordered_manifest(value)
+        if set(value) == {'commodities', 'accounts'}:
+            return {'commodities': value['commodities'],
+                    'accounts': {name: {key: ordered(meta[key]) for key in sorted(meta, key=lambda key: (
+                        ('kind', 'currency', 'label', 'aliases', 'statement').index(key) if key in
+                        ('kind', 'currency', 'label', 'aliases', 'statement') else 999, key))}
+                        for name, meta in value['accounts'].items()}}
         if {"previous-balance", "total-due", "rows"} <= value.keys():
             return {key: ordered(value[key]) for key in STATEMENT_KEYS if key in value} | {key: ordered(val) for key, val in value.items() if key not in STATEMENT_KEYS}
         if {"every", "from"} <= value.keys() and value.get("interval") == 1:
@@ -106,20 +116,47 @@ def store_paths(root: Path = ROOT) -> list[Path]:
     return [root / "data/accounts.json", *sorted((root / "data/expenses").glob("*.json")), root / "data/forecast.json", root / "data/card-statements.json"]
 
 
-def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
+@lru_cache(maxsize=1)
+def validators():
+    """Application schemas are immutable within a process; ledger files are always fresh."""
     schema = read_json(SCHEMA_PATH)
     Draft202012Validator.check_schema(schema)
+    result = {}
+    for kind in ('accounts', 'expenses', 'forecast', 'card-statements'):
+        result[kind] = Draft202012Validator(
+            {**{k: v for k, v in schema.items() if k != 'oneOf'}, '$ref': f'#/$defs/{kind}'},
+            format_checker=FormatChecker())
+    result['manifest'] = Draft202012Validator(read_json(SCHEMA_PATH.with_name('ledger.schema.json')),
+                                             format_checker=FormatChecker())
+    return result
+
+
+def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
+    read_manifest(root)
+    checks = validators()
+    checks['manifest'].validate(read_json(root / 'ledger.json'))
     ids: dict[str, Path] = {}
     for path, document in documents.items():
         kind = {"accounts.json": "accounts", "forecast.json": "forecast", "card-statements.json": "card-statements"}.get(path.name, "expenses")
         # The file chooses its root type. The generic oneOf is ambiguous for empty arrays.
-        validator = Draft202012Validator({**{k: v for k, v in schema.items() if k != "oneOf"},
-                                         "$ref": f"#/$defs/{kind}"}, format_checker=FormatChecker())
-        errors = sorted(validator.iter_errors(document), key=lambda e: str(list(e.absolute_path)))
+        errors = sorted(checks[kind].iter_errors(document), key=lambda e: str(list(e.absolute_path)))
         if errors:
             error = errors[0]
             raise ValueError(f"{path.relative_to(root)}:{list(error.absolute_path)}: {error.message}")
         if kind == "accounts":
+            import shlex
+            commodities = set()
+            for directive in document['commodities']:
+                token = shlex.split(directive)[0]
+                # A numeric quantity in a declaration specifies display precision.
+                if re.fullmatch(r'[0-9.,]+', token):
+                    token = shlex.split(directive)[1]
+                commodities.add(token)
+            for name, metadata in document['accounts'].items():
+                if metadata.get('currency') and metadata['currency'] not in commodities:
+                    raise ValueError(f'{name}: account currency is not a declared commodity')
+                if any(alias != alias.lower() for alias in metadata.get('aliases', [])):
+                    raise ValueError(f'{name}: aliases must be lowercase')
             continue
         if kind == "expenses" and not re.fullmatch(r"\d{4}\.json", path.name):
             raise ValueError(f"Not a calendar-year filename: {path.name}")
@@ -147,9 +184,8 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
 
 
 def load(root: Path = ROOT) -> dict[Path, Any]:
+    read_manifest(root)
     paths = store_paths(root)
-    if not any(path.parent.name == "expenses" for path in paths):
-        raise ValueError("No yearly expense files")
     documents = {path: read_json(path) for path in paths}
     validate(documents, root)
     return documents
@@ -165,17 +201,21 @@ def main() -> None:
     parser.add_argument("--format", action="store_true", help="Rewrite all store files canonically")
     parser.add_argument("--root", type=Path, default=ROOT, help="Ledger repository root")
     args = parser.parse_args()
+    read_manifest(args.root)
     if args.format:
-        documents = {path: read_json(path) for path in store_paths(args.root)}
-        for path, document in documents.items():
-            if path.parent.name == "expenses" and isinstance(document, list):
-                document.sort(key=lambda entry: entry["date"])
-            elif path.name == "card-statements.json" and isinstance(document, list):
-                document.sort(key=lambda statement: statement["end"])
-        validate(documents, args.root)
-        for path, document in documents.items():
-            dump(path, document)
-        print(f"Formatted {len(documents)} JSON store files")
+        from ledger_lock import ledger_lock
+        with ledger_lock(args.root):
+            documents = {path: read_json(path) for path in store_paths(args.root)}
+            for path, document in documents.items():
+                if path.parent.name == "expenses" and isinstance(document, list):
+                    document.sort(key=lambda entry: entry["date"])
+                elif path.name == "card-statements.json" and isinstance(document, list):
+                    document.sort(key=lambda statement: statement["end"])
+            validate(documents, args.root)
+            for path, document in documents.items():
+                dump(path, document)
+            dump(args.root / 'ledger.json', read_json(args.root / 'ledger.json'))
+            print(f"Formatted {len(documents) + 1} JSON store files")
     else:
         load(args.root)
 
