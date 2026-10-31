@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "fictional": true
+  },
+  "entries": [
+    {
+      "id": "unlinked",
+      "date": "2026-06-01",
+      "ledgerStatus": "Unlinked",
+      "litres": 4,
+      "tripKm": 100,
+      "cost": 840,
+      "payment": "Savings Account"
+    },
+    {
+      "id": "linked",
+      "date": "2026-09-18",
+      "ledgerStatus": "Linked",
+      "entryId": "0000000000000022",
+      "litres": 8,
+      "tripKm": 240,
+      "cost": 840,
+      "payment": "Savings Account"
+    }
+  ]
+}

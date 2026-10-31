@@ -1,0 +1,43 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing and build output
+/coverage
+/dist/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local environment
+.env*
+
+# generated files
+.vercel
+next-env.d.ts
+/outputs/
+/work/
+/.rodney/
+tmp-*.png
+
+# rebuilt on each host by `npm run data` (not synced, not versioned)
+/app/data/dashboard.json
+/app/data/pending-transactions.json
+/public/data/
+
+/app/data/fuel-log.json
+
+/app/data/add-patterns.json

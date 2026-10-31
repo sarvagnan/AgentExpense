@@ -1,0 +1,558 @@
+[
+  {
+    "id": "0000000000000001",
+    "date": "2026-06-01",
+    "status": "confirmed",
+    "description": "Fictional opening balances",
+    "sources": [
+      "Bills/2026-06-01/fictional-confirmation-1.md"
+    ],
+    "postings": [
+      {"account": "Assets:Bank:Savings Account", "amount": "48000.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "1200.00", "commodity": "INR"},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "300.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "0.00", "commodity": "INR"},
+      {"account": "Equity:Opening Balances", "amount": "-49500.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000002",
+    "date": "2026-06-02",
+    "status": "confirmed",
+    "description": "Juniper Studio salary",
+    "sources": [
+      "Bills/2026-06-02/fictional-confirmation-2.md"
+    ],
+    "postings": [
+      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000003",
+    "date": "2026-06-03",
+    "status": "confirmed",
+    "description": "Fern Court rent",
+    "sources": [
+      "Bills/2026-06-03/fictional-confirmation-3.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000004",
+    "date": "2026-06-06",
+    "status": "confirmed",
+    "description": "Orchid Market groceries",
+    "sources": [
+      "Bills/2026-06-06/fictional-confirmation-4.md"
+    ],
+    "variable-estimate": {
+      "excluded": true,
+      "reason": "fictional annual pantry plan"
+    },
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "778.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-778.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000005",
+    "date": "2026-06-10",
+    "status": "confirmed",
+    "description": "Moss Cafe lunch",
+    "sources": [
+      "Bills/2026-06-10/fictional-confirmation-5.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "186.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-186.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000006",
+    "date": "2026-06-14",
+    "status": "confirmed",
+    "description": "Paper Lantern subscription",
+    "sources": [
+      "Bills/2026-06-14/fictional-confirmation-6.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000007",
+    "date": "2026-06-18",
+    "status": "confirmed",
+    "description": "Fable Fuels petrol",
+    "sources": [
+      "Bills/2026-06-18/fictional-confirmation-7.md"
+    ],
+    "classification": "user-confirmed match from fuel log",
+    "fuel-filled-litres": "8.00",
+    "trip-km": "240.0",
+    "postings": [
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000008",
+    "date": "2026-06-20",
+    "status": "confirmed",
+    "description": "Wallet top-up",
+    "sources": [
+      "Bills/2026-06-20/fictional-confirmation-8.md"
+    ],
+    "postings": [
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000009",
+    "date": "2026-06-23",
+    "status": "confirmed",
+    "description": "Willow Stall snacks",
+    "sources": [
+      "Bills/2026-06-23/fictional-confirmation-9.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000000a",
+    "date": "2026-06-25",
+    "status": "confirmed",
+    "description": "Card bill payment",
+    "sources": [
+      "Bills/2026-06-25/fictional-confirmation-10.md"
+    ],
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000000b",
+    "date": "2026-07-02",
+    "status": "confirmed",
+    "description": "Juniper Studio salary",
+    "sources": [
+      "Bills/2026-07-02/fictional-confirmation-11.md"
+    ],
+    "postings": [
+      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000000c",
+    "date": "2026-07-03",
+    "status": "confirmed",
+    "description": "Fern Court rent",
+    "sources": [
+      "Bills/2026-07-03/fictional-confirmation-12.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000000d",
+    "date": "2026-07-06",
+    "status": "confirmed",
+    "description": "Orchid Market groceries",
+    "sources": [
+      "Bills/2026-07-06/fictional-confirmation-13.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "781.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-781.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000000e",
+    "date": "2026-07-10",
+    "status": "confirmed",
+    "description": "Moss Cafe lunch",
+    "sources": [
+      "Bills/2026-07-10/fictional-confirmation-14.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "187.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-187.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000000f",
+    "date": "2026-07-14",
+    "status": "confirmed",
+    "description": "Paper Lantern subscription",
+    "sources": [
+      "Bills/2026-07-14/fictional-confirmation-15.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000029",
+    "date": "2026-07-16",
+    "status": "confirmed",
+    "description": "Demo Index units",
+    "sources": [
+      "Bills/2026-07-16/fictional-confirmation-41.md"
+    ],
+    "postings": [
+      {"account": "Assets:Investments:Mutual Funds:Demo Index", "amount": "5.000", "commodity": "DEMOFUND", "cost": {"amount": "500", "commodity": "INR", "per": "total"}},
+      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000010",
+    "date": "2026-07-18",
+    "status": "confirmed",
+    "description": "Fable Fuels petrol",
+    "sources": [
+      "Bills/2026-07-18/fictional-confirmation-16.md"
+    ],
+    "classification": "user-confirmed match from fuel log",
+    "fuel-filled-litres": "8.00",
+    "trip-km": "240.0",
+    "postings": [
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000011",
+    "date": "2026-07-20",
+    "status": "confirmed",
+    "description": "Wallet top-up",
+    "sources": [
+      "Bills/2026-07-20/fictional-confirmation-17.md"
+    ],
+    "postings": [
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000012",
+    "date": "2026-07-23",
+    "status": "confirmed",
+    "description": "Willow Stall snacks",
+    "sources": [
+      "Bills/2026-07-23/fictional-confirmation-18.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000013",
+    "date": "2026-07-25",
+    "status": "confirmed",
+    "description": "Card bill payment",
+    "sources": [
+      "Bills/2026-07-25/fictional-confirmation-19.md"
+    ],
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000014",
+    "date": "2026-08-02",
+    "status": "confirmed",
+    "description": "Juniper Studio salary",
+    "sources": [
+      "Bills/2026-08-02/fictional-confirmation-20.md"
+    ],
+    "postings": [
+      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000015",
+    "date": "2026-08-03",
+    "status": "confirmed",
+    "description": "Fern Court rent",
+    "sources": [
+      "Bills/2026-08-03/fictional-confirmation-21.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000016",
+    "date": "2026-08-06",
+    "status": "confirmed",
+    "description": "Orchid Market groceries",
+    "sources": [
+      "Bills/2026-08-06/fictional-confirmation-22.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "784.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-784.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000017",
+    "date": "2026-08-10",
+    "status": "confirmed",
+    "description": "Moss Cafe lunch",
+    "sources": [
+      "Bills/2026-08-10/fictional-confirmation-23.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "188.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-188.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000026",
+    "date": "2026-08-12",
+    "status": "confirmed",
+    "description": "Advance for Dev Sen shared supplies",
+    "sources": [
+      "Bills/2026-08-12/fictional-confirmation-38.md"
+    ],
+    "reimbursement-group": "demo-shared-supplies",
+    "reimbursement-label": "Shared supplies",
+    "postings": [
+      {"account": "Assets:Reimbursements:Dev Sen", "amount": "640.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-640.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000018",
+    "date": "2026-08-14",
+    "status": "confirmed",
+    "description": "Paper Lantern subscription",
+    "sources": [
+      "Bills/2026-08-14/fictional-confirmation-24.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000019",
+    "date": "2026-08-18",
+    "status": "confirmed",
+    "description": "Fable Fuels petrol",
+    "sources": [
+      "Bills/2026-08-18/fictional-confirmation-25.md"
+    ],
+    "classification": "user-confirmed match from fuel log",
+    "fuel-filled-litres": "8.00",
+    "trip-km": "240.0",
+    "postings": [
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000001a",
+    "date": "2026-08-20",
+    "status": "confirmed",
+    "description": "Wallet top-up",
+    "sources": [
+      "Bills/2026-08-20/fictional-confirmation-26.md"
+    ],
+    "postings": [
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000001b",
+    "date": "2026-08-23",
+    "status": "confirmed",
+    "description": "Willow Stall snacks",
+    "sources": [
+      "Bills/2026-08-23/fictional-confirmation-27.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000001c",
+    "date": "2026-08-25",
+    "status": "confirmed",
+    "description": "Card bill payment",
+    "sources": [
+      "Bills/2026-08-25/fictional-confirmation-28.md"
+    ],
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000001d",
+    "date": "2026-09-02",
+    "status": "confirmed",
+    "description": "Juniper Studio salary",
+    "sources": [
+      "Bills/2026-09-02/fictional-confirmation-29.md"
+    ],
+    "postings": [
+      {"account": "Assets:Bank:Savings Account", "amount": "24000.00", "commodity": "INR"},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000001e",
+    "date": "2026-09-03",
+    "status": "confirmed",
+    "description": "Fern Court rent",
+    "sources": [
+      "Bills/2026-09-03/fictional-confirmation-30.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-7200.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000001f",
+    "date": "2026-09-06",
+    "status": "confirmed",
+    "description": "Orchid Market groceries",
+    "sources": [
+      "Bills/2026-09-06/fictional-confirmation-31.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "787.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-787.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000020",
+    "date": "2026-09-10",
+    "status": "confirmed",
+    "description": "Moss Cafe lunch",
+    "sources": [
+      "Bills/2026-09-10/fictional-confirmation-32.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "189.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-189.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000027",
+    "date": "2026-09-12",
+    "status": "confirmed",
+    "description": "Dev Sen reimbursement",
+    "sources": [
+      "Bills/2026-09-12/fictional-confirmation-39.md"
+    ],
+    "reimbursement-group": "demo-shared-supplies",
+    "reimbursement-label": "Shared supplies",
+    "postings": [
+      {"account": "Assets:Bank:Savings Account", "amount": "640.00", "commodity": "INR"},
+      {"account": "Assets:Reimbursements:Dev Sen", "amount": "-640.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000021",
+    "date": "2026-09-14",
+    "status": "confirmed",
+    "description": "Paper Lantern subscription",
+    "sources": [
+      "Bills/2026-09-14/fictional-confirmation-33.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "-90.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000022",
+    "date": "2026-09-18",
+    "status": "confirmed",
+    "description": "Fable Fuels petrol",
+    "sources": [
+      "Bills/2026-09-18/fictional-confirmation-34.md"
+    ],
+    "classification": "user-confirmed match from fuel log",
+    "fuel-filled-litres": "8.00",
+    "trip-km": "240.0",
+    "postings": [
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-840.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000023",
+    "date": "2026-09-20",
+    "status": "confirmed",
+    "description": "Wallet top-up",
+    "sources": [
+      "Bills/2026-09-20/fictional-confirmation-35.md"
+    ],
+    "postings": [
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-250.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000024",
+    "date": "2026-09-23",
+    "status": "confirmed",
+    "description": "Willow Stall snacks",
+    "sources": [
+      "Bills/2026-09-23/fictional-confirmation-36.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000025",
+    "date": "2026-09-25",
+    "status": "confirmed",
+    "description": "Card bill payment",
+    "sources": [
+      "Bills/2026-09-25/fictional-confirmation-37.md"
+    ],
+    "postings": [
+      {"account": "Liabilities:Credit Cards:Rewards Card", "amount": "500.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-500.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000028",
+    "date": "2026-09-27",
+    "status": "pending",
+    "description": "Willow repair awaiting classification",
+    "sources": [
+      "Bills/2026-09-27/fictional-confirmation-40.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Uncategorized", "amount": "265.00", "commodity": "INR"},
+      {"account": "Assets:Bank:Savings Account", "amount": "-265.00", "commodity": "INR"}
+    ]
+  }
+]

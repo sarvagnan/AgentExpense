@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "additions.schema.json",
+  "title": "Live expense audit event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "id",
+    "kind",
+    "time"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "kind": {
+      "enum": [
+        "draft",
+        "statement",
+        "review"
+      ]
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "draft_id": {
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "added",
+        "failed",
+        "not_expense",
+        "discarded"
+      ]
+    },
+    "text": {
+      "type": "string"
+    },
+    "saved_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "pieces": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "original_name"
+        ],
+        "properties": {
+          "original_name": {
+            "type": "string"
+          },
+          "filed_path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question",
+          "answer",
+          "asked_at"
+        ],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "asked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answered_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "model",
+          "effort",
+          "start",
+          "end",
+          "outcome",
+          "usage",
+          "lookups",
+          "error"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usage": {
+            "type": "object"
+          },
+          "lookups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "question": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doubts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "duration": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "proposal": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "doubts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "check_errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "entry_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "statement": {
+      "type": "object",
+      "required": [
+        "periodStart",
+        "periodEnd",
+        "source"
+      ],
+      "properties": {
+        "periodStart": {
+          "type": "string",
+          "format": "date"
+        },
+        "periodEnd": {
+          "type": "string",
+          "format": "date"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "entry_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "extraction": {
+      "enum": [
+        "parser",
+        "agent"
+      ]
+    },
+    "line_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "verdict": {
+      "enum": [
+        "ok",
+        "issue"
+      ]
+    },
+    "note": {
+      "type": "string"
+    },
+    "reviewer": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "draft"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "draft_id",
+          "outcome",
+          "text",
+          "saved_at",
+          "pieces",
+          "files",
+          "questions",
+          "runs",
+          "proposal",
+          "doubts",
+          "check_errors",
+          "error",
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "statement"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "statement",
+          "counts",
+          "decisions",
+          "entry_ids",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "review"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "line_id",
+          "verdict",
+          "note",
+          "reviewer"
+        ]
+      }
+    }
+  ]
+}

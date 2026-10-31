@@ -1,0 +1,482 @@
+"""Durable statement sessions and one checked, rollback-capable ledger change."""
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from hashlib import sha256
+import io
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import threading
+from pypdf import PdfReader, PdfWriter
+from agent import now
+from settings import APPLICATION
+from transactions import Transaction, jj, clean, refresh
+from ledger_lock import ledger_lock, LOCK_FD_ENV
+from store import load, entries, dump, new_id, store_paths
+from add_entry import add_entry
+from audit import event, append, audit_path
+sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
+from statement_pdf import parse_text, extract_text, checks, recognised
+from statement_rules import plan, convert, CARD
+
+
+def fingerprint(root):
+    return sha256(b''.join(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes() for p in store_paths(root))).hexdigest()
+
+
+class StaleChecklist(ValueError):
+    pass
+
+
+RECOVERY_HOURS = 24
+
+
+class Statements:
+    def __init__(self, settings):
+        self.settings, self.ledger = settings, settings.ledger
+        self.root = self.ledger / 'drafts/statements'
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.mutex = threading.RLock()
+        self.in_flight = set()
+
+    def folder(self, identity):
+        if not re.fullmatch('[a-f0-9]{32}', identity):
+            raise FileNotFoundError('Unknown statement session')
+        path = self.root / identity
+        if path.is_symlink():
+            raise FileNotFoundError('Invalid statement session')
+        return path
+
+    def put(self, session, *, force=False):
+        with self.mutex:
+            folder = self.folder(session['id'])
+            folder.mkdir(exist_ok=True)
+            current = folder / 'session.json'
+            if current.exists() and not force:
+                prior = json.loads(current.read_text())
+                if prior.get('generation', 0) != session.get('generation', 0) or prior.get('cancelled') and not session.get('cancelled'):
+                    return
+                # A reader may finish after a handover extension. Preserve its
+                # recovery metadata rather than replacing it with an old snapshot.
+                if prior.get('handover_until', '') > session.get('handover_until', ''):
+                    session['handover_until'] = prior['handover_until']
+                    session['handover_draft'] = prior['handover_draft']
+            session['updated_at'] = now()
+            temporary = folder / 'session.tmp'
+            with temporary.open('w') as handle:
+                json.dump(session, handle, ensure_ascii=False, allow_nan=False, indent=2)
+                handle.write('\n'); handle.flush(); os.fsync(handle.fileno())
+            temporary.replace(folder / 'session.json')
+
+    def get(self, identity, *, include_discarded=False):
+        with self.mutex:
+            session = json.loads((self.folder(identity) / 'session.json').read_text())
+            if session.get('discarded_until') and not include_discarded:
+                raise FileNotFoundError('Discarded statement session')
+            return session
+
+    def all(self):
+        with self.mutex:
+            return [json.loads(p.read_text()) for p in self.root.glob('*/session.json')]
+
+    def purge(self):
+        with self.mutex:
+            for s in self.all():
+                if s['id'] not in self.in_flight and s.get('discarded_until') and datetime.fromisoformat(s['discarded_until']) <= datetime.now(timezone.utc):
+                    shutil.rmtree(self.folder(s['id']))
+
+    def create(self, data, original_name, upload_id=None):
+        if not data.startswith(b'%PDF-'):
+            raise ValueError('Choose a credit-card statement PDF.')
+        try:
+            reader = PdfReader(io.BytesIO(data))
+            locked = reader.is_encrypted and not reader.decrypt('')
+            if not locked and not len(reader.pages):
+                raise ValueError()
+        except Exception:
+            raise ValueError('This PDF could not be opened. Choose a valid credit-card statement PDF.') from None
+        name = Path((original_name or 'Statement.pdf').replace('\\', '/')).name
+        name = re.sub(r'[\x00-\x1f\x7f]', '', name)[:200]
+        if not name.lower().endswith('.pdf'):
+            name += '.pdf'
+        session = dict(id=secrets.token_hex(16), state='locked' if locked else 'reading', original_name=name,
+                       created_at=now(), queued_at=now(), decisions=[], result=None, error=None, waiting=None, runs=[], upload_id=upload_id, pdf_hash=sha256(data).hexdigest())
+        with self.mutex:
+            if upload_id and self.upload_marker(upload_id).exists():
+                raise ValueError('This upload was cancelled. Choose the file again to start a new upload.')
+            self.put(session)
+            (self.folder(session['id']) / 'original.pdf').write_bytes(data)
+            if not locked:
+                self.open_pdf(session, reader)
+        return session
+
+    def upload_marker(self, token):
+        if not re.fullmatch('[a-f0-9]{32}', token):
+            raise ValueError('Invalid upload token')
+        folder = self.root / '.cancelled-uploads'
+        folder.mkdir(exist_ok=True)
+        return folder / token
+
+    def cancel_upload(self, token):
+        with self.mutex:
+            self.upload_marker(token).touch()
+            for s in self.all():
+                if s.get('upload_id') == token and not s.get('discarded_until'):
+                    self.discard(s['id'])
+
+    def discard(self, identity):
+        with self.mutex:
+            s = self.get(identity)
+            if s.get('apply_started') or (self.folder(identity)/'transaction.json').exists() or s['state']=='applying' and s.get('committed_result'):
+                raise ValueError('The checked apply has started. It will finish or roll back safely.')
+            if s['state'] == 'applying':
+                s.update(state='review', waiting=None)
+            s.update(cancelled=True, generation=s.get('generation', 0)+1,
+                     discarded_until=(datetime.now(timezone.utc)+timedelta(hours=RECOVERY_HOURS)).isoformat())
+            self.put(s, force=True)
+            return s
+
+    def restore(self, identity):
+        with self.mutex:
+            self.purge()
+            s = self.get(identity, include_discarded=True)
+            if not s.pop('discarded_until', None):
+                raise ValueError('This session is not discarded.')
+            s.update(cancelled=False, generation=s.get('generation', 0)+1)
+            self.put(s, force=True)
+            return s
+
+    def cancel_apply(self, identity):
+        with self.mutex:
+            s = self.get(identity)
+            if s['state'] != 'applying' or s.get('apply_started') or (self.folder(identity)/'transaction.json').exists() or s.get('committed_result'):
+                raise ValueError('The checked apply has started or already finished. It cannot be cancelled.')
+            s.update(state='review', waiting=None, generation=s.get('generation', 0)+1)
+            self.put(s, force=True)
+            return s
+
+    def open_pdf(self, session, reader):
+        # A password never enters metadata, logs, responses, a subprocess or disk.
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        with (self.folder(session['id']) / 'read.pdf').open('wb') as handle:
+            writer.write(handle)
+        session.update(state='reading', queued_at=now(), error=None)
+        self.put(session)
+
+    def unlock(self, identity, password):
+        with self.mutex:
+            session = self.get(identity)
+            if session['state'] != 'locked':
+                raise ValueError('This statement is not waiting for a password.')
+            try:
+                reader = PdfReader(self.folder(identity) / 'original.pdf')
+                if not reader.decrypt(password):
+                    raise ValueError()
+                self.open_pdf(session, reader)
+            except Exception:
+                raise ValueError('That password did not open the PDF. Try again.') from None
+            return session
+
+    def current_generation(self, session):
+        try:
+            latest = self.get(session['id'], include_discarded=True)
+        except FileNotFoundError:
+            return False
+        return not latest.get('cancelled') and latest.get('generation', 0) == session.get('generation', 0)
+
+    def read(self, session):
+        if not self.current_generation(session):
+            return
+        path = self.folder(session['id']) / 'read.pdf'
+        extraction_error = None
+        try:
+            text = extract_text(path)
+        except Exception as exc:
+            text, extraction_error = None, str(exc)
+        if not self.current_generation(session):
+            return
+        if text is not None and not recognised(text, self.settings.statement_card_last4):
+            session.update(state='wrong_file', error='This is not a recognisable card statement for the configured card.')
+            self.put(session)
+            return
+        documents = load(self.ledger)
+        statements = documents[self.ledger / 'data/card-statements.json']
+        parser_error = None
+        try:
+            if extraction_error:
+                raise ValueError('PDF text extraction failed: ' + extraction_error)
+            statement = parse_text(text, expected_last4=self.settings.statement_card_last4)
+            earlier = [s for s in statements if s['account'] == CARD and s['end'] < statement['periodEnd']]
+            previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
+            tested = checks(statement, previous)
+            if not all(c['ok'] for c in tested):
+                raise ValueError('; '.join(c['text'] for c in tested if not c['ok']))
+            method = 'parser'
+        except ValueError as exc:
+            parser_error = str(exc)
+            if not self.current_generation(session):
+                return
+            import agent
+            fallback = dict(id=session['id'], statement_task=True, text='', pieces=None, saved_at=session['created_at'], questions=[], check_errors=[parser_error], files=[dict(name='read.pdf', original_name=session['original_name'])])
+            # The runner's attachment layout is drafts/<id>/files. An isolated
+            # temporary folder supplies it without copying the password.
+            import tempfile
+            with tempfile.TemporaryDirectory(prefix='expense-statement-reader-') as temporary:
+                folder = Path(temporary); (folder/'files').mkdir()
+                shutil.copyfile(path, folder/'files/read.pdf')
+                try:
+                    answer, record = agent.run(self.settings, fallback, folder)
+                except agent.AgentFailure as exc:
+                    session['runs'].append(exc.record)
+                    self.put(session)
+                    raise ValueError('The parser and second reading could not read this statement. ' + parser_error + '; ' + str(exc)) from None
+            session['runs'].append(record)
+            statement = agent.statement_result(answer, self.settings.statement_card_last4)
+            earlier = [s for s in statements if s['account'] == CARD and s['end'] < statement['periodEnd']]
+            previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
+            tested = checks(statement, previous)
+            if not all(c['ok'] for c in tested):
+                raise ValueError('The parser and the second reading could not validate the statement. ' + parser_error + '; ' + '; '.join(c['text'] for c in tested if not c['ok']))
+            method = 'agent'
+        filed = next((s for s in statements if s['account'] == CARD and s['end'] == statement['periodEnd']), None)
+        session.update(statement=statement, checks=tested, extraction=method, parser_error=parser_error)
+        if filed:
+            session.update(state='already_filed', filed=filed)
+        else:
+            if statements and statement['periodEnd'] <= max(s['end'] for s in statements if s['account'] == CARD):
+                raise ValueError('This statement predates the latest filed statement. Resolve the missing history before applying it.')
+            session.update(state='found', plan=plan(documents, statement, self.ledger), fingerprint=fingerprint(self.ledger))
+            duplicates = sorted((other for other in self.all() if other['id'] != session['id'] and not other.get('discarded_until') and other['state'] in ('found', 'review', 'failed') and other.get('fingerprint') == session['fingerprint'] and other.get('failure_reason') != 'stale_checklist' and other.get('statement', {}).get('periodEnd') == statement['periodEnd']), key=lambda other: (other['created_at'], other['id']))
+            if duplicates:
+                session['duplicate_of'] = duplicates[0]['id']
+        self.put(session)
+
+    def decide(self, identity, serial, body):
+        with self.mutex:
+            s = self.get(identity)
+            if s['state'] not in ('found', 'review', 'failed') or 'plan' not in s:
+                raise ValueError('This statement is not ready for decisions.')
+            item = next((i for i in s['plan']['items'] if i['row']['serial'] == serial), None)
+            if not item:
+                raise ValueError('Unknown statement row')
+            action = body.get('action')
+            decision = None
+            if action == 'match':
+                identity = body.get('entry_id')
+                if identity not in [c['entryId'] for c in item['candidates']]:
+                    raise ValueError('Choose one of this row’s candidate entries.')
+                if any(i['row']['serial'] != serial and (i['entry_id'] == identity or (i['decision'] or {}).get('entry_id') == identity) for i in s['plan']['items']):
+                    raise ValueError('That entry is already assigned to another row.')
+                decision = dict(action=action, entry_id=identity)
+            elif action in ('pending', 'account'):
+                account = 'Expenses:Uncategorized' if action == 'pending' else body.get('account')
+                declared = load(self.ledger)[self.ledger / 'data/accounts.json']['accounts']
+                if action == 'account' and (not isinstance(account,str) or account not in declared or account == CARD or account.startswith('Equity:')):
+                    raise ValueError('Choose a declared expense, asset, income or person account.')
+                decision = dict(action=action, account=account)
+            elif action != 'reset':
+                raise ValueError('Choose match, account or pending.')
+            item['decision'] = decision
+            s['decisions'].append(dict(serial=serial, time=now(), **(decision or {'action':'reset'})))
+            s.update(state='review', error=None)
+            self.put(s)
+            return s
+
+    def queue_apply(self, identity):
+        with self.mutex:
+            s = self.get(identity)
+            if s['state'] not in ('found', 'review', 'failed') or 'plan' not in s:
+                raise ValueError('This statement is not ready to apply.')
+            if s.get('failure_reason') == 'stale_checklist':
+                raise ValueError('Upload this statement again to rebuild the checklist.')
+            if any(i['needs_user'] and not i['decision'] for i in s['plan']['items']):
+                raise ValueError('Decide every row that needs you before applying.')
+            s.update(state='applying', queued_at=now(), error=None)
+            self.put(s)
+            return s
+
+    def recover_work(self):
+        for s in self.all():
+            if s['state'] == 'applying':
+                s['waiting'] = None
+                s['apply_started'] = bool(s.get('apply_started') or s.get('committed_result') or (self.folder(s['id'])/'transaction.json').exists())
+                self.put(s)
+
+    def work(self, stop_event, before=None):
+        with self.mutex:
+            self.purge()
+            queued = sorted((s for s in self.all() if not s.get('discarded_until') and s['state'] in ('reading','applying') and not s.get('waiting')), key=lambda s:(s['queued_at'],s['id']))
+            # Waiting sessions periodically rejoin; they must not block other work.
+            if not queued:
+                queued = [s for s in self.all() if s['state']=='applying' and s.get('waiting') and not s.get('discarded_until')]
+                if queued and datetime.now(timezone.utc).timestamp() - queued[0].get('last_check', 0) < .5:
+                    return False
+            if not queued or before and queued[0]['queued_at'] > before:
+                return False
+            s = queued[0]
+            self.in_flight.add(s['id'])
+        try:
+            if s['state']=='reading':
+                self.read(s)
+            else:
+                with ledger_lock(self.ledger) as fd:
+                    with self.mutex:
+                        latest = self.get(s['id'], include_discarded=True)
+                        if latest.get('discarded_until') or latest['state'] != 'applying' or latest.get('generation', 0) != s.get('generation', 0):
+                            return True
+                        s = latest
+                    transaction = StatementTransaction(self.settings, self, s)
+                    recovered = s.get('committed_result') or transaction.recover()
+                    if recovered:
+                        s.update(state='applied', result=refresh(self.settings,recovered), waiting=None, apply_started=False)
+                        self.put(s)
+                    elif not clean(self.ledger):
+                        s.update(waiting='Waiting for other ledger changes to finish.', last_check=datetime.now(timezone.utc).timestamp())
+                        self.put(s)
+                    else:
+                        with self.mutex:
+                            latest = self.get(s['id'], include_discarded=True)
+                            if latest.get('discarded_until') or latest['state'] != 'applying' or latest.get('generation', 0) != s.get('generation', 0):
+                                return True
+                            s.update(apply_started=True)
+                            self.put(s)
+                        result = transaction.apply_statement(fd)
+                        s.update(state='applied', result=refresh(self.settings,result), waiting=None, apply_started=False)
+                        self.put(s)
+                if s['state']=='applied':
+                    # Other attempts at this period are now history too. Do this
+                    # only after a successful commit, never from an uncommitted
+                    # summary that a concurrent list request might observe.
+                    with self.mutex:
+                        summary = next(item for item in load(self.ledger)[self.ledger/'data/card-statements.json'] if item['account']==CARD and item['end']==s['statement']['periodEnd'])
+                        for other in self.all():
+                            if other['id']!=s['id'] and not other.get('discarded_until') and other['state'] not in ('applied','already_filed') and other.get('statement',{}).get('periodEnd')==s['statement']['periodEnd']:
+                                other.update(state='already_filed', filed=summary, apply_started=False, waiting=None, generation=other.get('generation',0)+1)
+                                self.put(other, force=True)
+                    for p in self.folder(s['id']).glob('*.pdf'):
+                        p.unlink()
+        except Exception as exc:
+            s.update(state='failed' if 'plan' in s else 'couldnt_read', error=str(exc), waiting=None, apply_started=False, failure_reason='stale_checklist' if isinstance(exc, StaleChecklist) else 'apply_failed' if 'plan' in s else 'read_failed')
+            self.put(s)
+        finally:
+            self.in_flight.discard(s['id'])
+        return True
+
+
+class StatementTransaction(Transaction):
+    def __init__(self, settings, sessions, session):
+        super().__init__(settings, sessions, session)
+        self.marker = 'Statement: ' + session['id']
+
+    def apply_statement(self, lock_fd):
+        s = self.draft
+        documents = load(self.root)
+        if fingerprint(self.root) != s['fingerprint']:
+            raise StaleChecklist('The ledger changed. Upload this statement again to rebuild the checklist.')
+        statement, checklist = s['statement'], s['plan']['items']
+        if any(i['needs_user'] and not i['decision'] for i in checklist):
+            raise ValueError('There are undecided statement rows')
+        target = self.root / 'Bills' / statement['periodEnd'] / s['original_name']
+        if not target.resolve().is_relative_to((self.root / 'Bills').resolve()) or not (self.root / 'Bills').resolve().is_relative_to(self.root.resolve()):
+            raise ValueError('Evidence directory escapes Bills')
+        if target.exists() or target.is_symlink():
+            raise ValueError('A PDF with this name is already filed. Check the existing evidence first.')
+        source = str(target.relative_to(self.root))
+        month = datetime.fromisoformat(statement['periodEnd']).strftime('%B%Y')
+        reconciliation = self.root / f'data/statements/{month}-card-reconciliation.json'
+        if reconciliation.exists():
+            raise ValueError('This reconciliation file already exists')
+        record = event('statement', statement={**statement,'source':source}, counts=s['plan']['counts'], decisions=s['decisions'], entry_ids=[], extraction=s['extraction'], runs=s['runs'])
+        journal = self.snapshot([*store_paths(self.root), self.root/'expense_ledger.ledger', target, reconciliation, audit_path(self.root,record),
+                                 *{self.root / 'data/expenses' / (i['row']['date'][:4]+'.json') for i in checklist}])
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.drafts.folder(s['id']) / 'read.pdf', target)
+            actuals = {e['id']:e for e in entries(documents)}
+            changed, added, used = [], [], set()
+            new_entries = []
+            for item in checklist:
+                row, decision = item['row'], item['decision']
+                identity = decision.get('entry_id') if decision and decision['action']=='match' else item['entry_id'] if not decision else None
+                if identity:
+                    if identity in used:
+                        raise ValueError('An entry was assigned more than once')
+                    used.add(identity)
+                    entry = actuals[identity]
+                    if item['rule']=='foreign_currency' and not decision:
+                        convert(entry,row)
+                    if entry['date']!=row['date']:
+                        entry.setdefault('notes',[]).append(f"statement printed date: {row['date']}; replaces recorded date {entry['date']}")
+                        entry['date']=row['date']
+                    changed.append(identity)
+                else:
+                    if decision:
+                        amount=Decimal(row['amount'])*(1 if row['direction']=='Debit' else -1)
+                        posting=dict(account=decision['account'],amount=f'{amount:.2f}',commodity='INR')
+                        if row.get('foreignAmount'):
+                            original=Decimal(row['foreignAmount'])*(1 if row['direction']=='Debit' else -1)
+                            posting.update(amount=f'{original:.2f}',commodity=row['foreignCurrency'],cost=dict(amount=row['amount'],commodity='INR',per='total'))
+                        postings=[posting,dict(account=CARD,amount=f'{-amount:.2f}',commodity='INR')]
+                    else:
+                        postings=deepcopy(item['postings'])
+                    if not postings:
+                        raise ValueError('New row has no approved postings')
+                    entry=dict(date=row['date'],status='pending' if decision and decision['action']=='pending' else 'confirmed',description=row['description'],postings=postings)
+                    if row.get('foreignAmount'):
+                        entry['original-amount']=dict(amount=f"{Decimal(row['foreignAmount']):.2f}",commodity=row['foreignCurrency'])
+                    new_entries.append(entry)
+                entry.update({'statement-end':statement['periodEnd'],'serial-number':row['serial'],'statement-page':row['page']})
+                entry.setdefault('sources',[])
+                if source not in entry['sources']:
+                    entry['sources'].append(source)
+                entry.setdefault('notes',[]).extend(['statement merchant: '+row['description'],f"statement charge: {row['amount']} INR ({row['direction']})"])
+            # Re-sort all years after printed-date corrections; preserve IDs and
+            # relocate a cross-year match rather than leaving it in the old file.
+            actual = list(actuals.values())
+            for path, document in documents.items():
+                if path.parent.name=='expenses':
+                    documents[path]=sorted((e for e in actual if e['date'][:4]==path.stem),key=lambda e:e['date'])
+            for year in {e['date'][:4] for e in actual}:
+                path=self.root/f'data/expenses/{year}.json'
+                if path not in documents:
+                    documents[path]=sorted((e for e in actual if e['date'][:4]==year),key=lambda e:e['date'])
+            declared=documents[self.root/'data/accounts.json']
+            if any(p['account']=='Expenses:Uncategorized' for e in new_entries for p in e['postings']):
+                declared['accounts']=sorted(set(declared['accounts'])|{'Expenses:Uncategorized'})
+            used_ids={e['id'] for items in documents.values() if isinstance(items,list) for e in items if 'id' in e}
+            summary=dict(id=new_id(used_ids),account=CARD,start=statement['periodStart'],end=statement['periodEnd'],source=source,
+                         **{'previous-balance':statement['previousBalance'],'purchases':statement['purchasesCharges'],'credits':statement['paymentsCredits'],'total-due':statement['totalDue'],'rows':len(statement['rows'])})
+            if Decimal(statement.get('cashAdvances','0')):
+                summary['cash-advances']=statement['cashAdvances']
+            documents[self.root/'data/card-statements.json'].append(summary)
+            for path, document in documents.items():
+                dump(path,document)
+            for entry in new_entries:
+                added.append(add_entry(entry,root=self.root))
+            dump(reconciliation,{key:statement[key] for key in ('periodStart','periodEnd','previousBalance','purchasesCharges','paymentsCredits','totalDue','rows')}|{'source':source})
+            record['entry_ids']=changed+added
+            append(self.root,record)
+            result=dict(entry_ids=changed+added,changed=len(changed),added=len(added),converted=sum(i['rule']=='foreign_currency' and not i['decision'] for i in checklist),source=source,end=statement['periodEnd'],audit_id=record['id'])
+            journal['result']=result
+            self.save_journal(journal)
+            message=(f"Reconcile the card statement ending {statement['periodEnd']}\n\nMatched {len(changed)} entries; converted {result['converted']}; added {len(added)}.\nSource: {source}\n{self.marker}\nAdded-by: dashboard statements ({s['extraction']})")
+            env={**os.environ,'LEDGER_DIR':str(self.root),LOCK_FD_ENV:str(lock_fd),'EXPENSES_COMMIT_MESSAGE':message}
+            completed=subprocess.run(['make','commit'],cwd=self.settings.application,env=env,pass_fds=(lock_fd,),capture_output=True,text=True)
+            if completed.returncode:
+                raise RuntimeError('The checked statement change failed; nothing was applied. '+(completed.stdout+completed.stderr)[-4000:])
+            result['commit_id']=jj(self.root,'log','-r','@-','--no-graph','-T','commit_id')
+            s['committed_result']=result
+            self.drafts.put(s)
+            self.journal.unlink()
+            return result
+        except BaseException:
+            self.rollback(journal)
+            raise

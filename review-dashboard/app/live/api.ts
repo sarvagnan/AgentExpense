@@ -1,0 +1,71 @@
+import type { Piece } from './builder';
+export type Attachment = { id: string; original_name: string; media_type: string; size: number };
+export type Draft = {
+  id: string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
+  pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
+  statement_file?: string; handover_session?: string; created_at: string; saved_at: string | null; queued_at: string | null; files: Attachment[];
+  runs: { start: string; doubts: string[]; error?: string | null }[];
+  questions: { question: string; answer: string | null }[]; unsent_answer?: {question_index: number; answer: string; updated_at?: number}; error: string | null; waiting: string | null;
+  result: null | { outcome: string; explanation?: string; entry_id?: string; description?: string; total?: string; payment_account?: string; new_accounts?: string[]; sources?: string[]; data_stale?: boolean; refresh_error?: string };
+};
+export const apiUrl = (path: string, base = import.meta.env.BASE_URL) => `${base.replace(/\/?$/, '/')}api/${path.replace(/^\//, '')}`;
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) { super(message); this.status=status; this.name='ApiError'; }
+}
+export function errorMessage(status: number, body: unknown) {
+  const detail = typeof body === 'object' && body !== null && 'detail' in body ? (body as {detail: unknown}).detail : null;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return 'Please check the entered values and try again.';
+  return `The server could not complete this action (HTTP ${status}). Try again.`;
+}
+export async function request<T>(path: string, options: RequestInit = {}, timeout = 12000): Promise<T> {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout);
+  const cancelled=()=>controller.abort();
+  if(options.signal?.aborted) cancelled();
+  else options.signal?.addEventListener('abort',cancelled,{once:true});
+  try {
+    const response = await fetch(apiUrl(path), { ...options, signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) { const body = await response.json().catch(() => null); throw new ApiError(response.status,errorMessage(response.status, body)); }
+    if (response.status === 204) return undefined as T;
+    return await response.json() as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError' && options.signal?.aborted) throw error;
+    if (error instanceof Error && error.name === 'AbortError') throw new Error('The server took too long. Try again.');
+    if (error instanceof TypeError) throw new Error('Could not reach the live server. Check your connection and try again.');
+    throw error;
+  } finally { clearTimeout(timer); options.signal?.removeEventListener('abort',cancelled); }
+}
+const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}) });
+export const api = {
+  health: (signal?: AbortSignal) => request<{ok: boolean}>('health', {signal}, 5000),
+  list: (signal?: AbortSignal) => request<Draft[]>('drafts?include_added=true', {signal}),
+  get: (id: string) => request<Draft>(`drafts/${encodeURIComponent(id)}`),
+  create: (text: string, pieces: unknown, client_updated_at=0) => request<Draft>('drafts', json('POST', {text, pieces, client_updated_at})),
+  edit: (id: string, text: string, pieces: unknown, client_updated_at=0) => request<Draft>(`drafts/${id}`, json('PATCH', {text, pieces, client_updated_at})),
+  save: (id: string) => request<Draft>(`drafts/${id}/save`, json('POST')),
+  answer: (id: string, answer: string) => request<Draft>(`drafts/${id}/answer`, json('POST', {answer})),
+  retry: (id: string) => request<Draft>(`drafts/${id}/retry`, json('POST')),
+  keepAnswer: (id: string, question_index: number, answer: string, updated_at=0) => request<Draft>(`drafts/${id}/unsent-answer`, json('PATCH', {question_index, answer, updated_at})),
+  restore: (id: string) => request<Draft>(`drafts/${id}/restore`, json('POST')),
+  cancelUpload: (id: string, token: string) => request<Draft>(`drafts/${id}/uploads/${token}`, json('DELETE')),
+  discard: (id: string) => request<void>(`drafts/${id}`, json('DELETE')),
+  remove: (id: string, file: string) => request<Draft>(`drafts/${id}/files/${file}`, json('DELETE')),
+};
+export const fileUrl = (id: string, file: string) => apiUrl(`drafts/${encodeURIComponent(id)}/files/${encodeURIComponent(file)}`);
+/** XHR exposes upload progress; the browser supplies the multipart boundary. */
+export function upload(id: string, file: File, progress: (value: number) => void, signal?: AbortSignal, token?: string): Promise<Draft> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest(); xhr.open('POST', apiUrl(`drafts/${id}/files`)); xhr.timeout = 120000;
+    xhr.upload.onprogress = e => { if (e.lengthComputable) progress(Math.round(e.loaded / e.total * 100)); };
+    const abort=()=>{xhr.abort();reject(new DOMException('Upload cancelled','AbortError'));};
+    xhr.onabort=()=>reject(new DOMException('Upload cancelled','AbortError'));
+    xhr.onloadend=()=>signal?.removeEventListener('abort',abort);
+    signal?.addEventListener('abort',abort,{once:true});
+    if(signal?.aborted){abort();return;}
+    xhr.onerror = () => reject(new Error('Upload interrupted. Check your connection and retry.'));
+    xhr.ontimeout = () => reject(new Error('Upload took too long. Retry this file.'));
+    xhr.onload = () => { let body; try { body = JSON.parse(xhr.responseText); } catch { reject(new Error('The server returned an unreadable upload response. Retry.')); return; } if (xhr.status >= 200 && xhr.status < 300) resolve(body); else reject(new Error(errorMessage(xhr.status, body))); };
+    const data = new FormData(); data.append('files', file); if(token)data.append('upload_id',token); xhr.send(data);
+  });
+}

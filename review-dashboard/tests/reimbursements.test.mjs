@@ -1,0 +1,30 @@
+import './test-isolation.mjs';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { createTestServer as createServer } from './test-isolation.mjs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { loadPublishedData } from './load-data.mjs';
+const data = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
+const group = data.reimbursementGroups.find(g => g.id === 'demo-shared-supplies');
+assert.ok(group);
+const purchase = data.transactions.find(t => t.reimbursementGroup === group.id && t.kind === 'Reimbursable purchase');
+const receipt = data.transactions.find(t => t.reimbursementGroup === group.id && t.kind === 'Reimbursement');
+assert.ok(purchase && receipt);
+assert.equal(purchase.signedExpense, 0);
+assert.equal(receipt.signedExpense, 0);
+assert.equal(purchase.amount, receipt.amount);
+assert.equal(group.purchases, purchase.amount);
+assert.equal(group.received, receipt.amount);
+assert.equal(group.outstanding, 0);
+const server = await createServer({server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
+try {
+  await loadPublishedData(server);
+  const { TransactionDetails } = await server.ssrLoadModule('/app/dashboard.tsx');
+  const html = renderToStaticMarkup(createElement(TransactionDetails,{transaction:purchase,onClose:()=>{}}));
+  assert.ok(html.includes('Reimbursable from'));
+  assert.ok(html.includes('Personal expense impact'));
+  assert.ok(!html.includes('−₹0.00'));
+  const incoming = renderToStaticMarkup(createElement(TransactionDetails,{transaction:receipt,onClose:()=>{}}));
+  assert.ok(incoming.includes('Received in'));
+} finally { await server.close(); }

@@ -1,0 +1,738 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/expense-ledger/store.schema.json",
+  "title": "Personal expense ledger JSON store",
+  "description": "UTF-8 without Unicode escapes, trailing newline, two-space indentation, fixed field order and one compact object per posting. Validate file roots using the corresponding $defs schema. Global ID uniqueness, year/order, canonical bytes and evidence existence are checked by check_store.py. No hledger tags are interpreted.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/accounts"
+    },
+    {
+      "$ref": "#/$defs/expenses"
+    },
+    {
+      "$ref": "#/$defs/forecast"
+    },
+    {
+      "$ref": "#/$defs/card-statements"
+    }
+  ],
+  "$defs": {
+    "posting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "account",
+        "amount",
+        "commodity"
+      ],
+      "properties": {
+        "account": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "minLength": 1,
+          "description": "Exact declared hledger account name."
+        },
+        "amount": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "minLength": 1,
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
+          "description": "Exact decimal text, including original trailing zeros; never a JSON number."
+        },
+        "commodity": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "minLength": 1,
+          "description": "Unquoted commodity symbol."
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "commodity",
+            "per"
+          ],
+          "properties": {
+            "amount": {
+              "type": "string",
+              "not": {
+                "pattern": "[\\r\\n]"
+              },
+              "minLength": 1,
+              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+              "description": "Exact decimal text for @/@@ cost, including trailing zeros when hledger infers them. Integer costs such as 100 are valid."
+            },
+            "commodity": {
+              "type": "string",
+              "not": {
+                "pattern": "[\\r\\n]"
+              },
+              "minLength": 1,
+              "description": "hledger commodity symbol without journal quotes."
+            },
+            "per": {
+              "enum": [
+                "total",
+                "unit"
+              ],
+              "description": "total emits @@; unit emits @."
+            }
+          }
+        },
+        "assert": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "commodity"
+          ],
+          "properties": {
+            "amount": {
+              "type": "string",
+              "not": {
+                "pattern": "[\\r\\n]"
+              },
+              "minLength": 1,
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
+              "description": "Exact decimal text, including original trailing zeros; never a JSON number."
+            },
+            "commodity": {
+              "type": "string",
+              "not": {
+                "pattern": "[\\r\\n]"
+              },
+              "minLength": 1,
+              "description": "hledger commodity symbol without journal quotes."
+            }
+          },
+          "description": "Partial balance assertion (=), never an assignment; amount is the expected running balance."
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "not": {
+              "pattern": "[\\r\\n]"
+            }
+          },
+          "description": "Posting comment text, without the semicolon, in original order."
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "date",
+        "status",
+        "description",
+        "postings"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Transaction date; file year must match. For forecasts this equals schedule.from."
+        },
+        "status": {
+          "enum": [
+            "confirmed",
+            "pending"
+          ],
+          "description": "confirmed emits *; pending emits !. Forecast status records confirmation without emitting a status marker."
+        },
+        "description": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "minLength": 1,
+          "description": "Original description verbatim. Forecasts retain the forecast item comment here."
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "not": {
+              "pattern": "[\\r\\n]"
+            }
+          },
+          "description": "All source: comment values verbatim, including non-path descriptions, in original order."
+        },
+        "serial-number": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original serial-number: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "serial-number"
+        },
+        "source-row": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Positive row number in the source bank workbook.",
+          "x-ledger-label": "source-row"
+        },
+        "source-page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Positive page number in the entry's first source.",
+          "x-ledger-label": "source-page"
+        },
+        "statement-end": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original statement-end: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "statement-end"
+        },
+        "reference": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original reference: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "reference"
+        },
+        "order-id": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original order-id: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "order-id"
+        },
+        "classification": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original classification: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "classification"
+        },
+        "original-amount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "commodity"
+          ],
+          "properties": {
+            "amount": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+              "not": {
+                "pattern": "[\\r\\n]"
+              }
+            },
+            "commodity": {
+              "type": "string",
+              "pattern": "^[A-Z]+$",
+              "not": {
+                "pattern": "[\\r\\n]"
+              }
+            }
+          },
+          "description": "Original currency amount, preserving exact decimal spelling.",
+          "x-ledger-label": "original amount"
+        },
+        "fuel-filled-litres": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "description": "Physical reading as exact decimal text.",
+          "x-ledger-label": "fuel-filled-litres",
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "trip-km": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "description": "Physical reading as exact decimal text.",
+          "x-ledger-label": "trip-km",
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "reimbursement-group": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original reimbursement-group: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "reimbursement-group"
+        },
+        "reimbursement-label": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original reimbursement-label: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "reimbursement-label"
+        },
+        "variable-estimate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "excluded",
+            "reason"
+          ],
+          "properties": {
+            "excluded": {
+              "const": true
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\r\\n]+$",
+              "not": {
+                "pattern": "[\\r\\n]"
+              }
+            }
+          },
+          "x-ledger-label": "variable-estimate"
+        },
+        "policy-term": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "years"
+          ],
+          "properties": {
+            "years": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "x-ledger-label": "policy-term"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "not": {
+              "pattern": "[\\r\\n]"
+            }
+          },
+          "description": "All unstructured comment lines verbatim without semicolon, in original order; repeated structured labels also remain here."
+        },
+        "postings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/posting"
+          },
+          "description": "Posting order is preserved; every posting is serialized on a single JSON line."
+        },
+        "statement-page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Positive page number of the row in the billing statement PDF.",
+          "x-ledger-label": "statement-page"
+        }
+      },
+      "description": "One actual entry. Year files are chronological; same-date array order is the posting sequence."
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "date",
+        "status",
+        "description",
+        "postings",
+        "schedule"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Transaction date; file year must match. For forecasts this equals schedule.from."
+        },
+        "status": {
+          "enum": [
+            "confirmed",
+            "pending"
+          ],
+          "description": "confirmed emits *; pending emits !. Forecast status records confirmation without emitting a status marker."
+        },
+        "description": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "minLength": 1,
+          "description": "Original description verbatim. Forecasts retain the forecast item comment here."
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "not": {
+              "pattern": "[\\r\\n]"
+            }
+          },
+          "description": "All source: comment values verbatim, including non-path descriptions, in original order."
+        },
+        "serial-number": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original serial-number: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "serial-number"
+        },
+        "source-row": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Positive row number in the source bank workbook.",
+          "x-ledger-label": "source-row"
+        },
+        "source-page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Positive page number in the entry's first source.",
+          "x-ledger-label": "source-page"
+        },
+        "statement-end": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original statement-end: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "statement-end"
+        },
+        "reference": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original reference: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "reference"
+        },
+        "order-id": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original order-id: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "order-id"
+        },
+        "classification": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original classification: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "classification"
+        },
+        "original-amount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "commodity"
+          ],
+          "properties": {
+            "amount": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+              "not": {
+                "pattern": "[\\r\\n]"
+              }
+            },
+            "commodity": {
+              "type": "string",
+              "pattern": "^[A-Z]+$",
+              "not": {
+                "pattern": "[\\r\\n]"
+              }
+            }
+          },
+          "description": "Original currency amount, preserving exact decimal spelling.",
+          "x-ledger-label": "original amount"
+        },
+        "fuel-filled-litres": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "description": "Physical reading as exact decimal text.",
+          "x-ledger-label": "fuel-filled-litres",
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "trip-km": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "description": "Physical reading as exact decimal text.",
+          "x-ledger-label": "trip-km",
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "reimbursement-group": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original reimbursement-group: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "reimbursement-group"
+        },
+        "reimbursement-label": {
+          "type": "string",
+          "not": {
+            "pattern": "[\\r\\n]"
+          },
+          "description": "Original reimbursement-label: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
+          "x-ledger-label": "reimbursement-label"
+        },
+        "variable-estimate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "excluded",
+            "reason"
+          ],
+          "properties": {
+            "excluded": {
+              "const": true
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\r\\n]+$",
+              "not": {
+                "pattern": "[\\r\\n]"
+              }
+            }
+          },
+          "x-ledger-label": "variable-estimate"
+        },
+        "policy-term": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "years"
+          ],
+          "properties": {
+            "years": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "x-ledger-label": "policy-term"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "not": {
+              "pattern": "[\\r\\n]"
+            }
+          },
+          "description": "All unstructured comment lines verbatim without semicolon, in original order; repeated structured labels also remain here."
+        },
+        "postings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/posting"
+          },
+          "description": "Posting order is preserved; every posting is serialized on a single JSON line."
+        },
+        "schedule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "every",
+            "from"
+          ],
+          "properties": {
+            "every": {
+              "enum": [
+                "month",
+                "year"
+              ],
+              "description": "Calendar unit, rendered as monthly/yearly when interval is 1."
+            },
+            "from": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "description": "First recurrence date; original hledger schedule boundary."
+            },
+            "interval": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Calendar-unit multiplier, default 1 and canonically omitted when 1. Emits every N months/years. The two migrated quarterly rules use 3.",
+              "default": 1
+            }
+          }
+        },
+        "statement-page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Positive page number of the row in the billing statement PDF.",
+          "x-ledger-label": "statement-page"
+        }
+      },
+      "description": "Forecast-only periodic rule; array order preserves original rule order."
+    },
+    "expenses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      },
+      "description": "One calendar year of actual transactions."
+    },
+    "forecast": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rule"
+      },
+      "description": "Forecast rules, retained in original rule order."
+    },
+    "accounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commodities",
+        "accounts"
+      ],
+      "properties": {
+        "commodities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "not": {
+              "pattern": "[\\r\\n]"
+            },
+            "minLength": 1
+          },
+          "description": "Hand-kept commodity directive arguments verbatim, including precision and quotes. Not inferred from postings."
+        },
+        "accounts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "not": {
+              "pattern": "[\\r\\n]"
+            },
+            "minLength": 1
+          },
+          "description": "Hand-kept declared account names in declaration order. Never inferred from postings; hledger check -s detects undeclared names."
+        }
+      }
+    },
+    "card-statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "account",
+        "start",
+        "end",
+        "source",
+        "previous-balance",
+        "purchases",
+        "credits",
+        "total-due",
+        "rows"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Permanent random ID, globally unique across actuals, forecasts and statements."
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^Liabilities:Credit Cards:.+",
+          "description": "Declared card liability account; membership is keyed by this account and end."
+        },
+        "start": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "end": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "source": {
+          "type": "string",
+          "pattern": "^Bills/.+\\.pdf$",
+          "description": "Exact filed statement PDF path; checked for existence."
+        },
+        "previous-balance": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "description": "Exact nonnegative INR amount printed in the statement summary, including two decimal places."
+        },
+        "purchases": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "description": "Exact nonnegative INR amount printed in the statement summary, including two decimal places."
+        },
+        "cash-advances": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "description": "Additional cash advances added to the summary equation; omit when zero.",
+          "not": {
+            "const": "0.00"
+          }
+        },
+        "credits": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "description": "Exact nonnegative INR amount printed in the statement summary, including two decimal places."
+        },
+        "total-due": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "description": "Exact nonnegative INR amount printed in the statement summary, including two decimal places."
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "description": "Hand-kept printed statement summary, independent of transaction dates. previous-balance + purchases + cash-advances - credits = total-due. Omit zero optional amounts."
+    },
+    "card-statements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/card-statement"
+      },
+      "description": "Filed card statements in end-date order; never inferred from transaction dates."
+    }
+  }
+}

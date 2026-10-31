@@ -1,0 +1,126 @@
+/* Base elements and controls. Controls follow Mac proportions: 28 pt tall, 6 pt corners. */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { min-height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+h1, h2, h3, p, dl, dd, figure { margin: 0; }
+strong, b { font-weight: 600; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: default; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font: var(--text-code); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* One focus ring for every control: the accent color, outside the control's edge. */
+:focus { outline: none; }
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 1px; border-radius: var(--radius-control); }
+
+.icon { width: 16px; height: 16px; flex: none; }
+
+/* Push buttons */
+.button {
+  height: var(--control-height);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--control-fill);
+  color: var(--text);
+  font: var(--text-body);
+  white-space: nowrap;
+}
+.button:hover:not(:disabled) { background: var(--surface-raised); }
+.button:active:not(:disabled) { filter: brightness(.92); }
+.button:disabled { opacity: .45; }
+.button .icon { width: 15px; height: 15px; }
+.button.primary { border-color: transparent; background: var(--accent-fill); color: var(--on-accent); font-weight: 600; }
+.button.primary:hover:not(:disabled) { background: var(--accent-fill); filter: brightness(1.08); }
+.button.destructive { color: var(--negative); }
+.button.plain { border-color: transparent; background: transparent; color: var(--link); padding: 0 6px; }
+.button.plain:hover:not(:disabled) { background: var(--surface-raised); }
+.button.plain.destructive { color: var(--negative); }
+.icon-button {
+  width: var(--control-height); height: var(--control-height);
+  display: inline-grid; place-items: center;
+  padding: 0; border: 0; border-radius: var(--radius-control);
+  background: transparent; color: var(--text-secondary);
+}
+.icon-button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.icon-button:active:not(:disabled) { filter: brightness(.9); }
+.icon-button:disabled { opacity: .35; }
+
+/* Fields */
+.field, select.field, textarea.field {
+  min-height: var(--control-height);
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--control-fill);
+  color: var(--text);
+  font: var(--text-body);
+}
+textarea.field { padding: 6px 8px; resize: vertical; line-height: 18px; }
+.field::placeholder { color: var(--text-tertiary); opacity: 1; }
+.field[aria-invalid="true"] { border-color: var(--negative); }
+/* Pop-up buttons: the Mac's up-and-down chevrons instead of the web's single arrow. */
+select.field, .month-select select { appearance: none; -webkit-appearance: none; background-repeat: no-repeat; background-position: right 7px center; background-size: 9px 13px;
+  background-image: var(--popup-chevron); }
+select.field { padding-right: 24px; }
+.month-select select { padding-right: 20px !important; }
+.field-label { display: block; margin-bottom: 4px; color: var(--text-secondary); font: var(--text-callout); font-weight: 600; }
+.field-label .optional { font-weight: 400; color: var(--text-tertiary); }
+.field-error { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--negative); font: var(--text-callout); }
+.field-error .icon { width: 14px; height: 14px; }
+.checkbox { min-height: 28px; display: inline-flex; align-items: center; gap: 6px; color: var(--text); font: var(--text-body); }
+.checkbox input { width: 14px; height: 14px; margin: 0; }
+input[type="checkbox"], input[type="radio"], progress { accent-color: var(--accent); }
+
+/* Search field: the scope stays visible as a label after typing. */
+.search-field {
+  height: var(--control-height);
+  display: flex; align-items: center; gap: 6px;
+  min-width: min(220px, 100%);
+  padding: 0 8px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--control-fill);
+  color: var(--text-tertiary);
+}
+.search-field:focus-within { outline: 3px solid var(--focus-ring); outline-offset: 1px; }
+.search-field input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: var(--text-body); outline: none; }
+.search-field input::placeholder { color: var(--text-tertiary); opacity: 1; }
+.search-field input::-webkit-search-cancel-button { cursor: default; }
+.search-scope { flex: none; padding-left: 6px; border-left: 1px solid var(--separator); color: var(--text-tertiary); font: var(--text-callout); white-space: nowrap; }
+
+/* Segmented group: previous / pop-up / next */
+.segmented {
+  height: var(--control-height);
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--control-fill);
+}
+.segmented > .icon-button { height: 100%; border-radius: 0; color: var(--text-secondary); }
+.segmented > .icon-button:first-child { border-radius: calc(var(--radius-control) - 1px) 0 0 calc(var(--radius-control) - 1px); }
+.segmented > .icon-button:last-child { border-radius: 0 calc(var(--radius-control) - 1px) calc(var(--radius-control) - 1px) 0; }
+.month-select { position: relative; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 8px; border-inline: 1px solid var(--separator); color: var(--text-secondary); }
+.month-select:focus-within { outline: 3px solid var(--focus-ring); outline-offset: 1px; }
+.date-select { position: relative; }
+.date-button { min-width: 112px; height: 100%; padding: 0 4px; border: 0; background: transparent; color: var(--text); font: var(--text-body-strong); text-align: left; }
+.date-button:focus-visible { outline-offset: -2px; }
+.date-input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.month-select select { min-width: 128px; height: 100%; padding: 0 2px; border: 0; background: transparent; color: var(--text); font: var(--text-body-strong); outline: none; }
+
+kbd { font: var(--text-callout); font-family: var(--font-sans); color: var(--text-secondary); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}

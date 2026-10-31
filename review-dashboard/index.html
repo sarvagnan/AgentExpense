@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      // Apply the appearance chosen in the sidebar before anything is drawn, so there's no flash.
+      try { const theme = localStorage.getItem('ledger-appearance'); if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme; } catch {}
+    </script>
+    <style>
+      /* Paint the dashboard background in the right appearance before the bundle loads. */
+      html { color-scheme: light dark; }
+      html[data-theme="light"] { color-scheme: light; }
+      html[data-theme="dark"] { color-scheme: dark; }
+      html, body, #root { min-height: 100%; background: light-dark(#f4f3f0, #0e1215); }
+      body { margin: 0; }
+    </style>
+    <meta name="description" content="Explore monthly expenses, spending patterns, and source-linked ledger records." />
+    <link rel="icon" href="/favicon.svg" />
+    <title>Ledger</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/app/main.tsx"></script>
+  </body>
+</html>

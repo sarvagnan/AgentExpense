@@ -1,0 +1,16 @@
+# Personal ledger, secrets, scratch work and generated artifacts
+/ledger/
+/tmp/
+/review-dashboard/prototypes/
+node_modules/
+dist/
+.env*
+__pycache__/
+.venv/
+.uv-cache/
+.DS_Store
+/review-dashboard/app/data/
+/review-dashboard/public/data/
+/examples/asha/expense_ledger.ledger
+/examples/asha/drafts/
+/examples/asha/.lock

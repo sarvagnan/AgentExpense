@@ -1,0 +1,26 @@
+{
+  "commodities": [
+    "INR",
+    "USD",
+    "DEMOFUND"
+  ],
+  "accounts": [
+    "Assets:Bank:Savings Account",
+    "Assets:Bank:Salary Account",
+    "Liabilities:Credit Cards:Rewards Card",
+    "Assets:Cash",
+    "Assets:Wallets:Shopping Wallet",
+    "Assets:Wallets:App Store Balance",
+    "Assets:Reimbursements:Dev Sen",
+    "Equity:Opening Balances",
+    "Income:Salary",
+    "Income:Card Rewards",
+    "Expenses:Groceries",
+    "Expenses:Food:Dining & Delivery",
+    "Expenses:Housing:Rent",
+    "Expenses:Transport:Fuel",
+    "Expenses:Subscriptions:Paper Lantern",
+    "Expenses:Uncategorized",
+    "Assets:Investments:Mutual Funds:Demo Index"
+  ]
+}

@@ -1,0 +1,24 @@
+[Unit]
+Description=AgentExpense dashboard (configure installation paths before use)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/absolute/path/to/AgentExpense/review-dashboard/server
+Environment=EXPENSES_DEV=0
+Environment=EXPENSES_PORT=8701
+Environment=EXPENSES_BASE_PATH=/expenses/
+Environment=EXPENSES_ALLOWED_HOSTS=
+Environment=EXPENSES_ALLOWED_LOGINS=
+Environment=LEDGER_DIR=/absolute/path/to/private-ledger
+Environment=EXPENSES_AGENT_MODEL=gpt-6.1-terra
+Environment=EXPENSES_AGENT_EFFORT=xhigh
+Environment=EXPENSES_AGENT_TIMEOUT=600
+Environment=EXPENSES_OLD_LEDGER=
+Environment=EXPENSES_STATEMENT_CARD_LAST4=
+ExecStart=/absolute/path/to/uv run app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

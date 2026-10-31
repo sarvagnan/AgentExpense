@@ -1,0 +1,101 @@
+/*
+ * Design tokens. Every color, size and space in the dashboard comes from here.
+ * Colors are written once as light-dark(light, dark): the page follows the system appearance,
+ * or the person's choice in the sidebar's Light/Dark toggle (data-theme on <html>), and Increase Contrast.
+ * Contrast targets, checked against each surface: primary text ≥ 13:1, secondary ≥ 7:1,
+ * tertiary ≥ 4.5:1 (5:1+ in practice), control borders ≥ 3:1.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* Type: the system font at Mac sizes. One family; monospace only for ledger paths and files. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --text-title: 600 22px/28px var(--font-sans);        /* page title (Title 1) */
+  --text-headline: 600 15px/20px var(--font-sans);     /* panel title (Title 3) */
+  --text-body: 400 13px/18px var(--font-sans);         /* rows, values, prose (Body) */
+  --text-body-strong: 600 13px/18px var(--font-sans);  /* row titles (Headline) */
+  --text-callout: 400 13px/18px var(--font-sans);      /* frequently read metadata and controls */
+  --text-caption: 400 12px/16px var(--font-sans);      /* calendar, chart labels and fine print */
+  --text-figure: 600 20px/26px var(--font-sans);       /* headline amounts */
+  --text-figure-small: 600 20px/24px var(--font-sans); /* inspector amounts */
+  --text-code: 400 12px/16px var(--font-mono);
+
+  /* Space: a 4 pt grid. */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
+  --radius-panel: 10px; --radius-control: 6px; --radius-inner: 6px;
+  --control-height: 28px;
+  --row-height: 36px;
+  --sidebar-width: 212px;
+  --inspector-width: 360px;
+
+  /* Colors: light-dark(light appearance, dark appearance). */
+  --bg: light-dark(#f4f3f0, #0e1215);
+  --sidebar: light-dark(#ebe9e5, #12171b);
+  --surface: light-dark(#ffffff, #161c20);
+  --surface-raised: light-dark(#f3f2ef, #1d252a);   /* hover, inactive selection, inset groups */
+  --surface-sunken: light-dark(#f8f7f5, #11161a);   /* code, table headings */
+  --text: light-dark(#1b1a18, #f2efe9);
+  --text-secondary: light-dark(#4f4c47, #bcc3c8);
+  --text-tertiary: light-dark(#65625c, #9aa3a9);
+  --separator: light-dark(#e2dfda, #2b3439);
+  --control-border: light-dark(#7d7871, #75818a);
+  --control-fill: light-dark(#ffffff, #1a2126);
+  --positive: light-dark(#146c38, #5fcf8b);   /* income, credits, spending down */
+  --negative: light-dark(#a52350, #ff7385);   /* spending up, destructive (rose in dark, apart from the orange accent) */
+  --destructive-fill: light-dark(#a52350, #a82d50); /* filled destructive button, white text ≥ 4.5:1 */
+  --warning: light-dark(#8b5700, #f2b860);    /* unclassified, follow-up, drafts */
+  --link: var(--accent);
+  --series-focus: light-dark(#cf4f17, #f27749);   /* the month being examined, in charts only */
+  --series-compare: light-dark(#8a857d, #6f7a82); /* the comparison month or average (≥ 3.6:1 on the surface) */
+  /* Earlier months on the Forecast chart, in a fixed, validated order (≥ 3:1 on the surface, CVD-separated). */
+  --compare-1: light-dark(#2a78d6, #3987e5);
+  --compare-2: light-dark(#138a63, #199e70);
+  --compare-3: light-dark(#6250d6, #9085e9);
+  --compare-4: light-dark(#cf4f86, #d55181);
+  --compare-5: #008300;
+  --scrim: light-dark(rgba(0, 0, 0, .32), rgba(0, 0, 0, .5));
+
+  /* Orange chrome, with white text in light appearance and dark text in dark. */
+  --accent: light-dark(#b33b0b, #f27749);
+  --on-accent: light-dark(#ffffff, #1b1a18);
+  --accent-fill: light-dark(color-mix(in srgb, var(--accent) 86%, black), var(--accent)); /* default button, menu highlight */
+  --selection-fill: color-mix(in srgb, var(--accent) 17%, var(--surface));
+  --selection-fill-inactive: light-dark(#ebe9e5, #232b31);
+  --sidebar-selection-inactive: light-dark(#e5e2dd, #262e34);
+  --focus-ring: var(--accent);
+
+  /* Values that aren't colors still differ by appearance; they're set below with the theme. */
+  --shadow-popover: 0 10px 30px rgba(0, 0, 0, .16), 0 0 0 1px rgba(0, 0, 0, .06);
+  --pressed: brightness(.92);
+  --popup-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 13'%3E%3Cpath d='M1.5 4.5 4.5 1.5l3 3M1.5 8.5l3 3 3-3' fill='none' stroke='%234f4c47' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* The sidebar toggle chooses an explicit appearance. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* The dark values that aren't colors, for the system's dark appearance and for a chosen Dark. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --shadow-popover: 0 14px 40px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
+    --pressed: brightness(1.25);
+    --popup-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 13'%3E%3Cpath d='M1.5 4.5 4.5 1.5l3 3M1.5 8.5l3 3 3-3' fill='none' stroke='%23bcc3c8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+:root[data-theme="dark"] {
+  --shadow-popover: 0 14px 40px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
+  --pressed: brightness(1.25);
+  --popup-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 13'%3E%3Cpath d='M1.5 4.5 4.5 1.5l3 3M1.5 8.5l3 3 3-3' fill='none' stroke='%23bcc3c8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* Increase Contrast: stronger separators and borders, secondary text closer to primary. */
+@media (prefers-contrast: more) {
+  :root {
+    --text-secondary: light-dark(#2f2d2a, #dde2e5);
+    --text-tertiary: light-dark(#3f3c38, #c5ccd1);
+    --separator: light-dark(#a9a49c, #5a656d);
+    --control-border: light-dark(#5c5852, #9aa5ad);
+    --series-compare: light-dark(#6b665f, #9aa5ad);
+  }
+}
