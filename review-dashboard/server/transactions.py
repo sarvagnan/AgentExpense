@@ -143,7 +143,7 @@ def evidence_paths(answer, draft, root):
 
 
 def payment(entry):
-    postings = [p for p in entry['postings'] if p['account'].startswith(('Assets:', 'Liabilities:'))
+    postings = [p for p in entry['postings'] if is_balance_sheet(p['account'])
                 and Decimal(p['amount']) < 0]
     if not postings:
         postings = [p for p in entry['postings'] if Decimal(p['amount']) < 0]

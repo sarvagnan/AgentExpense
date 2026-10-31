@@ -54,7 +54,8 @@ test('every selected account balance reconciles to hledger at historical and cur
  }
 });
 
-test('both generic wallets are prepaid balances', () => {
- for (const name of ['Shopping Wallet', 'App Store Balance']) assert.equal(accountGroup(`Assets:Wallets:${name}`), 'Prepaid');
- assert.equal(accountGroup('Assets:Wallets:Other'), 'Other accounts');
+test('all account groups follow kinds rather than account path grammar', () => {
+ const accounts = {Vault:{kind:'bank'},Plastic:{kind:'card'},Stored:{kind:'wallet'},Units:{kind:'investment'},Friend:{kind:'person'},Borrowed:{kind:'loan'},Pocket:{kind:'cash'}};
+ for (const [account,group] of Object.entries({Vault:'Banks',Plastic:'Credit cards',Stored:'Prepaid',Units:'Investments',Friend:'People',Borrowed:'Loans',Pocket:'Cash'})) assert.equal(accountGroup(account,accounts),group);
+ assert.equal(accountGroup('Assets:Wallets:Unknown',accounts),'Other accounts');
 });

@@ -15,7 +15,6 @@ Environment=EXPENSES_AGENT_MODEL=gpt-6.1-terra
 Environment=EXPENSES_AGENT_EFFORT=xhigh
 Environment=EXPENSES_AGENT_TIMEOUT=600
 Environment=EXPENSES_OLD_LEDGER=
-Environment=EXPENSES_STATEMENT_CARD_LAST4=
 ExecStart=/absolute/path/to/uv run app.py
 Restart=on-failure
 RestartSec=5

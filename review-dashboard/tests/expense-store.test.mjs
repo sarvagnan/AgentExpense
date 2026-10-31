@@ -70,8 +70,8 @@ test('optional absent sources keep the original empty source list, with no notes
 
 test('investment costs retain signed total/unit cost calculation and two-decimal rounding', () => {
   const fund = { account: 'Assets:Investments:Test', commodity: 'FUND', amount: '1.234', cost: { amount: '123.4567', commodity: 'INR', per: 'unit' } };
-  assert.equal(toTransaction(entry({ postings: [fund] })).postings[0].cost, Number((123.4567 * 1.234).toFixed(2)));
-  assert.equal(toTransaction(entry({ postings: [{ ...fund, amount: '-1.234', cost: { ...fund.cost, amount: '100.005', per: 'total' } }] })).postings[0].cost, Number((-100.005).toFixed(2)));
+  assert.equal(toTransaction(entry({ postings: [fund] }), {'Assets:Investments:Test':{kind:'investment'}}).postings[0].cost, Number((123.4567 * 1.234).toFixed(2)));
+  assert.equal(toTransaction(entry({ postings: [{ ...fund, amount: '-1.234', cost: { ...fund.cost, amount: '100.005', per: 'total' } }] }), {'Assets:Investments:Test':{kind:'investment'}}).postings[0].cost, Number((-100.005).toFixed(2)));
   const expense = { ...fund, account: 'Expenses:Test' };
   assert.equal('cost' in toTransaction(entry({ postings: [expense] })).postings[0], false);
 });
@@ -145,6 +145,24 @@ test('account metadata accepts any root and requires kind and currency outside I
     ...['', ':Custom', 'Custom:', 'Custom::Test', 'Custom\nTest', 'Custom:Test\n', 'Custom\rTest'].map(name => [name, person]),
   ]) {
     await write({ ...accounts, [name]: metadata });
+    await assert.rejects(loadExpenseStore(root), /Invalid data\/accounts.json/);
+  }
+});
+
+test('the Node reader accepts display categories only on Expenses accounts', async t => {
+  const root = await fixture(t);
+  const file = path.join(root, 'data/accounts.json');
+  const accounts = {'Expenses': {category:'Everyday'}, 'Expenses:Test': {category:'Groceries'}, 'Income:Salary': {}, 'Equity:Opening Balances': {}};
+  const write = value => writeFile(file, JSON.stringify({commodities:['INR'], accounts:value}));
+  await write(accounts);
+  assert.deepEqual((await loadExpenseStore(root)).accounts, accounts);
+  for (const [account, metadata] of [
+    ...['', ' ', '\t', 'Groceries\n', 'Groceries\rOther', 42, null].map(category => ['Expenses:Test', {category}]),
+    ['Income:Salary', {category:'Income'}], ['Equity:Opening Balances', {category:'Opening'}],
+    ['Assets:Checking:Alder', {kind:'bank', currency:'INR', category:'Groceries'}],
+    ['Expenses:Test', {category:'Groceries', label:'Store'}],
+  ]) {
+    await write({...accounts, [account]:metadata});
     await assert.rejects(loadExpenseStore(root), /Invalid data\/accounts.json/);
   }
 });

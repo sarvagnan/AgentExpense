@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import date
 from decimal import Decimal
 import re
-from reconcile_statement import CARD, activity, card_amount, reconcile
+from reconcile_statement import activity, card_amount, reconcile, select_account
 from store import entries
 
 
@@ -29,35 +29,36 @@ def distance(entry, row):
     return abs((date.fromisoformat(entry['date']) - date.fromisoformat(row['date'])).days)
 
 
-def scaled_postings(entry, row):
+def scaled_postings(entry, row, account):
     """Copy the known posting proportions, refusing complex/non-INR precedents."""
-    old = card_amount(entry, CARD)
+    old = card_amount(entry, account)
     if not old or any(p['commodity'] != 'INR' or p.get('cost') or p.get('assert') or p.get('date') for p in entry['postings']):
         return None
     total = Decimal(row['amount']) * (-1 if row['direction'] == 'Debit' else 1)
     result = []
     allocated = Decimal(0)
-    noncard = [p for p in entry['postings'] if p['account'] != CARD]
+    noncard = [p for p in entry['postings'] if p['account'] != account]
     for i, p in enumerate(noncard):
         amount = -total - allocated if i == len(noncard)-1 else (Decimal(p['amount']) * total / old).quantize(Decimal('.01'))
         allocated += amount
         result.append(dict(account=p['account'], amount=f'{amount:.2f}', commodity='INR'))
-    return result + [dict(account=CARD, amount=f'{total:.2f}', commodity='INR')]
+    return result + [dict(account=account, amount=f'{total:.2f}', commodity='INR')]
 
 
 def plan(documents, statement, root):
+    account = select_account(documents, root, statement.get('card_last4'), statement.get('account'))
     rows = statement['rows']
-    report = reconcile(documents, rows, end=statement['periodEnd'], start=statement['periodStart'], total_due=statement['totalDue'], root=root)
+    report = reconcile(documents, rows, end=statement['periodEnd'], start=statement['periodStart'], total_due=statement['totalDue'], root=root, account=account)
     actual = entries(documents)
     by_id = {e['id']: e for e in actual}
-    available = [e for e in actual if 'statement-end' not in e and activity(e, CARD)]
+    available = [e for e in actual if 'statement-end' not in e and activity(e, account)]
     used, decisions = set(), {}
     buckets = {item['row']['serial']: item for key in ('alreadyMembers', 'serialMatches', 'candidateRows', 'newRows') for item in report[key]}
     def settle(row, rule, why, entry=None, postings=None):
         item = dict(row=row, rule=rule, why=why, entry_id=entry['id'] if entry else None,
                     entry_description=entry['description'] if entry else None, postings=postings, needs_user=False, decision=None, candidates=[])
         if rule == 'foreign_currency' and entry:
-            item['conversion'] = dict(old=f'{abs(card_amount(entry, CARD)):.2f}', billed=row['amount'])
+            item['conversion'] = dict(old=f'{abs(card_amount(entry, account)):.2f}', billed=row['amount'])
         decisions[row['serial']] = item
         if entry:
             used.add(entry['id'])
@@ -74,7 +75,7 @@ def plan(documents, statement, root):
             continue
         candidates = [e for e in available if e['id'] not in used and distance(e, row) <= 3 and
                       (f := foreign(e)) and f['commodity'] == row['foreignCurrency'] and Decimal(f['amount']) == Decimal(row['foreignAmount']) and
-                      card_amount(e, CARD) is not None and (card_amount(e, CARD) < 0) == (row['direction'] == 'Debit')]
+                      card_amount(e, account) is not None and (card_amount(e, account) < 0) == (row['direction'] == 'Debit')]
         if len(candidates) == 1:
             settle(row, 'foreign_currency', f"Same {row['foreignAmount']} {row['foreignCurrency']}; the billed INR replaces the provisional amount.", candidates[0])
     for row in rows:
@@ -92,7 +93,7 @@ def plan(documents, statement, root):
                 continue
         if candidates or bucket.get('warnings'):
             decisions[row['serial']] = dict(row=row, rule='needs_you', why='The amount is close, but the date or merchant needs your confirmation.' if len(candidates)==1 else 'Several entries could match this row. Choose the charge or leave it pending.', entry_id=None, entry_description=None, postings=None, needs_user=True, decision=None, candidates=candidates)
-    history = [e for e in actual if e.get('statement-end', '9999') < statement['periodEnd'] and activity(e, CARD)]
+    history = [e for e in actual if e.get('statement-end', '9999') < statement['periodEnd'] and activity(e, account)]
     for row in rows:
         if row['serial'] in decisions:
             continue
@@ -100,7 +101,7 @@ def plan(documents, statement, root):
         precedents = [e for e in history if normal(e['description'].split(' — ')[-1]) == n or normal(e['description']) == n]
         if precedents:
             last = max(precedents, key=lambda e: (e['date'], e['statement-end']))
-            postings = None if row.get('foreignAmount') else scaled_postings(last, row)
+            postings = None if row.get('foreignAmount') else scaled_postings(last, row, account)
             if postings:
                 settle(row, 'booked_before', f"Same description as {last['date']}: use its accounts.", postings=postings)
                 continue
@@ -110,26 +111,26 @@ def plan(documents, statement, root):
         pair = next((decisions[r['serial']] for r in opposite if r['serial'] in decisions), None)
         if pair and row['direction'] == 'Credit':
             template = by_id.get(pair['entry_id'])
-            postings = scaled_postings(template, row) if template else None
+            postings = scaled_postings(template, row, account) if template else None
             if postings:
                 settle(row, 'reversal', 'Reverses the same merchant and amount on this statement, using the charge’s accounts.', postings=postings)
                 continue
         merchants = [e for e in history if any(note.startswith('statement merchant: ') and normal(note.removeprefix('statement merchant: ')) == n for note in e.get('notes', []))]
         if merchants:
             last = max(merchants, key=lambda e: (e['date'], e['statement-end']))
-            postings = None if row.get('foreignAmount') else scaled_postings(last, row)
+            postings = None if row.get('foreignAmount') else scaled_postings(last, row, account)
             if postings:
                 settle(row, 'familiar_merchant', f"Statement merchant seen on {last['date']}; use the same posting proportions.", postings=postings)
                 continue
         decisions[row['serial']] = dict(row=row, rule='needs_you', why='No safe precedent. Choose an account, or keep the statement description as pending.', entry_id=None, entry_description=None, postings=None, needs_user=True, decision=None, candidates=[])
     result = [decisions[r['serial']] for r in rows]
     matched = {item['entry_id'] for item in result if item['entry_id']}
-    unmatched = [dict(entry_id=e['id'], date=e['date'], description=e['description'], amount=str(card_amount(e, CARD))) for e in available if e['id'] not in matched and e['date'] <= statement['periodEnd']]
+    unmatched = [dict(entry_id=e['id'], date=e['date'], description=e['description'], amount=str(card_amount(e, account))) for e in available if e['id'] not in matched and e['date'] <= statement['periodEnd']]
     return dict(items=result, unmatched=unmatched, counts=dict(Counter(i['rule'] for i in result)))
 
 
-def convert(entry, row):
-    old = card_amount(entry, CARD)
+def convert(entry, row, account):
+    old = card_amount(entry, account)
     original = foreign(entry)
     if original is None:
         raise ValueError('Original currency is missing')
@@ -143,6 +144,6 @@ def convert(entry, row):
         for p in foreign_posts:
             p['cost'] = dict(amount=f'{rate:.10f}', commodity='INR', per='unit')
     for p in entry['postings']:
-        if p['account'] == CARD:
+        if p['account'] == account:
             p['amount'] = '-' + row['amount'] if row['direction'] == 'Debit' else row['amount']
     entry.setdefault('notes', []).append(f"statement charge: {row['amount']} INR for {row['foreignAmount']} {row['foreignCurrency']}; replaces {abs(old):.2f} INR prior card posting")

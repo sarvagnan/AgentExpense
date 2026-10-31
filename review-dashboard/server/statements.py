@@ -22,8 +22,9 @@ from store import load, entries, dump, new_id, store_paths
 from add_entry import add_entry
 from audit import event, append, audit_path
 sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
-from statement_pdf import parse_text, extract_text, checks, recognised
-from statement_rules import plan, convert, CARD
+from statement_pdf import parse_text, extract_text, checks, recognised, card_identifier
+from statement_rules import plan, convert
+from reconcile_statement import select_account, statement_accounts, reconciliation_path
 
 
 def fingerprint(root):
@@ -203,18 +204,28 @@ class Statements:
             text, extraction_error = None, str(exc)
         if not self.current_generation(session):
             return
-        if text is not None and not recognised(text, self.settings.statement_card_last4):
+        if text is not None and not recognised(text):
             session.update(state='wrong_file', error='This is not a recognisable card statement for the configured card.')
             self.put(session)
             return
         documents = load(self.ledger)
         statements = documents[self.ledger / 'data/card-statements.json']
+        account = None
+        if text is not None:
+            try:
+                identifier = card_identifier(text)
+            except ValueError:
+                identifier = None
+            account = select_account(documents, self.ledger, identifier)
         parser_error = None
         try:
             if extraction_error:
                 raise ValueError('PDF text extraction failed: ' + extraction_error)
-            statement = parse_text(text, expected_last4=self.settings.statement_card_last4)
-            earlier = [s for s in statements if s['account'] == CARD and s['end'] < statement['periodEnd']]
+            statement = parse_text(text)
+            account = select_account(documents, self.ledger, statement.get('card_last4'), account)
+            metadata = documents[self.ledger / 'data/accounts.json']['accounts'][account]
+            statement.update(account=account, accountLabel=metadata.get('label') or account.split(':')[-1])
+            earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
             previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
             tested = checks(statement, previous)
             if not all(c['ok'] for c in tested):
@@ -225,7 +236,7 @@ class Statements:
             if not self.current_generation(session):
                 return
             import agent
-            fallback = dict(id=session['id'], statement_task=True, text='', pieces=None, saved_at=session['created_at'], questions=[], check_errors=[parser_error], files=[dict(name='read.pdf', original_name=session['original_name'])])
+            fallback = dict(id=session['id'], statement_task=True, text='', pieces=None, saved_at=session['created_at'], questions=[], check_errors=[parser_error], statement_accounts=statement_accounts(documents, self.ledger), files=[dict(name='read.pdf', original_name=session['original_name'])])
             # The runner's attachment layout is drafts/<id>/files. An isolated
             # temporary folder supplies it without copying the password.
             import tempfile
@@ -239,22 +250,26 @@ class Statements:
                     self.put(session)
                     raise ValueError('The parser and second reading could not read this statement. ' + parser_error + '; ' + str(exc)) from None
             session['runs'].append(record)
-            statement = agent.statement_result(answer, self.settings.statement_card_last4)
-            earlier = [s for s in statements if s['account'] == CARD and s['end'] < statement['periodEnd']]
+            statement = agent.statement_result(answer)
+            account = select_account(documents, self.ledger, statement.get('card_last4'), account)
+            metadata = documents[self.ledger / 'data/accounts.json']['accounts'][account]
+            statement.update(account=account, accountLabel=metadata.get('label') or account.split(':')[-1])
+            earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
             previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
             tested = checks(statement, previous)
             if not all(c['ok'] for c in tested):
                 raise ValueError('The parser and the second reading could not validate the statement. ' + parser_error + '; ' + '; '.join(c['text'] for c in tested if not c['ok']))
             method = 'agent'
-        filed = next((s for s in statements if s['account'] == CARD and s['end'] == statement['periodEnd']), None)
+        filed = next((s for s in statements if s['account'] == account and s['end'] == statement['periodEnd']), None)
         session.update(statement=statement, checks=tested, extraction=method, parser_error=parser_error)
         if filed:
             session.update(state='already_filed', filed=filed)
         else:
-            if statements and statement['periodEnd'] <= max(s['end'] for s in statements if s['account'] == CARD):
+            earlier_filed = [s for s in statements if s['account'] == account]
+            if earlier_filed and statement['periodEnd'] <= max(s['end'] for s in earlier_filed):
                 raise ValueError('This statement predates the latest filed statement. Resolve the missing history before applying it.')
             session.update(state='found', plan=plan(documents, statement, self.ledger), fingerprint=fingerprint(self.ledger))
-            duplicates = sorted((other for other in self.all() if other['id'] != session['id'] and not other.get('discarded_until') and other['state'] in ('found', 'review', 'failed') and other.get('fingerprint') == session['fingerprint'] and other.get('failure_reason') != 'stale_checklist' and other.get('statement', {}).get('periodEnd') == statement['periodEnd']), key=lambda other: (other['created_at'], other['id']))
+            duplicates = sorted((other for other in self.all() if other['id'] != session['id'] and not other.get('discarded_until') and other['state'] in ('found', 'review', 'failed') and other.get('fingerprint') == session['fingerprint'] and other.get('failure_reason') != 'stale_checklist' and other.get('statement', {}).get('account') == account and other.get('statement', {}).get('periodEnd') == statement['periodEnd']), key=lambda other: (other['created_at'], other['id']))
             if duplicates:
                 session['duplicate_of'] = duplicates[0]['id']
         self.put(session)
@@ -279,7 +294,7 @@ class Statements:
             elif action in ('pending', 'account'):
                 account = 'Expenses:Uncategorized' if action == 'pending' else body.get('account')
                 declared = load(self.ledger)[self.ledger / 'data/accounts.json']['accounts']
-                if action == 'account' and (not isinstance(account,str) or account not in declared or account == CARD or account.startswith('Equity:')):
+                if action == 'account' and (not isinstance(account,str) or account not in declared or account == s['statement']['account'] or account.startswith('Equity:')):
                     raise ValueError('Choose a declared expense, asset, income or person account.')
                 decision = dict(action=action, account=account)
             elif action != 'reset':
@@ -356,9 +371,9 @@ class Statements:
                     # only after a successful commit, never from an uncommitted
                     # summary that a concurrent list request might observe.
                     with self.mutex:
-                        summary = next(item for item in load(self.ledger)[self.ledger/'data/card-statements.json'] if item['account']==CARD and item['end']==s['statement']['periodEnd'])
+                        summary = next(item for item in load(self.ledger)[self.ledger/'data/card-statements.json'] if item['account']==s['statement']['account'] and item['end']==s['statement']['periodEnd'])
                         for other in self.all():
-                            if other['id']!=s['id'] and not other.get('discarded_until') and other['state'] not in ('applied','already_filed') and other.get('statement',{}).get('periodEnd')==s['statement']['periodEnd']:
+                            if other['id']!=s['id'] and not other.get('discarded_until') and other['state'] not in ('applied','already_filed') and other.get('statement',{}).get('account')==s['statement']['account'] and other.get('statement',{}).get('periodEnd')==s['statement']['periodEnd']:
                                 other.update(state='already_filed', filed=summary, apply_started=False, waiting=None, generation=other.get('generation',0)+1)
                                 self.put(other, force=True)
                     for p in self.folder(s['id']).glob('*.pdf'):
@@ -382,6 +397,9 @@ class StatementTransaction(Transaction):
         if fingerprint(self.root) != s['fingerprint']:
             raise StaleChecklist('The ledger changed. Upload this statement again to rebuild the checklist.')
         statement, checklist = s['statement'], s['plan']['items']
+        account = select_account(documents, self.root, statement.get('card_last4'), statement['account'])
+        metadata = documents[self.root/'data/accounts.json']['accounts'][account]
+        label = metadata.get('label') or account.split(':')[-1]
         if any(i['needs_user'] and not i['decision'] for i in checklist):
             raise ValueError('There are undecided statement rows')
         target = self.root / 'Bills' / statement['periodEnd'] / s['original_name']
@@ -390,8 +408,7 @@ class StatementTransaction(Transaction):
         if target.exists() or target.is_symlink():
             raise ValueError('A PDF with this name is already filed. Check the existing evidence first.')
         source = str(target.relative_to(self.root))
-        month = datetime.fromisoformat(statement['periodEnd']).strftime('%B%Y')
-        reconciliation = self.root / f'data/statements/{month}-card-reconciliation.json'
+        reconciliation = reconciliation_path(self.root, statement['periodEnd'], account, metadata)
         if reconciliation.exists():
             raise ValueError('This reconciliation file already exists')
         record = event('statement', statement={**statement,'source':source}, counts=s['plan']['counts'], decisions=s['decisions'], entry_ids=[], extraction=s['extraction'], runs=s['runs'])
@@ -412,7 +429,7 @@ class StatementTransaction(Transaction):
                     used.add(identity)
                     entry = actuals[identity]
                     if item['rule']=='foreign_currency' and not decision:
-                        convert(entry,row)
+                        convert(entry,row,account)
                     if entry['date']!=row['date']:
                         entry.setdefault('notes',[]).append(f"statement printed date: {row['date']}; replaces recorded date {entry['date']}")
                         entry['date']=row['date']
@@ -424,7 +441,7 @@ class StatementTransaction(Transaction):
                         if row.get('foreignAmount'):
                             original=Decimal(row['foreignAmount'])*(1 if row['direction']=='Debit' else -1)
                             posting.update(amount=f'{original:.2f}',commodity=row['foreignCurrency'],cost=dict(amount=row['amount'],commodity='INR',per='total'))
-                        postings=[posting,dict(account=CARD,amount=f'{-amount:.2f}',commodity='INR')]
+                        postings=[posting,dict(account=account,amount=f'{-amount:.2f}',commodity='INR')]
                     else:
                         postings=deepcopy(item['postings'])
                     if not postings:
@@ -452,7 +469,7 @@ class StatementTransaction(Transaction):
             if any(p['account']=='Expenses:Uncategorized' for e in new_entries for p in e['postings']):
                 declared['accounts'].setdefault('Expenses:Uncategorized', {})
             used_ids={e['id'] for items in documents.values() if isinstance(items,list) for e in items if 'id' in e}
-            summary=dict(id=new_id(used_ids),account=CARD,start=statement['periodStart'],end=statement['periodEnd'],source=source,
+            summary=dict(id=new_id(used_ids),account=account,start=statement['periodStart'],end=statement['periodEnd'],source=source,
                          **{'previous-balance':statement['previousBalance'],'purchases':statement['purchasesCharges'],'credits':statement['paymentsCredits'],'total-due':statement['totalDue'],'rows':len(statement['rows'])})
             if Decimal(statement.get('cashAdvances','0')):
                 summary['cash-advances']=statement['cashAdvances']
@@ -461,13 +478,13 @@ class StatementTransaction(Transaction):
                 dump(path,document)
             for entry in new_entries:
                 added.append(add_entry(entry,root=self.root))
-            dump(reconciliation,{key:statement[key] for key in ('periodStart','periodEnd','previousBalance','purchasesCharges','paymentsCredits','totalDue','rows')}|{'source':source})
+            dump(reconciliation,{key:statement[key] for key in ('account','accountLabel','card_last4','periodStart','periodEnd','previousBalance','purchasesCharges','paymentsCredits','totalDue','rows')}|{'source':source})
             record['entry_ids']=changed+added
             append(self.root,record)
             result=dict(entry_ids=changed+added,changed=len(changed),added=len(added),converted=sum(i['rule']=='foreign_currency' and not i['decision'] for i in checklist),source=source,end=statement['periodEnd'],audit_id=record['id'])
             journal['result']=result
             self.save_journal(journal)
-            message=(f"Reconcile the card statement ending {statement['periodEnd']}\n\nMatched {len(changed)} entries; converted {result['converted']}; added {len(added)}.\nSource: {source}\n{self.marker}\nAdded-by: dashboard statements ({s['extraction']})")
+            message=(f"Reconcile {label} statement ending {statement['periodEnd']}\n\nMatched {len(changed)} entries; converted {result['converted']}; added {len(added)}.\nSource: {source}\n{self.marker}\nAdded-by: dashboard statements ({s['extraction']})")
             env={**os.environ,'LEDGER_DIR':str(self.root),LOCK_FD_ENV:str(lock_fd),'EXPENSES_COMMIT_MESSAGE':message}
             completed=subprocess.run(['make','commit'],cwd=self.settings.application,env=env,pass_fds=(lock_fd,),capture_output=True,text=True)
             if completed.returncode:

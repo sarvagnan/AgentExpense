@@ -23,7 +23,7 @@ def strip_header(journal):
     return ''.join(lines)
 
 
-def snapshot(root):
+def snapshot(root, *, format_zero_settings=None):
     """Build in scratch space; neither the source ledger nor app outputs are written."""
     with tempfile.TemporaryDirectory(prefix='expense-outputs-', dir='/tmp') as folder:
         scratch = Path(folder)
@@ -35,16 +35,25 @@ def snapshot(root):
             shutil.copyfile(manifest, ledger / 'ledger.json')
             documents = load(ledger)
         else:
-            # Compatibility is local to comparison: format-0 declarations have no metadata.
-            # The old builders ignored it; deterministic placeholders preserve their outputs.
+            # Format-0 has no metadata. Migration comparisons supply the exact
+            # proposed settings so both sides classify unchanged entries identically.
             from account_metadata import infer_kind, is_balance_sheet
             from store import dump
-            dump(ledger / 'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000000', name='Comparison', defaultCurrency='INR'))
-            declarations = read_json(ledger / 'data/accounts.json')
             documents = {p: read_json(p) for p in store_paths(ledger)}
-            declarations['accounts'] = {
-                a: {'kind': infer_kind(a) or 'person', 'currency': 'INR'} if is_balance_sheet(a) else {}
-                for a in declarations['accounts']}
+            declarations = documents[ledger / 'data/accounts.json']
+            if format_zero_settings is None:
+                postings = [p for path, rows in documents.items() if path.parent.name == 'expenses' or path.name == 'forecast.json' for row in rows for p in row['postings']]
+                counts = Counter(p.get('cost', p)['commodity'] for p in postings if is_balance_sheet(p['account']))
+                default = counts.most_common(1)[0][0] if counts else 'INR'
+                metadata = {}
+                for account in declarations['accounts']:
+                    units = {p['commodity'] for p in postings if p['account'] == account}
+                    metadata[account] = {'kind': infer_kind(account) or 'person', 'currency': next(iter(units)) if len(units) == 1 else default} if is_balance_sheet(account) else {}
+                settings = dict(format=1, id='00000000-0000-4000-8000-000000000000', name='Comparison', defaultCurrency=default)
+                declarations = {**declarations, 'accounts': metadata}
+            else:
+                settings, declarations = format_zero_settings
+            dump(ledger / 'ledger.json', settings)
             dump(ledger / 'data/accounts.json', declarations)
             documents[ledger / 'data/accounts.json'] = declarations
         journal = render(documents, ledger)

@@ -33,15 +33,25 @@ def header(text, label):
     return values[0]
 
 
+def card_identifier(text):
+    first = text.split('\f')[0]
+    if not re.search(r'^\s*Card last four digits:', first, re.I | re.M):
+        return None
+    value = header(first, 'Card last four digits')
+    if not re.fullmatch(r'\d{4}', value):
+        raise ValueError('Card last four digits must contain four digits')
+    return value
+
+
 def recognised(text, expected_last4=''):
     # Recognition is deliberately lighter than parsing so incomplete example
     # statements can still reach the pipeline's checked second reading.
     first = text.split('\f')[0]
     try:
-        last4 = header(first, 'Card last four digits')
+        last4 = card_identifier(first)
         return bool(re.search(r'^\s*' + TITLE + r'\s*$', first, re.I | re.M)
-                    and re.fullmatch(r'\d{4}', last4)
-                    and (not expected_last4 or last4 == expected_last4)
+                    and (last4 is None or re.fullmatch(r'\d{4}', last4))
+                    and (not expected_last4 or last4 is None or last4 == expected_last4)
                     and re.search(r'^\s*Statement period:', first, re.I | re.M))
     except ValueError:
         return False
@@ -58,7 +68,7 @@ def parse_text(text, *, expected_last4=''):
     start, end = map(iso_date, period)
     if start > end:
         raise ValueError('Statement start is after end')
-    result = dict(card_last4=header(first, 'Card last four digits'), periodStart=start, periodEnd=end,
+    result = dict(card_last4=card_identifier(first), periodStart=start, periodEnd=end,
                   dueDate=iso_date(header(first, 'Due date')), rows=[])
     for label, key in [('Previous balance', 'previousBalance'), ('Purchases', 'purchasesCharges'),
                        ('Cash advances', 'cashAdvances'), ('Credits', 'paymentsCredits'),

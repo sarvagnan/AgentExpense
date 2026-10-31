@@ -1,3 +1,5 @@
+import type { Accounts } from './account-metadata';
+export type LedgerManifest = {format: number; id: string; name: string; defaultCurrency: string; locale?: string; startDate?: string; modules: Record<string, unknown>; review: {storageKey: string|null}};
 // Runtime payload contracts must remain stable when a selected ledger has empty arrays.
 export type Provenance = {
   auditId: string; text: string; time: string; savedAt: string | null;
@@ -15,7 +17,7 @@ export type DashboardTransaction = {
   postings: { account: string; amount: number; currency: string; label: string; cost?: number }[];
 };
 export type DashboardData = {
-  meta: { ledger: string; generatedAt: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
+  meta: { ledger: LedgerManifest; accounts: Accounts; generatedAt: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
   months: {
     month: string; total: number; income: number; investments: number; recurring: number; count: number; pending: number;
     categories: { category: string; amount: number }[]; daily: { day: number; amount: number }[];

@@ -1,3 +1,4 @@
+import { reviewKeys } from '../../scripts/account-metadata.mjs';
 import { fuelLedgerEntry } from '../fuel-links';
 import { useWorkStore, useReviewEditor } from './storage';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type CSSProperties, type ReactNode } from 'react';
@@ -17,8 +18,6 @@ type Change = { ids: string[]; before: (Decision | undefined)[]; after: (Decisio
   drafts?: { before: Record<string, Draft>; after: Record<string, Draft> } };
 type Notice = { tone: 'success' | 'error' | 'info'; text: string; undo?: boolean; redo?: boolean };
 
-const STORAGE_KEY = 'agentexpense-review-v2';
-const DRAFTS_KEY = 'agentexpense-review-drafts-v1';
 const SUGGESTED_ACCOUNTS = [
   'Expenses:Food:Dining & Delivery', 'Expenses:Food:Groceries', 'Expenses:Housing:Household',
   'Expenses:Housing:Furniture & Appliances', 'Expenses:Utilities', 'Expenses:Transport:Local',
@@ -58,7 +57,7 @@ function sanitize<T>(value: unknown, valid: (item: unknown) => item is T, allowK
 // when the ledger edits it): such decisions stay stored, are exported, and can be discarded on purpose.
 const isDecisionKey = (key: string) => key.length > 0;
 const isDraftKey = (key: string) => key.length > 0;
-const EXPORTED_KEY = 'agentexpense-review-exported-at';
+
 
 function matchKey(transaction: { date: string; description: string; amount: number; sourceReference: string }) {
   return `${transaction.date}|${transaction.description}|${transaction.amount.toFixed(2)}|${transaction.sourceReference}`;
@@ -120,6 +119,7 @@ export default function Review() {
   const editor = useReviewEditor();
   const readOnly = !editor.editable;
   const onAdopt = () => { setHistory({ undo: [], redo: [] }); setNotice({ tone: 'info', text: 'Work changed in another tab; saved work was loaded. Earlier changes here can no longer be undone.' }); };
+  const {decisions: STORAGE_KEY, drafts: DRAFTS_KEY, exported: EXPORTED_KEY} = reviewKeys(dashboardData.meta.ledger);
   const decisionStore = useWorkStore(STORAGE_KEY, validDecision, onAdopt, editor.editable);
   const draftStore = useWorkStore(DRAFTS_KEY, validDraft, onAdopt, editor.editable);
   const { data: decisions, setData: setDecisions, saved: decisionsSaved } = decisionStore;

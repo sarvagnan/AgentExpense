@@ -1,4 +1,5 @@
 import { auditProvenance } from './audit-provenance.mjs';
+import { accountLabel, accountKind, expenseCategory, hasSegment } from './account-metadata.mjs';
 import { sourceKind } from './source-labels.mjs';
 import { compact, expandForecast, loadExpenseStore } from './expense-store.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -8,27 +9,12 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, '..');
 const outputPath = path.join(projectDir, 'app', 'data', 'dashboard.json');
-const { transactions, rules, prices, manifest } = await loadExpenseStore();
+const { transactions, rules, prices, manifest, accounts } = await loadExpenseStore();
 const provenance = await auditProvenance();
 
 
-function shortAccount(account) {
-  return account
-    .replace('Liabilities:Credit Cards:', '')
-    .replace('Assets:Bank:', '')
-    .replace('Assets:', '')
-    .replaceAll(':', ' · ');
-}
-
-function topCategory(account) {
-  const [, first = 'Other'] = account.split(':');
-  const names = {
-    Basketdemo: 'Groceries', Donations: 'Donations', Fees: 'Fees', Food: 'Food & dining',
-    Housing: 'Housing', Insurance: 'Insurance', Subscriptions: 'Subscriptions', Taxes: 'Taxes',
-    Transport: 'Transport', Uncategorized: 'Uncategorized', Utilities: 'Utilities',
-  };
-  return names[first] || first;
-}
+const shortAccount = account => accounts[account]?.kind ? accountLabel(account, accounts) : account.replaceAll(':', ' · ');
+const kindOf = account => accountKind(account, accounts);
 
 // The INR a posting moves: rupees as written, or the recorded cost of fund units.
 const inrValue = (posting) => posting.currency === 'INR' ? posting.amount : posting.cost ?? 0;
@@ -41,8 +27,8 @@ function toRecord(transaction, sequence) {
   const source = transaction.sources[0] || 'Derived ledger entry';
   const expensePostings = transaction.postings.filter((posting) => posting.account.startsWith('Expenses:'));
   const incomePostings = transaction.postings.filter((posting) => posting.account.startsWith('Income:'));
-  const investmentPostings = transaction.postings.filter((posting) => posting.account.startsWith('Assets:Investments:'));
-  const reimbursementPostings = transaction.postings.filter(posting => posting.account.startsWith('Assets:Reimbursements:') && posting.currency === 'INR');
+  const investmentPostings = transaction.postings.filter((posting) => kindOf(posting.account) === 'investment');
+  const reimbursementPostings = transaction.postings.filter(posting => kindOf(posting.account) === 'person' && posting.currency === 'INR');
   const reimbursementAmount = reimbursementPostings.reduce((sum, posting) => sum + posting.amount, 0);
   const reimbursablePurchase = reimbursementAmount > 0;
   const reimbursementReceipt = reimbursementAmount < 0;
@@ -68,7 +54,7 @@ function toRecord(transaction, sequence) {
     .reduce((sum, posting) => sum - posting.amount, 0);
   const investmentAmount = investmentPostings.reduce((sum, posting) => sum + inrValue(posting), 0);
   const paymentCandidates = transaction.postings
-    .filter((posting) => posting.currency === 'INR' && !posting.account.startsWith('Expenses:') && !posting.account.startsWith('Income:') && !posting.account.startsWith('Assets:Investments:') && !posting.account.startsWith('Assets:Reimbursements:'))
+    .filter((posting) => posting.currency === 'INR' && !posting.account.startsWith('Expenses:') && !posting.account.startsWith('Income:') && kindOf(posting.account) !== 'investment' && kindOf(posting.account) !== 'person')
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
   // Paid With follows the money leaving; incoming-only entries retain the old fallback.
   const paymentPosting = paymentCandidates.find(posting => posting.amount < 0) || paymentCandidates[0];
@@ -79,13 +65,14 @@ function toRecord(transaction, sequence) {
   // Holdings opened against equity were bought before the ledger began: a balance adjustment, not an investment.
   const opening = transaction.postings.some(posting => posting.account.startsWith('Equity:'));
   const kind = expensePostings.length ? (expenseAmount < 0 ? 'Refund' : 'Expense') : incomePostings.length ? 'Income' : investmentPostings.length && !opening ? 'Investment' : reimbursablePurchase ? 'Reimbursable purchase' : reimbursementReceipt ? 'Reimbursement' : 'Transfer';
-  const bankFunded = transaction.postings.some(posting => posting.amount < 0 && posting.account.startsWith('Assets:Bank:'));
-  const receives = prefix => transaction.postings.some(posting => posting.amount > 0 && posting.account.startsWith(prefix));
+  const bankFunded = transaction.postings.some(posting => posting.amount < 0 && kindOf(posting.account) === 'bank');
+  const receives = kind => transaction.postings.some(posting => posting.amount > 0 && kindOf(posting.account) === kind);
+  const walletFunded = transaction.postings.some(posting => posting.amount < 0 && ['bank', 'card'].includes(kindOf(posting.account)));
   const displayType = kind !== 'Transfer' ? kind
     : transaction.postings.some(posting => posting.account.startsWith('Equity:')) ? 'Balance adjustment'
-    : bankFunded && receives('Liabilities:Credit Cards:') ? 'Card payment'
-    : bankFunded && receives('Liabilities:Accounts Payable:') ? 'Bill payment'
-    : bankFunded && (receives('Assets:Wallets:App Store Balance') || receives('Assets:Wallets:Shopping Wallet')) ? 'Balance top-up'
+    : bankFunded && receives('card') ? 'Card payment'
+    : bankFunded && receives('person') ? 'Bill payment'
+    : walletFunded && receives('wallet') ? 'Balance top-up'
     : 'Transfer';
   const originalDate = transaction.date;
 
@@ -102,13 +89,13 @@ function toRecord(transaction, sequence) {
     displayType,
     amount: Number(Math.abs(kind === 'Transfer' ? transferAmount : expensePostings.length ? expenseAmount : incomeAmount || investmentAmount || reimbursementAmount || 0).toFixed(2)),
     signedExpense: Number(expenseAmount.toFixed(2)),
-    category: expensePostings.length ? topCategory(expensePostings[0].account) : incomePostings.length ? 'Income' : investmentPostings.length ? 'Investments' : reimbursementPostings.length ? (reimbursablePurchase ? 'Software · ' + reimbursementPostings[0].account.split(':').at(-1) : 'Reimbursements') : 'Transfers',
+    category: expensePostings.length ? expenseCategory(expensePostings[0].account, accounts) : incomePostings.length ? 'Income' : investmentPostings.length ? 'Investments' : reimbursementPostings.length ? 'People' : 'Transfers',
     ledgerAccount: expensePostings[0]?.account || incomePostings[0]?.account || investmentPostings[0]?.account || transaction.postings[0]?.account || '',
     paymentAccount: paymentPosting?.account || '',
     paymentLabel: paymentPosting ? shortAccount(paymentPosting.account) : 'Multiple postings',
     reimbursementGroup: transaction['reimbursement-group'] || '',
     reimbursementLabel: transaction['reimbursement-label'] || '',
-    reimbursementParty: reimbursementPostings[0]?.account.split(':')[2] || '',
+    reimbursementParty: reimbursementPostings[0] ? accountLabel(reimbursementPostings[0].account, accounts) : '',
     reimbursementAmount: Number(reimbursementAmount.toFixed(2)),
     sources: transaction.sources,
     source,
@@ -120,7 +107,7 @@ function toRecord(transaction, sequence) {
     fuelLog: /^\d+(?:\.\d+)?$/.test(transaction['fuel-filled-litres'] || '') ? {
       litres: Number(transaction['fuel-filled-litres']),
       tripKm: /^\d+(?:\.\d+)?$/.test(transaction['trip-km'] || '') ? Number(transaction['trip-km']) : null,
-      confirmed: transaction.postings.some((posting) => posting.account === 'Expenses:Transport:Fuel')
+      confirmed: transaction.postings.some((posting) => hasSegment(posting.account, ['Fuel']))
         && (/user-confirmed.*match from fuel log/.test(transaction.classification || '')
           || (source === 'user-provided fuel log' && /user-confirmed fuel expense/.test(transaction.classification || ''))),
     } : null,
@@ -276,7 +263,8 @@ const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart
 const defaultMonth = monthKeys.includes(currentMonth) ? currentMonth : (monthKeys.at(-1) || '');
 const payload = {
   meta: {
-    ledger: 'data/expenses/*.json',
+    ledger: manifest,
+    accounts,
     generatedAt: new Date().toISOString(),
     defaultMonth,
     firstMonth: monthKeys[0] || '',

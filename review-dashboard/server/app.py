@@ -351,27 +351,33 @@ def create_app(settings=None, *, start_worker=True):
     @app.get('/api/statements')
     def statement_list():
         from store import load
-        from statement_rules import CARD
         statements.purge()
         documents = load(settings.ledger)
-        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('handover_undone')], filed=[s for s in documents[settings.ledger/'data/card-statements.json'] if s['account']==CARD], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']))
+        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('handover_undone')], filed=documents[settings.ledger/'data/card-statements.json'], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']))
 
     @app.get('/api/statements/filed/{end}')
-    def filed_statement(end: str):
+    def filed_statement(end: str, account: str | None = None):
         from store import load
-        from statement_rules import CARD
-        summary=next((s for s in load(settings.ledger)[settings.ledger/'data/card-statements.json'] if s['end']==end and s['account']==CARD),None)
+        documents = load(settings.ledger)
+        matches = [s for s in documents[settings.ledger/'data/card-statements.json'] if s['end']==end and (account is None or s['account']==account)]
+        if len(matches) > 1:
+            raise HTTPException(409, 'Choose the statement account.')
+        summary = matches[0] if matches else None
         if not summary:
             raise HTTPException(404,'Unknown filed statement')
         month=datetime.fromisoformat(end).strftime('%B%Y')
-        path=settings.ledger/f'data/statements/{month}-card-reconciliation.json'
+        from reconcile_statement import reconciliation_path
+        path=reconciliation_path(settings.ledger,end,summary['account'],documents[settings.ledger/'data/accounts.json']['accounts'][summary['account']])
+        legacy=settings.ledger/f'data/statements/{month}-card-reconciliation.json'
+        if not path.is_file() and legacy.is_file():
+            path=legacy
         if path.is_file():
             rows=json.loads(path.read_text())['rows']
         else:
             from reconcile_statement import extract_rows
-            rows,_=extract_rows(settings.ledger,end)
+            rows,_=extract_rows(settings.ledger,end,summary['account'])
         from store import entries
-        members = {e.get('serial-number'): e for e in entries(load(settings.ledger)) if e.get('statement-end') == end}
+        members = {e.get('serial-number'): e for e in entries(load(settings.ledger)) if e.get('statement-end') == end and any(p['account'] == summary['account'] for p in e['postings'])}
         return dict(summary=summary, rows=[{**r, 'entry_id': members[r['serial']]['id'], 'entry_description': members[r['serial']]['description'], 'conversion_notes': [n for n in members[r['serial']].get('notes', []) if 'replaces' in n and 'INR' in n]} if r['serial'] in members else r for r in rows])
 
     @app.post('/api/statements',status_code=201)

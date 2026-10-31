@@ -1,3 +1,4 @@
+import { reviewKeys } from '../scripts/account-metadata.mjs';
 import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { dashboard as data, review as reviewData, type DashboardData } from './data';
@@ -113,11 +114,11 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
   </Dialog>;
 }
 
-const REVIEW_KEY = 'agentexpense-review-v2';
+const reviewKey = () => reviewKeys(data.meta.ledger).decisions;
 /** Entries still unreviewed in this browser: the ledger's pending count less saved decisions. */
 function unreviewedCount() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(REVIEW_KEY) || '{}') as Record<string, { status: string }>;
+    const saved = JSON.parse(window.localStorage.getItem(reviewKey()) || '{}') as Record<string, { status: string }>;
     const ids = new Set(reviewData.transactions.map((item) => item.id));
     return reviewData.meta.pendingTransactionCount - Object.entries(saved).filter(([id, decision]) => ids.has(id) && decision.status !== 'unreviewed').length;
   } catch { return reviewData.meta.pendingTransactionCount; }
@@ -125,7 +126,7 @@ function unreviewedCount() {
 
 function DataBuilt() {
   const generated = new Date(data.meta.generatedAt);
-  return <p className="data-built"><strong>{data.meta.ledger}</strong>Data built {generated.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, {generated.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</p>;
+  return <p className="data-built"><strong>{data.meta.ledger.name}</strong>Data built {generated.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, {generated.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</p>;
 }
 
 function Sidebar({ active, month, attention, status, unreviewed, onHelp }: { active: View; month: string; attention: number; status: string; unreviewed: number; onHelp: () => void }) {

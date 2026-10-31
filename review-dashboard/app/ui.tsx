@@ -1,3 +1,5 @@
+import { accountMetadata } from './account-metadata';
+import { accountLabel as metadataLabel } from '../scripts/account-metadata.mjs';
 // Shared formatting, icons, page chrome and keyboard behavior for every dashboard view.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentPropsWithRef, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
@@ -417,8 +419,8 @@ export function Dialog({ title, subtitle, onClose, children, labelId, role = 'di
 /** True while a modal dialog is open, so window-level shortcuts don't act on the page behind it. */
 export const modalOpen = () => typeof document !== 'undefined' && !!document.querySelector('[aria-modal="true"]');
 
-/** A ledger account as a label: its root dropped and parts joined, "Basketdemo · Groceries · Britannia…". */
-export const accountLabel = (path: string) => { const parts = path.split(':'); return (parts.length > 1 ? parts.slice(1) : parts).join(' · '); };
+/** Metadata labels for balance-sheet accounts; category paths retain their context. */
+export const accountLabel = (path: string) => { if (accountMetadata()[path]?.kind) return metadataLabel(path, accountMetadata()); const parts = path.split(':'); return (parts.length > 1 ? parts.slice(1) : parts).join(' · '); };
 
 /** A permalink retains this view's filters, sort and account, replacing only the entry. */
 export function entryHref(id: string) {
@@ -493,7 +495,7 @@ export function evidenceHref(source: string) {
   return null;
 }
 
-/** Lets a path wrap only after its separators, never mid-word: "Liabilities:Credit Cards:Rewards…". */
+/** Lets a path wrap only after its separators, never mid-word: "Liabilities:Plastic:Main…". */
 export function breakable(path: string) {
   const parts = path.split(/(?<=[:/])/);
   return <>{parts.map((part, index) => <span key={index}>{part}{index < parts.length - 1 && <wbr/>}</span>)}</>;
@@ -558,7 +560,7 @@ export function rowTitle(description: string) {
   const split = description.lastIndexOf(' — ');
   if (split < 0) return description;
   const tail = description.slice(split + 3);
-  return /^(?:(?:savings|salary)(?: account)?(?: UPI)?|rewards card|shopping wallet|app store balance|prepaid balance|(?:credit|debit) card)$/i.test(tail) ? description.slice(0, split) : description;
+  return Object.entries(accountMetadata()).some(([account, meta]) => meta.kind && [metadataLabel(account, accountMetadata()), ...(meta.aliases || []), ...(meta.kind === 'card' ? ['Card'] : [])].some(label => label.toLowerCase() === tail.toLowerCase())) ? description.slice(0, split) : description;
 }
 /** File labels describe only what the file's own name or type establishes. */
 export function evidenceKind(path: string) {

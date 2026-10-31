@@ -1,3 +1,5 @@
+import { displayAccountLabel } from './account-labels';
+import { defaultAccount } from '../scripts/account-metadata.mjs';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { dashboard as data, type DashboardData } from './data';
 import { accountActivity, balanceAccounts, groups, isFund, marketValue, priceOn, valueSeries, type PriceSeries } from './account-balances';
@@ -5,7 +7,7 @@ import { TransactionDetails, entryMenu, navigate } from './dashboard';
 import { EntryLink, Icon, PageHeader, announce, hasSelectedText, breakable, copyAndAnnounce, useColumnWidths, type MenuItem, PanelHeader, SearchField, dayLabel, dayShort, inr, inrWhole, money, plural, units, useContextMenu, useEscape, useQueryState, useRowNavigation } from './ui';
 
 type Transaction = DashboardData['transactions'][number];
-const short = (account: string) => account.replace(/^Assets:(Bank:|Investments:(Mutual Funds:)?|Reimbursements:)?|^Liabilities:Credit Cards:/, '').replaceAll(':', ' · ');
+const short = displayAccountLabel;
 const GROUP_LABEL: Record<string, { total: string; note: string }> = {
   Banks: { total: 'In bank accounts', note: 'INR' },
   Prepaid: { total: 'In prepaid balances', note: 'INR' },
@@ -171,7 +173,7 @@ export default function AccountSummary() {
   const earliest = data.transactions.reduce((first, entry) => entry.date < first ? entry.date : first, latest);
   const [asOf, setAsOf] = useQueryState('asOf', latest, (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= earliest && value <= latest);
   // The address names the account, adding its currency only when it isn't rupees.
-  const [accountParam, setAccountParam] = useQueryState('account', 'Assets:Bank:Salary Account');
+  const [accountParam, setAccountParam] = useQueryState('account', defaultAccount(data.meta.accounts));
   const [query, setQuery] = useQueryState('find', '');
   const [period, setPeriod] = useQueryState('period', 'month', (value) => value in PERIODS);
   const [selectedId, setSelectedId] = useQueryState('entry', '');

@@ -33,6 +33,8 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
         key = (account, end)
         if account not in declared:
             raise ValueError(f"{end}: undeclared statement account {account}")
+        if documents[root / "data/accounts.json"]["accounts"][account].get("kind") != "card":
+            raise ValueError(f"{end}: statement account must have kind card: {account}")
         if key in by_key:
             raise ValueError(f"{end}: duplicate statement for {account}")
         by_key[key] = statement
@@ -45,7 +47,7 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
             serials[serial] = entry["id"]
         if "statement-end" not in entry:
             continue
-        card_accounts = {p["account"] for p in entry["postings"] if p["account"].startswith("Liabilities:Credit Cards:")}
+        card_accounts = {p["account"] for p in entry["postings"] if documents[root / "data/accounts.json"]["accounts"].get(p["account"], {}).get("kind") == "card"}
         if not card_accounts:
             raise ValueError(f"{entry['id']}: statement-end without a card posting")
         if len(card_accounts) != 1:
@@ -121,7 +123,7 @@ def check_price_coverage(documents: dict, root: Path = ROOT) -> None:
     first_held = {}
     for entry in entries(documents):
         for posting in entry["postings"]:
-            if posting["account"].startswith("Assets:Investments:") and "cost" in posting and posting["commodity"] != posting["cost"]["commodity"] and Decimal(posting["amount"]) != 0:
+            if documents[root / "data/accounts.json"]["accounts"].get(posting["account"], {}).get("kind") == "investment" and "cost" in posting and posting["commodity"] != posting["cost"]["commodity"] and Decimal(posting["amount"]) != 0:
                 first_held.setdefault(posting["commodity"], entry["date"])
     prices = {}
     price_file = root / "data/prices/mutual-funds.prices"

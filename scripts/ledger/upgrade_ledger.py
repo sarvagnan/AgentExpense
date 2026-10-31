@@ -129,10 +129,12 @@ def upgrade(root, options):
         targets = ['ledger.json', 'data/accounts.json', 'expense_ledger.ledger']
         before = {name: (root / name).read_bytes() if (root / name).exists() else None for name in targets}
         try:
-            baseline = snapshot(root)
+            initial_plan = steps[version].plan(root, options)
+            validate_plan(initial_plan)
+            baseline = snapshot(root, format_zero_settings=initial_plan if version == 0 else None)
             while version < CURRENT_FORMAT:
                 step = steps[version]
-                result = step.plan(root, options)
+                result = initial_plan if version == 0 else step.plan(root, options)
                 validate_plan(result)
                 step.apply(root, result)
                 verify(root)

@@ -1,27 +1,25 @@
+import type { Accounts } from './account-metadata';
+import { currentAccounts as accountMetadata } from '../scripts/account-metadata.mjs';
+import { groupNames } from '../scripts/account-metadata.mjs';
 export type Posting = { account: string; currency: string; amount: number; cost?: number };
 export type Entry = { id: string; date: string; sequence: number; description: string; postings: Posting[] };
 export type PriceSeries = { commodity: string; dates: string[]; navs: number[] };
-export const groups = ['Banks', 'Credit cards', 'Prepaid', 'Investments', 'Reimbursements', 'Other accounts'];
-export function accountGroup(account: string) {
-  if (account.startsWith('Assets:Bank:')) return 'Banks';
-  if (account.startsWith('Liabilities:Credit Cards:')) return 'Credit cards';
-  if (account.startsWith('Assets:Reimbursements:')) return 'Reimbursements';
-  if (account.startsWith('Assets:Investments:')) return 'Investments';
-  if (/^Assets:Wallets:(Shopping Wallet|App Store Balance)$/.test(account)) return 'Prepaid';
-  return 'Other accounts';
+export const groups = Object.values(groupNames);
+export function accountGroup(account: string, metadata: Accounts = accountMetadata()) {
+  return groupNames[metadata[account]?.kind as keyof typeof groupNames] || 'Other accounts';
 }
 /** Mutual fund units are a ledger commodity such as DEMOFUND, not an ISO currency code. */
 export const isFund = (currency: string) => !/^[A-Z]{3}$/.test(currency);
 // Balances are summed in whole hundredths of a currency, or thousandths of a fund unit, to avoid float drift.
 const scale = (currency: string) => isFund(currency) ? 1000 : 100;
-export function balanceAccounts(entries: Entry[], asOf: string) {
+export function balanceAccounts(entries: Entry[], asOf: string, metadata: Accounts = accountMetadata()) {
   const accounts = new Map<string, { key: string; account: string; currency: string; balance: number; group: string }>();
   for (const entry of entries) {
     for (const posting of entry.postings) {
       if (entry.date > asOf) continue;
       if (/^(Expenses|Income|Equity):/.test(posting.account)) continue;
       const key = `${posting.account}\0${posting.currency}`;
-      const value = accounts.get(key) || { key, account: posting.account, currency: posting.currency, balance: 0, group: accountGroup(posting.account) };
+      const value = accounts.get(key) || { key, account: posting.account, currency: posting.currency, balance: 0, group: accountGroup(posting.account, metadata) };
       value.balance += Math.round(posting.amount * scale(posting.currency));
       accounts.set(key, value);
     }

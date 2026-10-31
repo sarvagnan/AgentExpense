@@ -268,7 +268,7 @@ class AgentIsolationTests(unittest.TestCase):
                                     capture_output=True, text=True, timeout=5, check=True)
             listed, response = map(json.loads, result.stdout.splitlines())
             self.assertEqual(len(listed['result']['tools']), 4)
-            self.assertEqual(json.loads(response['result']['content'][0]['text']), [account])
+            self.assertEqual(json.loads(response['result']['content'][0]['text']), [dict(account=account,kind='cash',currency='INR')])
             (work / 'answer.json').write_text(json.dumps({'account': account, 'shell_unavailable': True}))
             with redirect_stdout(io.StringIO()), patch('agent_check.invoke', return_value=events(lookup(account))) as invoke:
                 check_live(settings, work, account)

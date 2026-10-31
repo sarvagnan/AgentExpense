@@ -7,6 +7,7 @@ import { createTestServer as createServer } from './test-isolation.mjs';
 const server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 let evidenceKind, evidenceAction, isFileReference, rowTitle;
 try {
+  (await server.ssrLoadModule('/app/data.ts')).setData({dashboard:{meta:{accounts:{'Assets:Checking:Day':{kind:'bank',label:'Day balance'},'Liabilities:Plastic:Main':{kind:'card',label:'Travel card'}}}},review:{},fuel:{}});
   ({ evidenceKind, evidenceAction, isFileReference, rowTitle } = await server.ssrLoadModule('/app/ui.tsx'));
 } finally { await server.close(); }
 test('invented combined evidence retains independent kinds and actions', () => {
@@ -44,6 +45,6 @@ test('Type fallbacks and explicit invoice/receipt names never depend on the dire
 });
 
 test('generic payment labels are removed only from a repeated title suffix', () => {
- for (const label of ['Rewards card','Savings account','Salary account UPI','Shopping wallet','App store balance']) assert.equal(rowTitle(`Fable Shop — ${label}`), 'Fable Shop');
+ for (const label of ['Day balance','Travel card','Card']) assert.equal(rowTitle(`Fable Shop — ${label}`), 'Fable Shop');
  assert.equal(rowTitle('Fable Shop — original description'), 'Fable Shop — original description');
 });

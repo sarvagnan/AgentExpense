@@ -18,7 +18,7 @@ from support import Fixture, APPLICATION, ready
 from statements import Statements, StatementTransaction
 from statement_pdf import parse_text
 from statement_fixtures import TEXT, statement_pdf, statement_answer
-from statement_rules import CARD
+CARD = 'Liabilities:Plastic:Main'
 from store import load, entries
 from audit import records
 from transactions import clean
@@ -33,11 +33,41 @@ class StatementTests(Fixture):
             time.sleep(.02)
         self.fail(str(s))
 
+    def test_two_cards_without_identifiers_stop_before_any_agent(self):
+        from store import dump
+        declarations=load(self.ledger)[self.ledger/'data/accounts.json']
+        declarations['accounts'].update({name:dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf')) for name in (CARD,'Borrowed:Travel')})
+        dump(self.ledger/'data/accounts.json',declarations)
+        sessions=Statements(self.settings)
+        session=sessions.create(statement_pdf(),'Statement.pdf')
+        with patch('agent.run') as run:
+            with self.assertRaisesRegex(ValueError,'Set statement.identifier on the card accounts'):
+                sessions.read(session)
+            run.assert_not_called()
+
+    def test_printed_identifier_selects_one_of_two_unconventional_cards(self):
+        from store import dump
+        declarations=load(self.ledger)[self.ledger/'data/accounts.json']
+        declarations['accounts'].update({CARD:dict(kind='card',currency='INR',label='Travel',statement=dict(reader='example-card-pdf',identifier='5678')),
+                                         'Borrowed:Other':dict(kind='card',currency='INR',label='Other',statement=dict(reader='example-card-pdf',identifier='1234')),
+                                         'Equity:Opening Balances':{}})
+        dump(self.ledger/'data/accounts.json',declarations)
+        dump(self.ledger/'data/expenses/2026.json',[dict(id='a'*16,date='2026-01-01',status='confirmed',description='Opening',postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
+        sessions=Statements(self.settings)
+        session=sessions.create(statement_pdf(),'Statement.pdf')
+        with patch('agent.run') as run:
+            sessions.read(session)
+            run.assert_not_called()
+        result=sessions.get(session['id'])
+        self.assertEqual(result['statement']['account'],CARD)
+        self.assertEqual(result['statement']['accountLabel'],'Travel')
+        self.assertEqual(result['state'],'found')
+
     def test_new_pending_foreign_row_preserves_currency_and_billed_cost(self):
         from store import dump
         from statements import fingerprint
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'].update({CARD: dict(kind='card', currency='INR'), 'Equity:Opening Balances': {}})
+        declarations['accounts'].update({CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf', identifier='5678')), 'Equity:Opening Balances': {}})
         dump(self.ledger/'data/accounts.json',declarations)
         dump(self.ledger/'data/expenses/2026.json',[dict(id='a'*16,date='2026-09-01',status='confirmed',description='Fixture card opening',postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
         self.jj('commit','-m','Foreign row fixture baseline')
@@ -46,6 +76,7 @@ class StatementTests(Fixture):
         s=sessions.create(output.getvalue(),'synthetic-statement.pdf')
         text=TEXT.replace('2026-01-01 to 2026-01-28', '2026-09-29 to 2026-10-28').replace('2026-01-02', '2026-10-01').replace('120.00', '900.00').replace('Credits: 30.00', 'Credits: 0.00').replace('Total due: 90.00', 'Total due: 900.00').replace('2.00 | USD', '10.00 | USD').split('2026-01-03 |')[0]
         statement=parse_text(text)
+        statement.update(account=CARD, accountLabel='Test Card')
         row=statement['rows'][0]
         s.update(state='review',fingerprint=fingerprint(self.ledger),extraction='parser',statement=statement,plan=dict(items=[dict(row=row,rule='needs_you',entry_id=None,postings=None,needs_user=True,decision=dict(action='pending',account='Expenses:Uncategorized'))],counts=dict(needs_you=1)))
         sessions.put(s);sessions.queue_apply(s['id']);sessions.work(threading.Event())
@@ -77,7 +108,7 @@ class StatementTests(Fixture):
     def test_locked_example_pdf_is_checked_decided_filed_and_audited(self):
         from store import dump
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'].update({CARD: dict(kind='card', currency='INR'), 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}})
+        declarations['accounts'].update({CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf', identifier='5678')), 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}})
         dump(self.ledger/'data/accounts.json', declarations)
         dump(self.ledger/'data/expenses/2026.json', [dict(id='a'*16, date='2026-01-01', status='confirmed', description='Example opening', postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
         self.jj('commit','-m','Example card baseline')
@@ -94,7 +125,7 @@ class StatementTests(Fixture):
         s=sessions.get(s['id'])
         self.assertEqual(s['state'], 'found', s.get('error'))
         self.assertTrue(all(c['ok'] for c in s['checks']))
-        self.assertEqual(s['statement'], parse_text(TEXT))
+        self.assertEqual(s['statement'], {**parse_text(TEXT), 'account':CARD, 'accountLabel':'Test Card'})
         sessions.decide(s['id'], 'EX-001', dict(action='account', account='Expenses:Food'))
         sessions.decide(s['id'], 'EX-002', dict(action='account', account='Assets:Bank:Savings Account'))
         sessions.queue_apply(s['id']);sessions.work(threading.Event())
@@ -104,13 +135,18 @@ class StatementTests(Fixture):
         docs=load(self.ledger)
         self.assertEqual(docs[self.ledger/'data/card-statements.json'][0]['account'], CARD)
         self.assertEqual(len([e for e in entries(docs) if e.get('statement-end')=='2026-01-28']), 2)
-        self.assertTrue((self.ledger/'data/statements/January2026-card-reconciliation.json').exists())
+        from reconcile_statement import reconciliation_path
+        self.assertTrue(reconciliation_path(self.ledger,'2026-01-28',CARD,{'label':'Test Card'}).exists())
         self.assertEqual(records(self.ledger)[0]['kind'], 'statement')
-        self.assertIn('Reconcile the card statement', self.jj('log', '-r', '@-', '--no-graph', '-T', 'description'))
+        self.assertIn('Reconcile Test Card statement', self.jj('log', '-r', '@-', '--no-graph', '-T', 'description'))
         self.assertNotIn('invented-test-password', json.dumps(s))
         self.assertTrue(clean(self.ledger))
 
     def test_totals_failure_cannot_reach_reconciliation_rules(self):
+        from store import dump
+        declarations=load(self.ledger)[self.ledger/'data/accounts.json']
+        declarations['accounts'][CARD] = dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
+        dump(self.ledger/'data/accounts.json',declarations)
         sessions=Statements(self.settings)
         s=sessions.create(statement_pdf(TEXT.replace('Purchases: 120.00','Purchases: 121.00')), 'CardStatement-2026-01-28.pdf')
         answer=statement_answer();answer['purchases']='121.00'

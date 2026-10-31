@@ -56,6 +56,9 @@ class AgentInputTests(Fixture):
             folder = client.app.state.drafts.folder(identity)
             policy = self.ledger / 'AGENTS.md'
             policy.write_text(policy.read_text().replace('## Source of truth', 'Runtime policy marker\n\n## Source of truth'))
+            declarations = json.loads((self.ledger/'data/accounts.json').read_text())
+            declarations['accounts']['Assets:Cash'].update(label='Pocket money',aliases=['pocket'])
+            (self.ledger/'data/accounts.json').write_text(json.dumps(declarations))
             answer, record = run(self.settings, draft, folder)
             self.assertEqual(answer['status'], 'ready')
             self.assertGreater(record['duration'], 0)
@@ -63,6 +66,9 @@ class AgentInputTests(Fixture):
             self.assertEqual(len(calls), 1)
             call = calls[0]
             args = call['argv']
+            self.assertIn('Pocket money',args[-1])
+            self.assertIn('pocket',args[-1])
+            self.assertIn('Payment accounts',args[-1])
             self.assertTrue(call['stdin_closed'])
             self.assertEqual(args[:10], ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only',
                                           '--disable', 'shell_tool', '--disable', 'unified_exec', '--json'])
@@ -122,7 +128,7 @@ class LookupTests(Fixture):
         self.assertEqual(len(decoded(result[3])), 3)
         self.assertIn('Cafe', decoded(result[4])[0])
         self.assertEqual(len(decoded(result[5])), 3)
-        self.assertIn('Assets:Cash', decoded(result[6]))
+        self.assertIn(dict(account='Assets:Cash',kind='cash',currency='INR'), decoded(result[6]))
         self.assertTrue(result[7]['isError'])
         result = self.exchange('--cutoff', '2026-10-29', '--exclude', '0000000000000002')
         self.assertEqual([e['date'] for e in decoded(result[3])], ['2026-10-28'])

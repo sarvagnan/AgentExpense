@@ -11,12 +11,14 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+CARD = 'Liabilities:Credit Cards:Example Card'
+
 from store import ROOT, canonical_text, dump, entries, load, new_id, read_json, store_paths
 from project_paths import APPLICATION_ROOT
 from generate_ledger import render_entry
 from check_store import check_card_statements
 from add_entry import add_entry
-from reconcile_statement import CARD, extract_rows, reconcile, text_report, validate_rows
+from reconcile_statement import extract_rows, reconcile, text_report, validate_rows
 
 
 def entry(identity='0000000000000001', day='2026-01-02', amount='10.00', **fields):
@@ -32,7 +34,7 @@ class Fixture(unittest.TestCase):
         self.root = Path(self.temp.name)
         dump(self.root / 'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
         self.year = self.root / 'data/expenses/2026.json'
-        dump(self.root / 'data/accounts.json', dict(commodities=['INR', 'USD'], accounts={CARD: dict(kind='card', currency='INR'), 'Expenses:Test': {}, 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}}))
+        dump(self.root / 'data/accounts.json', dict(commodities=['INR', 'USD'], accounts={CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf')), 'Expenses:Test': {}, 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}}))
         dump(self.year, [entry()])
         dump(self.root / 'data/forecast.json', [])
         dump(self.root / 'data/card-statements.json', [])
@@ -154,7 +156,7 @@ class GeneratorTests(unittest.TestCase):
     ; policy-term: 1 year
     ; retained note
     Expenses:Test                            10.00 INR
-    Liabilities:Credit Cards:Rewards Card    -10.00 INR
+    Liabilities:Credit Cards:Example Card    -10.00 INR
 ''')
 
     def test_bank_row_golden(self):

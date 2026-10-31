@@ -14,14 +14,14 @@ test('source kind prioritizes explicit statement membership and bank rows over f
   assert.equal(sourceKind({}), 'Derived');
 });
 
-test('review source type follows card or paying bank, regardless of PDF evidence', () => {
-  const row = (...postings) => ({ sources: ['Bills/invoice.pdf'], postings });
-  const bank = (name, amount = -100) => ({ account: `Assets:Bank:${name}`, amount });
-  assert.equal(sourceType(row(bank('Savings Account'))), 'Savings account');
-  assert.equal(sourceType(row(bank('Salary Account'))), 'Salary account');
-  assert.equal(sourceType(row(bank('Salary Account', 100), bank('Savings Account'))), 'Savings account');
-  assert.equal(sourceType(row(bank('Savings Account', 100))), 'Savings account');
-  assert.equal(sourceType(row(bank('Other'))), 'Derived');
-  assert.equal(sourceType(row(bank('Savings Account'), { account: 'Liabilities:Credit Cards:Rewards Card', amount: 100 })), 'Credit card');
-  assert.equal(sourceType(row({ account: 'Assets:Wallets:App Store Balance', amount: -100 })), 'Derived');
+test('review source type follows metadata for unconventional card and paying bank paths', () => {
+ const accounts = {'Assets:Checking:Day':{kind:'bank',label:'Day balance'},'Assets:Checking:Night':{kind:'bank',label:'Night balance'},'Liabilities:Plastic:Main':{kind:'card',label:'Travel'}};
+ const row = (...postings) => ({sources:['Bills/invoice.pdf'],postings});
+ const bank = (name,amount=-100) => ({account:`Assets:Checking:${name}`,amount});
+ assert.equal(sourceType(row(bank('Day')),accounts),'Day balance');
+ assert.equal(sourceType(row(bank('Day',100),bank('Night')),accounts),'Night balance');
+ assert.equal(sourceType(row(bank('Day',100)),accounts),'Day balance');
+ assert.equal(sourceType(row({account:'Liabilities:Plastic:Main',amount:100}),accounts),'Travel');
+ assert.equal(sourceType(row({account:'Other',amount:100}),accounts),'Derived');
+ assert.equal(sourceType(row({account:'Card',amount:-100}),{Card:{kind:'card'}}),'Card');
 });

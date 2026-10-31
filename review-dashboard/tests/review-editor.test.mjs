@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import {reviewKeys} from '../scripts/account-metadata.mjs';
 
 const source = ts.transpileModule(readFileSync(new URL('../app/review/storage.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -14,7 +15,7 @@ function setup() {
   window.setTimeout = (fn) => timers.push(fn);
   const hooks = { useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}], useRef: (current) => ({ current }), useEffect: (fn) => fn() };
   const exports = {};
-  vm.runInNewContext(source, { exports, require: () => hooks, window, Event, navigator: { locks: {
+  vm.runInNewContext(source, { exports, require: name => name === 'react' ? hooks : name.includes('account-metadata') ? {reviewKeys} : {dashboard:{meta:{ledger:{id:'offline'}}}} , window, Event, navigator: { locks: {
     request: (name, options, callback) => new Promise((resolve, reject) => requests.push({ name, options, callback, reject })),
   } } });
   const editor = exports.useReviewEditor();
@@ -24,6 +25,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 {
   const { editor, requests, timers } = setup();
   assert.equal(requests.length, 1);
+  assert.equal(requests[0].name, 'agentexpense-review-v2:offline:editor');
   // WebKit rejects the held request on document teardown and any subsequent request.
   requests[0].callback();
   assert.equal(editor.canEdit(), true);

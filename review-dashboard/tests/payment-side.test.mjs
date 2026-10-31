@@ -1,3 +1,4 @@
+import {metadata} from './metadata-fixture.mjs';
 import { createTestServer } from './test-isolation.mjs';
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
@@ -5,7 +6,8 @@ const server = await createTestServer({ server: { middlewareMode: true, hmr: fal
 after(() => server.close());
 const { paymentSide } = await server.ssrLoadModule('/app/payment-side.ts');
 const p = (account, amount) => ({ account, amount, label: account });
-const side = (postings, displayType = 'Expense') => paymentSide({ postings, displayType });
+const accounts = {...metadata, 'Assets:Bank:Savings Account':{kind:'bank',label:'Savings Account'}, 'Liabilities:Credit Cards:Rewards Card':{kind:'card',label:'Rewards Card'}, 'Assets:Reimbursements:Employer':{kind:'person'}, 'Assets:Bank:Salary Account':{kind:'bank'}, 'Assets:Investments:Mutual Funds:Index':{kind:'investment'}, ...Object.fromEntries(['Accounts Payable','Accounts Receivable'].flatMap(r => [[`Casey:${r}:Morgan`,{kind:'person',label:'Casey'}],[`Casey:${r}:Morgan:Coffee`,{kind:'person',label:'Casey · Coffee'}]]))};
+const side = (postings, displayType = 'Expense') => paymentSide({postings,displayType}, accounts);
 const bank = 'Assets:Bank:Savings Account', card = 'Liabilities:Credit Cards:Rewards Card';
 test('payment summaries exclude expense discounts, income and equity legs', () => {
   assert.deepEqual(side([p(card, -323), p('Expenses:Food:Discount', -100), p('Expenses:Food', 423), p('Income:Card Rewards', -5), p('Equity:Other', -1)]), { short: 'Rewards Card', full: card });
@@ -49,7 +51,7 @@ test('Payment account sorting uses the directional display without changing sour
   const outgoing = { ...base, paymentLabel: 'A stale label', postings: [p(bank, -100), p('Expenses:Food',100)] };
   const incoming = { ...base, paymentLabel: 'Z stale label', postings: [p(bank,100),p('Income:Salary',-100)] };
   const input = [outgoing, incoming];
-  assert.deepEqual(sortTransactions(input, 'paymentLabel', 'asc', t=>paymentSide(t).short), [incoming,outgoing]);
-  assert.deepEqual(sortTransactions(input, 'paymentLabel', 'desc', t=>paymentSide(t).short), [outgoing,incoming]);
+  assert.deepEqual(sortTransactions(input, 'paymentLabel', 'asc', t=>paymentSide(t, accounts).short), [incoming,outgoing]);
+  assert.deepEqual(sortTransactions(input, 'paymentLabel', 'desc', t=>paymentSide(t, accounts).short), [outgoing,incoming]);
   assert.equal(outgoing.paymentLabel, 'A stale label'); assert.deepEqual(input, [outgoing,incoming]);
 });

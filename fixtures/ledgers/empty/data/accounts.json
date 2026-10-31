@@ -36,7 +36,11 @@
     },
     "Assets:Cash": {
       "kind": "cash",
-      "currency": "USD"
+      "currency": "USD",
+      "label": "Cash",
+      "aliases": [
+        "cash"
+      ]
     },
     "Equity:Opening Balances": {},
     "Income:Salary": {},

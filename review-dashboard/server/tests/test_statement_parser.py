@@ -42,9 +42,13 @@ class FictionalParser(unittest.TestCase):
         for text in [TEXT.replace('Example Card Statement', 'Unrelated document'), TEXT.replace('Statement period:', 'Period:')]:
             with self.assertRaises(ValueError): parse_text(text)
 
-    def test_every_header_is_required_once(self):
+    def test_required_headers_and_optional_identity_appear_once(self):
         for line in TEXT.splitlines()[:11]:
             if ':' not in line: continue
+            if line.startswith('Card last four digits:'):
+                self.assertIsNone(parse_text(TEXT.replace(line + '\n', ''))['card_last4'])
+                with self.assertRaises(ValueError): parse_text(TEXT.replace(line, line+'\n'+line))
+                continue
             with self.subTest(line=line):
                 with self.assertRaises(ValueError): parse_text(TEXT.replace(line + '\n', ''))
                 with self.assertRaises(ValueError): parse_text(TEXT.replace(line, line + '\n' + line))
@@ -97,8 +101,6 @@ class FictionalParser(unittest.TestCase):
         statement_result(answer, '5678')
         with self.assertRaises(ValueError): statement_result(answer, '9999')
 
-    def test_settings_read_card_suffix_and_optional_history(self):
-        with patch.dict('os.environ', {'EXPENSES_STATEMENT_CARD_LAST4':'5678', 'EXPENSES_OLD_LEDGER':''}):
-            settings = Settings.from_env()
-            self.assertEqual(settings.statement_card_last4, '5678')
-            self.assertIsNone(settings.old_ledger)
+    def test_settings_read_optional_history(self):
+        with patch.dict('os.environ', {'EXPENSES_OLD_LEDGER':''}):
+            self.assertIsNone(Settings.from_env().old_ledger)

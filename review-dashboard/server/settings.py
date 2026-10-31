@@ -25,7 +25,6 @@ class Settings:
     effort: str = 'xhigh'
     timeout: float = 600
     old_ledger: Path | None = None
-    statement_card_last4: str = ''
 
     def __post_init__(self):
         object.__setattr__(self, 'state_dir', self.state_dir.expanduser().resolve())
@@ -57,5 +56,4 @@ class Settings:
                                if os.getenv('EXPENSES_CODEX_HOME') else None),
                    model=os.getenv('EXPENSES_AGENT_MODEL', 'gpt-6.1-terra'),
                    effort=os.getenv('EXPENSES_AGENT_EFFORT', 'xhigh'), timeout=timeout,
-                   old_ledger=(Path(os.environ['EXPENSES_OLD_LEDGER']).expanduser() if os.getenv('EXPENSES_OLD_LEDGER') else None),
-                   statement_card_last4=os.getenv('EXPENSES_STATEMENT_CARD_LAST4', '').strip())
+                   old_ledger=(Path(os.environ['EXPENSES_OLD_LEDGER']).expanduser() if os.getenv('EXPENSES_OLD_LEDGER') else None))

@@ -51,7 +51,7 @@ class MigrationTests(Fixture):
     def test_success_preserves_every_output_and_second_run_is_noop(self):
         before = snapshot(self.root)
         self.run_upgrade(locale='en-IN', start_date='2026-01-01', review_storage_key='legacy-key')
-        self.assertTrue(compare(before, snapshot(self.root), emit=False))
+        self.assertTrue(compare(before, snapshot(self.root), ignores=('meta.ledger',), emit=False))
         manifest = read_manifest(self.root)
         self.assertEqual(list(read_json(self.root / 'ledger.json')),
                          ['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'review'])
@@ -86,7 +86,7 @@ class MigrationTests(Fixture):
         self.run_command('jj', 'commit', '-m', 'Fictional person accounts')
         before = snapshot(self.root)
         self.run_upgrade()
-        self.assertTrue(compare(before, snapshot(self.root), emit=False))
+        self.assertTrue(compare(before, snapshot(self.root), ignores=('meta.ledger',), emit=False))
         documents = load(self.root)
         self.assertEqual(list(documents[path]['accounts']), declarations['accounts'])
         for name in [payable, receivable]:
@@ -112,6 +112,32 @@ class MigrationTests(Fixture):
         with self.assertRaisesRegex(ValueError,'clean working copy'): self.run_upgrade()
         dump(self.root/'ledger.json',dict(format=2))
         with self.assertRaisesRegex(ValueError,'newer AgentExpense'): self.run_upgrade()
+
+    def test_expense_category_overrides_preserve_journal_and_reports(self):
+        path = self.root / 'data/accounts.json'
+        declarations = read_json(path)
+        declarations['accounts'].extend(['Expenses', 'Income:Salary'])
+        path.write_text(json.dumps(declarations) + '\n')
+        self.run_command('jj', 'commit', '-m', 'Fictional parent and income declarations')
+        override = self.root.parent / (self.root.name + '-categories.json')
+        self.addCleanup(override.unlink)
+        for account, metadata in [('Income:Salary', dict(category='Income')),
+                                  ('Equity:Opening Balances', dict(category='Opening')),
+                                  ('Expenses:Test', dict(category='')),
+                                  ('Expenses:Test', 'Groceries')]:
+            override.write_text(json.dumps({account: metadata}))
+            with self.subTest(account=account, metadata=metadata), self.assertRaises(ValueError):
+                self.run_upgrade(accounts=override, dry_run=True)
+        before = snapshot(self.root)
+        override.write_text(json.dumps({'Expenses': dict(category='Everyday'),
+                                        'Expenses:Test': dict(category='Groceries')}))
+        self.run_upgrade(accounts=override)
+        self.assertEqual(load(self.root)[self.root / 'data/accounts.json']['accounts']['Expenses:Test'],
+                         dict(category='Groceries'))
+        after = snapshot(self.root)
+        for key in ['journal', 'print', 'bal', 'bal-cost', 'reg']:
+            self.assertEqual(before[key], after[key], key)
+        self.assertEqual(after['dashboard/dashboard.json']['transactions'][0]['category'], 'Groceries')
 
     def test_failure_restores_checkpoint_and_ignored_journal(self):
         (self.root/'expense_ledger.ledger').write_text('original ignored journal\n')

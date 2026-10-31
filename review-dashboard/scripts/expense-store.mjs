@@ -31,7 +31,7 @@ export function isAssertionOnly(entry) {
     decimalNumber(posting.amount) === 0 && posting.assert != null);
 }
 
-export function toTransaction(entry) {
+export function toTransaction(entry, accounts = {}) {
   checkDate(entry.date);
   if (!['confirmed', 'pending'].includes(entry.status)) throw new Error(`Invalid status for ${entry.id}: ${entry.status}`);
   if (entry.sources !== undefined && !Array.isArray(entry.sources)) throw new Error(`Invalid sources for ${entry.id}`);
@@ -44,7 +44,7 @@ export function toTransaction(entry) {
       const quantity = decimalNumber(posting.amount);
       const result = { account: compact(posting.account), amount: quantity, currency: posting.commodity };
       // Fund units carry their INR cost, signed like the units; other costs were not published.
-      if (result.account.startsWith('Assets:Investments:') && posting.cost?.commodity === 'INR') {
+      if (accounts[result.account]?.kind === 'investment' && posting.cost?.commodity === 'INR') {
         const value = decimalNumber(posting.cost.amount);
         result.cost = Number((Math.sign(quantity) * Math.abs(posting.cost.per === 'total' ? value : value * quantity)).toFixed(2));
       }
@@ -138,10 +138,10 @@ export async function loadExpenseStore(root = storeRoot) {
   }
   if (actuals.some((entry, index) => index && entry.date < actuals[index - 1].date)) throw new Error('Expenses are not in date order');
   // Normalize before filtering so bad assertion entries cannot silently bypass input checks.
-  const transactions = actuals.map(toTransaction).filter((_, index) => !isAssertionOnly(actuals[index]));
+  const transactions = actuals.map(entry => toTransaction(entry, declarations.accounts)).filter((_, index) => !isAssertionOnly(actuals[index]));
   const rules = rawRules.map((rule) => {
     scheduleText(rule.schedule);
-    return toTransaction(rule);
+    return toTransaction(rule, declarations.accounts);
   });
   return { transactions, rules, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
 }

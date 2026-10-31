@@ -2,8 +2,10 @@
 
 This reader handles an invented card statement, with no bank or network branding.
 Copy `statement_pdf.py` and adapt its recognition, headers and row parsing for a
-new format. Account metadata and reader registration come in a later phase; the
-current reconciler uses `Liabilities:Credit Cards:Rewards Card`.
+new format. The reconciler selects accounts with kind `card` and
+`statement.reader: "example-card-pdf"` in `data/accounts.json`. The printed identifier
+selects a matching `statement.identifier`; without a match, only one account
+without an identifier can be selected. Ambiguous choices stop with a metadata hint.
 
 ## Layout
 
@@ -46,14 +48,16 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
 Every value above is invented. `CardStatement-2026-01-28.pdf` is the generic
 filename convention recognized by evidence labels; parsing reads the contents.
 The upload pipeline preserves the supplied basename when filing the PDF.
+Reconciliation JSON filenames use the account label and an account-identity suffix;
+legacy month-card filenames remain readable.
 
 ## Pipeline and checks
 
 1. The server opens the PDF, using a locked PDF's password only in memory.
    `extract_text` uses PDFium character positions; `parse_text` reads the layout.
    Decimal strings are retained, including the printed minimum due and due date.
-   `EXPENSES_STATEMENT_CARD_LAST4` optionally checks the identifier; unset skips
-   only that comparison.
+   The selected account’s `statement.identifier` checks identity. Accounts without
+   an identifier skip that comparison.
 2. `checks` requires debit rows to equal purchases, credit rows to equal credits,
    and previous balance + purchases + cash advances − credits to equal total due.
    Cash advances retain the pipeline's existing separate summary-adjustment

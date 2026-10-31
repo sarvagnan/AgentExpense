@@ -647,15 +647,28 @@
             }
           },
           "patternProperties": {
-            "^(Income|Expenses|Equity)(:|$)": {
+            "^(Income|Equity)(:|$)": {
               "type": "object",
               "additionalProperties": false
+            },
+            "^Expenses(:|$)": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "not": { "pattern": "[\\r\\n]" },
+                  "description": "Display category inherited by descendants unless they declare their own. Does not change journal accounts."
+                }
+              }
             }
           },
           "additionalProperties": {
             "$ref": "#/$defs/account-metadata"
           },
-          "description": "Declared accounts in insertion order. Income, Expenses and Equity have empty metadata; every other root requires balance-sheet metadata."
+          "description": "Declared accounts in insertion order. Expenses may declare a display category; Income and Equity have empty metadata; every other root requires balance-sheet metadata."
         }
       }
     },
@@ -682,8 +695,9 @@
         },
         "account": {
           "type": "string",
-          "pattern": "^Liabilities:Credit Cards:.+",
-          "description": "Declared card liability account; membership is keyed by this account and end."
+          "minLength": 1,
+          "pattern": "^[^:\\r\\n]+(?::[^:\\r\\n]+)*$",
+          "description": "Declared account with kind card; membership is keyed by this account and end."
         },
         "start": {
           "type": "string",
@@ -784,8 +798,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "reader",
-            "identifier"
+            "reader"
           ],
           "properties": {
             "reader": {

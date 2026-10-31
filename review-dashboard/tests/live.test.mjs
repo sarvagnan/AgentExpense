@@ -1,3 +1,4 @@
+import {bank, card, wallet, metadata} from './metadata-fixture.mjs';
 import './test-isolation.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -6,12 +7,13 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { buildPatterns, patternOf } from '../scripts/add-patterns.mjs';
 import { loadExpenseStore } from '../scripts/expense-store.mjs';
-import { buildSentence, draftPieces, PATTERN_DEFS, PAYS, payLabel, todayInIndia } from '../app/live/builder.ts';
-const data={patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Nila'],accounts:[]};
+import { buildSentence, draftPieces, PATTERN_DEFS, payLabel, todayInIndia } from '../app/live/builder.ts';
+const PAYS = {savings:bank, card, cash:'Pocket', wallet};
+const data={patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
 const build=(text,edits={},files=false)=>buildSentence(text,data,edits,files,'2026-10-30');
-test('prototype examples identify all nine familiar patterns and something new',()=>{
- for(const [text,pattern] of [['petrol 875.25 8.5l 190km','fuel'],['zipcab 96 to office','ride'],['paper lantern renewed $5','sub'],['nila paid back 430 coffee','payback'],['bike chain lube 450 fablemart card','new'],['mealcart 320','mealcart'],['basketdemo 500','basketdemo'],['dinner 600 moss','dining'],['card bill 2300','cardbill'],['cashback 798','rewards']]) assert.equal(build(text).pattern,pattern,text);
- assert.equal(PATTERN_DEFS.length,9); assert.equal(build('').empty,true); assert.equal(build('',{},true).empty,false);
+test('prototype examples identify all seven familiar patterns and something new',()=>{
+ for(const [text,pattern] of [['petrol 875.25 8.5l 190km','fuel'],['cab 96 to office','ride'],['paper lantern renewed $5','sub'],['casey paid back 430 coffee','payback'],['bike chain lube 450 fablemart card','new'],['dinner 600 moss','dining'],['card bill 2300','cardbill'],['cashback 798','rewards']]) assert.equal(build(text).pattern,pattern,text);
+ assert.equal(PATTERN_DEFS.length,7); assert.equal(build('').empty,true); assert.equal(build('',{},true).empty,false);
 });
 test('fuel quantities, history, edits and source provenance survive structured serialization',()=>{
  const b=build('petrol 875.25 8.5l 190km');
@@ -22,21 +24,32 @@ test('fuel quantities, history, edits and source provenance survive structured s
  for(const key of Object.keys(b.fields)) assert.equal(build('petrol',{[key]:'manual'}).fields[key].source,'typed',key);
  assert.equal(build('petrol',{outlet:''},true).fields.outlet.source,'agent');
 });
+test('Add shows the inherited display category while retaining the suggested posting account',()=>{
+ const account = 'Expenses:Market:Dining:Corner Store';
+ const accounts = {...metadata, 'Expenses:Market':{category:'Groceries'}, 'Expenses:Market:Dining':{category:'Meals'}, [account]:{}};
+ const patterns = buildPatterns([{date:'2026-01-02', description:'Corner Store meal', postings:[{account,amount:20},{account:bank,amount:-20}]}], accounts);
+ const built = buildSentence('dinner 20', patterns, {}, false, '2026-01-02');
+ assert.equal(patterns.patterns.dining.usualCategory, 'Meals');
+ assert.equal(built.fields.category.shown, 'Meals');
+ assert.equal(built.fields.category.value, account);
+ assert.equal(draftPieces(built).fields.category.value, account);
+ assert.equal(buildSentence('dinner 20', patterns, {category:'manual'}, false, '2026-01-02').fields.category.shown, 'manual');
+});
 test('dates, payment hints, merchant text and word boundaries handle edge cases',()=>{
  for(const text of ['petrol ₹875.25 8.5 litres 251 km','petrol rs. 875.25 8.5ltr 190km']) assert.equal(build(text).fields.amount.value,'875.25');
  assert.equal(build('petrol 27/10/2026 200').fields.date.value,'2026-10-27');assert.equal(build('petrol 200 yesterday').fields.date.value,'2026-10-29');assert.equal(build('petrol 200 today').fields.date.value,'2026-10-30');
  assert.equal(build('petrol 2026-09-03 200').fields.amount.value,'200');assert.equal(build('petrol 5 November 200').fields.date.value,'2026-11-05');assert.equal(build('petrol 2026-02-30 200').fields.date.value,'2026-10-30');
- for(const [hint,pay] of [['card',PAYS.card],['Savings Account UPI',PAYS.savings],['wallet',PAYS.wallet],['Shopping wallet',PAYS.wallet],['Rewards card',PAYS.card],['salary',PAYS.salary],['Salary account',PAYS.salary],['appstore',PAYS.appstore],['App store balance',PAYS.appstore],['savings',PAYS.savings],['cash',PAYS.cash]]){ const sentence=build(`petrol 300 ${hint}`);assert.equal(sentence.pattern,'fuel',hint);assert.equal(sentence.fields.pay.value,pay,hint); }
- assert.match(build('petrol 300 upi').fields.pay.value,/bank to confirm/);assert.equal(build('chocolate 40').pattern,'new');assert.equal(build('fuel 100 at Fable Fuels').fields.outlet.value,'Fable Fuels');
- assert.equal(build('zipcab 96 to office').fields.route.value,'to office');assert.equal(build('Liora paid me back 430 coffee').fields.person.value,'liora');
+ for(const [hint,pay] of [['card',PAYS.card],['checking',bank],['wallet',wallet],['Lunch balance',wallet],['Travel card',card],['cash',PAYS.cash]]){ const sentence=build(`petrol 300 ${hint}`);assert.equal(sentence.pattern,'fuel',hint);assert.equal(sentence.fields.pay.value,pay,hint); }
+ assert.equal(build('chocolate 40').pattern,'new');assert.equal(build('fuel 100 at Fable Fuels').fields.outlet.value,'fable fuels');
+ assert.equal(build('cab 96 to office').fields.route.value,'to office');assert.equal(build('Liora paid me back 430 coffee').fields.person.value,'liora');
  assert.equal(build('paper lantern renewed $5').fields.currency.value,'USD');assert.equal(build('lube ₹450 Fablemart card').fields.what.value,'lube fablemart');
  assert.equal(todayInIndia(new Date('2026-10-29T19:00:00Z')),'2026-10-30');
 });
 test('pattern statistics use the selected store and are deterministic for fixtures',async()=>{
- const tx=(id,date,amount,pay='Assets:Bank:Savings Account')=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});
- const items=[tx('a','2026-01-02',20),tx('b','2026-01-03',25),tx('c','2026-01-04',30),tx('d','2026-01-05',35,'Assets:Cash')];
- const b=buildPatterns(items);assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,'Assets:Bank:Savings Account');assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[]});
- const {transactions}=await loadExpenseStore();const actual=buildPatterns(transactions);for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x)===id).length);
+ const tx=(id,date,amount,pay=bank)=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});
+ const items=[tx('a','2026-01-02',20),tx('b','2026-01-03',25),tx('c','2026-01-04',30),tx('d','2026-01-05',35,'Pocket')];
+ const b=buildPatterns(items,metadata);assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{}});
+ const {transactions,accounts}=await loadExpenseStore();const actual=buildPatterns(transactions,accounts);for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x,accounts)===id).length);
 });
 test('API URLs, action errors, timeouts and atomic concurrent data reload',async()=>{
  const server=await createServer({optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});const original=globalThis.fetch;
@@ -74,13 +87,23 @@ test('each draft state renders its content and permitted actions',async()=>{
  }finally{await server.close();}
 });
 
-test('generic shortcuts have product labels and card rewards retain their pattern', () => {
- for (const [key,label] of [['card','Rewards card'],['savings','Savings account'],['salary','Salary account'],['wallet','Shopping wallet'],['appstore','App store balance']]) {
-  assert.equal(build(`purchase 100 ${key}`).fields.pay.value, PAYS[key]);
-  assert.equal(payLabel(PAYS[key]), label);
+test('metadata labels, history names and ambiguity determine composer suggestions', () => {
+ assert.equal(payLabel(bank, metadata), 'Day account');
+ assert.equal(build('cashback 100 Travel card').pattern, 'rewards');
+ assert.equal(build('lube 100 Travel card').pattern, 'new');
+ const payments = {...metadata, 'Other:Plastic':{kind:'card', label:'Second card', aliases:['card']}, 'Other:Bank':{kind:'bank', label:'Second bank'}};
+ for (const text of ['petrol 100 card','petrol 100 bank transfer']) {
+   const result = buildSentence(text,{...data,payments});
+   assert.equal(result.fields.pay.value, ''); assert.equal(result.fields.pay.source, 'missing');
  }
- assert.equal(build('cashback 100 Rewards card').pattern,'rewards');
- assert.equal(build('lube 100 Rewards card').pattern,'new');
- assert.equal(patternOf({description:'Mealcart pantrydemo', postings:[]}), null);
- assert.equal(patternOf({description:'Rewards', postings:[{account:'Income:Card Rewards', amount:-10}, {account:PAYS.card, amount:10}]}), 'rewards');
+ assert.equal(buildSentence('purchase 100 travel',{...data,payments}).fields.pay.value,card);
+ assert.equal(build('fuel 100').fields.vehicle.source,'missing');
+ assert.equal(build('Casey paid me back 100').fields.person.value,'Casey');
+ const shared = {...data,payments:{...metadata,'Other:Checking':{kind:'bank',label:'Other',aliases:['checking']}}};
+ assert.equal(buildSentence('fuel 100 checking',shared).fields.pay.value,'');
+ assert.equal(buildSentence('purchase 100 日常',{...data,payments:{[bank]:{kind:'bank',label:'日常'}}}).fields.pay.value,bank);
+ const history = buildPatterns([{description:'Fern Station', date:'2026-01-01',postings:[{account:'Expenses:Fuel',amount:100},{account:bank,amount:-100}]}],metadata);
+ const result = buildSentence('Fern Station 100',history);
+ assert.equal(result.pattern,'fuel'); assert.equal(result.fields.outlet.value,'Fern Station');
+ assert.equal(patternOf({description:'Rewards', postings:[{account:'Income:Cashback', amount:-10}, {account:card, amount:10}]},metadata), 'rewards');
 });

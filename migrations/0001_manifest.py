@@ -32,16 +32,16 @@ def plan(root, options):
         raise ValueError('--accounts must contain overrides keyed by declared account name.')
     accounts, unknown, multiple = {}, [], []
     for account in declarations['accounts']:
+        override = overrides.get(account, {})
+        if not isinstance(override, dict):
+            raise ValueError('--accounts values must be metadata objects.')
         if not is_balance_sheet(account):
-            accounts[account] = overrides.get(account, {})
+            accounts[account] = override
             continue
         units = currencies[account]
         if len(units) > 1:
             multiple.append(account)
         metadata = {'kind': infer_kind(account), 'currency': next(iter(units)) if len(units) == 1 else default}
-        override = overrides.get(account, {})
-        if not isinstance(override, dict):
-            raise ValueError('--accounts values must be metadata objects.')
         metadata.update(override)
         if not metadata['kind']:
             unknown.append(account)

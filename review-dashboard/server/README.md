@@ -23,7 +23,6 @@ process as well to proxy only `/api/` to the local server. See `../README.md`.
 | `EXPENSES_AGENT_EFFORT` | `xhigh` |
 | `EXPENSES_AGENT_TIMEOUT` | `600` seconds |
 | `EXPENSES_OLD_LEDGER` | empty (history lookup disabled) |
-| `EXPENSES_STATEMENT_CARD_LAST4` | empty; if set, require this card suffix in parser and fallback |
 
 127.0.0.1, localhost and testserver are always allowed hosts. Writes require an
 allowed `Tailscale-User-Login`, except in dev mode. A supplied Origin must use an

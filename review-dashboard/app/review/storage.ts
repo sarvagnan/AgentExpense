@@ -1,3 +1,5 @@
+import { dashboard } from '../data';
+import { reviewKeys } from '../../scripts/account-metadata.mjs';
 import { useEffect, useRef, useState, type SetStateAction } from 'react';
 
 type State = 'loaded' | 'absent' | 'unreadable' | 'damaged' | 'unstored';
@@ -24,7 +26,7 @@ function acquire(steal = false) {
   if (typeof navigator === 'undefined' || !navigator.locks) return;
   started = true;
   const generation = ++request;
-  navigator.locks.request('expense-review-editor', { steal }, async () => {
+  navigator.locks.request(`${reviewKeys(dashboard.meta.ledger).decisions}:editor`, { steal }, async () => {
     if (generation !== request) return;
     editable = true; window.dispatchEvent(new Event('review-editor-acquired')); notify();
     await new Promise<void>(() => {});

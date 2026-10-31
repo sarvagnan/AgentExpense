@@ -11,7 +11,38 @@ import re
 
 from store import ROOT, entries, load, read_json
 
-CARD = 'Liabilities:Credit Cards:Rewards Card'
+READER = 'example-card-pdf'
+
+
+def statement_accounts(documents, root):
+    return {account: meta for account, meta in documents[root / 'data/accounts.json']['accounts'].items()
+            if meta.get('kind') == 'card' and meta.get('statement', {}).get('reader') == READER}
+
+
+def select_account(documents, root, identifier=None, account=None):
+    candidates = statement_accounts(documents, root)
+    if account is not None:
+        candidates = {a: m for a, m in candidates.items() if a == account}
+    if identifier:
+        exact = {a: m for a, m in candidates.items() if m['statement'].get('identifier') == identifier}
+        candidates = exact or {a: m for a, m in candidates.items() if not m['statement'].get('identifier')}
+    if len(candidates) != 1:
+        raise ValueError('Set statement.identifier on the card accounts to select exactly one account for this statement (example-card-pdf).')
+    return next(iter(candidates))
+
+
+def reconciliation_path(root, end, account, metadata):
+    label = metadata.get('label') or account.split(':')[-1]
+    slug = re.sub(r'[^\w.-]+', '-', label, flags=re.UNICODE).strip('.-') or 'Card'
+    # Account identity prevents collisions when two cards have the same label.
+    import hashlib
+    suffix = hashlib.sha256(account.encode()).hexdigest()[:8]
+    month = datetime.fromisoformat(end).strftime('%B%Y')
+    folder = root / 'data/statements'
+    existing = list(folder.glob(f'{month}-*-{suffix}-reconciliation.json'))
+    if len(existing) > 1:
+        raise ValueError('Several reconciliation files exist for this account and period.')
+    return existing[0] if existing else folder / f'{month}-{slug}-{suffix}-reconciliation.json'
 DECIMAL = re.compile(r'^(0|[1-9][0-9]*)(\.[0-9]+)?$')
 
 
@@ -37,13 +68,29 @@ def validate_rows(rows: list) -> list[dict]:
     return rows
 
 
-def extract_rows(root: Path, end: str) -> tuple[list[dict], dict]:
+def extract_rows(root: Path, end: str, account: str | None = None) -> tuple[list[dict], dict]:
     filed = root / f"data/statements/{datetime.fromisoformat(end).strftime('%B%Y')}-card-reconciliation.json"
+    if account is None:
+        documents = load(root)
+        filed_accounts = [s['account'] for s in documents[root/'data/card-statements.json'] if s['end'] == end]
+        candidates = statement_accounts(documents, root)
+        if len(filed_accounts) == 1:
+            account = filed_accounts[0]
+        elif len(candidates) == 1:
+            account = next(iter(candidates))
+    if account:
+        metadata = read_json(root / 'data/accounts.json')['accounts'][account]
+        selected = reconciliation_path(root, end, account, metadata)
+        if selected.exists():
+            filed = selected
     if filed.exists():
         data = read_json(filed)
-        return validate_rows(data['rows']), dict(source=data['source'], start=data['periodStart'])
+        return validate_rows(data['rows']), dict(source=data['source'], start=data['periodStart'], identifier=data.get('card_last4'), account=data.get('account', account))
     data = read_json(root / 'data/statements/extracted.json')
     statements = [s for s in data['statements'] if s['periodEnd'][:10] == end]
+    if account and len(statements) > 1:
+        documents = load(root)
+        statements = [s for s in statements if select_account(documents, root, s.get('card_last4')) == account]
     if len(statements) != 1:
         raise ValueError(f'Expected one extracted statement for {end}, found {len(statements)}')
     statement = statements[0]
@@ -51,7 +98,7 @@ def extract_rows(root: Path, end: str) -> tuple[list[dict], dict]:
     rows = [dict(date=r['date'][:10], serial=r['serialNumber'], description=r['description'],
                  amount=format(Decimal(str(r['amountInr'])), '.2f'), direction=r['direction'], page=r['pageNumber'])
             for r in data['transactions'] if r['statementEnd'][:10] == end and r['sourceFile'] == statement['sourceFile']]
-    return validate_rows(rows), dict(source=statement['sourceFile'], start=statement['periodStart'][:10])
+    return validate_rows(rows), dict(source=statement['sourceFile'], start=statement['periodStart'][:10], identifier=statement.get('card_last4'), account=account)
 
 
 def card_amount(entry: dict, account: str) -> Decimal | None:
@@ -69,8 +116,9 @@ def activity(entry: dict, account: str) -> bool:
             and not all(Decimal(p['amount']) == 0 and 'assert' in p for p in entry['postings']))
 
 
-def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str = CARD,
+def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str | None = None, identifier: str | None = None,
               total_due: str | None = None, source: str | None = None, root: Path = ROOT) -> dict:
+    account = select_account(documents, root, identifier, account)
     validate_rows(rows)
     date.fromisoformat(start)
     date.fromisoformat(end)
@@ -202,7 +250,8 @@ def main(argv=None) -> None:
     inputs.add_argument('--from-extract', metavar='END')
     parser.add_argument('--end')
     parser.add_argument('--start')
-    parser.add_argument('--account', default=CARD)
+    parser.add_argument('--account', help='Declared card account using the example reader')
+    parser.add_argument('--identifier', help='Printed statement identifier')
     parser.add_argument('--total-due')
     parser.add_argument('--source', help='Filed statement PDF path for a new statement draft')
     parser.add_argument('--json', action='store_true')
@@ -211,7 +260,7 @@ def main(argv=None) -> None:
     try:
         metadata = {}
         if args.from_extract:
-            rows, metadata = extract_rows(args.root, args.from_extract)
+            rows, metadata = extract_rows(args.root, args.from_extract, args.account)
             if args.end and args.end != args.from_extract:
                 raise ValueError('--end differs from --from-extract')
         else:
@@ -219,7 +268,7 @@ def main(argv=None) -> None:
         end, start = args.end or args.from_extract, args.start or metadata.get('start')
         if not start or not end:
             raise ValueError('--start and --end are required for --rows')
-        report = reconcile(load(args.root), rows, end=end, start=start, account=args.account,
+        report = reconcile(load(args.root), rows, end=end, start=start, account=args.account or metadata.get('account'), identifier=args.identifier or metadata.get('identifier'),
                            total_due=args.total_due, source=args.source or metadata.get('source'), root=args.root)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(1, f'{error}\n')

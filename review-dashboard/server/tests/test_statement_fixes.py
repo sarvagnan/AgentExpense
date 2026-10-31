@@ -116,6 +116,11 @@ class StatementFixTests(Fixture):
         self.assertTrue(sessions.get(s['id'], include_discarded=True)['discarded_until'])
 
     def test_resume_suggestion_excludes_stale_checklists(self):
+        from store import dump, read_json
+        path = self.ledger/'data/accounts.json'
+        declarations = read_json(path)
+        declarations['accounts']['Liabilities:Plastic:Main'] = dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
+        dump(path,declarations)
         sessions, old = self.session()
         statement = dict(periodStart='2026-09-29', periodEnd='2026-10-28', rows=[])
         old.update(state='failed', statement=statement, fingerprint='old-store', failure_reason='stale_checklist')

@@ -93,7 +93,7 @@ class ManifestTests(Fixture):
         names = list(accounts['accounts'])
         dump(path, accounts)
         self.assertEqual(list(read_json(path)['accounts']), names)
-        for metadata in [dict(kind='bank',currency='MISSING'), dict(kind='unknown',currency='INR'), dict(kind='card',currency='INR',aliases=['Mixed']), dict(kind='cash',currency='INR',statement=dict(reader='x'))]:
+        for metadata in [dict(kind='bank',currency='MISSING'), dict(kind='unknown',currency='INR'), dict(kind='card',currency='INR',aliases=['Mixed']), dict(kind='cash',currency='INR',statement=dict(identifier='1234'))]:
             changed = deepcopy(accounts)
             changed['accounts'][names[0]] = metadata
             dump(path, changed)
@@ -110,3 +110,65 @@ class ManifestTests(Fixture):
         self.assertNotIn('private', output.getvalue())
         two['journal'] = one['journal']
         self.assertTrue(compare(one, two, ['rows.*.secret'], emit=False))
+
+    def test_expense_display_category_validation(self):
+        from check_store import check
+        path = self.root / 'data/accounts.json'
+        original = read_json(path)
+        original['accounts']['Expenses'] = dict(category='Everyday')
+        original['accounts']['Expenses:Test'] = dict(category='Groceries')
+        dump(path, original)
+        with redirect_stdout(io.StringIO()):
+            check(self.root)
+        for account, metadata in [
+            *[('Expenses:Test', dict(category=value)) for value in ['', ' ', '\t', 'Groceries\n', 'Groceries\rOther', 42, None]],
+            ('Income:Salary', dict(category='Income')),
+            ('Equity:Opening Balances', dict(category='Opening')),
+            ('Assets:Checking:Alder', dict(kind='bank', currency='INR', category='Groceries')),
+            ('Expenses:Test', dict(category='Groceries', label='Store')),
+        ]:
+            changed = deepcopy(original)
+            changed['accounts'][account] = metadata
+            dump(path, changed)
+            with self.subTest(account=account, metadata=metadata), self.assertRaises(ValueError):
+                with redirect_stdout(io.StringIO()):
+                    check(self.root)
+
+    def test_display_categories_flow_through_dashboard_forecast_and_patterns_without_financial_changes(self):
+        from generate_ledger import render
+        path = self.root / 'data/accounts.json'
+        declarations = read_json(path)
+        names = ['Expenses:Market:Produce', 'Expenses:Market:Dining:Corner Store',
+                 'Expenses:Food:Other', 'Expenses:Transport:Other']
+        for account in ['Expenses:Market', 'Expenses:Market:Dining', *names]:
+            declarations['accounts'][account] = {}
+        dump(path, declarations)
+        rows = []
+        for index, account in enumerate(names, 1):
+            row = entry(identity=f'{index:016x}', amount=f'{index * 10}.00')
+            row['postings'][0]['account'] = account
+            rows.append(row)
+        dump(self.year, rows)
+        rules = [{**row, 'id': f'{index + 10:016x}', 'schedule': dict(every='month', **{'from': row['date']})}
+                 for index, row in enumerate(rows)]
+        dump(self.root / 'data/forecast.json', rules)
+        journal = render(load(self.root), self.root)
+        before = snapshot(self.root)
+        declarations['accounts']['Expenses:Market'] = dict(category='Groceries')
+        declarations['accounts']['Expenses:Market:Dining'] = dict(category='Meals')
+        dump(path, declarations)
+        after = snapshot(self.root)
+        self.assertEqual(render(load(self.root), self.root), journal)
+        for key in ['journal', 'print', 'bal', 'bal-cost', 'reg']:
+            self.assertEqual(before[key], after[key], key)
+        dashboard = after['dashboard/dashboard.json']
+        expected = dict(zip(names, ['Groceries', 'Meals', 'Food & dining', 'Transport']))
+        self.assertEqual({row['ledgerAccount']: row['category'] for row in dashboard['transactions']}, expected)
+        self.assertEqual({row['category']: row['amount'] for row in dashboard['months'][0]['categories']},
+                         {'Groceries': 10, 'Meals': 20, 'Food & dining': 30, 'Transport': 40})
+        self.assertTrue(dashboard['forecast']['items'])
+        for item in dashboard['forecast']['items']:
+            self.assertEqual(item['category'], expected[item['account']])
+        pattern = after['dashboard/add-patterns.json']['patterns']['dining']
+        self.assertEqual(pattern['usualExpense'], names[1])
+        self.assertEqual(pattern['usualCategory'], 'Meals')

@@ -79,7 +79,8 @@ def entries_near(day, amount=None, days=3):
 
 def list_accounts(contains='', limit=150):
     needle = contains.lower()
-    return [a for a in ACCOUNTS if needle in a.lower()][:min(int(limit), 400)]
+    return [dict(account=a, **{k: DECLARED[a][k] for k in ('kind', 'currency', 'label', 'aliases') if k in DECLARED[a]})
+            for a in ACCOUNTS if needle in ' '.join([a, DECLARED[a].get('label', ''), *DECLARED[a].get('aliases', [])]).lower()][:min(int(limit), 400)]
 
 
 def search_old_ledger(query, limit=10):

@@ -27,7 +27,11 @@
       "label": "Mosaic Card",
       "aliases": [
         "mosaic card"
-      ]
+      ],
+      "statement": {
+        "reader": "example-card-pdf",
+        "identifier": "1234"
+      }
     },
     "Assets:Cash": {
       "kind": "cash",

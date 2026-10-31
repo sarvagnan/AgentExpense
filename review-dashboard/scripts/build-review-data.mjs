@@ -8,12 +8,10 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, '..');
 const outputPath = path.join(projectDir, 'app', 'data', 'pending-transactions.json');
 
-const { transactions } = await loadExpenseStore();
+const { transactions, accounts } = await loadExpenseStore();
 
 
 function patternFor(description, source) {
-  const upi = description.match(/UPI\/DR\/\d+\/([^/]+)/i);
-  if (upi) return `UPI · ${compact(upi[1])}`;
   if (source.endsWith('.pdf')) return compact(description).toUpperCase();
   return compact(description);
 }
@@ -46,7 +44,7 @@ const pending = transactions
       kind,
       currentAccount: reviewPosting.account,
       source,
-      sourceType: sourceType(transaction),
+      sourceType: sourceType(transaction, accounts),
       sourceReference: reference,
       statementEnd: compact(transaction['statement-end']),
       classification: compact(transaction.classification) || 'Pending classification',
