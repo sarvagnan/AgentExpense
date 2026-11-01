@@ -25,13 +25,12 @@ from transactions import clean
 
 class StatementTests(Fixture):
     def wait_statement(self, client, identity, states):
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            s = client.get('/api/statements/' + identity).json()
-            if s.get('state') in states:
-                return s
-            time.sleep(.02)
-        self.fail(str(s))
+        sessions = client.app.state.statements
+        with sessions.changed:
+            reached = sessions.changed.wait_for(lambda: sessions.get(identity).get('state') in states, timeout=180)
+            last = sessions.get(identity)
+        self.assertTrue(reached, last)
+        return client.get('/api/statements/' + identity).json()
 
     def test_two_cards_without_identifiers_stop_before_any_agent(self):
         from store import dump

@@ -366,3 +366,47 @@ The legacy Statements route remains available while statement intake moves to
 Add in the next UI step. The shell has no separate Statements navigation item.
 Headless fixture browser tests and captures are documented in
 [the browser harness](../tests/browser/README.md).
+
+
+### Add and Drafts currency workflows
+
+Add owns expense/receipt composition and statement uploads. The legacy Statements
+page redirects to Add; sessions, checklists, filed reconciliations and recovery now
+live in Drafts (`?session=…` / `?filed=…&account=…`). Statements remain independent
+of agent readiness when the built-in reader can read them.
+
+An agent question with an incomplete two-posting foreign expense or transfer yields
+`currency_request` on the durable draft. `POST /api/drafts/{id}/currency` accepts
+exactly one positive decimal `amount` or `rate` and an `estimate` boolean. The server
+rounds half up using `schema/currency-minor-units.json`, adds the total cost to the
+proposed original posting, retains both native amounts, records the answer, and
+queues the ordinary validated transaction. It does not ask an agent to write.
+An expense estimate is disclosed in the entry notes; replacing it with the statement
+amount requires an explicit checklist decision (`action: conversion`).
+
+The prompt specifies the incomplete proposal explicitly: only when the charged or
+received amount is the sole missing detail, return a question with that posting's
+amount `"0"` in its declared account currency and both costs null. This is an
+unknown-amount marker, never a valid ready entry. Known charges and other questions
+keep their ordinary answer workflow; the server checks the marker and currencies
+before presenting the linked form.
+
+A printed currency mismatch produces a blocked `currency_mismatch` session, never
+an agent reinterpretation. `POST /api/statements/{id}/account` only accepts a declared
+bank/card account in that printed currency, then rereads and validates the PDF.
+`POST /api/accounts` takes kind, name and currency, and uses the settings writer's
+ledger lock, clean-copy guard, recovery snapshot, verification, commit and refresh.
+The inline form creates an account before assigning the session. These two actions
+can be retried independently; an account that was created remains available if
+assignment fails.
+
+For an unused explicitly assigned account, the first statement proposes its printed
+previous balance as a starting entry on the period start. The checklist and Apply
+confirmation disclose it. Nothing financial is written until Apply, which files the
+PDF, starting entry, rows, membership, summary and audit together. Existing activity
+still requires its original opening/statement chain.
+
+Draft storage exposes a condition notified after each durable write. Offline lifecycle
+tests synchronize on states and audit completion through that condition; the timeout
+is solely a deadlock guard. They still check the HTTP response and every commit,
+evidence, refresh, rollback and purge assertion.

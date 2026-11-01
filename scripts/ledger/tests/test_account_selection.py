@@ -27,6 +27,16 @@ class SelectionTests(Fixture):
         accounts[second]['kind'] = 'bank'
         with self.assertRaises(ValueError): select_account(documents,self.root,'5678')
 
+    def test_explicit_assignment_accepts_a_declared_account_without_guessing_an_identifier(self):
+        documents=load(self.root)
+        accounts=documents[self.root/'data/accounts.json']['accounts']
+        accounts['Assets:Travel:Willow']=dict(kind='bank',currency='EUR')
+        self.assertEqual(select_account(documents,self.root,account='Assets:Travel:Willow'),'Assets:Travel:Willow')
+        with self.assertRaises(ValueError):
+            select_account(documents,self.root,'5678','Assets:Travel:Willow')
+        with self.assertRaises(ValueError):
+            select_account(documents,self.root,account='Expenses:Food')
+
     def test_reconciliation_paths_use_label_and_disambiguate_same_label(self):
         first = reconciliation_path(self.root,'2026-01-28','Plastic:One',{'label':'Travel Card'})
         second = reconciliation_path(self.root,'2026-01-28','Plastic:Two',{'label':'Travel Card'})

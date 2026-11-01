@@ -17,6 +17,7 @@ class Drafts:
         self.root = root / 'drafts'
         self.root.mkdir(exist_ok=True, parents=True)
         self.mutex = threading.RLock()
+        self.changed = threading.Condition(self.mutex)
 
     def folder(self, identity):
         if not re.fullmatch('[0-9a-f]{32}', identity):
@@ -45,6 +46,7 @@ class Drafts:
                 handle.flush()
                 os.fsync(handle.fileno())
             temporary.replace(path)
+            self.changed.notify_all()
 
     def create(self, text='', pieces=None, client_time=None, client_zone=None):
         draft = dict(id=secrets.token_hex(16), state='editing', text=text, pieces=pieces,

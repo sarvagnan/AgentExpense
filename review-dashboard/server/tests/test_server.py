@@ -7,7 +7,6 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
-import time
 from unittest.mock import patch
 
 from PIL import Image
@@ -94,9 +93,7 @@ class LifecycleTests(Fixture):
             self.save(client, identity)
             draft = self.wait(client, identity, 'added')
             self.assertEqual(draft['result']['outcome'], 'not_expense')
-            deadline = time.monotonic() + 20
-            while client.app.state.drafts.get(identity).get('audit_pending') and time.monotonic() < deadline:
-                time.sleep(.02)
+            self.wait_condition(client, identity, lambda d: not d.get('audit_pending'))
             self.assertFalse(client.app.state.drafts.get(identity).get('audit_pending'))
             self.assertNotEqual(self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id'), before)
             from audit import records
@@ -159,9 +156,7 @@ class LifecycleTests(Fixture):
                     self.assertEqual(len(draft['check_errors']), 2)
                     self.assertEqual(len(draft['runs']), 2)
                     self.assertIn(json.dumps(draft['check_errors'][0], ensure_ascii=False), self.calls()[1]['argv'][-1])
-                    deadline=time.monotonic()+20
-                    while client.app.state.drafts.get(identity).get('audit_pending') and time.monotonic()<deadline:
-                        time.sleep(.02)
+                    self.wait_condition(client, identity, lambda d: not d.get('audit_pending'))
                     self.assertFalse(client.app.state.drafts.get(identity).get('audit_pending'))
                     after=self.bytes()
                     accounting=lambda snapshot:{k:v for k,v in snapshot.items() if not k.startswith('data/additions/') and k!='expense_ledger.ledger'}
@@ -200,12 +195,7 @@ class SafetyTests(Fixture):
             first, second = self.create(client), self.create(client)
             self.save(client, first)
             self.save(client, second)
-            end = time.monotonic() + 3
-            while time.monotonic() < end:
-                draft = client.get(f'/api/drafts/{first}').json()
-                if draft['waiting']:
-                    break
-                time.sleep(.02)
+            draft = self.wait_condition(client, first, lambda d: bool(d['waiting']))
             self.assertIn('clean ledger', draft['waiting'])
             self.assertEqual(client.get(f'/api/drafts/{second}').json()['state'], 'queued')
             self.assertEqual(client.delete(f'/api/drafts/{first}').status_code, 409)
@@ -236,9 +226,7 @@ class SafetyTests(Fixture):
                 self.save(client, identity)
                 draft = self.wait(client, identity, 'failed')
                 self.assertIn('injected failure', draft['error'])
-                deadline=time.monotonic()+20
-                while client.app.state.drafts.get(identity).get('audit_pending') and time.monotonic()<deadline:
-                    time.sleep(.02)
+                self.wait_condition(client, identity, lambda d: not d.get('audit_pending'))
                 self.assertFalse(client.app.state.drafts.get(identity).get('audit_pending'))
         accounting=lambda snapshot:{k:v for k,v in snapshot.items() if not k.startswith('data/additions/') and k!='expense_ledger.ledger'}
         self.assertEqual(accounting(self.bytes()),accounting(before))
@@ -266,12 +254,11 @@ class SafetyTests(Fixture):
         with ledger_lock(self.ledger) as fd:
             process = subprocess.Popen(['make', 'commit'], cwd=self.application, env=env,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            time.sleep(.2)
-            self.assertIsNone(process.poll())
             with self.client() as client:
                 identity = self.create(client)
                 self.save(client, identity)
-                time.sleep(.1)
+                self.wait(client, identity, 'working')
+                self.assertIsNone(process.poll())
                 self.assertEqual(client.get(f'/api/drafts/{identity}').json()['state'], 'working')
                 import fcntl
                 fcntl.flock(fd, fcntl.LOCK_UN)

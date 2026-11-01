@@ -110,8 +110,8 @@ class RecoveryTests(Fixture):
             self.assertEqual((recovered['text'], recovered['client_updated_at']), ('petrol 350', 200))
 
     def test_record_only_commit_keeps_autosave_responsive(self):
+        from concurrent.futures import ThreadPoolExecutor
         import threading
-        import time
         from outcomes import OutcomeTransaction
         from support import ready
         answer=ready();answer.update(status='not_expense',entry=None,explanation='A note, not an expense')
@@ -119,20 +119,25 @@ class RecoveryTests(Fixture):
         entered,release=threading.Event(),threading.Event()
         original=OutcomeTransaction.apply_record
         def held(transaction,fd):
-            entered.set();release.wait(4)
+            entered.set();release.wait()
             return original(transaction,fd)
         with patch.object(OutcomeTransaction,'apply_record',held),self.client() as client:
-            identity=self.create(client,'A note',upload=False)
-            self.save(client,identity);self.wait(client,identity,'added')
-            self.assertTrue(entered.wait(10))
-            at=time.monotonic()
-            try:
-                response=client.post('/api/drafts',json={'text':'New words during audit commit'})
-                self.assertEqual(response.status_code,201,response.text)
-                editing=response.json()['id']
-                response=client.patch('/api/drafts/'+editing,json={'text':'Newer words during audit commit'})
-                self.assertEqual(response.status_code,200,response.text)
-                self.assertLess(time.monotonic()-at,2,'Audit verification cannot hold the draft-record mutex')
-                self.assertEqual(client.get('/api/drafts/'+editing).json()['text'],'Newer words during audit commit')
-            finally:
-                release.set()
+            with ThreadPoolExecutor(max_workers=1) as requests:
+                try:
+                    identity=self.create(client,'A note',upload=False)
+                    self.save(client,identity)
+                    self.assertTrue(entered.wait(180))
+                    def autosave():
+                        self.assertEqual(client.get('/api/drafts/'+identity).json()['state'],'added')
+                        response=client.post('/api/drafts',json={'text':'New words during audit commit'})
+                        self.assertEqual(response.status_code,201,response.text)
+                        editing=response.json()['id']
+                        response=client.patch('/api/drafts/'+editing,json={'text':'Newer words during audit commit'})
+                        self.assertEqual(response.status_code,200,response.text)
+                        self.assertEqual(client.get('/api/drafts/'+editing).json()['text'],'Newer words during audit commit')
+                    # The timeout only guards a deadlock. Completion before release
+                    # proves audit verification does not hold the draft mutex.
+                    requests.submit(autosave).result(timeout=180)
+                    self.assertFalse(release.is_set())
+                finally:
+                    release.set()

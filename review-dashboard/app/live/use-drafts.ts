@@ -3,7 +3,7 @@ import { reloadData } from '../data';
 import { api, type Draft, request } from './api';
 import type { AgentStatus } from './agent-status';
 import { statementsApi, type StatementSession } from './statements-api';
-export const statementNeedsAttention = (s: StatementSession) => ['locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
+export const statementNeedsAttention = (s: StatementSession) => ['currency_mismatch', 'locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
 export const needsAttention = (d: Draft) => d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
 export const isRunning = (d: Draft) => d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
@@ -43,7 +43,7 @@ export function useDrafts() {
     return busy.current;
   }, []);
   useEffect(() => { mounted.current = true; leaving.current=false; return () => { mounted.current = false; leaving.current=true; controller.current?.abort(); }; }, [refresh]);
-  const running=drafts.some(isRunning);
+  const running=drafts.some(isRunning)||statements.some(s=>['reading','applying'].includes(s.state));
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     let active=true, generation=0;

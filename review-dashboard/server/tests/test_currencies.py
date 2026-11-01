@@ -35,6 +35,19 @@ class CurrencyTests(Fixture):
 
     def test_foreign_expense_requires_charge_and_same_currency_needs_no_conversion(self):
         self.setup_currencies()
+        from currency_drafts import currency_request
+        question=self.proposal(cost=False);question.update(status='question',question='Whose expense is this?')
+        self.assertIsNone(currency_request(question,self.ledger),'A known charge must retain its ordinary question')
+        question['question']='How much was charged?'
+        question['entry']['postings'][1]['amount']='0'
+        self.assertEqual(currency_request(question,self.ledger)['kind'],'expense')
+        question['entry']['postings'][1]['commodity']='EUR'
+        self.assertIsNone(currency_request(question,self.ledger),'The marker must use the declared paying currency')
+        question['entry']['postings'][0]['amount']='NaN'
+        self.assertIsNone(currency_request(question,self.ledger))
+        malformed=self.proposal(cost=False);malformed.update(status='question')
+        malformed['entry']['postings'][0]['commodity']='not-a-currency'
+        self.assertIsNone(currency_request(malformed,self.ledger))
         with self.assertRaisesRegex(ProposalError,'needs the amount charged or a rate'):
             to_store(self.proposal(cost=False),self.ledger,0)
         entry,decl,_=to_store(self.proposal(),self.ledger,0);check(entry,decl,self.ledger)
@@ -125,12 +138,100 @@ class CurrencyTests(Fixture):
     def test_printed_mismatch_and_missing_foreign_currency_stop(self):
         self.setup_currencies();sessions=Statements(self.settings)
         session=sessions.create(statement_pdf(TEXT.replace('Statement period:','Statement currency: EUR\nStatement period:')),'Mismatch.pdf')
-        with patch('agent.run') as agent,self.assertRaisesRegex(ValueError,'EUR differs from account currency USD'):
+        with patch('agent.run') as agent:
             sessions.read(session)
         agent.assert_not_called()
+        self.assertEqual(sessions.get(session['id'])['state'], 'currency_mismatch')
+        self.assertEqual(sessions.get(session['id'])['file_currency'], 'EUR')
         with self.assertRaisesRegex(ValueError,'explicit currency'):
             parse_text(TEXT.replace('2.00 | USD','2.00 |'))
         from statement_fixtures import statement_answer
         answer=statement_answer();answer['transactions'][0]['foreign_currency']=None
         with self.assertRaisesRegex(ValueError,'explicit currency'):
             statement_result(answer)
+
+    def test_currency_form_validates_rounds_commits_and_records_estimate_without_another_agent(self):
+        self.setup_currencies()
+        path=self.ledger/'data/accounts.json';declared=read_json(path);declared['commodities'].remove('EUR');declared['accounts'].pop(TRAVEL);dump(path,declared)
+        self.jj('commit','-m','Currency form baseline')
+        answer=self.proposal(cost=False);answer.update(status='question',question='How much was charged?')
+        answer['entry']['postings'][1]['amount']='0'
+        self.set_answers(answer)
+        with self.client(timeout=30) as client:
+            identity=self.create(client,upload=False);self.save(client,identity)
+            draft=self.wait(client,identity,'question');self.assertEqual(draft['currency_request']['currency'],'USD')
+            self.assertIn('unknown amount marker',self.calls()[0]['argv'][-1])
+            for value in ('','0','-1','NaN','Infinity','abc','1e4'):
+                response=client.post(f'/api/drafts/{identity}/currency',json={'rate':value})
+                self.assertEqual(response.status_code,422,response.text)
+                self.assertEqual(client.get(f'/api/drafts/{identity}').json()['state'],'question')
+            response=client.post(f'/api/drafts/{identity}/currency',json={'rate':'1.1001','estimate':True})
+            self.assertEqual(response.status_code,200,response.text)
+            result=self.wait(client,identity,'added')
+            entry=entries(load(self.ledger))[0]
+            self.assertEqual(entry['postings'][0]['cost'],dict(amount='51.48',commodity='USD',per='total'))
+            self.assertEqual(entry['postings'][1]['amount'],'-51.48')
+            self.assertIn('EUR',read_json(self.ledger/'data/accounts.json')['commodities'])
+            self.assertIn('estimate',entry['notes'][-1]);self.assertEqual(len(self.calls()),1)
+            self.assertEqual(result['questions'][-1]['answer'],'51.48 USD charged (estimate)')
+            self.assertTrue(clean(self.ledger))
+
+    def test_transfer_form_saves_both_amounts(self):
+        self.setup_currencies();self.jj('commit','-m','Transfer form baseline')
+        answer=self.proposal(cost=False);answer.update(status='question',question='How much arrived?')
+        answer['entry']['original_amount']=None
+        answer['entry']['postings']=[dict(account=BANK,amount='-1000',commodity='USD',cost=None),dict(account=TRAVEL,amount='0',commodity='EUR',cost=None)]
+        self.set_answers(answer)
+        with self.client(timeout=30) as client:
+            identity=self.create(client,upload=False);self.save(client,identity)
+            self.assertEqual(self.wait(client,identity,'question')['currency_request']['kind'],'transfer')
+            response=client.post(f'/api/drafts/{identity}/currency',json={'amount':'920.125','estimate':False})
+            self.assertEqual(response.status_code,200,response.text);self.wait(client,identity,'added')
+            entry=entries(load(self.ledger))[0]
+            self.assertEqual(entry['postings'][1]['amount'],'920.13')
+            self.assertEqual(entry['postings'][0]['cost']['amount'],'920.13')
+            self.assertEqual(entry['postings'][0]['amount'],'-1000.00')
+
+    def test_statement_mismatch_reassign_and_create_account_through_verified_endpoint(self):
+        self.setup_currencies()
+        path=self.ledger/'data/accounts.json';declared=read_json(path);declared['commodities'].remove('GBP');dump(path,declared)
+        self.jj('commit','-m','Statement account baseline')
+        sessions=Statements(self.settings)
+        text=TEXT.replace('Statement period:','Statement currency: EUR\nStatement period:').replace('2.00 | USD','2.00 | GBP')
+        session=sessions.create(statement_pdf(text),'Fictional-EUR.pdf');sessions.read(session)
+        with self.assertRaisesRegex(ValueError,'not ready'):
+            sessions.queue_apply(session['id'])
+        with self.assertRaisesRegex(ValueError,'statement currency'):
+            sessions.assign(session['id'],CARD)
+        with self.client(worker=False) as client:
+            denied=client.post('/api/accounts',json=dict(kind='card',name='Willow Card',currency='EUR'),headers={'origin':'https://foreign.invalid'})
+            self.assertEqual(denied.status_code,403)
+            for kind,name,currency in [('invalid','Willow','EUR'),('card','../bad:name','EUR'),('card','Willow','ZZZ')]:
+                self.assertEqual(client.post('/api/accounts',json=dict(kind=kind,name=name,currency=currency)).status_code,409)
+            response=client.post('/api/accounts',json=dict(kind='card',name='Willow Card',currency='EUR'))
+            self.assertEqual(response.status_code,201,response.text);account=response.json()['account'];self.assertTrue(clean(self.ledger))
+            self.assertIn('Add Willow Card account (EUR)',self.jj('log','-r','@-','--no-graph','-T','description'))
+            self.assertEqual(client.post('/api/accounts',json=dict(kind='card',name='Willow Card',currency='EUR')).status_code,409)
+        sessions.assign(session['id'],account);sessions.read(sessions.get(session['id']))
+        saved=sessions.get(session['id']);self.assertEqual(saved['state'],'found');self.assertEqual(saved['statement']['account'],account)
+        self.assertTrue(all(c['ok'] for c in saved['checks']))
+        self.assertIsNotNone(saved['opening'])
+        self.assertFalse(entries(load(self.ledger)), 'An opening is only proposed before Apply')
+        for item in saved['plan']['items']:
+            sessions.decide(session['id'],item['row']['serial'],dict(action='account',account='Expenses:Food'))
+        sessions.queue_apply(session['id']);sessions.work(threading.Event())
+        applied=sessions.get(session['id']);self.assertEqual(applied['state'],'applied',applied.get('error'))
+        opening=next(e for e in entries(load(self.ledger)) if e['description']=='Statement starting balance')
+        self.assertEqual(opening['date'],'2026-01-01');self.assertIn(opening['id'],applied['result']['entry_ids'])
+        self.assertTrue(clean(self.ledger))
+
+    def test_account_creation_rolls_back_verification_failure_and_rejects_dirty_ledger(self):
+        from currency_settings import create_account
+        before=self.bytes()
+        with patch('currency_settings.subprocess.run',return_value=subprocess.CompletedProcess([],1,'','injected failure')):
+            with self.assertRaisesRegex(RuntimeError,'failed verification'):
+                create_account(self.settings,'card','Willow Card','EUR')
+        self.assertEqual(self.bytes(),before);self.assertTrue(clean(self.ledger))
+        (self.ledger/'unfinished.txt').write_text('Human work')
+        with self.assertRaisesRegex(ValueError,'uncommitted'):
+            create_account(self.settings,'bank','Willow Current','EUR')

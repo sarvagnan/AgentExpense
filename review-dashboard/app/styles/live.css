@@ -264,3 +264,54 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 @media(max-width:760px) {
  .dialog-layer { width:100vw; max-width:100vw; top:var(--live-visible-top,0px); height:var(--live-visible-height,100dvh); right:auto; bottom:auto; }
 }
+
+/* Add and Drafts share the approved reading width and panel rhythm. */
+.add-layout,.add-page>.live-notice,.add-page>.add-examples,.draft-workspace {max-width:1130px}
+.add-layout {grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr)}
+.composer-footer {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--separator)}
+.composer-footer .button {flex:none}
+.composer-footer .live-hint {max-width:34ch}
+.add-examples {margin-top:24px}
+.statement-dropzone {display:grid;justify-items:center;gap:8px;padding:24px 12px;border:1px dashed var(--control-border);border-radius:6px;background:var(--surface-sunken);text-align:center}
+.statement-dropzone>.icon {width:24px;height:24px;color:var(--accent)}
+.statement-dropzone p {max-width:34ch}
+.statement-upload-hint {margin-top:16px}
+.uploaded-statement {margin-top:16px;padding-top:16px;border-top:1px solid var(--separator);overflow-wrap:anywhere}
+.statement-currency,.inline-account {display:grid;gap:12px;margin-top:12px}
+.draft-row[aria-current=true] {border-left-color:var(--accent);background:var(--selection-fill)}
+.form-block {display:grid;gap:12px}
+.form-block h2 {font:var(--text-body-strong);line-height:1.5}
+.form-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.form-grid label {min-width:0}
+.checkbox {display:flex;align-items:center;gap:8px}
+.checkbox input {width:18px;height:18px;accent-color:var(--accent)}
+.inset {padding:12px;border:1px solid var(--separator);border-radius:6px;background:var(--surface-sunken)}
+.currency-form>.button {justify-self:end}
+.drafts-page .statements-page {min-width:0}
+.drafts-page .statement-workspace {display:block}
+.drafts-page .statement-apply {position:static;margin-top:16px}
+.statement-history {margin-top:20px}
+@media(max-width:760px){.add-layout{grid-template-columns:minmax(0,1fr)}.composer-tools,.composer-footer{flex-wrap:wrap}.form-grid{gap:10px}.form-grid .field-label{font-size:12px}.draft-workspace{grid-template-columns:minmax(0,1fr)}.draft-workspace[data-open=true]>.draft-queue{display:none}.draft-workspace[data-open=false]>.draft-detail-wrap{display:none}}
+
+.detail-footer {display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding-top:16px;border-top:1px solid var(--separator)}
+.statement-row>.field {margin-top:8px}
+.statement-row-details {margin-top:8px;color:var(--text-secondary);font:var(--text-caption)}
+.statement-row-details p {margin:8px 0}
+.statement-current>.statement-workspace {padding:0 16px 16px}
+.statement-current .statement-checklist>.panel {border:0}
+.statement-current .statement-apply {border:0;border-top:1px solid var(--separator);border-radius:0}
+.statement-current .statement-apply>.panel-header {display:none}
+.statement-current .statement-apply .panel-body {padding:16px 0 0}
+.statement-current .statement-apply details {margin-bottom:12px}
+
+.statement-reader {margin-bottom:16px}
+.statement-reader strong {display:flex;align-items:center;gap:6px;color:var(--positive);font:var(--text-caption)}
+.statement-reader p {margin-top:8px;color:var(--text-secondary)}
+.statement-current .statement-checklist {gap:12px}
+.statement-current .statement-checklist>.panel>.panel-header {padding:0 0 8px;border:0}
+.statement-current .statement-row {padding:12px 0;gap:6px}
+.statement-current .statement-row:first-child {border-top:0}
+.statement-current .statement-row>.field,.statement-current .statement-row-details {margin-top:0}
+.statement-current .statement-automatic>summary,.statement-current .statement-unmatched>summary {padding:8px 0;min-height:32px}
+.statement-current .statement-review-action {display:flex;align-items:center;justify-content:space-between;gap:12px}
+@media(max-width:760px){.statement-current .statement-row{padding-block:14px}.statement-current .statement-review-action{position:static;width:auto;padding:0;border:0;background:none}.statement-current .statement-review-action>span{max-width:none}.statements-page:has(.statement-current .statement-review-action){padding-bottom:0}}

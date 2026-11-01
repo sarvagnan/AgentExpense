@@ -7,10 +7,24 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { buildPatterns, patternOf } from '../scripts/add-patterns.mjs';
 import { loadExpenseStore } from '../scripts/expense-store.mjs';
+import { gzipSync } from 'node:zlib';
 import { buildSentence, draftPieces, PATTERN_DEFS, payLabel } from '../app/live/builder.ts';
 const PAYS = {savings:bank, card, cash:'Pocket', wallet};
 const data={modules:{fuel:true},patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
 const build=(text,edits={},files=false)=>buildSentence(text,data,edits,files,'2026-10-30');
+test('runtime data decoding survives a retired document blob origin',async()=>{
+ const server=await createServer({optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
+ const originalFetch=globalThis.fetch,originalStream=Blob.prototype.stream;
+ try{
+  const {fetchGzipJson}=await server.ssrLoadModule('/app/data.ts');
+  const expected={description:'Fictional data',amount:'51.48'};
+  Blob.prototype.stream=()=>{throw new Error('The previous document can no longer load its blob URL');};
+  for(const bytes of [Buffer.from(JSON.stringify(expected)),gzipSync(JSON.stringify(expected))]){
+   globalThis.fetch=async()=>new Response(bytes);
+   assert.deepEqual(await fetchGzipJson('dashboard'),expected);
+  }
+ }finally{globalThis.fetch=originalFetch;Blob.prototype.stream=originalStream;await server.close();}
+});
 test('prototype examples identify all seven familiar patterns and something new',()=>{
  for(const [text,pattern] of [['petrol 875.25 8.5l 190km','fuel'],['cab 96 to office','ride'],['paper lantern renewed $5','sub'],['casey paid back 430 coffee','payback'],['bike chain lube 450 fablemart card','new'],['dinner 600 moss','dining'],['card bill 2300','cardbill'],['cashback 798','rewards']]) assert.equal(build(text).pattern,pattern,text);
  assert.equal(PATTERN_DEFS.length,7); assert.equal(build('').empty,true); assert.equal(build('',{},true).empty,false);
@@ -81,6 +95,8 @@ test('each draft state renders its content and permitted actions',async()=>{
  const render=d=>renderToStaticMarkup(createElement(DraftDetail,{draft:{...base,...d},onAction:async()=>{}}));
  assert.match(render({}),/The agent is reading it/);assert.doesNotMatch(render({}),/Discard/);assert.match(render({state:'queued'}),/In the queue/);assert.match(render({waiting:'Waiting for a clean ledger'}),/Waiting for a clean ledger/);
  assert.match(render({state:'question',questions:[{question:'Which bank?',answer:null}]}),/Which bank\?/);assert.match(render({state:'question'}),/Send answer/);
+ assert.match(render({state:'question',questions:[{question:'Which account did you pay from?',answer:null}]}),/<select/);
+ const categoryQuestion=render({state:'question',questions:[{question:'Which expense account should I use for this payment?',answer:null}]});assert.match(categoryQuestion,/<textarea/);assert.doesNotMatch(categoryQuestion,/<select/);
  assert.match(render({state:'failed',error:'Upload unreadable'}),/Upload unreadable/);assert.match(render({state:'failed'}),/Retry/);assert.match(render({state:'failed'}),/Discard/);
  const result={outcome:'ready',description:'Fuel',entry_id:'abc',total:'100 INR',payment_account:'Assets:Cash',new_accounts:['Expenses:New'],sources:['Bills/2026-10-30/fuel.png']};
  const added=render({state:'added',result});assert.match(added,/month=2026-09/);for(const text of ['Fuel','100 INR','Assets:Cash','Expenses:New','Open in Explorer','fuel.png','No reference supplied'])assert.ok(added.includes(text),text);

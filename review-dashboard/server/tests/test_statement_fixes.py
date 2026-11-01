@@ -47,7 +47,9 @@ class StatementFixTests(Fixture):
         sessions, s = self.session()
         s['state'] = 'reading'; sessions.put(s)
         stale = dict(s)
-        with self.client() as client, patch('statements.Statements.work', return_value=False):
+        # Install the pause before startup can launch the reader, and retain it
+        # until the client has stopped its worker.
+        with patch('statements.Statements.work', return_value=False), self.client() as client:
             self.assertEqual(client.delete('/api/statements/'+s['id']).status_code, 204)
             stale['state'] = 'found'; sessions.put(stale)
             self.assertTrue(sessions.get(s['id'], include_discarded=True)['discarded_until'])
@@ -57,7 +59,7 @@ class StatementFixTests(Fixture):
 
     def test_queued_apply_cancel_does_not_write_and_atomic_apply_refuses_cancel(self):
         sessions, s = self.session()
-        with self.client() as client, patch('statements.Statements.work', return_value=False):
+        with patch('statements.Statements.work', return_value=False), self.client() as client:
             self.assertEqual(client.post('/api/statements/'+s['id']+'/apply').status_code, 202)
             self.assertEqual(client.post('/api/statements/'+s['id']+'/cancel').status_code, 200)
             self.assertEqual(sessions.get(s['id'])['state'], 'review')

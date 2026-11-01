@@ -20,9 +20,14 @@ def statement_accounts(documents, root):
 
 
 def select_account(documents, root, identifier=None, account=None):
-    candidates = statement_accounts(documents, root)
     if account is not None:
-        candidates = {a: m for a, m in candidates.items() if a == account}
+        metadata = documents[root / 'data/accounts.json']['accounts'].get(account, {})
+        if metadata.get('kind') not in ('bank', 'card') or not metadata.get('currency'):
+            raise ValueError('Choose a declared bank or card account for this statement.')
+        if identifier and (metadata.get('statement', {}).get('reader') != READER or metadata.get('statement', {}).get('identifier') not in (None, identifier)):
+            raise ValueError('The printed identifier does not match the selected card account.')
+        return account
+    candidates = statement_accounts(documents, root)
     if identifier:
         exact = {a: m for a, m in candidates.items() if m['statement'].get('identifier') == identifier}
         candidates = exact or {a: m for a, m in candidates.items() if not m['statement'].get('identifier')}

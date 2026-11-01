@@ -8,9 +8,8 @@ ENGINES=chromium,firefox,webkit PERSONA=sam make browser-tests
 make browser-capture
 ```
 
-The default runs every engine and all four fictional fixture personas. Both targets
-capture the in-scope shell, notices, Settings, opening balances, currency views and
-account dialogs. `CAPTURE=0 make browser-tests` runs assertions without captures.
+The default runs every engine and all four fictional fixture personas. Both targets capture the shell, notices, Settings, opening balances, currency views,
+account dialogs and all step 4B Add/Drafts states. `CAPTURE=0 make browser-tests` runs assertions without captures.
 `ENGINES` and `PERSONA` accept comma-separated subsets.
 
 Use the installed Playwright **1.64.1** at `~/.cache/expense-playwright`. Chromium
@@ -22,7 +21,7 @@ with `CFFIXED_USER_HOME`, avoiding the real browser directory and the
 The harness refuses any other package version. It never launches a desktop browser.
 
 Each run copies application sources and each selected fixture to a unique
-`/tmp/agentexpense-4a-browser-*` directory. Package links reuse installed Node
+`/tmp/agentexpense-4b-browser-*` directory. Package links reuse installed Node
 dependencies, while Vite caches and builds stay in the private copy. The installed
 server virtual environment supplies Python dependencies. Each fixture becomes its
 own jj-colocated repository with an isolated jj configuration. Settings and account
@@ -43,7 +42,7 @@ terminated in `finally`; browsers and contexts are also closed on failure. Artif
 are retained for diagnosis, including a `results.json` assertion matrix.
 
 Screenshots and their contact sheet are written to
-`/tmp/agentexpense-4a-shots/index.html`. `manifest.json` records engine, persona,
+`/tmp/agentexpense-4b-shots/index.html`. `manifest.json` records engine, persona,
 state, theme, viewport and real route for every image. Exact 1440×900 and 412×915
 captures include Light and Dark, with full-page companions for tall screens. The
 suite also checks every route and both dialogs at 320px. It opens the approved
@@ -61,3 +60,26 @@ uses Option-Tab to include links and buttons when full keyboard access is off;
 other engines use Tab. Dialog focus tests use ordinary Tab and Shift-Tab in every
 engine, exercising the app’s explicit focus trap. Focus-order assertions are the
 same for all engines.
+
+
+Step 4B adds `workflows.mjs`: every persona/engine/theme/viewport runs real fake-agent
+expense submission, account questions, failure/retry, expense conversions and
+cross-currency transfers through the verified commit path. Statement PDFs are
+fictional and generated in memory. The suite checks matching currency, blocked
+mismatches, account reassignment, inline account creation, checklist decisions,
+explicit estimate replacement and Apply. Test-only scenario/reset endpoints use
+locked verified changes inside disposable repositories. They never ship with the
+production app. Working/queue capture records are ignored test data; completed
+real operations and audits are awaited before fixture reset.
+
+The capture manifest maps each named state to its actual route. It includes Add,
+Draft list/question/working/failure/empty, blank/filled conversions and transfers,
+statement checklist, currency mismatch and inline account creation in all engines,
+both themes and both viewports. Full-page companions keep fixed phone controls at
+the document foot for inspection. The historical standalone Add/statement browser
+scripts are superseded by this pinned, isolated matrix.
+
+`BROWSER_SHOTS=/tmp/<directory>` selects a separate capture directory. This allows
+independent persona invocations to run concurrently without clobbering manifests;
+each invocation still creates its own application, ledger, ports, homes and profiles.
+The default capture index remains `/tmp/agentexpense-4b-shots/index.html`.

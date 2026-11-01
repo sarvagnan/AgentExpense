@@ -16,7 +16,7 @@ const routes: Record<string, View> = {
   [`${basePath}/account-summary`]: 'accounts',
   [`${basePath}/add`]: 'add',
   [`${basePath}/drafts`]: 'drafts',
-  [`${basePath}/statements`]: 'statements',
+  [`${basePath}/statements`]: 'add',
 };
 
 function routeFor(pathname: string): View {
@@ -27,6 +27,7 @@ function routeFor(pathname: string): View {
 function App() {
   // Loading and recovery use the same remembered appearance as the dashboard.
   useAppearance();
+  if(window.location.pathname.replace(/\/$/,'')===`${basePath}/statements`)window.history.replaceState({},'',`${basePath}/add/`);
   const [view, setView] = useState(() => routeFor(window.location.pathname));
   const [load, setLoad] = useState<{ state: 'loading' } | { state: 'ready' } | { state: 'failed'; message: string }>({ state: 'loading' });
   const attempt = useRef(0);

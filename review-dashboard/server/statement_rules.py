@@ -47,7 +47,7 @@ def scaled_postings(entry, row, account):
 
 
 def plan(documents, statement, root):
-    account = select_account(documents, root, statement.get('card_last4'), statement.get('account'))
+    account = select_account(documents, root, None if statement.get('accountAssigned') else statement.get('card_last4'), statement.get('account'))
     currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
     rows = statement['rows']
     report = reconcile(documents, rows, end=statement['periodEnd'], start=statement['periodStart'], total_due=statement['totalDue'], root=root, account=account)

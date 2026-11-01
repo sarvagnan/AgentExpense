@@ -113,3 +113,30 @@ def update_settings(settings, get_changes, result, description):
             transaction.rollback(journal)
             raise
     return refresh(settings, result)
+
+
+def create_account(settings, kind, name, currency):
+    from transactions import reject_invisible
+    reject_invisible(name)
+    name = name.strip()
+    if not name or ':' in name or len(name) > 100:
+        raise ValueError('Enter an account name without a colon')
+    if currency not in json.loads((APPLICATION / 'schema/currencies.json').read_text()):
+        raise ValueError('Choose a supported currency')
+    parents = dict(bank='Assets:Bank', card='Liabilities:Credit Cards', cash='Assets:Cash',
+                   wallet='Assets:Wallet', loan='Liabilities:Loans', investment='Assets:Investments', person='Assets:People')
+    if kind not in parents:
+        raise ValueError('Choose an account kind')
+    account = parents[kind] + ':' + name
+
+    def changes():
+        path = settings.ledger / 'data/accounts.json'
+        declared = read_json(path)
+        if account in declared['accounts']:
+            raise ValueError('An account with this name already exists')
+        declared['accounts'][account] = dict(kind=kind, label=name, currency=currency, aliases=[name.lower()])
+        if currency not in declared['commodities']:
+            declared['commodities'].append(currency)
+        return {path: declared}
+
+    return update_settings(settings, changes, dict(account=account, currency=currency), f'Add {name} account ({currency})')

@@ -122,17 +122,22 @@ class Fixture(unittest.TestCase):
             self.assertEqual(response.status_code, 201, response.text)
         return identity
 
-    def wait(self, client, identity, state, *, seconds=20):
-        end = time.monotonic() + seconds
-        last = None
-        while time.monotonic() < end:
-            last = client.get(f'/api/drafts/{identity}').json()
-            if last.get('state') == state:
-                return last
-            if last.get('state') == 'failed' and state != 'failed':
-                self.fail(str(last))
-            time.sleep(.02)
-        self.fail(f'Expected {state}: {last}')
+    def wait_condition(self, client, identity, predicate):
+        # Notifications come after the durable write, so slow verification and
+        # refresh cannot outrun a short polling window. Timeout is a deadlock guard.
+        drafts = client.app.state.drafts
+        with drafts.changed:
+            reached = drafts.changed.wait_for(lambda: predicate(drafts.get(identity)), timeout=180)
+            last = drafts.get(identity)
+        self.assertTrue(reached, f'Draft condition was never reached: {last}')
+        return last
+
+    def wait(self, client, identity, state):
+        last = self.wait_condition(client, identity,
+                                   lambda d: d['state'] == state or d['state'] == 'failed' and state != 'failed')
+        self.assertEqual(last['state'], state, last)
+        # Exercise the HTTP representation too, after synchronizing with the writer.
+        return client.get(f'/api/drafts/{identity}').json()
 
     def save(self, client, identity):
         response = client.post(f'/api/drafts/{identity}/save')

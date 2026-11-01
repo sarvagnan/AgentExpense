@@ -29,7 +29,9 @@ export async function fetchGzipJson<T>(name: string): Promise<T> {
   const bytes = new Uint8Array(await response.arrayBuffer());
   // Static servers send .gz as application/gzip; if one decoded it already, the gzip magic bytes are gone.
   const gzipped = bytes[0] === 0x1f && bytes[1] === 0x8b;
-  const body = new Blob([bytes]).stream();
+  // WebKit may back Blob.stream() with a document-bound blob URL. A refresh
+  // finishing during navigation must decode bytes without that retired origin.
+  const body = new ReadableStream<BufferSource>({start(controller) { controller.enqueue(bytes); controller.close(); }});
   const text = await new Response(gzipped ? body.pipeThrough(new DecompressionStream('gzip')) : body).text();
   return JSON.parse(text) as T;
 }

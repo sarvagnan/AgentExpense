@@ -137,7 +137,7 @@ class Worker:
                     detected = False
                 if detected:
                     draft['statement_file'] = file['id']
-                    self.drafts.completed(draft, dict(outcome='not_expense', explanation='This is a card statement. Continue in Statements to reconcile its rows.'))
+                    self.drafts.completed(draft, dict(outcome='not_expense', explanation='This is a card statement. Continue in Drafts to reconcile its rows.'))
                     return
         answer = draft.get('proposal')
         while not self.stop_event.is_set():
@@ -159,8 +159,14 @@ class Worker:
                         draft['proposal'] = answer
                         self.drafts.put(draft)
                         break
+            if answer.get('entry'):
+                draft['description'] = answer['entry']['description']
             if answer['status'] == 'question':
                 draft['questions'].append(dict(question=answer['question'], answer=None, asked_at=now()))
+                from currency_drafts import currency_request
+                request = currency_request(answer, self.settings.ledger)
+                if request:
+                    draft.update(currency_request=request, currency_proposal=answer)
                 draft.update(state='question', proposal=None)
                 self.drafts.put(draft)
                 return

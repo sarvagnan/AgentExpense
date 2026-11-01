@@ -70,6 +70,23 @@ class NameChange(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class AccountCreate(CurrencyChange):
+    kind: str
+    name: str = Field(min_length=1, max_length=100)
+
+
+class AccountSelection(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    account: str = Field(min_length=1, max_length=300)
+
+
+class CurrencyAnswer(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    amount: str | None = None
+    rate: str | None = None
+    estimate: bool = True
+
+
 def sniff(data):
     try:
         with Image.open(io.BytesIO(data)) as image:
@@ -178,8 +195,8 @@ def create_app(settings=None, *, start_worker=True):
         if draft['state'] not in states:
             raise HTTPException(409, f"Draft is {draft['state']}; expected {', '.join(states)}")
 
-    def queue(draft):
-        draft.update(state='queued', queued_at=now(), error=None, waiting=None, proposal=None)
+    def queue(draft, proposal=None):
+        draft.update(state='queued', queued_at=now(), error=None, waiting=None, proposal=proposal)
         drafts.put(draft)
         worker.wake.set()
         return draft
@@ -223,6 +240,14 @@ def create_app(settings=None, *, start_worker=True):
         from currency_settings import update_currency
         try:
             return update_currency(settings, body.currency, body.account)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/accounts', status_code=201)
+    def account_create(body: AccountCreate):
+        from currency_settings import create_account
+        try:
+            return create_account(settings, body.kind, body.name, body.currency)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
@@ -366,9 +391,24 @@ def create_app(settings=None, *, start_worker=True):
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'question')
+            draft.pop('currency_request', None)
+            draft.pop('currency_proposal', None)
             draft['questions'][-1].update(answer=body.answer, answered_at=now())
             draft.pop('unsent_answer', None)
             return queue(draft)
+
+    @app.post('/api/drafts/{identity}/currency')
+    def currency_answer(identity: str, body: CurrencyAnswer):
+        from currency_drafts import resolve
+        with drafts.mutex:
+            draft = get(identity)
+            require(draft, 'question')
+            try:
+                resolve(draft, settings.ledger, **body.model_dump())
+                draft['questions'][-1]['answered_at'] = now()
+            except (ValueError, ArithmeticError, KeyError) as exc:
+                raise HTTPException(422, str(exc)) from exc
+            return queue(draft, draft['proposal'])
 
     @app.post('/api/drafts/{identity}/retry')
     def retry(identity: str):
@@ -484,6 +524,17 @@ def create_app(settings=None, *, start_worker=True):
             session=statements.unlock(identity,password)
         except ValueError as exc:
             raise HTTPException(422,str(exc))
+        worker.wake.set()
+        return session
+
+    @app.post('/api/statements/{identity}/account')
+    def assign_statement(identity: str, body: AccountSelection):
+        try:
+            session = statements.assign(identity, body.account)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except FileNotFoundError:
+            raise HTTPException(404, 'Unknown statement session') from None
         worker.wake.set()
         return session
 

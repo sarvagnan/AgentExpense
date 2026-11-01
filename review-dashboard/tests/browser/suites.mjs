@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {runWorkflows} from './workflows.mjs';
 import {execFileSync} from 'node:child_process';
 
 const routes=['add','drafts','review','explorer','atlas','journal','forecast','account-summary','statements'];
@@ -25,7 +26,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
   for(const theme of ['light','dark'])for(const size of sizes) {
     const {width,height}=size;
     const context=await browser.newContext({viewport:size,colorScheme:theme,locale:locale[persona],timezoneId:zone[persona],reducedMotion:'reduce',acceptDownloads:true});
-    await context.addInitScript(value=>localStorage.setItem('ledger-appearance',value),theme);
+    await context.addInitScript(value=>{if(location.protocol==='http:'||location.protocol==='https:')localStorage.setItem('ledger-appearance',value);},theme);
     await context.tracing.start({screenshots:true,snapshots:true});
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
@@ -33,18 +34,29 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
     await page.route('**/*',route=>{const url=route.request().url();return url.startsWith(base) || url.startsWith('blob:') || url.startsWith('data:')?route.continue():route.abort('blockedbyclient');});
     const record=(name)=>{results.push({persona,engine,theme,width,test:name,pass:true});console.log(`  PASS ${persona} ${engine} ${theme} ${width}: ${name}`);};
     const snap=(state)=>capture(page,{state,theme,width,height});
-    const go=async(route)=>{await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);};
+    const go=async(route)=>{await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);await page.waitForLoadState('networkidle');};
     const overflow=async(label)=>{
       const value=await page.evaluate(()=>({width:innerWidth,html:document.documentElement.scrollWidth,body:document.body.scrollWidth}));
       assert.ok(value.html<=value.width+1 && value.body<=value.width+1,`${label}: horizontal overflow ${JSON.stringify(value)}`);
     };
     const refresh=async()=>{await page.evaluate(()=>window.dispatchEvent(new Event('drafts-changed')));};
+    const quiesce=async()=>{
+      if(page.url().startsWith(base)){
+        // Fixture deletion must not manufacture a missing composer recovery ID.
+        // Await real network completion, clear only the test composer's recovery
+        // copy, then unload the app before deleting ignored server records.
+        await page.waitForLoadState('networkidle');
+        await page.evaluate(()=>localStorage.removeItem('ledger-add-v1'));
+        await page.goto('about:blank');
+      }
+    };
+    const resetDrafts=async(body)=>{await quiesce();return control('drafts',body);};
     const identity=()=>page.locator('.identity:visible');
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
       await control('gate',{state:'ready'});
-      const seeded=await control('drafts',{persona,empty:persona==='empty'});
+      const seeded=await resetDrafts({persona,empty:persona==='empty'});
       await go('add/');await expect(page.locator('#expense-words')).toBeEnabled();
       await expect(page.locator('.agent-notice')).toHaveCount(0);
       // A single ordered source list, with one divider separating work and views.
@@ -150,9 +162,9 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         await go('add/');await refresh();await expect(page.locator('.agent-notice')).toHaveAttribute('data-agent-state',state);
         await expect(page.locator('.agent-notice')).toHaveCount(1);
         await page.locator('#expense-words').fill('Paper Kite Market, 12, paid with cash');
-        const save=page.getByRole('button',{name:'Save to Drafts',exact:true});
+        const save=page.getByRole('button',{name:'Send to agent',exact:true});
         if(state==='unavailable')await expect(save).toBeEnabled();else await expect(save).toBeDisabled();
-        await expect(page.locator('#expense-words')).toBeEnabled();await expect(page.getByRole('button',{name:'Upload',exact:true})).toBeEnabled();
+        await expect(page.locator('#expense-words')).toBeEnabled();await expect(page.getByRole('button',{name:'Photos or files',exact:true})).toBeEnabled();
         if(state==='signed out')await expect(page.locator('.agent-notice code')).toHaveText('make agent-login');
         if(state==='paused'){await page.locator('.agent-reason summary').click();await expect(page.locator('.agent-reason p')).toBeVisible();await expect(page.locator('.agent-reason')).toContainText('exec_command');await page.locator('.agent-reason summary').click();}
         if(state==='unavailable')await expect(page.locator('.agent-notice')).toContainText('It will retry on the next draft.');
@@ -163,8 +175,8 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         await go('drafts/'+(seeded.ids.length?'?draft='+seeded.ids[0]:''));await refresh();
         await expect(page.locator('.agent-notice')).toHaveCount(1);
         if(seeded.ids.length){
-          const answer=page.locator('.draft-question textarea');
-          await answer.fill('Cash');await expect(answer).toBeEnabled();
+          const answer=page.locator('.draft-question select');
+          await answer.selectOption({index:1});await expect(answer).toBeEnabled();
           const send=page.getByRole('button',{name:'Send answer',exact:true});
           if(state==='unavailable')await expect(send).toBeEnabled();else await expect(send).toBeDisabled();
         }
@@ -175,7 +187,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
           const retry=page.getByRole('button',{name:'Retry',exact:true});
           if(state==='unavailable')await expect(retry).toBeEnabled();else await expect(retry).toBeDisabled();
         }
-        await go('statements/');await expect(page.locator('input[type="file"]')).toBeEnabled();
+        await go('statements/');await expect(page).toHaveURL(base+'add/');await expect(page.getByLabel('Upload statement PDF')).toBeEnabled();
       }
       record('fake-driven signed out, paused and unavailable notices and submission/retry/answer gating; statement selection remains usable');
       if(theme==='light' && width===1440) {
@@ -183,14 +195,14 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         await go('add/');await refresh();
         await expect(page.locator('.agent-notice')).toHaveAttribute('data-agent-state','unavailable');
         await page.locator('#expense-words').fill('Paper Kite Market, 12, paid with cash');
-        await page.getByRole('button',{name:'Save to Drafts',exact:true}).click();
+        await page.getByRole('button',{name:'Send to agent',exact:true}).click();
         await expect.poll(async()=>{const rows=await (await fetch(base+'api/drafts')).json();return rows.some(row=>row.text==='Paper Kite Market, 12, paid with cash' && row.state==='question');},{timeout:20000}).toBe(true);
         assert.equal((await (await fetch(base+'api/agent-status')).json()).state,'ready');
         assert.ok((await readFile(join(stage.root,'fake.calls'),'utf8')).includes('stdin_closed'));
         record('an unavailable check retries on the next real draft through the offline fake agent');
       }
       await control('gate',{state:'ready'});
-      await control('drafts',{persona,empty:true});
+      await resetDrafts({persona,empty:true});
       await go('drafts/');await refresh();await expect(page.locator('.agent-notice')).toHaveCount(0);
       await expect(page.getByText('No drafts waiting.',{exact:true})).toBeVisible();
       await expect(page.locator('.sidebar a[href$="drafts/"] .nav-count,.phone-live-nav a[href$="drafts/"] .nav-count')).toHaveCount(0);
@@ -313,6 +325,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         await page.goBack();await expect(page.locator('.holdings-table')).toBeVisible();
         await overflow('Asha investments');record('Asha holdings, cost/value/gain, chart keyboard inspection, account drill-down and history return');
       }
+      await runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

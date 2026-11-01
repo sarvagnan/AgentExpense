@@ -22,7 +22,7 @@ assert settings.codex_home.is_relative_to(Path('/tmp').resolve())
 assert Path(settings.codex).name == 'fake-agent'
 app = create_app(settings)
 config = Path(os.environ['EXPENSES_FAKE_CONFIG'])
-original = {path: read_json(path) for path in [settings.ledger/'ledger.json', *sorted((settings.ledger/'data/expenses').glob('*.json'))]}
+original = {path: read_json(path) for path in [settings.ledger/'data/accounts.json',settings.ledger/'data/card-statements.json',settings.ledger/'ledger.json', *sorted((settings.ledger/'data/expenses').glob('*.json'))]}
 
 
 @app.post('/__test/gate')
@@ -91,6 +91,107 @@ def openings(body: dict):
     else:
         changes=original
     return update_settings(settings,lambda:changes,dict(openings=body['enabled']),'Browser fixture opening balances')
+
+
+@app.post('/__test/scenario')
+def scenario(body: dict):
+    from copy import deepcopy
+    from ledger_manifest import module_settings, read_manifest
+    documents = read_json(settings.ledger/'data/accounts.json')
+    accounts = documents['accounts']
+    original_card = next(a for a,m in accounts.items() if m.get('kind')=='card')
+    currency = accounts[original_card]['currency']
+    account = next((a for a in accounts if a.startswith('Liabilities:Credit Cards:Workflow ')), 'Liabilities:Credit Cards:Workflow '+secrets.token_hex(4))
+    workflow_new = account not in accounts
+    accounts[account] = dict(kind='card',currency=currency,label=accounts[original_card].get('label','Workflow Card'),statement=dict(reader='example-card-pdf',identifier='9001'))
+    foreign = 'EUR' if currency != 'EUR' else 'GBP'
+    expense = next(a for a in accounts if a.startswith('Expenses:'))
+    source = next(a for a,m in accounts.items() if m.get('kind')=='bank')
+    destination = next((a for a,m in accounts.items() if m.get('kind')=='bank' and m['currency']!=accounts[source]['currency']),None)
+    changed=workflow_new
+    for code in (foreign,currency):
+        if code not in documents['commodities']:
+            documents['commodities'].append(code);changed=True
+    if not destination:
+        destination='Assets:Bank:Willow Transfer'
+        accounts[destination]=dict(kind='bank',currency=foreign,label='Willow Transfer')
+        changed=True
+    if changed:
+        changes={settings.ledger/'data/accounts.json':documents}
+        if workflow_new:
+            path=settings.ledger/'data/expenses/2026.json'
+            rows=read_json(path)
+            if not any(p['account']==destination for file in (settings.ledger/'data/expenses').glob('*.json') for row in read_json(file) for p in row['postings']):
+                rows.append(dict(id='e'*16,date='2026-11-01',status='confirmed',description='Workflow destination opening',postings=[dict(account=destination,amount='0.00',commodity=accounts[destination]['currency']),dict(account='Equity:Opening Balances',amount='0.00',commodity=accounts[destination]['currency'])]))
+            rows.append(dict(id='f'*16,date='2026-11-01',status='confirmed',description='Workflow card opening',postings=[dict(account=account,amount='0.00',commodity=currency),dict(account='Equity:Opening Balances',amount='0.00',commodity=currency)]))
+            changes[path]=rows
+        update_settings(settings,lambda:changes,dict(fixture=True),'Browser currency workflow accounts')
+    answer=dict(status='ready',question=None,explanation=None,attachment_names=[body['attachment']+'-'+account.split()[-1]] if body.get('attachment') else [],doubts=[],new_accounts=[],
+                entry=dict(date='2026-11-02',status='confirmed',description='Copper Finch Café',order_id=None,reference=None,classification=None,original_amount=None,notes=[],
+                           postings=[dict(account=expense,amount='18.60',commodity=currency,cost=None),dict(account=account,amount='-18.60',commodity=currency,cost=None)]))
+    if module_settings(read_manifest(settings.ledger))['fuel']:
+        answer['entry'].update(fuel_filled_litres=None,trip_km=None)
+    mode=body['mode']
+    if mode=='question':
+        answer.update(status='question',question='Which account did you pay from?',entry=None)
+    elif mode=='conversion':
+        answer.update(status='question',question='How much was charged?')
+        answer['entry'].update(description='Juniper Table',original_amount=dict(amount='46.80',commodity=foreign))
+        answer['entry']['postings'][0].update(amount='46.80',commodity=foreign)
+        answer['entry']['postings'][1]['amount']='0'
+    elif mode=='transfer':
+        answer.update(status='question',question='How much arrived?')
+        answer['entry']['description']='Move money between accounts'
+        answer['entry']['postings']=[dict(account=source,amount='-1000',commodity=accounts[source]['currency'],cost=None),dict(account=destination,amount='0',commodity=accounts[destination]['currency'],cost=None)]
+    data=json.loads(config.read_text());data['steps']=[dict(kind='exit')] if mode=='failure' else [dict(answer=answer)]
+    config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+    return dict(account=account,currency=currency,foreign=foreign,source=source,destination=destination,sourceCurrency=accounts[source]['currency'],destinationCurrency=accounts[destination]['currency'])
+
+
+@app.post('/__test/reset-workflows')
+def reset_workflows():
+    # Called only once all real worker operations/audits have completed.
+    with app.state.drafts.mutex,app.state.statements.mutex:
+        assert not any(d.get('audit_pending') for d in app.state.drafts.all(include_discarded=True))
+        for d in app.state.drafts.all(include_discarded=True):
+            shutil.rmtree(app.state.drafts.folder(d['id']))
+        for session in app.state.statements.all():
+            shutil.rmtree(app.state.statements.folder(session['id']))
+    return update_settings(settings,lambda:original,dict(reset=True),'Restore browser workflow baseline')
+
+
+@app.post('/__test/receipt')
+def receipt_file():
+    from fastapi.responses import Response
+    from PIL import Image
+    import io
+    output=io.BytesIO();Image.new('RGB',(64,64),'orange').save(output,format='PNG')
+    return Response(output.getvalue(),media_type='image/png')
+
+
+@app.post('/__test/statement')
+def statement_file(currency: str, foreign: str, identifier: str='5678'):
+    from fastapi.responses import Response
+    sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+    from statement_fixtures import statement_pdf
+    assert currency.isalpha() and len(currency)==3 and foreign.isalpha() and len(foreign)==3
+    text=f"""Example Card Statement
+Statement currency: {currency}
+Statement period: 2026-11-01 to 2026-11-28
+Card last four digits: {identifier}
+Previous balance: 0.00
+Purchases: 78.47
+Cash advances: 0.00
+Credits: 0.00
+Total due: 78.47
+Minimum due: 7.85
+Due date: 2026-12-15
+Date | Serial | Description | Amount | Direction | Foreign amount | Currency
+2026-11-02 | WF-001 | Juniper Table | 51.62 | Debit | 46.80 | {foreign}
+2026-11-03 | WF-002 | Copper Finch Café | 18.60 | Debit | |
+2026-11-04 | WF-003 | Cloudberry Music | 8.25 | Debit | |
+""".replace('Café','Cafe')
+    return Response(statement_pdf(text),media_type='application/pdf')
 
 
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

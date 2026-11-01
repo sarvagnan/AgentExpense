@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import stat
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -110,7 +111,14 @@ def canonical_text(value: Any) -> str:
 
 def dump(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonical_text(value), encoding="utf-8")
+    temporary = path.with_name(f'.{path.name}.{secrets.token_hex(8)}.tmp')
+    try:
+        temporary.write_text(canonical_text(value), encoding="utf-8")
+        if path.exists():
+            temporary.chmod(stat.S_IMODE(path.stat().st_mode))
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def store_paths(root: Path = ROOT) -> list[Path]:

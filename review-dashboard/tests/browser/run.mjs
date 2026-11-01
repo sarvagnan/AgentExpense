@@ -19,7 +19,7 @@ const engines=(process.env.ENGINES || 'chromium,firefox,webkit').split(',');
 const personas=(process.env.PERSONA || 'asha,empty,jordan,sam').split(',');
 for(const engine of engines)assert.ok(['chromium','firefox','webkit'].includes(engine));
 for(const persona of personas)assert.ok(['asha','empty','jordan','sam'].includes(persona));
-const artifacts=await mkdtemp('/tmp/agentexpense-4a-browser-');
+const artifacts=await mkdtemp('/tmp/agentexpense-4b-browser-');
 process.env.TMPDIR=join(artifacts,'tmp');await mkdir(process.env.TMPDIR);
 const venv=join(source,'review-dashboard/server/.venv'),python=join(venv,'bin/python');
 if(process.env.CAPTURE!=='0' && !process.env.ENGINES && !process.env.PERSONA)await rm(shots,{recursive:true,force:true});

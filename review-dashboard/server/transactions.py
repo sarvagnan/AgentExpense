@@ -110,7 +110,15 @@ def to_store(answer, root, file_count):
             if p['account'].startswith('Expenses:') and p['commodity'] != currency:
                 if not p.get('cost') or p['cost']['commodity'] != currency or Decimal(p['cost']['amount']) <= 0:
                     raise ProposalError(f'Expense in {p["commodity"]} on {funding["account"]} ({currency}) needs the amount charged or a rate as a cost in {currency}; ask the user when neither is known')
-    return entry, {**declared, 'accounts': accounts}, new
+    commodities = list(declared['commodities'])
+    supported = json.loads((APPLICATION / 'schema/currencies.json').read_text())
+    registered = {directive.split()[0].strip(chr(34)) for directive in commodities}
+    for posting in entry['postings']:
+        for code in (posting['commodity'], posting.get('cost', {}).get('commodity')):
+            if code in supported and code not in registered:
+                commodities.append(code)
+                registered.add(code)
+    return entry, {**declared, 'accounts': accounts, 'commodities': commodities}, new
 
 
 def check(entry, declarations, root):
