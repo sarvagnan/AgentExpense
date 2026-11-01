@@ -42,7 +42,7 @@ ENTRY_KEYS = ("id", "date", "status", "description", "schedule", "sources", *FIE
 STATEMENT_KEYS = ("id", "account", "start", "end", "source", "previous-balance", "purchases", "cash-advances", "credits", "total-due", "rows")
 KEY_ORDER = {name: index for index, name in enumerate((
     *ENTRY_KEYS, "account", "amount", "commodity", "cost", "assert", "every", "from", "interval", "per",
-    "commodities", "accounts", "reader", "identifier",
+    "commodities", "accounts", "reader", "identifier", "options",
 ))}
 
 
@@ -77,7 +77,7 @@ def ordered(value: Any) -> Any:
                         ('kind', 'currency', 'label', 'aliases', 'statement').index(key) if key in
                         ('kind', 'currency', 'label', 'aliases', 'statement') else 999, key))}
                         for name, meta in value['accounts'].items()}}
-        if {"previous-balance", "total-due", "rows"} <= value.keys():
+        if {"previous-balance", "total-due", "rows"} <= value.keys() or {"opening-balance", "closing-balance", "members"} <= value.keys():
             return {key: ordered(value[key]) for key in STATEMENT_KEYS if key in value} | {key: ordered(val) for key, val in value.items() if key not in STATEMENT_KEYS}
         if {"every", "from"} <= value.keys() and value.get("interval") == 1:
             value = {key: item for key, item in value.items() if key != "interval"}

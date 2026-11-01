@@ -266,7 +266,8 @@
     "extraction": {
       "enum": [
         "parser",
-        "agent"
+        "agent",
+        "reader"
       ]
     },
     "line_id": {

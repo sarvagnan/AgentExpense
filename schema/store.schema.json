@@ -763,9 +763,16 @@
     "card-statements": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/card-statement"
+        "oneOf": [
+          {
+            "$ref": "#/$defs/card-statement"
+          },
+          {
+            "$ref": "#/$defs/bank-statement"
+          }
+        ]
       },
-      "description": "Filed card statements in end-date order; never inferred from transaction dates."
+      "description": "Filed card and balance-style account statements, in end-date order. Legacy card summaries remain unchanged."
     },
     "account-metadata": {
       "type": "object",
@@ -821,6 +828,10 @@
               "type": "string",
               "minLength": 1,
               "pattern": "^[^\\r\\n]+$"
+            },
+            "options": {
+              "type": "object",
+              "description": "Trusted reader configuration: column mapping, date/number format, source sheet and summary cells."
             }
           }
         }
@@ -846,6 +857,215 @@
             "overlapping-statements",
             "imported-after-start"
           ]
+        }
+      }
+    },
+    "statement-citation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "page",
+            "line"
+          ],
+          "properties": {
+            "page": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sheet",
+            "row"
+          ],
+          "properties": {
+            "sheet": {
+              "type": "string",
+              "minLength": 1
+            },
+            "row": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "bank-statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "account",
+        "start",
+        "end",
+        "source",
+        "opening-balance",
+        "closing-balance",
+        "debits",
+        "credits",
+        "rows",
+        "members",
+        "assertion-id",
+        "reader"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Permanent random ID, globally unique across actuals, forecasts and statements."
+        },
+        "kind": {
+          "const": "bank"
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^:\\r\\n]+(?::[^:\\r\\n]+)*$",
+          "description": "Declared bank or card account; signed-balance membership is keyed by this account and end."
+        },
+        "start": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "end": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "source": {
+          "type": "string",
+          "pattern": "^Bills/[^\\r\\n]+\\.[A-Za-z0-9]+$"
+        },
+        "opening-balance": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$"
+        },
+        "closing-balance": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$"
+        },
+        "debits": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$"
+        },
+        "credits": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "date",
+              "serial",
+              "description",
+              "amount",
+              "direction",
+              "citation",
+              "disposition"
+            ],
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                "description": "Transaction date; file year must match. For forecasts this equals schedule.from."
+              },
+              "serial": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "not": {
+                  "pattern": "[\\r\\n]"
+                },
+                "minLength": 1,
+                "description": "Original description verbatim. Forecasts retain the forecast item comment here."
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$"
+              },
+              "direction": {
+                "enum": [
+                  "Debit",
+                  "Credit"
+                ]
+              },
+              "citation": {
+                "$ref": "#/$defs/statement-citation"
+              },
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "balance": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "entry-id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$",
+                "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
+              },
+              "disposition": {
+                "enum": [
+                  "recorded",
+                  "already-in-ledger",
+                  "pre-start",
+                  "overlap-pending"
+                ]
+              },
+              "review-candidates": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{16}$",
+                  "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
+                }
+              }
+            }
+          }
+        },
+        "assertion-id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
+        },
+        "reader": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

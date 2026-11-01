@@ -25,6 +25,9 @@ render();await settle();assert.equal(delay(),30000);assert.equal(current.online,
 records=[draft('queued')];window.dispatchEvent(new Event('drafts-changed'));await settle();assert.equal(delay(),3000,'First queued draft starts three-second polling');
 records=[draft('question')];fire();await settle();assert.equal(delay(),30000);assert.equal(current.attention,1);
 statements=[{state:'reading'},{state:'review'},{state:'found',duplicate_of:'one'},{state:'applied'}];await current.refresh();await settle();assert.equal(current.attention,2,'One question and one statement need attention; working and duplicate sessions do not');
+assert.equal(delay(),3000,'Reading statements must poll promptly even without an active expense draft');
+statements=[{state:'applying'}];await current.refresh();await settle();assert.equal(delay(),3000,'Applying statements keep the active polling interval');
+statements=[{state:'currency_mismatch'}];fire();await settle();assert.equal(delay(),30000,'A settled statement restores the idle polling interval');
 records=[{...draft('added'),statement_file:'receipt-file'}];statements=[];await current.refresh();await settle();assert.equal(current.attention,1,'A recognized statement waiting for handover needs attention');records[0].handover_session='session';await current.refresh();await settle();assert.equal(current.attention,0,'The handed-over statement is counted by its session only');
 statements=[];records=[draft('working')];await current.refresh();await settle();assert.equal(delay(),3000,'Answer/retry transition resets the previous idle timer');
 const before=calls;document.hidden=true;document.dispatchEvent(new Event('visibilitychange'));await settle();assert.equal(timers.size,0);assert.equal(calls,before,'Hidden pages do not fetch');

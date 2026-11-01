@@ -51,3 +51,8 @@ acknowledge, separate, undo-separate, merge and import. Changes record entry IDs
 before/after hashes, decisions with their original export identity, pair reasons, undo targets and moved evidence/notes
 as appropriate. Existing lines are never rewritten. This log supplies the server's
 decision history and idempotency receipts. Browser exports retain reviewVersion 2.
+
+Format 1 also accepts balance-style statements in the existing
+`data/card-statements.json` file and `statement.options` account configuration.
+Legacy card summaries and membership survive the 0 → 1 migration unchanged; no
+file rename is necessary. See [the reader/store contract](../docs/READERS.md).

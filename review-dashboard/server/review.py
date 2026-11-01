@@ -90,6 +90,10 @@ def summary(entry, accounts, touched):
                 statement=bool(entry.get('statement-end')), notes=entry.get('notes', []), postings=entry['postings'], status=entry['status'])
 
 
+def statement_members(documents, root):
+    return {m['entry-id'] for s in documents[root/'data/card-statements.json'] for m in s.get('members',[]) if m.get('entry-id')}
+
+
 def snapshot(root, *, clock=None):
     documents = load(root)
     actual = entries(documents)
@@ -97,13 +101,16 @@ def snapshot(root, *, clock=None):
     decisions, touched = decision_state(lines)
     accounts = documents[root / 'data/accounts.json']['accounts']
     public = {e['id']: summary(e, accounts, touched) for e in actual}
+    bank_members = statement_members(documents, root)
+    for identity in bank_members:
+        public[identity]['statement'] = True
     at = clock() if clock else datetime.now(timezone.utc)
     cutoff = at - timedelta(days=7)
     reviewed = {c['entry_id'] for line in lines if line['kind'] == 'review-action' for c in line['changes'] if c.get('decision', {}).get('status') == 'resolved'}
     verdicts = {line['line_id']: line['verdict'] for line in lines if line['kind'] == 'review'}
     accepted_audits = {identity for identity, verdict in verdicts.items() if verdict == 'ok'}
     doubts = {line['entry_id']: line for line in lines if line['id'] not in accepted_audits and line['kind'] == 'draft' and line.get('outcome') == 'added' and line.get('entry_id') in public and line.get('doubts') and cutoff <= datetime.fromisoformat(line['time']) <= at and line['entry_id'] not in reviewed}
-    items, paired = [], set()
+    items, paired = [], {identity for s in documents[root/'data/card-statements.json'] for row in s.get('members',[]) if row['disposition']=='overlap-pending' for identity in row['review-candidates']}
     for entry in actual:
         for link in entry.get('possible-duplicate-of', []):
             other = public[link['id']]
@@ -117,6 +124,13 @@ def snapshot(root, *, clock=None):
             items.append(dict(id=identity, kind='doubt', important=True, reason='Added this week — the agent wasn’t sure', doubts=doubts[identity]['doubts'], added_at=doubts[identity]['time'], entries=[public[identity]]))
         elif entry['status'] == 'pending':
             items.append(dict(id=identity, kind='pending', important=False, reason='Imported · category not chosen' if entry.get('sources') else 'Category not chosen', entries=[public[identity]]))
+    for statement in documents[root/'data/card-statements.json']:
+        for row in statement.get('members', []):
+            if row['disposition'] == 'overlap-pending':
+                items.append(dict(id='overlap:'+statement['id']+':'+row['serial'], kind='overlap', important=True,
+                                  reason=REASONS['overlapping-statements'], machineReason='overlapping-statements',
+                                  statement_id=statement['id'], row_serial=row['serial'], row=row,
+                                  entries=[public[identity] for identity in row['review-candidates']]))
     items.sort(key=lambda item: not item['important'])
     history = [line for line in lines if line['kind'] == 'review-action']
     undone = {c['undoes'] for line in history for c in line['changes'] if c.get('undoes')}
@@ -306,11 +320,25 @@ def apply(settings, body, *, clock=None):
             decide(body.get('entry_id'), decision)
         elif action == 'acknowledge':
             entry = require(body.get('entry_id'))
-            if entry['status'] == 'pending':
+            if body.get('statement_id'):
+                statement = next((s for s in documents[root/'data/card-statements.json'] if s['id'] == body['statement_id']), None)
+                row = next((r for r in statement.get('members',[]) if r['serial'] == body.get('row_serial') and r['disposition'] == 'overlap-pending'), None) if statement else None
+                if not row or entry['id'] not in row['review-candidates']:
+                    raise ValueError('This overlapping row is no longer waiting for review')
+                if any(m.get('entry-id') == entry['id'] for m in statement['members']):
+                    raise ValueError('That entry is already assigned to another row')
+                row.pop('review-candidates')
+                row.update(disposition='already-in-ledger', **{'entry-id':entry['id']})
+                entry.setdefault('sources',[])
+                if statement['source'] not in entry['sources']:
+                    entry['sources'].append(statement['source'])
+                changes.append(dict(entry_id=entry['id'],before_version=state['entries'][entry['id']]['version'],after_version=digest(entry),reason='overlapping-statements'))
+            elif entry['status'] == 'pending':
                 raise ValueError('Choose a category to resolve this pending entry')
-            if not any(i['kind'] == 'doubt' and i['id'] == entry['id'] for i in state['items']):
+            elif not any(i['kind'] == 'doubt' and i['id'] == entry['id'] for i in state['items']):
                 raise ValueError('This doubt is no longer waiting for review')
-            changes.append(dict(entry_id=entry['id'], before_version=state['entries'][entry['id']]['version'], after_version=digest(entry), decision=dict(status='resolved', account=state['entries'][entry['id']]['currentAccount'] or entry['postings'][0]['account'], label='', notes='', updatedAt=datetime.now(timezone.utc).isoformat()), original=state['entries'][entry['id']]))
+            if not body.get('statement_id'):
+                changes.append(dict(entry_id=entry['id'], before_version=state['entries'][entry['id']]['version'], after_version=digest(entry), decision=dict(status='resolved', account=state['entries'][entry['id']]['currentAccount'] or entry['postings'][0]['account'], label='', notes='', updatedAt=datetime.now(timezone.utc).isoformat()), original=state['entries'][entry['id']]))
         elif action == 'import':
             preview = import_preview(root, body.get('payload'), clock=clock)
             if body.get('preview_token') != preview['token']:
@@ -348,7 +376,8 @@ def apply(settings, body, *, clock=None):
                 unlink_pair(actual, one, two)
                 if action == 'merge':
                     kept, removed = merge_order(first, second, records(root), root)
-                    if kept.get('statement-end') and removed.get('statement-end'):
+                    bank_members = statement_members(documents, root)
+                    if (kept.get('statement-end') or kept['id'] in bank_members) and (removed.get('statement-end') or removed['id'] in bank_members):
                         raise ValueError('Both entries belong to filed statements. Reconcile their membership before merging.')
                     sources = list(dict.fromkeys(kept.get('sources', []) + removed.get('sources', [])))
                     notes = list(dict.fromkeys(kept.get('notes', []) + removed.get('notes', [])))
@@ -414,8 +443,10 @@ def apply(settings, body, *, clock=None):
 
 
 def merge_order(first, second, lines, root=None):
-    if bool(first.get('statement-end')) != bool(second.get('statement-end')):
-        return (first, second) if first.get('statement-end') else (second, first)
+    bank_members = statement_members(load(root), root) if root else set()
+    first_member, second_member = bool(first.get('statement-end')) or first['id'] in bank_members, bool(second.get('statement-end')) or second['id'] in bank_members
+    if first_member != second_member:
+        return (first, second) if first_member else (second, first)
     # Existing imported entries have no addition event and predate live additions.
     additions = {line.get('entry_id'): (line['time'], index) for index, line in enumerate(lines) if line['kind'] == 'draft' and line.get('outcome') == 'added'}
     imported = {}

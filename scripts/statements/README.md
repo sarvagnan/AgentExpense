@@ -1,8 +1,10 @@
 # Example card statement reader
 
 This reader handles an invented card statement, with no bank or network branding.
-Copy `statement_pdf.py` and adapt its recognition, headers and row parsing for a
-new format. The reconciler selects accounts with kind `card` and
+The built-in `example-card-pdf` adapter lives in `readers/example_card_pdf.py`;
+`statement_pdf.py` remains its parser. New built-in or personal readers follow
+[the version-1 interface](../../docs/READERS.md), which also documents generic
+CSV, XLSX and XLS mapping, signed bank summaries, overlap and start-date handling. The reconciler selects accounts with kind `card` and
 `statement.reader: "example-card-pdf"` in `data/accounts.json`. The printed identifier
 selects a matching `statement.identifier`; without a match, only one account
 without an identifier can be selected. Ambiguous choices stop with a metadata hint.

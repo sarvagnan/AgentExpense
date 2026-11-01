@@ -56,3 +56,11 @@ class SelectionTests(Fixture):
         rows, metadata = extract_rows(self.root,'2026-01-28')
         self.assertEqual(rows,[])
         self.assertEqual(metadata['account'],CARD)
+
+    def test_overlapping_downloads_in_one_month_have_distinct_paths(self):
+        first = reconciliation_path(self.root,'2026-01-15','Deposits:Main',{'label':'Current'})
+        first.parent.mkdir(parents=True,exist_ok=True)
+        first.write_text('{"periodEnd":"2026-01-15"}')
+        second = reconciliation_path(self.root,'2026-01-28','Deposits:Main',{'label':'Current'})
+        self.assertNotEqual(first,second)
+        self.assertEqual(reconciliation_path(self.root,'2026-01-15','Deposits:Main',{'label':'Renamed'}),first)

@@ -26,10 +26,12 @@ sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
 from statement_pdf import parse_text, extract_text, checks, recognised, card_identifier, printed_currency, account_currency
 from statement_rules import plan, convert
 from reconcile_statement import select_account, statement_accounts, reconciliation_path
+from statement_readers import Registry, check_statement, signed, money_text
+from ledger_manifest import read_manifest
 
 
 def fingerprint(root):
-    return sha256(b''.join(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes() for p in store_paths(root))).hexdigest()
+    return sha256(b''.join(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes() for p in [root/'ledger.json', *store_paths(root)])).hexdigest()
 
 
 def statement_opening(documents, root, statement):
@@ -39,17 +41,20 @@ def statement_opening(documents, root, statement):
     Existing activity must have its original opening/statement chain.
     """
     account = statement['account']
-    if not statement.get('accountAssigned') or any(p['account']==account for e in entries(documents) for p in e['postings']):
+    if any(p['account']==account for e in entries(documents) for p in e['postings']):
         return None
     if any(s['account']==account for s in documents[root/'data/card-statements.json']):
         return None
     currency = statement['currency']
-    balance = -Decimal(statement['previousBalance'])
-    path = root/'data/expenses'/f"{statement['periodStart'][:4]}.json"
+    balance = Decimal(statement['openingBalance']) if statement.get('kind') == 'bank' else -Decimal(statement['previousBalance'])
+    opening_date = max(statement['periodStart'], read_manifest(root).get('startDate', statement['periodStart']))
+    if statement.get('kind') == 'bank':
+        balance += sum((signed(r) for r in statement['rows'] if r['date'] < opening_date), Decimal(0))
+    path = root/'data/expenses'/f"{opening_date[:4]}.json"
     used = {e['id'] for e in entries(documents)}
-    row = dict(id=new_id(used), date=statement['periodStart'], status='confirmed', description='Statement starting balance',
-               postings=[dict(account=account, amount=f'{balance:.2f}', commodity=currency, **{'assert':dict(amount=f'{balance:.2f}',commodity=currency)}),
-                         dict(account='Equity:Opening Balances', amount=f'{-balance:.2f}', commodity=currency)])
+    row = dict(id=new_id(used), date=opening_date, status='confirmed', description='Statement starting balance',
+               postings=[dict(account=account, amount=money_text(balance), commodity=currency, **{'assert':dict(amount=money_text(balance),commodity=currency)}),
+                         dict(account='Equity:Opening Balances', amount=money_text(-balance), commodity=currency)])
     documents[root/'data/accounts.json']['accounts'].setdefault('Equity:Opening Balances',{})
     documents.setdefault(path,[]).append(row)
     return row
@@ -115,34 +120,47 @@ class Statements:
     def purge(self):
         with self.mutex:
             for s in self.all():
-                if s['id'] not in self.in_flight and s.get('discarded_until') and datetime.fromisoformat(s['discarded_until']) <= datetime.now(timezone.utc):
+                completed = s['state'] in ('applied','already_filed') and datetime.fromisoformat(s.get('updated_at',s['created_at'])) <= datetime.now(timezone.utc)-timedelta(hours=RECOVERY_HOURS)
+                discarded = s.get('discarded_until') and datetime.fromisoformat(s['discarded_until']) <= datetime.now(timezone.utc)
+                if s['id'] not in self.in_flight and (completed or discarded):
                     shutil.rmtree(self.folder(s['id']))
 
     def create(self, data, original_name, upload_id=None, *, client_time=None, client_zone=None):
         context = client_context(client_time, client_zone)
-        if not data.startswith(b'%PDF-'):
-            raise ValueError('Choose a credit-card statement PDF.')
-        try:
-            reader = PdfReader(io.BytesIO(data))
-            locked = reader.is_encrypted and not reader.decrypt('')
-            if not locked and not len(reader.pages):
-                raise ValueError()
-        except Exception:
-            raise ValueError('This PDF could not be opened. Choose a valid credit-card statement PDF.') from None
         name = Path((original_name or 'Statement.pdf').replace('\\', '/')).name
         name = re.sub(r'[\x00-\x1f\x7f]', '', name)[:200]
-        if not name.lower().endswith('.pdf'):
-            name += '.pdf'
+        suffix = Path(name).suffix.lower()
+        supported = {extension for reader in Registry(self.ledger).readers.values() for extension in reader.extensions}
+        if suffix not in supported:
+            raise ValueError('Choose a supported statement file: PDF, CSV, XLSX or XLS.')
+        locked = False
+        if suffix == '.pdf':
+            if not data.startswith(b'%PDF-'):
+                raise ValueError('This PDF could not be opened. Choose a valid statement PDF.')
+            try:
+                reader = PdfReader(io.BytesIO(data))
+                locked = reader.is_encrypted and not reader.decrypt('')
+                if not locked and not len(reader.pages):
+                    raise ValueError()
+            except Exception:
+                raise ValueError('This PDF could not be opened. Choose a valid statement PDF.') from None
         session = dict(id=secrets.token_hex(16), state='locked' if locked else 'reading', original_name=name,
-                       created_at=now(), queued_at=now(), decisions=[], result=None, error=None, waiting=None, runs=[], upload_id=upload_id, pdf_hash=sha256(data).hexdigest(), **context)
+                       created_at=now(), queued_at=now(), decisions=[], result=None, error=None, waiting=None, runs=[], upload_id=upload_id, pdf_hash=sha256(data).hexdigest(), file_suffix=suffix, **context)
         with self.mutex:
             if upload_id and self.upload_marker(upload_id).exists():
                 raise ValueError('This upload was cancelled. Choose the file again to start a new upload.')
             self.put(session)
-            (self.folder(session['id']) / 'original.pdf').write_bytes(data)
-            if not locked:
+            (self.folder(session['id']) / ('original'+suffix)).write_bytes(data)
+            if suffix != '.pdf':
+                (self.folder(session['id']) / ('read'+suffix)).write_bytes(data)
+            elif not locked:
                 self.open_pdf(session, reader)
         return session
+
+    def remove_files(self, session):
+        suffix = session.get('file_suffix','.pdf')
+        for prefix in ('original','read'):
+            (self.folder(session['id'])/(prefix+suffix)).unlink(missing_ok=True)
 
     def upload_marker(self, token):
         if not re.fullmatch('[a-f0-9]{32}', token):
@@ -223,6 +241,107 @@ class Statements:
     def read(self, session, *, cancel=None):
         if not self.current_generation(session):
             return
+        suffix = session.get('file_suffix', '.pdf')
+        path = self.folder(session['id']) / ('read' + suffix)
+        registry = Registry(self.ledger)
+        metadata = load(self.ledger)[self.ledger/'data/accounts.json']['accounts']
+        assigned = session.get('assigned_account')
+        if assigned and session.get('reader_config'):
+            config = deepcopy(session['reader_config'])
+            expected = metadata[assigned].get('statement',{}).get('identifier')
+            if expected:
+                config['identifier'] = expected
+            metadata[assigned] = {**metadata[assigned], 'statement':config}
+        if suffix == '.pdf' and (not assigned or metadata[assigned].get('statement', {}).get('reader', 'example-card-pdf') == 'example-card-pdf'):
+            # Keep the example PDF's identifier/mismatch/checked-second-reading
+            # behavior. Personal PDF readers take precedence only when recognised.
+            configured = {m.get('statement',{}).get('reader') for m in metadata.values()}
+            personal = [r for r in registry.readers.values() if not assigned and r.personal and r.id in configured and r.recognise(path)['confidence'] > 0]
+            if not personal:
+                return self.read_card(session, cancel=cancel)
+        documents = load(self.ledger)
+        candidates = []
+        for account, meta in metadata.items():
+            config = meta.get('statement', {})
+            if not config.get('reader') or assigned and account != assigned:
+                continue
+            reader = registry.get(config['reader'])
+            if suffix not in reader.extensions or meta.get('kind') not in reader.kinds:
+                continue
+            recognised_file = reader.recognise(path)
+            if recognised_file['confidence']:
+                candidates.append((account, reader, recognised_file))
+        if not candidates:
+            session.update(state='wrong_file', error='No configured reader recognises this file. Configure statement.reader and statement.options for its account.')
+            self.put(session)
+            return
+        if len(candidates) > 1:
+            identified = []
+            for candidate, candidate_reader, recognition in candidates:
+                try:
+                    parsed = candidate_reader.read(path, metadata[candidate])
+                    printed = parsed.get('identifier',parsed.get('card_last4'))
+                    printed_currency = parsed.get('currency')
+                    if ((printed and printed == metadata[candidate].get('statement',{}).get('identifier')) or printed_currency) and (not printed_currency or printed_currency == metadata[candidate]['currency']):
+                        identified.append((candidate,candidate_reader,recognition))
+                except (ValueError,KeyError,TypeError,OSError):
+                    continue
+            if len(identified)==1:
+                candidates=identified
+        if len(candidates) != 1:
+            session.update(state='account_needed', candidate_accounts=[a for a, _, _ in candidates], error='Choose the account for this statement.')
+            self.put(session)
+            return
+        account, reader, recognition = candidates[0]
+        meta = metadata[account]
+        statement = reader.read(path, meta)
+        identifier = statement.get('identifier', statement.get('card_last4'))
+        if identifier and meta.get('statement',{}).get('identifier') not in (None,identifier):
+            raise ValueError('The printed identifier does not match the selected account')
+        statement.update(account=account, accountLabel=meta.get('label') or account.split(':')[-1], accountAssigned=bool(assigned), readerConfig=deepcopy(meta['statement']))
+        session.update(reader=reader.id, reader_name=reader.name, recognition=recognition, reader_config=deepcopy(meta['statement']))
+        if statement.get('currency') and statement['currency'] != meta['currency']:
+            session.update(state='currency_mismatch', file_currency=statement['currency'], suggested_account=account,
+                           error='Choose an account in the statement currency before continuing.')
+            self.put(session)
+            return
+        statements = documents[self.ledger/'data/card-statements.json']
+        filed = next((s for s in statements if s['account'] == account and s['end'] == statement['periodEnd']), None)
+        if filed:
+            session.update(state='already_filed', statement=statement, filed=filed)
+            self.put(session)
+            self.remove_files(session)
+            return
+        previous = [s for s in statements if s['account'] == account]
+        previous = max(previous, key=lambda s:s['end']) if previous else None
+        if previous and statement['periodEnd'] <= previous['end']:
+            raise ValueError('This statement predates the latest filed statement.')
+        start_date = read_manifest(self.ledger).get('startDate')
+        effective = max(statement['periodStart'], start_date or statement['periodStart'])
+        actual = entries(documents)
+        prior = [e for e in actual if e['date'] < effective or e['date'] == effective and any(p['account'].startswith('Equity:Opening Balances') for p in e['postings'])]
+        opening = dict(date=effective, balance=str(sum((Decimal(p['amount']) for e in prior for p in e['postings'] if p['account'] == account), Decimal(0)))) if any(p['account'] == account for e in prior for p in e['postings']) else None
+        initial_checks = []
+        previous_balance = previous['closing-balance'] if previous and 'closing-balance' in previous else money_text(-Decimal(previous['total-due'])) if previous else None
+        if statement.get('kind') != 'bank':
+            initial_checks = check_statement(statement,account=meta,previous=dict(balance=money_text(-Decimal(previous_balance))) if previous_balance is not None else None)
+            statement.update(kind='bank',openingBalance=money_text(-Decimal(statement['previousBalance'])),closingBalance=money_text(-Decimal(statement['totalDue'])),debits=statement['purchasesCharges'],credits=statement['paymentsCredits'])
+        tested = initial_checks + check_statement(statement, account=meta, previous=dict(end=previous['end'],balance=previous_balance) if previous else None,
+                                                  start_date=start_date, opening=opening)
+        if statement.get('kind') == 'bank':
+            statement.update(previousBalance=statement['openingBalance'], totalDue=statement['closingBalance'], purchasesCharges=statement['debits'], paymentsCredits=statement['credits'])
+        opening_entry = statement_opening(documents, self.ledger, statement)
+        checklist = plan(documents, statement, self.ledger)
+        session.update(state='found', statement=statement, checks=tested, extraction='reader', parser_error=None,
+                       opening=opening_entry, plan=checklist, fingerprint=fingerprint(self.ledger))
+        duplicates = [other for other in self.all() if other['id'] != session['id'] and not other.get('discarded_until') and other['state'] in ('found','review') and other.get('statement',{}).get('account') == account and other['statement']['periodEnd'] == statement['periodEnd']]
+        if duplicates:
+            session['duplicate_of'] = min(duplicates, key=lambda s:s['created_at'])['id']
+        self.put(session)
+
+    def read_card(self, session, *, cancel=None):
+        if not self.current_generation(session):
+            return
         path = self.folder(session['id']) / 'read.pdf'
         extraction_error = None
         try:
@@ -261,14 +380,15 @@ class Statements:
         try:
             if extraction_error:
                 raise ValueError('PDF text extraction failed: ' + extraction_error)
-            statement = parse_text(text)
+            statement = Registry(self.ledger).get('example-card-pdf').read(path, metadata[account])
             account = session.get('assigned_account') or select_account(documents, self.ledger, statement.get('card_last4'), account)
             metadata = documents[self.ledger / 'data/accounts.json']['accounts'][account]
             account_currency(statement, metadata['currency'])
             statement.update(account=account, accountLabel=metadata.get('label') or account.split(':')[-1], **({'accountAssigned':True} if session.get('assigned_account') else {}))
             earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
-            previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
-            tested = checks(statement, previous)
+            prior = max(earlier, key=lambda s:s['end']) if earlier else None
+            previous = (prior['total-due'] if 'total-due' in prior else money_text(-Decimal(prior['closing-balance']))) if prior else None
+            tested = check_statement(statement, account=metadata, previous=dict(balance=previous) if previous is not None else None)
             if not all(c['ok'] for c in tested):
                 raise ValueError('; '.join(c['text'] for c in tested if not c['ok']))
             method = 'parser'
@@ -298,12 +418,30 @@ class Statements:
             account_currency(statement, metadata['currency'])
             statement.update(account=account, accountLabel=metadata.get('label') or account.split(':')[-1], **({'accountAssigned':True} if session.get('assigned_account') else {}))
             earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
-            previous = max(earlier, key=lambda s:s['end'])['total-due'] if earlier else None
+            prior = max(earlier, key=lambda s:s['end']) if earlier else None
+            previous = (prior['total-due'] if 'total-due' in prior else money_text(-Decimal(prior['closing-balance']))) if prior else None
             tested = checks(statement, previous)
             if not all(c['ok'] for c in tested):
                 raise ValueError('The parser and the second reading could not validate the statement. ' + parser_error + '; ' + '; '.join(c['text'] for c in tested if not c['ok']))
             method = 'agent'
+        if 'reader' not in statement:
+            statement.update(reader='example-card-pdf', readerName='Example card PDF', readerPersonal=False, declaredChecks=['printed_totals'])
         filed = next((s for s in statements if s['account'] == account and s['end'] == statement['periodEnd']), None)
+        start_date = read_manifest(self.ledger).get('startDate')
+        # An opening balance already covers pre-start card rows. Use explicit
+        # balance-style membership for this import and its subsequent statements;
+        # previously filed card summaries and journal comments remain untouched.
+        if not filed and ((start_date and any(r['date'] < start_date for r in statement['rows'])) or any(s.get('kind')=='bank' and s['account']==account for s in statements)):
+            statement.update(kind='bank',openingBalance=money_text(-Decimal(statement['previousBalance'])),closingBalance=money_text(-Decimal(statement['totalDue'])),debits=statement['purchasesCharges'],credits=statement['paymentsCredits'])
+            for row in statement['rows']:
+                row.setdefault('reference',row['serial'])
+            effective = max(statement['periodStart'],start_date or statement['periodStart'])
+            prior_entries = [e for e in entries(documents) if e['date'] < effective or e['date']==effective and any(p['account'].startswith('Equity:Opening Balances') for p in e['postings'])]
+            opening_anchor = dict(date=effective,balance=money_text(sum((Decimal(p['amount']) for e in prior_entries for p in e['postings'] if p['account']==account),Decimal(0)))) if any(p['account']==account for e in prior_entries for p in e['postings']) else None
+            earlier = [s for s in statements if s['account']==account and s['end'] < statement['periodEnd']]
+            prior = max(earlier,key=lambda s:s['end']) if earlier else None
+            tested.extend(check_statement(statement,account=metadata,start_date=start_date,opening=opening_anchor,previous=dict(end=prior['end'],balance=prior['closing-balance'] if 'closing-balance' in prior else money_text(-Decimal(prior['total-due']))) if prior else None))
+            statement.update(previousBalance=statement['openingBalance'],totalDue=statement['closingBalance'])
         session.update(statement=statement, checks=tested, extraction=method, parser_error=parser_error)
         if filed:
             session.update(state='already_filed', filed=filed)
@@ -321,14 +459,16 @@ class Statements:
             if duplicates:
                 session['duplicate_of'] = duplicates[0]['id']
         self.put(session)
+        if filed:
+            self.remove_files(session)
 
     def assign(self, identity, account):
         with self.mutex:
             session = self.get(identity)
-            if session['state'] != 'currency_mismatch':
+            if session['state'] not in ('currency_mismatch', 'account_needed'):
                 raise ValueError('This statement is not waiting for an account')
             metadata = load(self.ledger)[self.ledger / 'data/accounts.json']['accounts'].get(account, {})
-            if metadata.get('kind') not in ('bank', 'card') or metadata.get('currency') != session.get('file_currency'):
+            if metadata.get('kind') not in ('bank', 'card') or (session.get('file_currency') and metadata.get('currency') != session['file_currency']) or (session.get('candidate_accounts') and account not in session['candidate_accounts']):
                 raise ValueError('Choose a bank or card account in the statement currency')
             session.update(assigned_account=account, state='reading', queued_at=now(), error=None)
             self.put(session)
@@ -378,6 +518,8 @@ class Statements:
                 raise ValueError('Upload this statement again to rebuild the checklist.')
             if any(i['needs_user'] and not i['decision'] for i in s['plan']['items']):
                 raise ValueError('Decide every row that needs you before applying.')
+            if s['plan']['items'] and all(i['rule']=='pre_start' for i in s['plan']['items']):
+                raise ValueError('All rows are covered by opening balances; no financial changes should be applied.')
             s.update(state='applying', queued_at=now(), error=None)
             self.put(s)
             return s
@@ -440,8 +582,8 @@ class Statements:
                             if other['id']!=s['id'] and not other.get('discarded_until') and other['state'] not in ('applied','already_filed') and other.get('statement',{}).get('account')==s['statement']['account'] and other.get('statement',{}).get('periodEnd')==s['statement']['periodEnd']:
                                 other.update(state='already_filed', filed=summary, apply_started=False, waiting=None, generation=other.get('generation',0)+1)
                                 self.put(other, force=True)
-                    for p in self.folder(s['id']).glob('*.pdf'):
-                        p.unlink()
+                                self.remove_files(other)
+                    self.remove_files(s)
         except Exception as exc:
             if stop_event.is_set() and s['state']=='reading':
                 s.update(error=None, waiting=None)
@@ -461,10 +603,17 @@ class StatementTransaction(Transaction):
 
     def apply_statement(self, lock_fd):
         s = self.draft
+        (self.root/'AGENTS.md').read_text()
+        policy = self.settings.application/'policy/BOOKKEEPING.md'
+        if policy.is_file():
+            policy.read_text()
         documents = load(self.root)
         if fingerprint(self.root) != s['fingerprint']:
             raise StaleChecklist('The ledger changed. Upload this statement again to rebuild the checklist.')
         statement, checklist = s['statement'], s['plan']['items']
+        if statement.get('kind') == 'bank':
+            from bank_statements import apply_bank
+            return apply_bank(self, documents, lock_fd)
         account = select_account(documents, self.root, None if statement.get('accountAssigned') else statement.get('card_last4'), statement['account'])
         metadata = documents[self.root/'data/accounts.json']['accounts'][account]
         currency = metadata['currency']

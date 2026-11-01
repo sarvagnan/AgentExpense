@@ -64,6 +64,25 @@ class MigrationTests(Fixture):
         self.run_upgrade();self.assertEqual(repo.checkpoint()[0], checkpoint[0])
         self.assertIn('Upgrade ledger format 0 → 1 (app v0.1.0)', self.run_command('jj','log','-r','@-','--no-graph','-T','description'))
 
+    def test_legacy_card_summary_membership_and_all_outputs_survive_unchanged(self):
+        from test_ledger import CARD
+        from generate_ledger import render
+        from check_store import check_card_statements
+        opening = entry(day='2026-01-01')
+        opening['postings'][0]['account'] = 'Equity:Opening Balances'
+        member = entry(identity='0000000000000002', **{'statement-end':'2026-01-28','serial-number':'EX-001','statement-page':1,'sources':['Bills/example.pdf']})
+        summary = dict(id='0000000000000003',account=CARD,start='2026-01-01',end='2026-01-28',source='Bills/example.pdf',rows=1,**{'previous-balance':'10.00','purchases':'10.00','credits':'0.00','total-due':'20.00'})
+        dump(self.year,[opening,member]);dump(self.root/'data/card-statements.json',[summary])
+        (self.root/'Bills').mkdir();(self.root/'Bills/example.pdf').write_bytes(b'%PDF-1.4 Fictional evidence')
+        self.run_command('jj','commit','-m','Fictional legacy card membership')
+        original = (self.root/'data/card-statements.json').read_bytes()
+        before = snapshot(self.root)
+        self.run_upgrade()
+        self.assertEqual((self.root/'data/card-statements.json').read_bytes(),original)
+        self.assertEqual(load(self.root)[self.year],[opening,member])
+        self.assertTrue(compare(before,snapshot(self.root),ignores=('meta.ledger',),emit=False))
+        self.assertEqual(check_card_statements(load(self.root),self.root)['statements'][0]['rows'],1)
+
     def test_dry_run_writes_nothing(self):
         before = self.source_bytes()
         self.run_upgrade(dry_run=True)

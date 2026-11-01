@@ -3,18 +3,18 @@ import { reloadData } from '../data';
 import { api, type Draft, request } from './api';
 import type { AgentStatus } from './agent-status';
 import { statementsApi, type StatementSession } from './statements-api';
-export const statementNeedsAttention = (s: StatementSession) => ['currency_mismatch', 'locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
+export const statementNeedsAttention = (s: StatementSession) => ['account_needed', 'currency_mismatch', 'locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
 export const needsAttention = (d: Draft) => d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
 export const isRunning = (d: Draft) => d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
-export const pollDelay = (drafts: Draft[]) => drafts.some(isRunning) ? 3000 : 30000;
+export const pollDelay = (drafts: Draft[], statements: StatementSession[] = []) => drafts.some(isRunning) || statements.some(s=>['reading','applying'].includes(s.state)) ? 3000 : 30000;
 export function useDrafts() {
   const [agent,setAgent] = useState<AgentStatus>({state:'checking',reason:null});
   const [statements,setStatements] = useState<StatementSession[]>([]);
   const [undo,setUndo]=useState<{id:string;until:number}[]>([]),[undoError,setUndoError]=useState('');
   const [drafts, setDrafts] = useState<Draft[]>([]), [online, setOnline] = useState<boolean | null>(null), [error, setError] = useState('');
   const [reloadError, setReloadError] = useState('');
-  const latest = useRef<Draft[]>([]), reloaded = useRef(new Set<string>()), busy = useRef<Promise<void> | null>(null), again = useRef(false), mounted = useRef(false);
+  const latest = useRef<Draft[]>([]), latestStatements = useRef<StatementSession[]>([]), reloaded = useRef(new Set<string>()), busy = useRef<Promise<void> | null>(null), again = useRef(false), mounted = useRef(false);
   const leaving=useRef(false), controller=useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
     if(leaving.current || document.hidden) return;
@@ -29,7 +29,7 @@ export function useDrafts() {
       if (!mounted.current || leaving.current || document.hidden || controller.current.signal.aborted) continue;
       const [listed, status, statementList] = await Promise.all([api.list(controller.current.signal), request<AgentStatus>('agent-status', {signal:controller.current.signal}), statementsApi.list(controller.current.signal)]);
       const next = newestFirst(listed);
-      if (mounted.current) {setAgent(status);setStatements(statementList.sessions);}
+      if (mounted.current) {setAgent(status);setStatements(statementList.sessions);latestStatements.current=statementList.sessions;}
       if (!mounted.current) return;
       setOnline(true); setError(''); latest.current=next; setDrafts(next);
       const additions = next.filter(d => d.state === 'added' && d.result?.entry_id && !reloaded.current.has(d.id));
@@ -52,7 +52,7 @@ export function useDrafts() {
       clearTimeout(timer);
       if(document.hidden || leaving.current) {controller.current?.abort();return;}
       await refresh();
-      if(active && run===generation && !document.hidden) timer=setTimeout(tick,pollDelay(latest.current));
+      if(active && run===generation && !document.hidden) timer=setTimeout(tick,pollDelay(latest.current,latestStatements.current));
     };
     const focus = () => { void tick(); };
     const hide=()=>{leaving.current=true;generation++;clearTimeout(timer);controller.current?.abort();};

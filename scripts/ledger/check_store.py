@@ -23,7 +23,7 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
     Opening equity and assertion-only entries are not unbilled activity.
     """
     actuals = entries(documents)
-    statements = documents[root / "data/card-statements.json"]
+    statements = [s for s in documents[root / "data/card-statements.json"] if s.get("kind") != "bank"]
     declared = set(documents[root / "data/accounts.json"]["accounts"])
     by_key = {}
     by_account = defaultdict(list)
@@ -113,6 +113,8 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
             if card:
                 unbilled.append(dict(id=entry["id"], account=account, date=entry["date"],
                                      description=entry["description"], currency=documents[root / "data/accounts.json"]["accounts"][account]["currency"], amount=str(sum((Decimal(p["amount"]) for p in card), Decimal(0)))))
+    from check_bank_statements import check_bank_statements
+    results.extend(check_bank_statements(documents, root))
     return dict(statements=results, unbilled=unbilled)
 
 
@@ -195,7 +197,7 @@ def check(root: Path = ROOT) -> None:
                         raise ValueError(f"{entry['id']}: missing or invalid evidence path {source!r}")
                     evidence.add(source)
     membership = check_card_statements(documents, root)
-    print(f"Verified {len(membership['statements'])} card statements by membership ({sum(s['rows'] for s in membership['statements'])} rows)")
+    print(f"Verified {len(membership['statements'])} account statements by membership ({sum(s['rows'] for s in membership['statements'])} rows)")
     print(f"Unbilled card entries through latest statement end: {len(membership['unbilled'])}")
     for entry in membership["unbilled"]:
         print(f"  unbilled {entry['date']} {entry['id']} {entry['amount']} {entry['currency']} — {entry['description']}")

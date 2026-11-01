@@ -1,0 +1,31 @@
+{
+  "account": "Assets:Bank:Nila Current",
+  "metadata": {
+    "kind": "bank",
+    "currency": "INR",
+    "label": "Nila Current",
+    "aliases": [
+      "nila current"
+    ],
+    "statement": {
+      "reader": "generic-sheet",
+      "options": {
+        "columns": {
+          "date": "Date",
+          "description": "Description",
+          "debit": "Debit",
+          "credit": "Credit",
+          "balance": "Balance",
+          "reference": "Reference"
+        },
+        "header_row": 2,
+        "date_format": "%Y-%m-%d",
+        "period": {
+          "start": "2026-11-01",
+          "end": "2026-11-28"
+        },
+        "sheet": "Activity"
+      }
+    }
+  }
+}

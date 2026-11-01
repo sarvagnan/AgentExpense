@@ -124,11 +124,11 @@ class StatementFixTests(Fixture):
         declarations['accounts']['Liabilities:Plastic:Main'] = dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
         dump(path,declarations)
         sessions, old = self.session()
-        statement = dict(periodStart='2026-09-29', periodEnd='2026-10-28', rows=[])
+        statement = dict(periodStart='2026-09-29', periodEnd='2026-10-28', previousBalance='0.00', rows=[])
         old.update(state='failed', statement=statement, fingerprint='old-store', failure_reason='stale_checklist')
         sessions.put(old)
         pdf = (sessions.folder(old['id'])/'read.pdf').read_bytes()
-        with patch('statements.extract_text', return_value=TEXT), patch('statements.parse_text', return_value=statement), patch('statements.checks', return_value=[dict(ok=True, text='Fixture')]), patch('statements.plan', return_value=dict(items=[], counts={}, unmatched=[])), patch('statements.fingerprint', return_value='current-store'):
+        with patch('statements.extract_text', return_value=TEXT), patch('statement_readers.Reader.read', return_value=statement), patch('statements.check_statement', return_value=[dict(ok=True, text='Fixture')]), patch('statements.plan', return_value=dict(items=[], counts={}, unmatched=[])), patch('statements.fingerprint', return_value='current-store'):
             fresh = sessions.create(pdf, 'new.pdf'); sessions.read(fresh)
             self.assertNotIn('duplicate_of', fresh)
             old.update(state='review', fingerprint='current-store', failure_reason=None); sessions.put(old)

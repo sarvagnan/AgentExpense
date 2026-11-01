@@ -1,3 +1,4 @@
+import {runReaderWorkflows} from './readers.mjs';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -328,6 +329,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
       }
       await runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce});
       await runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+      await runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce});
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

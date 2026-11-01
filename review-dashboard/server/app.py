@@ -490,7 +490,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
         from store import load
         statements.purge()
         documents = load(settings.ledger)
-        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('handover_undone')], filed=documents[settings.ledger/'data/card-statements.json'], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']))
+        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('handover_undone')], filed=documents[settings.ledger/'data/card-statements.json'], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']), readers=__import__('statement_readers').Registry(settings.ledger).describe())
 
     @app.get('/api/statements/filed/{end}')
     def filed_statement(end: str, account: str | None = None):
@@ -515,6 +515,10 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
             rows,_=extract_rows(settings.ledger,end,summary['account'])
         from store import entries
         members = {e.get('serial-number'): e for e in entries(load(settings.ledger)) if e.get('statement-end') == end and any(p['account'] == summary['account'] for p in e['postings'])}
+        if summary.get('kind') == 'bank':
+            actual = {e['id']:e for e in entries(documents)}
+            membership = {m['serial']:m for m in summary['members']}
+            return dict(summary=summary, rows=[{**r, 'disposition':membership[r['serial']]['disposition'], **({'entry_id':membership[r['serial']]['entry-id'], 'entry_description':actual[membership[r['serial']]['entry-id']]['description']} if membership[r['serial']].get('entry-id') else {})} for r in rows])
         return dict(summary=summary, rows=[{**r, 'entry_id': members[r['serial']]['id'], 'entry_description': members[r['serial']]['description'], 'conversion_notes': [n for n in members[r['serial']].get('notes', []) if 'replaces' in n and 'statement charge:' in n]} if r['serial'] in members else r for r in rows])
 
     @app.post('/api/statements',status_code=201)

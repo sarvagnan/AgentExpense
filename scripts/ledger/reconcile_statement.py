@@ -1,4 +1,4 @@
-"""Read-only card-row reconciliation proposals; never mutate the store or evidence."""
+"""Read-only account-row reconciliation proposals; never mutate the store or evidence."""
 from __future__ import annotations
 
 import argparse
@@ -14,9 +14,9 @@ from store import ROOT, entries, load, read_json
 READER = 'example-card-pdf'
 
 
-def statement_accounts(documents, root):
+def statement_accounts(documents, root, reader=READER):
     return {account: meta for account, meta in documents[root / 'data/accounts.json']['accounts'].items()
-            if meta.get('kind') == 'card' and meta.get('statement', {}).get('reader') == READER}
+            if meta.get('kind') in (('card',) if reader == READER else ('card', 'bank')) and (reader is None or meta.get('statement', {}).get('reader') == reader)}
 
 
 def select_account(documents, root, identifier=None, account=None):
@@ -24,8 +24,8 @@ def select_account(documents, root, identifier=None, account=None):
         metadata = documents[root / 'data/accounts.json']['accounts'].get(account, {})
         if metadata.get('kind') not in ('bank', 'card') or not metadata.get('currency'):
             raise ValueError('Choose a declared bank or card account for this statement.')
-        if identifier and (metadata.get('statement', {}).get('reader') != READER or metadata.get('statement', {}).get('identifier') not in (None, identifier)):
-            raise ValueError('The printed identifier does not match the selected card account.')
+        if identifier and (not metadata.get('statement', {}).get('reader') or metadata.get('statement', {}).get('identifier') not in (None, identifier)):
+            raise ValueError('The printed identifier does not match the selected account.')
         return account
     candidates = statement_accounts(documents, root)
     if identifier:
@@ -44,10 +44,13 @@ def reconciliation_path(root, end, account, metadata):
     suffix = hashlib.sha256(account.encode()).hexdigest()[:8]
     month = datetime.fromisoformat(end).strftime('%B%Y')
     folder = root / 'data/statements'
-    existing = list(folder.glob(f'{month}-*-{suffix}-reconciliation.json'))
+    existing = []
+    for path in folder.glob(f'{month}-*-{suffix}-reconciliation.json'):
+        if f'-{end}-' in path.name or read_json(path).get('periodEnd') == end:
+            existing.append(path)
     if len(existing) > 1:
         raise ValueError('Several reconciliation files exist for this account and period.')
-    return existing[0] if existing else folder / f'{month}-{slug}-{suffix}-reconciliation.json'
+    return existing[0] if existing else folder / f'{month}-{end}-{slug[:80]}-{suffix}-reconciliation.json'
 DECIMAL = re.compile(r'^(0|[1-9][0-9]*)(\.[0-9]+)?$')
 
 
@@ -131,10 +134,19 @@ def activity(entry: dict, account: str) -> bool:
 
 
 def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str | None = None, identifier: str | None = None,
-              total_due: str | None = None, source: str | None = None, root: Path = ROOT) -> dict:
+              total_due: str | None = None, source: str | None = None, root: Path = ROOT, balance_style: bool | None = None) -> dict:
     account = select_account(documents, root, identifier, account)
     currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
     validate_rows(rows)
+    date.fromisoformat(start)
+    date.fromisoformat(end)
+    if start > end:
+        raise ValueError('Statement start is after end')
+    if balance_style is True or balance_style is None and documents[root/'data/accounts.json']['accounts'][account].get('kind') == 'bank':
+        from reconcile_bank import bank_plan
+        from ledger_manifest import read_manifest
+        result = bank_plan(documents,dict(account=account,periodStart=start,periodEnd=end,rows=rows),root,read_manifest(root).get('startDate'))
+        return dict(kind='bank',**result,notes=['Read-only proposals; file checks and closing-balance verification run in the statement import pipeline.'])
     date.fromisoformat(start)
     date.fromisoformat(end)
     if start > end:
@@ -245,6 +257,8 @@ def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str
 
 
 def text_report(report: dict) -> str:
+    if report.get('kind') == 'bank':
+        return '\n'.join([*(json.dumps(item, ensure_ascii=False) for item in report['items']), *report['notes']])
     labels = [('alreadyMembers', 'Already members'), ('serialMatches', 'Serial matches: propose membership fields'),
               ('candidateRows', 'Amount/direction/date candidates (ranked; uniqueMatch is conservative)'),
               ('newRows', 'No candidate: propose pending entries'), ('unmatchedUnbilled', 'Unmatched unbilled entries through statement end')]
@@ -265,7 +279,7 @@ def main(argv=None) -> None:
     inputs.add_argument('--from-extract', metavar='END')
     parser.add_argument('--end')
     parser.add_argument('--start')
-    parser.add_argument('--account', help='Declared card account using the example reader')
+    parser.add_argument('--account', help='Declared bank or card account')
     parser.add_argument('--identifier', help='Printed statement identifier')
     parser.add_argument('--total-due')
     parser.add_argument('--source', help='Filed statement PDF path for a new statement draft')

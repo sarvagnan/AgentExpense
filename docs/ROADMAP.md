@@ -10,10 +10,14 @@ with its checks passing for every fixture ledger.
 | 1 | New repository | A scrubbed copy of the app, MIT licence, README, personal-data scanner | Scan clean; builds and fixture tests pass | Done |
 | 2 | Foundations | `ledger.json`, ledger format 1 and migrations, account metadata, account currencies with totals per currency, drafts dated by the browser's local time, fixture personas | All suites pass for every persona | Done |
 | 3 | Optional modules | Fuel log, investments and price sources, old-ledger lookup, weekly review behind settings | Personas without modules run with every module off | Done |
-| 4 | Screens | The approved mockups: navigation, Add with statements, Drafts, conversions, empty states, agent notice, Settings | Graded in Light and Dark, three browser engines | In progress |
-| 5 | Review on the server | Decisions applied by the server with audit lines, badge rules, migration from browser storage | Same Review count on every device; Export/Import still work | Planned |
-| 6 | Agent adapters | Adapter contract; Codex, Claude Code, Pi, OpenCode, direct API; each pinned and self-checked | Each shipped adapter passes its live probe | Planned |
-| 7 | Statements | Reader interface, generic CSV and spreadsheet readers, bank statement summaries, unknown formats read by the agent and checked by code, `startDate` | Fictional statements pass in every persona | Planned |
+| 4 | Screens | The approved mockups: navigation, Add with statements, Drafts, conversions, empty states, agent notice, Settings | Graded in Light and Dark, three browser engines | Built; graded with all screens at the end |
+| 5 | Review on the server | Decisions applied by the server with audit lines, badge rules, migration from browser storage | Same Review count on every device; Export/Import still work | Done |
+| 6 | Agent adapters | Adapter contract; Codex, Claude Code, Pi, OpenCode, direct API; each pinned and self-checked | Each shipped adapter passes its live probe | Built; live probes pending |
+| 6a | Agent outages | Failure kinds from every adapter, one shared pause with backoff, finishing a draft by hand, asking before new accounts, Add defaults from history | Drafts survive a usage limit and can be finished without the agent | Planned |
+| 6b | Today's month | The current month always exists, a daily rebuild after midnight, one variable-spending row per currency in Forecast | The page opens on today's month on the 1st | Planned |
+| 6c | Recurring rules | Rules guessed as you type and added as usual, rules made automatically from whole payments, a Rules screen, weekly-review proposals, a CLI | Usual payments and rules work in every persona and currency | Planned |
+| 6d | Corrections and receipts | Typed dates for usual payments, "Not this", correcting saved entries through one replacement transaction shared with Review's merge, reading receipts afterwards | A saved entry can be corrected safely from Drafts, Explorer and Journal | Planned |
+| 7 | Statements | Reader interface, generic CSV and spreadsheet readers, bank statement summaries, unknown formats read by the agent and checked by code, `startDate` | Fictional statements pass in every persona | In progress (readers and bank statements done) |
 | 8 | Releases | `VERSION`, `CHANGELOG.md`, `make doctor`, `make update`, CI | An update between tagged releases, with a migration, works and rolls back | Planned |
 | 9 | Setup | `SETUP.md`, ledger template, demo, first-run screens and both paths, deployment examples | A fresh agent session sets up a ledger from nothing using only the docs | Planned |
 

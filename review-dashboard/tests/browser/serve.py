@@ -216,4 +216,49 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
     return Response(statement_pdf(text),media_type='application/pdf')
 
 
+@app.post('/__test/reader-scenario')
+def reader_scenario(body: dict):
+    from copy import deepcopy
+    extension = body['extension']
+    assert extension in ('csv','xlsx','xls')
+    documents = read_json(settings.ledger/'data/accounts.json')
+    currency = read_json(settings.ledger/'ledger.json')['defaultCurrency']
+    tag = body.get('tag','development')
+    assert isinstance(tag,str) and len(tag)<100 and all(c.isalnum() or c=='-' for c in tag)
+    account = 'Assets:Bank:Statement Workflow '+tag+' '+extension
+    documents['accounts'][account] = dict(kind='bank',currency=currency,label='Statement Workflow',statement=dict(reader='generic-csv' if extension=='csv' else 'generic-sheet',options=dict(header_row=2,sheet='Activity',columns=dict(date='Date',description='Description',debit='Debit',credit='Credit',balance='Balance',reference='Reference'),period=dict(start='2026-10-28',end='2026-11-28'))))
+    manifest=read_json(settings.ledger/'ledger.json');manifest['startDate']='2026-11-01'
+    update_settings(settings,lambda:{settings.ledger/'data/accounts.json':documents,settings.ledger/'ledger.json':manifest},dict(reader=True),'Fictional statement reader account')
+    return dict(account=account,currency=currency,reader='Generic CSV' if extension=='csv' else 'Generic spreadsheet')
+
+
+@app.post('/__test/reader-file')
+def reader_file(extension: str):
+    from fastapi.responses import Response
+    import io
+    import csv
+    assert extension in ('csv','xlsx','xls')
+    rows = [['Fictional account export'],['Date','Description','Debit','Credit','Balance','Reference'],
+            ['2026-10-31','Covered Fable purchase','50.00','','1000.00','WF-BANK-OLD'],
+            ['2026-11-02','Paper Kite Market','24.50','','975.50','WF-BANK-001'],
+            ['2026-11-03','Lantern Printworks','15.00','','960.50','WF-BANK-002'],
+            ['2026-11-04','Fable refund','','4.50','965.00','WF-BANK-003']]
+    if extension == 'csv':
+        output=io.StringIO();csv.writer(output).writerows(rows)
+        return Response(output.getvalue().encode(),media_type='text/csv')
+    output=io.BytesIO()
+    if extension == 'xlsx':
+        import openpyxl
+        book=openpyxl.Workbook();sheet=book.active;sheet.title='Activity'
+        for row in rows:sheet.append(row)
+        book.save(output)
+    else:
+        import xlwt
+        book=xlwt.Workbook();sheet=book.add_sheet('Activity')
+        for r,row in enumerate(rows):
+            for c,value in enumerate(row):sheet.write(r,c,value)
+        book.save(output)
+    return Response(output.getvalue(),media_type='application/octet-stream')
+
+
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

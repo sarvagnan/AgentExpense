@@ -48,10 +48,14 @@ def scaled_postings(entry, row, account):
 
 
 def plan(documents, statement, root):
+    if statement.get('kind') == 'bank':
+        from reconcile_bank import bank_plan
+        from ledger_manifest import read_manifest
+        return bank_plan(documents, statement, root, read_manifest(root).get('startDate'))
     account = select_account(documents, root, None if statement.get('accountAssigned') else statement.get('card_last4'), statement.get('account'))
     currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
     rows = statement['rows']
-    report = reconcile(documents, rows, end=statement['periodEnd'], start=statement['periodStart'], total_due=statement['totalDue'], root=root, account=account)
+    report = reconcile(documents, rows, end=statement['periodEnd'], start=statement['periodStart'], total_due=statement['totalDue'], root=root, account=account, balance_style=False)
     actual = entries(documents)
     by_id = {e['id']: e for e in actual}
     available = [e for e in actual if 'statement-end' not in e and activity(e, account)]
@@ -77,7 +81,7 @@ def plan(documents, statement, root):
         if row['serial'] in decisions or not row.get('foreignAmount'):
             continue
         candidates = [e for e in available if e['id'] not in used and distance(e, row) <= 3 and
-                      (f := foreign(e, currency)) and f['commodity'] == row['foreignCurrency'] and Decimal(f['amount']) == Decimal(row['foreignAmount']) and
+                      (f := foreign(e, currency)) and f['commodity'] == row['foreignCurrency'] and abs(Decimal(f['amount'])) == Decimal(row['foreignAmount']) and
                       card_amount(e, account) is not None and (card_amount(e, account) < 0) == (row['direction'] == 'Debit')]
         if len(candidates) == 1:
             settle(row, 'foreign_currency', f"Same {row['foreignAmount']} {row['foreignCurrency']}; the billed {currency} replaces the provisional amount.", candidates[0])
@@ -146,7 +150,7 @@ def convert(entry, row, account):
     if original is None:
         raise ValueError('Original currency is missing')
     foreign_posts = [p for p in entry['postings'] if p['commodity'] == row['foreignCurrency']]
-    if sum((Decimal(p['amount']) for p in foreign_posts), Decimal(0)) != Decimal(row['foreignAmount']):
+    if abs(sum((Decimal(p['amount']) for p in foreign_posts), Decimal(0))) != Decimal(row['foreignAmount']):
         raise ValueError('Foreign allocation changed since review')
     if len(foreign_posts) == 1:
         foreign_posts[0]['cost'] = dict(amount=row['amount'], commodity=currency, per='total')

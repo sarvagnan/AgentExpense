@@ -228,20 +228,25 @@ ledger and use the same lock and rollback journal. Failed audit commits remain
 pending in the draft, with `audit_error`, for the worker to retry. See
 [WEEKLY-REVIEW.md](WEEKLY-REVIEW.md) for exact reviewer commands.
 
-Statements uses the same FIFO worker and ledger lock. It reads card statement
-PDFs in the [example layout](../../scripts/statements/README.md) with Python PDFium character positions, then checks debits, credits, balance
-arithmetic and the preceding filed balance. Extraction/check failures use the
-restricted agent reader and repeat the same checks. No system PDF executable is
-needed. A wrong-file result never imports rows. Already-filed statements link to
-stored rows and cannot be applied again.
+Statements uses the same FIFO worker and ledger lock. A version-1 reader registry
+loads built-ins from the application and trusted personal readers from the ledger.
+The [example card PDF layout](../../scripts/statements/README.md) retains PDFium
+extraction and its checked second reading. Generic CSV, XLSX and XLS readers use
+explicit account mappings, exact decimals, printed totals where available, running
+balances and continuity; their errors never invoke an agent. No system PDF
+executable is needed. A wrong-file result never imports rows. Already-filed
+statements link to stored rows and cannot be applied again. See
+[READERS.md](../../docs/READERS.md) for the precise interface, configuration,
+source citations, signed bank summaries, overlap and start-date rules.
 
 | Method/path | Purpose |
 | --- | --- |
-| GET `api/statements` | Sessions, filed summaries, declared accounts |
-| POST `api/statements` | Multipart `file` (PDF, at most 25 MiB), `client_time`, `client_zone` |
+| GET `api/statements` | Sessions, filed summaries, declared accounts and reader descriptions |
+| POST `api/statements` | Multipart `file` (configured PDF/CSV/XLSX/XLS or personal format, at most 25 MiB), `client_time`, `client_zone` |
 | GET `api/statements/filed/{end}` | Stored summary and reconciliation rows |
 | GET `api/statements/{id}` | Durable state, checks, checklist and result |
 | POST `api/statements/{id}/unlock` | JSON `{password}`; memory only, never echoed |
+| POST `api/statements/{id}/account` | Select a compatible account for `account_needed` or `currency_mismatch` |
 | POST `api/statements/{id}/review` | Found statement → checklist |
 | PATCH `api/statements/{id}/rows/{serial}` | `{action:"match",entry_id}`, `{action:"account",account}`, `{action:"pending"}` or `{action:"reset"}` |
 | POST `api/statements/{id}/apply` | Queue checked apply, 202; all needs-you rows must be decided |
@@ -254,9 +259,12 @@ Passwords are used only to decrypt the PDF in memory. The readable copy stays in
 from session metadata, audit events, subprocess arguments, logs and responses.
 A failed password response is generic, including malformed password values.
 The encrypted original is kept only for this session. Applying files the readable
-PDF, membership and conversion changes, new entries, summary, reconciliation rows
+statement, membership and explicitly approved conversion changes, new entries, summary, reconciliation rows
 and audit line in one verified commit. A failure restores file bytes and jj state.
-Apply waits for a clean ledger; changed store contents invalidate an old checklist.
+Balance-style Apply adds a closing hledger assertion and explicit per-row membership;
+ambiguous overlaps remain important Review items without booking a second movement.
+Apply waits for a clean ledger; changed store or manifest contents invalidate an old checklist.
+Completed uploads are removed, and completed session records expire after 24 hours.
 
 Add detects statement text before running the expense agent. A locked PDF can be
 opened in Statements to establish its contents. An agent `not_expense` statement
@@ -274,7 +282,7 @@ PDF from an otherwise successful commit. No repository/global jj setting changes
 The session list contains work in progress. Applied/already-filed results remain
 addressable by session URL and appear through Past statements, rather than in the
 work list. The list also returns `recoverable`, including expiry times. Discarded
-statements retain their PDF and decisions for 24 hours; `POST statements/{id}/keep`
+statements retain their source file and decisions for 24 hours; `POST statements/{id}/keep`
 extends recovery by another day, and `restore` reopens the session. Handover Undo
 has the same 24-hour interval and can be extended with `keep` while it is valid.
 
