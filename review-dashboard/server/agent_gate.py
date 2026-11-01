@@ -9,7 +9,7 @@ import threading
 import time
 
 import agent_check as check
-from agent import command_for, codex_environment
+from agent import command_for, codex_environment, lookup_names
 
 SIGNED_OUT = "The agent isn't signed in. Run: make agent-login"
 # Snapshot policy source once; Python upgrades must not change the key.
@@ -24,7 +24,7 @@ def fingerprint(settings, version):
         'model': settings.model,
         'allow-lists': {
             'sections': sorted(check.DEVELOPER_SECTIONS),
-            'nested': sorted(check.NESTED_TOOLS), 'lookups': sorted(check.LOOKUPS),
+            'nested': sorted(check.NESTED_TOOLS), 'lookups': sorted(lookup_names(settings)),
             'policy': POLICY_HASH,
         },
     }
@@ -156,7 +156,7 @@ class AgentGate:
                 return
             changed = [name for name in values if cached.get('inputs', {}).get(name) != values[name]]
             ledger, old, account = check.fixture(work)
-            fixture_settings = replace(settings, ledger=ledger, old_ledger=old)
+            fixture_settings = replace(settings, ledger=ledger, old_ledger=old if 'search_old_ledger' in lookup_names(settings) else None)
             try:
                 check.check_offline(fixture_settings, work, stop=self.stop)
                 try:

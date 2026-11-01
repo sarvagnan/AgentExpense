@@ -1,3 +1,4 @@
+import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { money as amountMoney } from './formatting';
 import {formatTimestamp} from './date-time';
 import { reviewKeys } from '../scripts/account-metadata.mjs';
@@ -103,14 +104,14 @@ const VIEW_GUIDE: [string, string][] = [
 function HelpDialog({ onClose }: { onClose: () => void }) {
   return <Dialog title="Help" subtitle="What each view is for, and its keyboard shortcuts" labelId="help-title" onClose={onClose}>
     <div className="help" tabIndex={0} aria-label="Help">
-      <section><h3>Views</h3><dl className="help-views">{VIEW_GUIDE.map(([view, text]) => <div key={view}><dt>{view}</dt><dd>{text}</dd></div>)}</dl></section>
+      <section><h3>Views</h3><dl className="help-views">{VIEW_GUIDE.map(([view, text]) => <div key={view}><dt>{view}</dt><dd>{view === 'Accounts' && moduleSettings(data.meta.ledger).investments === false ? 'Balances on any date, each account’s history, and the entries that moved it.' : view === 'Accounts' && !data.prices.length ? 'Balances on any date, each account’s history, and investments at recorded cost. Add recorded prices for market values.' : text}</dd></div>)}</dl></section>
       <section className="help-review"><h3>Review</h3>
         <details><summary>Backup and moving browsers</summary><p>Export Work… saves decisions and drafts to a file. Import that file in the other browser or at a new dashboard address.</p></details>
         <details><summary>Multiple tabs</summary><p>One tab edits; others follow saved work read-only. Use Edit Here Instead to take over.</p></details>
         <details><summary>Recovery</summary><p>If work cannot be saved, keep the tab open and export it. A recovery notice offers Export Unsaved Work and Discard. Take editing back to Restore Unsaved Work; Undo and Redo are available. Keep the tab open until the work is saved or deliberately discarded.</p></details>
-        <details><summary>Fuel Log</summary><p>Open Fuel Log beside the entry to compare its payment and readings. Numbered Entry links open the confirmed ledger entries in a new tab.</p></details>
+        {moduleSettings(data.meta.ledger).fuel && <details><summary>Fuel Log</summary><p>Open Fuel Log beside the entry to compare its payment and readings. Numbered Entry links open the confirmed ledger entries in a new tab.</p></details>}
       </section>
-      <section><h3>Keyboard shortcuts</h3><div className="shortcuts">{SHORTCUTS.map(([group, items]) => <section key={group}><h4>{group}</h4><dl>{items.map(([keys, action]) => <div key={keys}><dt><kbd>{keys}</kbd></dt><dd>{action}</dd></div>)}</dl></section>)}</div>
+      <section><h3>Keyboard shortcuts</h3><div className="shortcuts">{SHORTCUTS.filter(([group]) => group !== 'Investment value charts' || (moduleSettings(data.meta.ledger).investments !== false && data.prices.length > 0)).map(([group, items]) => <section key={group}><h4>{group}</h4><dl>{items.map(([keys, action]) => <div key={keys}><dt><kbd>{keys}</kbd></dt><dd>{action}</dd></div>)}</dl></section>)}</div>
         <p className="help-note">In entry details, ↑/↓ or Previous/Next steps through the list. The title, amount and tools stay visible above the scrolling detail body. Esc, Close, or the dimmed page exits. Tab stays inside until you close it. The page behind stays still and returns to its exact scroll position on close.</p>
         <p className="help-note">Entry titles are links: click for details or ⌘/Ctrl-click or middle-click for a new tab. Drag the title to copy the entry to another app; title links include its URL. Select text in other cells to copy just that part. Right-click anywhere on a row for its commands; Shift+right-click opens the browser’s menu.</p>
         <p className="help-note">Show All clears Explorer filters. Clear Search in Journal, Accounts and Review keeps other filters. Explorer’s matching subtotal excludes transfers; the month summary shows the whole month.</p>

@@ -1,0 +1,2 @@
+# Replace with the path to your private, configured copy of run-weekly-review.sh.
+0 9 * * 1 /bin/sh /path/to/private/run-weekly-review.sh >> /path/to/private/weekly-review.log 2>&1

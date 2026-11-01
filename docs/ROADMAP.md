@@ -9,8 +9,8 @@ with its checks passing for every fixture ledger.
 | 0 | Mockups | New screens on fictional data: first run, navigation, Add with statements, Drafts with conversions, Review with its badge, empty states, agent notices | Approved | Done |
 | 1 | New repository | A scrubbed copy of the app, MIT licence, README, personal-data scanner | Scan clean; builds and fixture tests pass | Done |
 | 2 | Foundations | `ledger.json`, ledger format 1 and migrations, account metadata, account currencies with totals per currency, drafts dated by the browser's local time, fixture personas | All suites pass for every persona | Done |
-| 3 | Optional modules | Fuel log, investments and price sources, old-ledger lookup, weekly review behind settings | Personas without modules run with every module off | Planned |
-| 4 | Screens | The approved mockups: navigation, Add with statements, Drafts, conversions, empty states, agent notice, Settings | Graded in Light and Dark, three browser engines | Planned |
+| 3 | Optional modules | Fuel log, investments and price sources, old-ledger lookup, weekly review behind settings | Personas without modules run with every module off | Done |
+| 4 | Screens | The approved mockups: navigation, Add with statements, Drafts, conversions, empty states, agent notice, Settings | Graded in Light and Dark, three browser engines | In progress |
 | 5 | Review on the server | Decisions applied by the server with audit lines, badge rules, migration from browser storage | Same Review count on every device; Export/Import still work | Planned |
 | 6 | Agent adapters | Adapter contract; Codex, Claude Code, Pi, OpenCode, direct API; each pinned and self-checked | Each shipped adapter passes its live probe | Planned |
 | 7 | Statements | Reader interface, generic CSV and spreadsheet readers, bank statement summaries, unknown formats read by the agent and checked by code, `startDate` | Fictional statements pass in every persona | Planned |

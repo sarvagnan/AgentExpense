@@ -34,3 +34,5 @@ Before committing, run `make scan LIST=/path/to/private-identifiers.tsv`. Keep t
 ## Licence
 
 MIT; see [LICENSE](LICENSE).
+
+Optional fuel, investments, history lookup and weekly review are configured in each ledger’s `ledger.json`; see [module settings](docs/MODULES.md).

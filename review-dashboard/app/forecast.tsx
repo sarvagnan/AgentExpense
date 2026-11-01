@@ -1,3 +1,4 @@
+import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { dashboard as data, type DashboardData } from './data';
 import { moneyWhole as formatWhole, axisMoney as formatAxis } from './formatting';
@@ -75,7 +76,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
   const variableAfter = (month: string, afterDay: number) => { let sum = 0; for (let day = afterDay + 1; day <= daysInMonth(month); day += 1) sum += variableOn(day, daysInMonth(month)); return sum; };
   const focusDays = daysInMonth(focus);
   const isCurrent = focus === currentMonth;
-  const focusItems = forecast.items.filter((item) => item.month === focus);
+  const focusItems = forecast.items.filter((item) => item.month === focus && (item.kind !== 'Investment' || moduleSettings(data.meta.ledger).investments !== false));
   const forecastIncrements = new Map<number, number>();
   for (const item of focusItems) {
     const day = Number(item.date.slice(8, 10));
@@ -254,7 +255,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
           {visibleLines.map((line) => { const value = valueAt(line.points, hoverDay); return value === undefined ? null : <p key={line.month}><svg className="compare-key" data-compare-slot={line.slot} width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: line.color }} strokeWidth="2" strokeLinecap="round"/></svg><strong>{moneyWhole(value)}</strong><span>{slotName(line.slot)} · {monthShort(line.month)}{endNote(line.points, hoverDay)}</span></p>; })}
         </div>}
       </div></div>
-      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with foreign-currency commitments at their recorded planning cost{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({moneyWhole(averageVariable)} a month on average across {variable.months.length} full months)</> : '. Variable spending is not included, so the line rises only on commitment dates'}. Investments are left out.</p>
+      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with foreign-currency commitments at their recorded planning cost{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({moneyWhole(averageVariable)} a month on average across {variable.months.length} full months)</> : '. Variable spending is not included, so the line rises only on commitment dates'}. {moduleSettings(data.meta.ledger).investments !== false && 'Investments are left out.'}</p>
     </section>
 
     <div className="forecast-detail-grid">

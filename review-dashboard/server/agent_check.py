@@ -18,7 +18,7 @@ import uuid
 
 from jsonschema import ValidationError, validate
 
-from agent import codex_environment, command_for
+from agent import codex_environment, command_for, lookup_names
 from settings import Settings
 
 LOOKUPS = {'search_entries', 'entries_near', 'list_accounts', 'search_old_ledger'}
@@ -189,7 +189,7 @@ def inspect_features(output, command):
     return configured_features(command) - names
 
 
-def inspect_prompt(data, prompt=OFFLINE_PROMPT):
+def inspect_prompt(data, prompt=OFFLINE_PROMPT, lookups=None):
     """Allow only known section kinds and tool names; never display contents."""
     if not isinstance(data, list) or not data:
         raise ValueError('Unrecognized or empty prompt-input JSON')
@@ -264,6 +264,9 @@ def inspect_prompt(data, prompt=OFFLINE_PROMPT):
                         break
                 else:
                     problems.add('unexpected-developer-section')
+    allowed = LOOKUPS if lookups is None else lookups
+    if any(name.startswith('mcp__ledger__') and name not in NESTED_TOOLS and name.removeprefix('mcp__ledger__') not in allowed for name in nested):
+        problems.add('extra-ledger-tools')
     expected = DEVELOPER_SECTIONS | {'environment_context', 'prompt'}
     if set(sections) != expected or any(count != 1 for count in sections.values()):
         problems.add('missing-or-duplicate-sections')
@@ -280,7 +283,8 @@ def printable_names(names):
     return ', '.join(name if re.fullmatch(r'[A-Za-z0-9_./:-]+', name) else '[invalid-name]' for name in sorted(names))
 
 
-def inspect_events(log):
+def inspect_events(log, lookups=None):
+    allowed = LOOKUPS if lookups is None else lookups
     calls, completed = [], 0
     for line in log.splitlines():
         if not line.strip():
@@ -300,7 +304,7 @@ def inspect_events(log):
                 raise ValueError('Probe reported an unrecognized item shape')
             kind = item.get('type')
             if kind == 'mcp_tool_call':
-                if item.get('server') != 'ledger' or item.get('tool') not in LOOKUPS:
+                if item.get('server') != 'ledger' or item.get('tool') not in allowed:
                     raise PolicyFailure('Probe used a tool outside the ledger allowlist')
                 if event['type'] == 'item.completed':
                     if item.get('status') != 'completed' or item.get('error'):
@@ -322,7 +326,7 @@ def check_live(settings, work, account, *, stop=None):
     # Production model/effort/timeout are unchanged. Only this probe uses low.
     command = command_for(replace(settings, effort='low'), PROBE_PROMPT, [])
     log = invoke(command, work, settings.timeout, environment=codex_environment(settings), stop=stop)
-    calls = inspect_events(log)
+    calls = inspect_events(log, lookup_names(settings))
     answer = json.loads((work / 'answer.json').read_text())
     validate(answer, PROBE_SCHEMA)
     if answer != {'account': account, 'shell_unavailable': True}:
@@ -358,7 +362,7 @@ def check_offline(settings, work, *, stop=None):
         else:
             print(f'PASS feature names: {len(configured_features(command))}')
         data = json.loads(invoke(debug_command(command), work, settings.timeout, environment=environment, stop=stop))
-        sections, tools, nested, problems = inspect_prompt(data)
+        sections, tools, nested, problems = inspect_prompt(data, lookups=lookup_names(settings))
         print('sections: ' + ', '.join(f'{name}={count}' for name, count in sorted(sections.items())))
         print(f'top-level tools: {len(tools)} (' + printable_names(tools) + ')')
         print(f'nested tools: {len(nested)} (' + printable_names(nested) + ')')
@@ -405,7 +409,7 @@ def main():
         with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-check-') as folder:
             work = Path(folder)
             ledger, old, account = fixture(work)
-            settings = replace(settings, ledger=ledger, old_ledger=old)
+            settings = replace(settings, ledger=ledger, old_ledger=old if 'search_old_ledger' in lookup_names(settings) else None)
             if os.getenv('LIVE') == '1':
                 check_live(settings, work, account)
             else:

@@ -22,7 +22,7 @@ process as well to proxy only `/api/` to the local server. See `../README.md`.
 | `EXPENSES_AGENT_MODEL` | `gpt-6.1-terra` |
 | `EXPENSES_AGENT_EFFORT` | `xhigh` |
 | `EXPENSES_AGENT_TIMEOUT` | `600` seconds |
-| `EXPENSES_OLD_LEDGER` | empty (history lookup disabled) |
+| `EXPENSES_OLD_LEDGER` | deprecated fallback; use `modules.history.oldLedger` in `ledger.json` |
 
 127.0.0.1, localhost and testserver are always allowed hosts. Writes require an
 allowed `Tailscale-User-Login`, except in dev mode. A supplied Origin must use an
@@ -112,7 +112,7 @@ provide up to 12 PNG pages at scale 2 and text from those pages. The runtime
 policy, pieces, save time, earlier answers and server-check errors are in its
 prompt. Execution/schema failures retry once; entry validation errors get one
 agent correction. MCP sees all history by default; `--cutoff` and `--exclude`
-remain available for offline tests. Missing old-ledger history is visible in the
+remain available for offline tests. Only configured, readable old-ledger history is offered by the
 lookup response; set the path if historical lookup is desired.
 
 The app pins its own Codex through npm, independently of the operator's host Codex
@@ -328,3 +328,5 @@ and recorded notes establish them; no historical matching rule is inferred.
 ## Currency settings
 
 The currency endpoints, opening-balance lock rules and generated amount contracts are documented in [Account currencies](../../docs/CURRENCIES.md). Both settings writes use the existing write-access checks and the locked, verified commit path.
+
+Optional fuel fields, investment price sources, history tools and weekly review follow the selected manifest. See [module settings](../../docs/MODULES.md) and [scheduling examples](../../docs/scheduling/README.md).

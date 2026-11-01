@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agent import AgentFailure, SCHEMA, codex_environment, command_for, run
+from agent import AgentFailure, SCHEMA, schema_for, codex_environment, command_for, run
 from agent_check import (DiagnosticUnavailable, NESTED_TOOLS, OFFLINE_PROMPT, PolicyFailure,
                          PROBE_SCHEMA, check_live, check_offline,
                          configured_features, debug_command, fixture, home_problems,
@@ -62,7 +62,10 @@ def lookup(account='Assets:AgentCheck:fixture'):
 
 class AgentIsolationTests(unittest.TestCase):
     def test_command_isolation_and_ledger_approval(self):
-        settings = Settings(ledger=Path('/fixture/ledger'), old_ledger=Path('/fixture/old'))
+        folder = tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-isolation-command-')
+        self.addCleanup(folder.cleanup)
+        ledger, old, _ = fixture(Path(folder.name))
+        settings = Settings(ledger=ledger, old_ledger=old)
         args = command_for(settings, 'unchanged prompt', [Path('/fixture/image.png')])
         self.assertEqual(args[:6], [settings.codex, 'exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only'])
         self.assertIn('--ignore-user-config', args)
@@ -81,7 +84,7 @@ class AgentIsolationTests(unittest.TestCase):
             next(a for a in args if a.startswith('mcp_servers.ledger.args='))})
         mcp = json.loads(next(a.split('=', 1)[1] for a in args if a.startswith('mcp_servers.ledger.args=')))
         self.assertEqual(Path(mcp[0]).name, 'lookup_server.py')
-        self.assertEqual(mcp[1:], ['--ledger', '/fixture/ledger', '--old-ledger', '/fixture/old'])
+        self.assertEqual(mcp[1:], ['--ledger', str(ledger), '--old-ledger', str(old.resolve())])
         self.assertEqual(args[args.index('-m') + 1], settings.model)
         self.assertEqual(args[-4:], ['-i', 'image.png', '--', 'unchanged prompt'])
         self.assertEqual(args[args.index('--output-schema') + 1], 'schema.json')
@@ -98,7 +101,10 @@ class AgentIsolationTests(unittest.TestCase):
             self.assertEqual(codex_environment(Settings())['CODEX_HOME'], str(Settings().codex_home))
 
     def test_renderer_adapter_omits_exec_only_flags_and_keeps_settings(self):
-        command = command_for(Settings(ledger=Path('/fixture')), OFFLINE_PROMPT, [])
+        folder = tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-render-command-')
+        self.addCleanup(folder.cleanup)
+        ledger, _, _ = fixture(Path(folder.name))
+        command = command_for(Settings(ledger=ledger), OFFLINE_PROMPT, [])
         debug = debug_command(command)
         self.assertNotIn('--ephemeral', debug)
         self.assertNotIn('--ignore-user-config', debug)
@@ -189,7 +195,8 @@ class AgentIsolationTests(unittest.TestCase):
     def test_offline_checks_every_allowlist_even_when_login_fails(self):
         with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-offline-check-') as folder:
             home = Path(folder).resolve()
-            settings = Settings(ledger=home / 'fixture-ledger', codex_home=home, model='fixture-model')
+            ledger, _, _ = fixture(home)
+            settings = Settings(ledger=ledger, codex_home=home, model='fixture-model')
             command = command_for(settings, OFFLINE_PROMPT, [])
             def invoke_result(args, *rest, **kwargs):
                 if args[1:3] == ['login', 'status']:
@@ -313,7 +320,7 @@ class AgentIsolationTests(unittest.TestCase):
             self.assertEqual(record['outcome'], 'not_expense')
             call = json.loads(config.with_suffix('.calls').read_text())
             self.assertTrue(call['stdin_closed'])
-            self.assertEqual(call['schema'], SCHEMA)
+            self.assertEqual(call['schema'], schema_for(settings))
             self.assertIn('--ignore-user-config', call['argv'])
             self.assertIn('mcp_servers.ledger.default_tools_approval_mode="approve"', call['argv'])
             self.assertFalse(Path(call['cwd']).exists())

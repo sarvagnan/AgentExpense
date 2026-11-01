@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationRoot, ledgerRoot } from '../../scripts/project-paths.mjs';
-import { readManifest, validate } from './ledger-manifest.mjs';
+import { moduleSettings, readManifest, validate } from './ledger-manifest.mjs';
 
 const storeRoot = ledgerRoot();
 export const compact = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -122,7 +122,7 @@ export async function loadExpenseStore(root = storeRoot) {
   const [years, rawRules, priceText, declarations] = await Promise.all([
     Promise.all(files.map((name) => readJson(path.join(expenseDir, name)))),
     readJson(path.join(root, 'data', 'forecast.json')),
-    readFile(path.join(root, 'data', 'prices', 'mutual-funds.prices'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; }),
+    moduleSettings(manifest).investments !== false ? readFile(path.join(root, 'data', 'prices', 'mutual-funds.prices'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; }) : '',
     readJson(path.join(root, 'data', 'accounts.json')),
   ]);
   const schema = await readJson(path.join(applicationRoot, 'schema/store.schema.json'));

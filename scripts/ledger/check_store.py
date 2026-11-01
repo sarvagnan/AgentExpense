@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from store import ROOT, canonical_text, entries, load, read_json
 from audit import records, missing_entries
+from ledger_manifest import read_manifest, module_settings, price_source
 
 
 def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
@@ -119,8 +120,13 @@ def check_price_coverage(documents: dict, root: Path = ROOT) -> None:
     """Unit holdings opened at a different-currency cost need an initial NAV.
 
     This replaces the builder's initial fund-price coverage check without a
-    hard-coded fund list. Syntax and declarations are checked by hledger.
+    hard-coded fund list. Manual prices are checked even without a fetch source;
+    only configured sources require initial coverage. hledger also checks syntax
+    and declarations during verification.
     """
+    manifest = read_manifest(root)
+    if module_settings(manifest)["investments"] is False:
+        return
     first_held = {}
     for entry in entries(documents):
         for posting in entry["postings"]:
@@ -134,6 +140,8 @@ def check_price_coverage(documents: dict, root: Path = ROOT) -> None:
             if len(parts) < 5 or parts[0] != "P":
                 raise ValueError(f"Unrecognized price directive: {line!r}")
             prices.setdefault(parts[2], []).append(parts[1])
+    if not price_source(manifest):
+        return
     for commodity, first_day in first_held.items():
         if not any(day <= first_day for day in prices.get(commodity, [])):
             raise ValueError(f"{commodity}: no price on or before first unit holding {first_day}")
@@ -160,6 +168,12 @@ def check_forecasts(documents: dict, root: Path = ROOT) -> None:
 
 def check(root: Path = ROOT) -> None:
     documents = load(root)
+    if module_settings(read_manifest(root))['fuel']:
+        fuel = read_json(root / 'data/fuel-log.json')
+        if not isinstance(fuel, dict) or not isinstance(fuel.get('entries'), list):
+            raise ValueError('data/fuel-log.json needs an entries array')
+    elif (root / 'data/fuel-log.json').exists():
+        print('WARNING: fuel is off; data/fuel-log.json is ignored')
     manifest_path = root / 'ledger.json'
     if manifest_path.read_bytes() != canonical_text(read_json(manifest_path)).encode('utf-8'):
         raise ValueError('ledger.json is not canonical; run make format')

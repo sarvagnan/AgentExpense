@@ -270,11 +270,6 @@
 .forecast-strip b { position: absolute; top: 3px; bottom: 3px; width: 3px; margin-left: -1px; border-radius: 1px; background: var(--series-focus); }
 @media (max-width: 1600px) { .forecast-detail-grid { grid-template-columns: minmax(0, 1fr); } }
 .forecast-table { min-width: 760px; }
-.fuel-table { min-width: 0; width: 100%; }
-.fuel-table th, .fuel-table td { padding: 6px; }
-.fuel-match { display: block; }
-.fuel-match .status { white-space: normal; font: var(--text-caption); }
-
 /* Accounts */
 .accounts-workspace { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .account-list { position: sticky; top: var(--space-4); max-height: calc(100vh - 32px); overflow: auto; padding-bottom: var(--space-2); }
@@ -305,68 +300,6 @@
 @media (max-width: 1000px) { .review-split { grid-template-columns: minmax(0, 1fr) minmax(360px, min(var(--review-detail-width), 38%)); } .review-split > .pane-resizer { right: max(360px, min(var(--review-detail-width), 38%)); } }
 @media (max-width: 960px) { .review-split { grid-template-columns: minmax(0, 1fr); } .review-split > .pane-resizer { display: none; } }
 
-/* Fuel matching uses full-height columns when all three reading widths fit.
-   Below that, the log shares the detail column without crowding out the fills. */
-.review-split.with-fuel {
-  grid-template-columns: minmax(420px, 1fr) minmax(360px, min(var(--review-detail-width), calc(100% - 436px)));
-  grid-template-rows: minmax(0, 1fr) minmax(286px, 43%);
-}
-.review-split.with-fuel .review-queue { grid-column: 1; grid-row: 1 / 3; }
-.review-split.with-fuel .review-detail { grid-column: 2; grid-row: 1; }
-.review-split.with-fuel .review-form { gap: 10px; padding-top: 10px; }
-.review-split.with-fuel .fuel-panel { grid-column: 2; grid-row: 2; }
-.fuel-panel .panel-header > div { flex: 1 1 180px; }
-.fuel-panel .panel-header > .icon-button { flex: none; }
-.review-split.with-fuel > .pane-resizer { right: max(360px, min(var(--review-detail-width), calc(100% - 436px))); }
-@media (min-width: 1360px) {
-  .review-split.with-fuel {
-    --fuel-width: clamp(320px, 25%, 400px);
-    --classification-width: clamp(340px, var(--review-detail-width), calc(100% - var(--fuel-width) - 436px));
-    grid-template-columns: minmax(420px, 1fr) var(--classification-width) var(--fuel-width);
-    grid-template-rows: minmax(0, 1fr);
-    gap: var(--space-2);
-  }
-  .review-split.with-fuel .review-queue { grid-row: 1; }
-  .review-split.with-fuel .fuel-panel { grid-column: 3; grid-row: 1; }
-  .review-split.with-fuel > .pane-resizer { right: calc(var(--fuel-width) + var(--classification-width) + var(--space-1)); }
-}
-@media (min-width: 961px) and (max-width: 1359px) {
-  /* Keep the evidence and primary decision above the optional fields. */
-  .review-split.with-fuel .review-detail-head { padding: 8px 16px; }
-  .review-split.with-fuel .review-detail-head p { margin-top: 2px; }
-  .review-split.with-fuel .review-batch { margin: 0 16px 6px; }
-  .review-split.with-fuel .review-evidence { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; margin-inline: 16px; padding-block: 6px; }
-  .review-split.with-fuel .review-evidence > h3 { grid-column: 1; grid-row: 1; }
-  .review-split.with-fuel .review-evidence > details { grid-column: 2; grid-row: 1; }
-  .review-split.with-fuel .review-evidence > .source-list,
-  .review-split.with-fuel .review-evidence > .facts { grid-column: 1 / -1; }
-  .review-split.with-fuel .review-evidence .source-list li { gap: 4px; }
-  .review-split.with-fuel .review-form { padding-inline: 16px; gap: 6px; }
-  .review-split.with-fuel .field-help { margin-top: 4px; }
-  .review-split.with-fuel .review-actions { gap: 6px; }
-  .review-split.with-fuel .review-actions .button { padding-inline: 7px; }
-  .review-split.with-fuel .draft-state { flex: 1 1 0; min-width: 0; }
-  /* Preserve five readable fills when the log shares the detail column. */
-  .review-split.with-fuel .fuel-panel .panel-header { padding-block: 8px; }
-  .review-split.with-fuel .fuel-panel .panel-header > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
-  .review-split.with-fuel .fuel-panel .panel-header p { margin-top: 0; }
-  .review-split.with-fuel .fuel-table td { padding-block: 1px; }
-  .review-split.with-fuel .fuel-match { display: inline-flex; margin-left: 8px; }
-}
-@media (max-width: 960px) and (min-width: 761px) {
-  /* At this width the full-width queue goes above the entry/log comparison. */
-  .review-split.with-fuel { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto; align-items: start; }
-  .review-split.with-fuel .review-queue { grid-column: 1 / -1; grid-row: 1; }
-  .review-split.with-fuel .review-list { max-height: 200px; }
-  .review-split.with-fuel .review-detail { grid-column: 1; grid-row: 2; overflow: auto; max-height: calc(100dvh - 16px); }
-  .review-split.with-fuel .fuel-panel { grid-column: 2; grid-row: 2; position: sticky; top: 8px; max-height: calc(100dvh - 16px); }
-}
-@media (max-width: 760px) {
-  .review-split.with-fuel { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; }
-  .review-split.with-fuel .review-queue, .review-split.with-fuel .review-detail, .review-split.with-fuel .fuel-panel { grid-column: 1; grid-row: auto; }
-  .review-split.with-fuel .fuel-panel { max-height: 360px; }
-}
-
 .review-detail { container-type: inline-size; }
 @container (max-width: 400px) {
   .review-detail-head { flex-direction: column; gap: 4px; padding: 12px 16px 8px; }
@@ -387,9 +320,7 @@
 .evidence-name { display: inline; max-width: 100%; min-width: 0; vertical-align: bottom; }
 .evidence-stem { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .evidence-tail { flex: none; white-space: nowrap; }
-.fuel-table .date { white-space: normal; }
 
-.fuel-table th:last-child .column-resizer { right: 0; }
 .review .message > span { overflow-wrap: anywhere; }
 
 .narrow-details { display: none; }
@@ -473,9 +404,6 @@
 
 .matching-total { margin: 0; padding: 8px var(--space-4); border-top: 1px solid var(--separator); color: var(--text); font: var(--text-callout); overflow-wrap: anywhere; }
 .matching-total span { color: var(--text-secondary); }
-.fuel-payment { display: block; color: var(--text-secondary); font: var(--text-caption); overflow-wrap: anywhere; }
-.fuel-entry-link { font: var(--text-caption); overflow-wrap: anywhere; }
-.fuel-entry-link .icon { width: 12px; height: 12px; vertical-align: middle; }
 
 .recovery-notice { flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); margin-bottom: var(--space-3); border: 1px solid var(--warning); border-radius: var(--radius-control); background: var(--surface); color: var(--text); }
 .recovery-notice > span { flex: 1 1 480px; }

@@ -1,3 +1,4 @@
+import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { setCurrentAccounts } from '../scripts/account-metadata.mjs';
 import { setMoneySettings } from './formatting';
 import { setDateLocale } from './date-time';
@@ -34,11 +35,12 @@ export async function fetchGzipJson<T>(name: string): Promise<T> {
 }
 
 export async function loadData() {
-  const [dashboard, review, fuel] = await Promise.all([
+  const [dashboard, review] = await Promise.all([
     fetchGzipJson<DashboardData>('dashboard'),
     fetchGzipJson<ReviewData>('pending-transactions'),
-    fetchGzipJson<FuelData>('fuel-log'),
   ]);
+  const fuel = moduleSettings(dashboard.meta.ledger).fuel ? await fetchGzipJson<FuelData>('fuel-log') : {meta: {}, entries: []};
+  if (moduleSettings(dashboard.meta.ledger).fuel) await import('./styles/fuel.css');
   setData({ dashboard, review, fuel });
 }
 

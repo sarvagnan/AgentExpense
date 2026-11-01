@@ -7,7 +7,7 @@
   "modules": {
     "fuel": true,
     "investments": {
-      "prices": null
+      "prices": "mutual-fund-nav"
     },
     "history": {
       "oldLedger": null

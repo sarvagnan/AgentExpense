@@ -1,3 +1,5 @@
+import { isCurrency } from '../scripts/formatting.mjs';
+import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import {money as formatMoney} from './formatting';
 import { displayAccountLabel } from './account-labels';
 import { defaultAccount } from '../scripts/account-metadata.mjs';
@@ -169,18 +171,22 @@ function ValueChart({ points, label, caption, currency, showCost = true }: { poi
 }
 
 export default function AccountSummary() {
+  const investmentsEnabled = moduleSettings(data.meta.ledger).investments !== false;
+  const selectableAccounts = Object.fromEntries(Object.entries(data.meta.accounts).filter(([, meta]) => investmentsEnabled || meta.kind !== 'investment'));
+  const priced = investmentsEnabled && data.prices.length > 0;
+  const visibleGroups = groups.filter(group => investmentsEnabled || group !== 'Investments');
   const recorded = data.transactions.reduce((last, entry) => entry.date > last ? entry.date : last, '');
   // A NAV published after the last recorded entry still moves fund values, so the date can reach it.
   const latest = data.prices.reduce((last, series) => series.dates.at(-1)! > last ? series.dates.at(-1)! : last, recorded);
   const earliest = data.transactions.reduce((first, entry) => entry.date < first ? entry.date : first, latest);
   const [asOf, setAsOf] = useQueryState('asOf', latest, (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= earliest && value <= latest);
   // The address names the account, adding its currency when it differs from the default.
-  const [accountParam, setAccountParam] = useQueryState('account', defaultAccount(data.meta.accounts));
+  const [accountParam, setAccountParam] = useQueryState('account', defaultAccount(selectableAccounts));
   const [query, setQuery] = useQueryState('find', '');
   const [period, setPeriod] = useQueryState('period', 'month', (value) => value in PERIODS);
   const [selectedId, setSelectedId] = useQueryState('entry', '');
-  const accounts = balanceAccounts(data.transactions, asOf).filter((account) => account.group !== 'Other accounts');
-  const portfolio = accountParam === PORTFOLIO;
+  const accounts = balanceAccounts(data.transactions, asOf).filter((account) => account.group !== 'Other accounts' && (investmentsEnabled || account.group !== 'Investments'));
+  const portfolio = investmentsEnabled && accountParam === PORTFOLIO;
   const [paramAccount, paramCurrency] = accountParam.split('|');
   const matches = accounts.filter((account) => account.account === paramAccount && (!paramCurrency || account.currency === paramCurrency));
   const selected = !portfolio && matches.length === 1 ? matches[0] : undefined;
@@ -210,10 +216,11 @@ export default function AccountSummary() {
     const activity = accountActivity(data.transactions, account.account, account.currency, asOf);
     const series = data.prices.find(item => item.commodity === account.currency && item.currency === data.meta.accounts[account.account]?.currency) || data.prices.find(item => item.commodity === account.currency);
     const price = priceOn(series, asOf);
-    const costCurrency = data.meta.accounts[account.account]?.currency || data.meta.ledger.defaultCurrency;
-    const currency = series?.currency || costCurrency;
     const costs = activity.at(-1)?.costs || {};
-    return { account, activity, prices: series, price, currency, costCurrency, costs, value: price ? marketValue(account.balance, price.nav) : 0, cost: costs[currency] || 0 };
+    const declaredCurrency = data.meta.accounts[account.account]?.currency;
+    const costCurrency = declaredCurrency && isCurrency(declaredCurrency) ? declaredCurrency : Object.keys(costs)[0] || data.meta.ledger.defaultCurrency;
+    const currency = series?.currency || costCurrency;
+    return { account, activity, prices: series, price, currency, costCurrency, costs, value: price ? marketValue(account.balance, price.nav) : costs[currency] || 0, cost: costs[currency] || 0 };
   });
   const holding = holdings.find((item) => item.account.key === selected?.key);
   const valueOf = (account: (typeof accounts)[number]) => holdings.find((item) => item.account.key === account.key)?.value ?? account.balance;
@@ -275,7 +282,7 @@ export default function AccountSummary() {
     { label: 'Copy Account Name', action: () => copyAndAnnounce(short(account.account), 'account name') },
     { label: 'Copy Ledger Account', action: () => copyAndAnnounce(account.account, 'ledger account') },
     ...(isFund(account.currency) ? [
-      { label: 'Copy Market Value', action: () => copyAndAnnounce(valueOf(account).toFixed(2), 'market value') },
+      { label: priced ? 'Copy Market Value' : 'Copy Recorded Cost', action: () => copyAndAnnounce(priced ? valueOf(account).toFixed(2) : moneyTotal(holdings.find(item => item.account.key === account.key)?.costs || {}), priced ? 'market value' : 'recorded cost') },
       { label: 'Copy Units', action: () => copyAndAnnounce(account.balance.toFixed(3), 'units') },
     ] : [{ label: 'Copy Balance', action: () => copyAndAnnounce((account.group === 'Credit cards' ? Math.abs(account.balance) : account.balance).toFixed(2), 'balance') }]),
   ];
@@ -294,9 +301,9 @@ export default function AccountSummary() {
   const contributions = sumCurrencies(investments.filter(account => !isFund(account.currency)), (account: typeof accounts[number]) => account.balance);
   const combined = (...maps: Record<string, number>[]) => maps.reduce((sum, map) => { for (const [code, value] of Object.entries(map)) sum[code] = (sum[code] || 0) + value; return sum; }, {});
   const gainTotals = sumCurrencies(holdings.filter(item => Object.keys(item.costs).every(code => code === item.currency)), (item: typeof holdings[number]) => item.value - item.cost);
-  const investmentTotals = combined(fundValue, contributions);
+  const investmentTotals = combined(priced ? fundValue : fundCost, contributions);
   const valueCurrency = (account: typeof accounts[number]) => holdings.find(item => item.account.key === account.key)?.currency || account.currency;
-  const netWorth = sumCurrencies(accounts, (account: typeof accounts[number]) => valueOf(account), (account: typeof accounts[number]) => valueCurrency(account));
+  const netWorth = combined(!priced ? fundCost : {}, sumCurrencies(accounts.filter(account => priced || !isFund(account.currency)), (account: typeof accounts[number]) => valueOf(account), (account: typeof accounts[number]) => valueCurrency(account)));
   useLayoutEffect(() => {
     const changedAccount = previousAccount.current !== accountParam;
     previousAccount.current = accountParam;
@@ -316,7 +323,7 @@ export default function AccountSummary() {
     if (announceDate.current !== asOf) return;
     announceDate.current = null;
     const balance = portfolio ? `Investments ${moneyTotal(investmentTotals)}`
-      : selected ? `${short(selected.account)} ${holding ? 'market value' : 'balance'} ${holding ? money(holding.value, holding.currency) : money(shown(selected.balance), selected.currency)}`
+      : selected ? `${short(selected.account)} ${holding ? priced ? 'market value' : 'recorded cost' : 'balance'} ${holding ? priced ? money(holding.value, holding.currency) : moneyTotal(holding.costs) : money(shown(selected.balance), selected.currency)}`
       : 'Account not found';
     announce(`Balances as of ${dayLabel(asOf)}; ${balance}.`);
   }, [asOf, portfolio, selected, holding, fundValue, contributions]);
@@ -340,11 +347,11 @@ export default function AccountSummary() {
     return { ...point, navNote: carriedDates.length ? `NAV of ${carriedDates.map(dayLabel).join(' and ')} (carried forward)` : undefined };
   });
   const describe = (name: string, items: { day: string; value: number; cost: number }[], currency: string, showCost = true) => `${name} from ${dayLabel(items[0].day)} to ${dayLabel(items.at(-1)!.day)}: market value ${money(items[0].value, currency)} to ${money(items.at(-1)!.value, currency)}, ${showCost ? `against the cost recorded in ${currency}, ${money(items.at(-1)!.cost, currency)}.` : 'Cost remains in its recorded currency.'}`;
-  const navNote = (price: { date: string } | null) => price ? `NAV of ${dayLabel(price.date)}` : 'No NAV yet';
+  const navNote = (price: { date: string } | null) => price ? `NAV of ${dayLabel(price.date)}` : 'At recorded cost';
 
   // The account list is already a column, so entry details float over the page instead of adding a third.
   return <div className="accounts-container"><div className="split"><section className="page accounts" data-context-expanded={contextExpanded} data-portfolio={portfolio}>
-    <PageHeader title="Accounts" subtitle={`Balances as of ${dayLabel(asOf)}, from every recorded entry including opening balances and pending entries. Mutual funds are valued at the latest NAV on or before that day. Forecasts are left out.`}>
+    <PageHeader title="Accounts" subtitle={`Balances as of ${dayLabel(asOf)}, from every recorded entry including opening balances and pending entries. ${investmentsEnabled ? priced ? 'Mutual funds are valued at the latest NAV on or before that day. ' : 'Investments show recorded cost; no recorded prices available. ' : ''}Forecasts are left out.`}>
       <span className="compact-field" id="as-of-label">Balances as of</span>
       <div className="segmented month-stepper" role="group" aria-labelledby="as-of-label">
         <button type="button" className="icon-button" aria-label="Previous day" title="Previous day" disabled={asOf <= earliest} onClick={() => shiftDay(-1)}><Icon name="chevron-left"/></button>
@@ -357,27 +364,27 @@ export default function AccountSummary() {
     </PageHeader>
     <button type="button" className="button plain accounts-context-toggle" aria-expanded={contextExpanded} aria-controls="account-totals account-context" onClick={() => setContextExpanded(value => !value)}>{contextExpanded ? 'Less account context' : 'More account context'}<Icon name="chevron-up-down"/></button>
     <section className="panel"><PanelHeader title="Net worth"><span className="summary-total">{moneyTotal(netWorth)}</span></PanelHeader></section>
-    <section className="metrics" id="account-totals" aria-label="Totals by kind of account">{['Banks', 'Prepaid', 'Credit cards', 'Investments'].map((group) => {
+    <section className="metrics" id="account-totals" aria-label="Totals by kind of account">{['Banks', 'Prepaid', 'Credit cards', ...(investmentsEnabled ? ['Investments'] : [])].map((group) => {
       const members = accounts.filter((account) => account.group === group);
-      const total = sumCurrencies(members, (account: typeof accounts[number]) => valueOf(account) * (group === 'Credit cards' ? -1 : 1), (account: typeof accounts[number]) => valueCurrency(account));
-      const note = group === 'Investments' && !holdings.length ? 'Contributions since the ledger began, not market value' : GROUP_LABEL[group].note;
+      const total = group === 'Investments' && !priced ? investmentTotals : sumCurrencies(members, (account: typeof accounts[number]) => valueOf(account) * (group === 'Credit cards' ? -1 : 1), (account: typeof accounts[number]) => valueCurrency(account));
+      const note = group === 'Investments' && !priced ? 'Recorded cost and contributions' : group === 'Investments' && !holdings.length ? 'Contributions since the ledger began, not market value' : GROUP_LABEL[group].note;
       return <div className="metric" key={group} data-selected={portfolio && group === PORTFOLIO}><p className="metric-label">{group === 'Credit cards' && Object.values(total).every(value => (value as number) < 0) ? 'Credit on cards' : GROUP_LABEL[group].total}</p><p className="metric-value">{moneyTotal(total)}</p><p className="metric-note" title={note}>{plural(members.length, 'account')} · {note}</p></div>;
     })}</section>
     <label className="compact-field accounts-picker"><span>Account</span><select className="field" aria-label="Choose account" value={portfolio ? PORTFOLIO : selected ? (selected.currency === data.meta.ledger.defaultCurrency ? selected.account : `${selected.account}|${selected.currency}`) : ''} onChange={(event) => { setAccountParam(event.target.value); setSelectedId('', 'replace'); }}>
       {!portfolio && !selected && <option value="" disabled>Account not found</option>}
-      <option value={PORTFOLIO}>Investments · portfolio</option>
-      {groups.map(group => <optgroup key={group} label={group}>{accounts.filter(account => account.group === group).map(account => <option key={account.key} value={account.currency === data.meta.ledger.defaultCurrency ? account.account : `${account.account}|${account.currency}`}>{short(account.account)}{account.currency !== data.meta.ledger.defaultCurrency && !isFund(account.currency) ? ` (${account.currency})` : ''}</option>)}</optgroup>)}
+      {investmentsEnabled && <option value={PORTFOLIO}>Investments · portfolio</option>}
+      {visibleGroups.map(group => <optgroup key={group} label={group}>{accounts.filter(account => account.group === group).map(account => <option key={account.key} value={account.currency === data.meta.ledger.defaultCurrency ? account.account : `${account.account}|${account.currency}`}>{short(account.account)}{account.currency !== data.meta.ledger.defaultCurrency && !isFund(account.currency) ? ` (${account.currency})` : ''}</option>)}</optgroup>)}
     </select></label>
     <div className="accounts-workspace">
       <nav className="panel account-list" id="account-context" aria-label="Accounts">
         <div className="account-list-search"><SearchField id="account-search" value={query} onChange={setQuery} label="Find an account" placeholder="Find" scope="Accounts"/></div>
-        <div onKeyDown={accountNav.onKeyDown}>{groups.map((group) => {
+        <div onKeyDown={accountNav.onKeyDown}>{visibleGroups.map((group) => {
           const members = listed.filter((account) => account.group === group);
           return members.length ? <section key={group} aria-label={group}>{group === PORTFOLIO
             ? <h3><button type="button" className="account-group-open" aria-current={portfolio ? 'true' : undefined} title="Show every investment together" onClick={() => { setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}><span>{group}<Icon name="chevron-right"/></span><span>{members.length}</span></button></h3>
             : <h3>{group}<span>{members.length}</span></h3>}{members.map((account) => {
             const fund = holdings.find((item) => item.account.key === account.key);
-            const amount = fund ? money(fund.value, fund.currency) : money(group === 'Credit cards' ? Math.abs(account.balance) : account.balance, account.currency);
+            const amount = fund ? priced ? money(fund.value, fund.currency) : moneyTotal(fund.costs) : money(group === 'Credit cards' ? Math.abs(account.balance) : account.balance, account.currency);
             return <button key={account.key} type="button" className="account-row" {...accountNav.rowProps(account)} aria-current={account.key === selected?.key ? 'true' : undefined} onClick={() => chooseAccount(account)}
             data-copy={[short(account.account), amount].join('\t')}
             onContextMenu={(event) => menu.open(event, accountMenu(account), event.currentTarget)} onKeyDownCapture={(event) => { if (menu.keyOpens(event)) menu.open(event, accountMenu(account), event.currentTarget); }}>
@@ -387,26 +394,26 @@ export default function AccountSummary() {
           })}</section> : null;
         })}{!listed.length && <div className="empty"><strong>No accounts match</strong><span>Check the spelling, or clear the search.</span><button type="button" className="button" onClick={() => { setQuery(''); requestAnimationFrame(() => document.getElementById('account-search')?.focus({ preventScroll: true })); }}>Clear Search</button></div>}</div>
       </nav>
-      {!portfolio && !selected && <section className="panel account-not-found"><PanelHeader title={matches.length > 1 ? 'Choose an account currency' : 'Account not found'}/><div className="empty"><p>{matches.length > 1 ? 'This account has more than one commodity. Choose the account and currency from the list.' : <>No account matches <code>{breakable(accountParam)}</code> on {dayLabel(asOf)}. Choose another account or a later date.</>}</p><button type="button" className="button" onClick={() => { focusDrill.current = true; setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}>Back to Investments</button></div></section>}
+      {!portfolio && !selected && <section className="panel account-not-found"><PanelHeader title={matches.length > 1 ? 'Choose an account currency' : 'Account not found'}/><div className="empty"><p>{matches.length > 1 ? 'This account has more than one commodity. Choose the account and currency from the list.' : <>No account matches <code>{breakable(accountParam)}</code> on {dayLabel(asOf)}. Choose another account or a later date.</>}</p>{investmentsEnabled && <button type="button" className="button" onClick={() => { focusDrill.current = true; setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}>Back to Investments</button>}</div></section>}
       {portfolio && <div className="stack">
         <section className="panel">
-          <PanelHeader title="Investments" headingRef={selectionHeading} meta="Mutual funds at market value; other investments at what's been paid in since the ledger began"><span className="summary-total">{moneyTotal(investmentTotals)}</span></PanelHeader>
+          <PanelHeader title="Investments" headingRef={selectionHeading} meta={priced ? "Mutual funds at market value; other investments at what's been paid in since the ledger began" : 'At recorded cost; no recorded prices available'}><span className="summary-total">{moneyTotal(investmentTotals)}</span></PanelHeader>
           <dl className="fund-stats">
-            <div><dt>Mutual funds</dt><dd>{moneyTotal(fundValue)}<span className="row-sub">{plural(holdings.length, 'fund')} at market value</span></dd></div>
+            <div><dt>{priced ? 'Mutual funds' : 'Fund cost'}</dt><dd>{moneyTotal(fundValue)}<span className="row-sub">{plural(holdings.length, 'fund')} {priced ? 'at market value' : 'at cost'}</span></dd></div>
             <div><dt>Fund cost</dt><dd>{moneyTotal(fundCost)}<span className="row-sub">Of the units held</span></dd></div>
-            <div><dt>Unrealised gain</dt><dd>{holdings.every(item => Object.keys(item.costs).every(code => code === item.currency)) ? moneyTotal(gainTotals) : 'Different cost currencies'}<span className="row-sub">{'Per currency'} over cost</span></dd></div>
+            {priced && <div><dt>Unrealised gain</dt><dd>{holdings.every(item => Object.keys(item.costs).every(code => code === item.currency)) ? moneyTotal(gainTotals) : 'Different cost currencies'}<span className="row-sub">{'Per currency'} over cost</span></dd></div>}
             <div><dt>Other investments</dt><dd>{moneyTotal(contributions)}<span className="row-sub">Contributions</span></dd></div>
           </dl>
-          {holdings.length ? currencyOrder(holdings.map(item => item.currency)).map(currency => { const items = series(holdings.filter(item => item.currency === currency)); return <div className="account-chart" key={currency}>
+          {priced && holdings.length ? currencyOrder(holdings.map(item => item.currency)).map(currency => { const items = series(holdings.filter(item => item.currency === currency)); return <div className="account-chart" key={currency}>
             <div className="account-chart-head"><h3>Mutual funds over time · {currency}</h3>{legend}{periodSelect}</div>
             <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} showCost={holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency))} currency={currency} label={describe('All mutual funds', items, currency, holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency)))} caption="Units at the latest available NAV on each date, against the cost of the units held"/>
           </div>; }) : null}
         </section>
         <section className="panel">
-          <PanelHeader title="Holdings" meta={`As of ${dayLabel(asOf)} · Latest recorded prices`}/>
-          <p className="panel-note holdings-scroll-hint">Scroll across to compare units, NAV, cost, value and gain. Account names stay in view.</p>
+          <PanelHeader title="Holdings" meta={`As of ${dayLabel(asOf)} · ${priced ? 'Latest recorded prices' : 'Recorded cost'}`}/>
+          <p className="panel-note holdings-scroll-hint">{priced ? 'Scroll across to compare units, NAV, cost, value and gain.' : 'Compare units and recorded cost.'} Account names stay in view.</p>
           <div ref={holdingsScroll} className="table-scroll holdings-scroll" onScroll={(event) => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollLeft > 1); }} tabIndex={0} role="region" aria-label="Investment holdings"><table className="data-table holdings-table" role="table">
-            <thead><tr><th>Account</th><th className="th-num">Units</th><th className="th-num">NAV</th><th className="th-num">Cost</th><th className="th-num">Value</th><th className="th-num">Gain</th></tr></thead>
+            <thead><tr><th>Account</th><th className="th-num">Units</th>{priced && <th className="th-num">NAV</th>}<th className="th-num">Cost</th><th className="th-num">Value</th>{priced && <th className="th-num">Gain</th>}</tr></thead>
             <tbody>{investments.map((account) => {
               const fund = holdings.find((item) => item.account.key === account.key);
               return <tr key={account.key} className="interactive" onClick={(event) => { if (!(event.target instanceof Element && event.target.closest('a[href]')) && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !hasSelectedText(event)) drillInto(account); }}
@@ -418,29 +425,30 @@ export default function AccountSummary() {
                   event.preventDefault(); if (!hasSelectedText(event)) drillInto(account);
                 }}><span className="row-title">{short(account.account)}</span><span className="row-sub">{fund ? navNote(fund.price) : 'At contributions'}</span></a></td>
                 <td className="num" data-label="Units">{fund ? units(account.balance) : ''}</td>
-                <td className="num" data-label="NAV">{fund?.price ? nav(fund.price.nav, fund.currency) : ''}</td>
+                {priced && <td className="num" data-label="NAV">{fund?.price ? nav(fund.price.nav, fund.currency) : ''}</td>}
                 <td className="num" data-label="Cost">{fund ? moneyTotal(fund.costs) : money(account.balance, account.currency)}</td>
-                <td className="num" data-label="Value">{money(fund ? fund.value : account.balance, fund?.currency || account.currency)}</td>
-                <td className="num" data-label="Gain">{fund ? <>{Object.keys(fund.costs).every(code => code === fund.currency) ? gain(fund.value - fund.cost, fund.currency) : 'Different cost currency'}<span className="row-sub">{Object.keys(fund.costs).every(code => code === fund.currency) ? percent(fund.value - fund.cost, fund.cost) : ''}</span></> : ''}</td>
+                <td className="num" data-label="Value">{fund && !priced ? moneyTotal(fund.costs) : money(fund ? fund.value : account.balance, fund?.currency || account.currency)}</td>
+                {priced && <td className="num" data-label="Gain">{fund ? <>{Object.keys(fund.costs).every(code => code === fund.currency) ? gain(fund.value - fund.cost, fund.currency) : 'Different cost currency'}<span className="row-sub">{Object.keys(fund.costs).every(code => code === fund.currency) ? percent(fund.value - fund.cost, fund.cost) : ''}</span></> : ''}</td>}
               </tr>;
             })}</tbody>
-            <tfoot><tr><td>Total</td><td/><td/><td className="num">{moneyTotal(combined(fundCost, contributions))}</td><td className="num">{moneyTotal(investmentTotals)}</td><td className="num">{holdings.length ? moneyTotal(gainTotals) : ''}</td></tr></tfoot>
+            <tfoot><tr><td>Total</td><td/>{priced && <td/>}<td className="num">{moneyTotal(combined(fundCost, contributions))}</td><td className="num">{moneyTotal(investmentTotals)}</td>{priced && <td className="num">{holdings.length ? moneyTotal(gainTotals) : ''}</td>}</tr></tfoot>
           </table></div>
         </section>
       </div>}
       {selected && <div className="stack">
         <section className="panel">
-          <PanelHeader title={short(selected.account)} headingRef={selectionHeading} meta={<>{holding ? 'Mutual fund' : selected.group} · <code>{breakable(selected.account)}</code></>}><span className={holding ? 'fund-headline-group' : undefined}>{holding && <span className="summary-total-label">Market value</span>}<span className={`summary-total${holding ? ' fund-headline' : ''}`}>{holding ? money(holding.value, holding.currency) : money(card ? Math.abs(selected.balance) : selected.balance, selected.currency)}</span></span></PanelHeader>
+          <PanelHeader title={short(selected.account)} headingRef={selectionHeading} meta={<>{holding ? 'Mutual fund' : selected.group} · <code>{breakable(selected.account)}</code></>}><span className={holding ? 'fund-headline-group' : undefined}>{holding && <span className="summary-total-label">{priced ? 'Market value' : 'Recorded cost'}</span>}<span className={`summary-total${holding ? ' fund-headline' : ''}`}>{holding ? priced ? money(holding.value, holding.currency) : moneyTotal(holding.costs) : money(card ? Math.abs(selected.balance) : selected.balance, selected.currency)}</span></span></PanelHeader>
           {holding && <dl className="fund-stats">
             <div><dt>Units</dt><dd>{units(selected.balance)}</dd></div>
-            <div><dt>NAV</dt><dd>{holding.price ? nav(holding.price.nav, holding.currency) : '—'}<span className="row-sub">{holding.price ? dayLabel(holding.price.date) : 'No NAV yet'}</span></dd></div>
+            {priced && <div><dt>NAV</dt><dd>{holding.price ? nav(holding.price.nav, holding.currency) : '—'}<span className="row-sub">{holding.price ? dayLabel(holding.price.date) : 'At recorded cost'}</span></dd></div>}
             <div><dt>Cost</dt><dd>{moneyTotal(holding.costs)}<span className="row-sub">{selected.balance ? `${moneyTotal(Object.fromEntries(Object.entries(holding.costs).map(([code, value]) => [code, value / selected.balance])), 4)} a unit` : ''}</span></dd></div>
-            <div><dt>Unrealised gain</dt><dd>{Object.keys(holding.costs).every(code => code === holding.currency) ? gain(holding.value - holding.cost, holding.currency) : 'Different cost currency'}<span className="row-sub">{Object.keys(holding.costs).every(code => code === holding.currency) ? percent(holding.value - holding.cost, holding.cost) : ''} over cost</span></dd></div>
+            {priced && <div><dt>Unrealised gain</dt><dd>{Object.keys(holding.costs).every(code => code === holding.currency) ? gain(holding.value - holding.cost, holding.currency) : 'Different cost currency'}<span className="row-sub">{Object.keys(holding.costs).every(code => code === holding.currency) ? percent(holding.value - holding.cost, holding.cost) : ''} over cost</span></dd></div>}
           </dl>}
-          {holding ? (() => { const items = series([holding]); return <div className="account-chart">
+          {holding && !priced && <p className="panel-note">Showing recorded cost. No recorded prices available.</p>}
+          {holding ? priced ? (() => { const items = series([holding]); return <div className="account-chart">
             <div className="account-chart-head"><h3>Market value over time</h3>{legend}{periodSelect}</div>
             <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} showCost={Object.keys(holding.costs).every(code => code === holding.currency)} currency={holding.currency} label={describe(short(selected.account), items, holding.currency, Object.keys(holding.costs).every(code => code === holding.currency))} caption="Units held at the latest available NAV on each date"/>
-          </div>; })() : <div className="account-chart">
+          </div>; })() : null : <div className="account-chart">
             <div className="account-chart-head"><h3>{card ? (selected.balance <= 0 ? 'Owed' : 'In credit') : selected.group === 'Investments' ? 'Contributions' : 'Balance'} over time</h3>
               {periodSelect}</div>
             <div className={`account-chart-plot${flat ? ' account-chart-flat' : ''}`}>

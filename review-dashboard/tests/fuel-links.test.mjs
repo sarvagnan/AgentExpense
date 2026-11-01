@@ -2,9 +2,10 @@ import './test-isolation.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { fuelLedgerEntry } from '../app/fuel-links.ts';
+import { fuelLedgerEntry as findFuelEntry } from '../app/fuel-links.ts';
 import { personaData } from './persona-data.mjs';
 const { dashboard, fuel: log } = await personaData('asha');
+const fuelLedgerEntry = (reading, entries) => findFuelEntry(reading, entries, dashboard.meta.ledger);
 test('Every linked fuel-log row has one explicitly confirmed ledger association and physical readings', () => {
   const ids = log.entries.filter(row => row.ledgerStatus === 'Linked').map(row => row.entryId);
   assert.equal(new Set(ids).size, ids.length);

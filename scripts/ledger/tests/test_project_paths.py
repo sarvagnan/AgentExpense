@@ -15,6 +15,10 @@ from store import load
 class SeparateLedgerTests(Fixture):
     def setUp(self):
         super().setUp()
+        from store import dump, read_json
+        manifest = read_json(self.root / 'ledger.json')
+        manifest['modules'] = {'fuel': True}
+        dump(self.root / 'ledger.json', manifest)
         prices = self.root / 'data/prices/mutual-funds.prices'
         prices.parent.mkdir(parents=True)
         prices.write_text('; no funds in this fixture\n')

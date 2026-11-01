@@ -9,7 +9,7 @@ import { buildPatterns, patternOf } from '../scripts/add-patterns.mjs';
 import { loadExpenseStore } from '../scripts/expense-store.mjs';
 import { buildSentence, draftPieces, PATTERN_DEFS, payLabel } from '../app/live/builder.ts';
 const PAYS = {savings:bank, card, cash:'Pocket', wallet};
-const data={patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
+const data={modules:{fuel:true},patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
 const build=(text,edits={},files=false)=>buildSentence(text,data,edits,files,'2026-10-30');
 test('prototype examples identify all seven familiar patterns and something new',()=>{
  for(const [text,pattern] of [['petrol 875.25 8.5l 190km','fuel'],['cab 96 to office','ride'],['paper lantern renewed $5','sub'],['casey paid back 430 coffee','payback'],['bike chain lube 450 fablemart card','new'],['dinner 600 moss','dining'],['card bill 2300','cardbill'],['cashback 798','rewards']]) assert.equal(build(text).pattern,pattern,text);
@@ -47,8 +47,8 @@ test('dates, payment hints, merchant text and word boundaries handle edge cases'
 test('pattern statistics use the selected store and are deterministic for fixtures',async()=>{
  const tx=(id,date,amount,pay=bank)=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});
  const items=[tx('a','2026-01-02',20),tx('b','2026-01-03',25),tx('c','2026-01-04',30),tx('d','2026-01-05',35,'Pocket')];
- const b=buildPatterns(items,metadata);assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{}});
- const {transactions,accounts}=await loadExpenseStore();const actual=buildPatterns(transactions,accounts);for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x,accounts)===id).length);
+ const b=buildPatterns(items,metadata,{modules:{fuel:true}});assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{}});
+ const {transactions,accounts}=await loadExpenseStore();const actual=buildPatterns(transactions,accounts,{modules:{fuel:true}});for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x,accounts)===id).length);
 });
 test('API URLs, action errors, timeouts and atomic concurrent data reload',async()=>{
  const server=await createServer({optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});const original=globalThis.fetch;
@@ -63,7 +63,7 @@ test('API URLs, action errors, timeouts and atomic concurrent data reload',async
   globalThis.fetch=async(_url,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError'))));await assert.rejects(request('health',{},1),/took too long/);
   const cancel=new AbortController();const pending=request('health',{signal:cancel.signal});cancel.abort();await assert.rejects(pending,e=>e.name==='AbortError');
   const m=await server.ssrLoadModule('/app/data.ts');let notified=0;const off=m.subscribeData(()=>notified++);let calls=0;
-  globalThis.fetch=async(url,init)=>{calls++;assert.equal(init.cache,'no-store');return new Response(JSON.stringify({tag:'new',url}));};
+  globalThis.fetch=async(url,init)=>{calls++;assert.equal(init.cache,'no-store');return new Response(JSON.stringify({tag:'new',url,meta:{ledger:{modules:{fuel:true}}}}));};
   const a=m.reloadData(),b=m.reloadData();assert.equal(a,b);await a;assert.equal(calls,3);assert.equal(notified,1);const prior=m.dashboard;
   globalThis.fetch=async()=>new Response('error',{status:500});await assert.rejects(m.reloadData(),/HTTP 500/);assert.equal(m.dashboard,prior);assert.equal(notified,1);off();
  }finally{globalThis.fetch=original;await server.close();}
@@ -101,8 +101,8 @@ test('metadata labels, history names and ambiguity determine composer suggestion
  const shared = {...data,payments:{...metadata,'Other:Checking':{kind:'bank',label:'Other',aliases:['checking']}}};
  assert.equal(buildSentence('fuel 100 checking',shared).fields.pay.value,'');
  assert.equal(buildSentence('purchase 100 日常',{...data,payments:{[bank]:{kind:'bank',label:'日常'}}}).fields.pay.value,bank);
- const history = buildPatterns([{description:'Fern Station', date:'2026-01-01',postings:[{account:'Expenses:Fuel',amount:100},{account:bank,amount:-100}]}],metadata);
- const result = buildSentence('Fern Station 100',history);
+ const history = buildPatterns([{description:'Fern Station', date:'2026-01-01',postings:[{account:'Expenses:Fuel',amount:100},{account:bank,amount:-100}]}],metadata,{modules:{fuel:true}});
+ const result = buildSentence('Fern Station 100',{...history,modules:{fuel:true}});
  assert.equal(result.pattern,'fuel'); assert.equal(result.fields.outlet.value,'Fern Station');
  assert.equal(patternOf({description:'Rewards', postings:[{account:'Income:Cashback', amount:-10}, {account:card, amount:10}]},metadata), 'rewards');
 });

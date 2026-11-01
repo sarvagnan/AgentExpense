@@ -34,7 +34,7 @@ test('server recovery beats stale words or IDs but never replaces a newer in-pro
 
 test('server piece snapshots retain explicit blank edits without pinning parsed words',async()=>{
  const {buildSentence,draftPieces}=await import('../app/live/builder.ts');
- const patterns={patterns:{},people:[],accounts:[]};
+ const patterns={patterns:{},people:[],accounts:[],modules:{fuel:true}};
  const edits={amount:'',outlet:'Manual outlet'};
  const snapshot=draftPieces(buildSentence('petrol 300 120km',patterns,edits,true,'2026-10-30'),edits);
  assert.deepEqual(restorePieceEdits(snapshot),edits);

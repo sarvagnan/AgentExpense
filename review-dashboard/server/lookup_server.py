@@ -18,8 +18,9 @@ parser.add_argument('--exclude', action='append', default=[])
 args = parser.parse_args()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
-from ledger_manifest import read_manifest
-read_manifest(args.ledger)
+from ledger_manifest import read_manifest, module_settings, old_ledger_path
+manifest = read_manifest(args.ledger)
+old_path = old_ledger_path(args.ledger, fallback=args.old_ledger)
 
 ALL = [e for f in sorted((args.ledger / 'data/expenses').glob('*.json')) for e in json.loads(f.read_text())]
 VISIBLE = [e for e in ALL if (e['date'] < args.cutoff or e['date'] == args.cutoff) and e['id'] not in args.exclude]
@@ -29,7 +30,10 @@ for rule in json.loads((args.ledger / 'data/forecast.json').read_text()):
     USED_VISIBLE.update(p['account'] for p in rule.get('postings', []))
 DECLARED = json.loads((args.ledger / 'data/accounts.json').read_text())['accounts']
 ACCOUNTS = [a for a in DECLARED if a in USED_VISIBLE or a not in USED_ANYWHERE]
-OLD = args.old_ledger.read_text().splitlines() if args.old_ledger and args.old_ledger.exists() else []
+try:
+    OLD = old_path.read_text().splitlines() if old_path else []
+except OSError:
+    old_path, OLD = None, []
 
 
 def posting_text(p):
@@ -43,7 +47,7 @@ def compact(e):
     out = {'date': e['date'], 'status': e['status'], 'description': e['description'],
            'postings': [posting_text(p) for p in e['postings']]}
     for k in ('order-id', 'classification', 'original-amount', 'fuel-filled-litres', 'trip-km'):
-        if k in e:
+        if k in e and (k not in ('fuel-filled-litres', 'trip-km') or module_settings(manifest)['fuel']):
             out[k] = e[k]
     if e.get('notes'):
         out['notes'] = [n[:200] for n in e['notes'][:6]]
@@ -84,8 +88,8 @@ def list_accounts(contains='', limit=150):
 
 
 def search_old_ledger(query, limit=10):
-    if not args.old_ledger or not args.old_ledger.is_file():
-        return [f'Old ledger unavailable at {args.old_ledger}; no historical search performed']
+    if not old_path:
+        return ['Old ledger unavailable; no historical search performed']
     wanted = tokens(query)
     hits = []
     for i, line in enumerate(OLD):
@@ -106,6 +110,9 @@ TOOLS = {
     'search_old_ledger': (search_old_ledger, "Search the user's older hand-kept ledger for lines containing all the words; returns each hit with nearby lines.",
                           {'query': {'type': 'string'}, 'limit': {'type': 'integer'}}, ['query']),
 }
+
+if not old_path:
+    del TOOLS['search_old_ledger']
 
 
 def reply(msg_id, result=None, error=None):

@@ -1,12 +1,15 @@
 // The hand-kept source belongs to the ledger; this app copy is generated.
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { ledgerRoot } from '../../scripts/project-paths.mjs';
 
-import { readManifest } from './ledger-manifest.mjs';
+import { moduleSettings, readManifest } from './ledger-manifest.mjs';
 const manifest = await readManifest();
 const destination = new URL('../app/data/fuel-log.json', import.meta.url);
 await mkdir(new URL('./', destination), { recursive: true });
+if (!moduleSettings(manifest).fuel) {
+  await rm(destination, {force: true});
+} else {
 try {
   const source = await readFile(path.join(ledgerRoot(), 'data/fuel-log.json'), 'utf8');
   const log = JSON.parse(source);
@@ -16,5 +19,6 @@ try {
   log.entries = log.entries.map(item => ({...item, currency: item.currency || transactionCurrency(transactions.find(entry => entry.id === item.entryId) || {postings: []}, accounts, manifest.defaultCurrency)}));
   await writeFile(destination, log.entries.length ? JSON.stringify(log, null, 2) + '\n' : source);
 }
-catch (error) { if (error.code !== 'ENOENT') throw error; await writeFile(destination, JSON.stringify({ meta: {}, entries: [] }) + '\n'); }
+catch (error) { throw new Error('Fuel is enabled; supply a valid data/fuel-log.json.', {cause: error}); }
+}
 console.log('Copied the ledger fuel log into generated dashboard data.');

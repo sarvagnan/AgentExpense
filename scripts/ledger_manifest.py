@@ -25,6 +25,14 @@ def ordered_manifest(value):
 
 def validate_manifest(value, schema, field='ledger.json'):
     """Validate this closed schema using stdlib, including lookup's python -S mode."""
+    if 'anyOf' in schema:
+        for option in schema['anyOf']:
+            try:
+                validate_manifest(value, option, field)
+                return
+            except ValueError:
+                pass
+        raise ValueError(f'Invalid {field}.')
     types = schema.get('type', [])
     types = types if isinstance(types, list) else [types]
     kind = ('null' if value is None else 'boolean' if type(value) is bool else
@@ -32,7 +40,7 @@ def validate_manifest(value, schema, field='ledger.json'):
             'string' if isinstance(value, str) else 'array' if isinstance(value, list) else 'number')
     if types and kind not in types:
         raise ValueError(f'Invalid {field}: expected {" or ".join(types)}.')
-    if 'const' in schema and value != schema['const']:
+    if 'const' in schema and (type(value) is not type(schema['const']) or value != schema['const']):
         raise ValueError(f'Invalid {field}.')
     if kind == 'string':
         if len(value) < schema.get('minLength', 0) or ('pattern' in schema and not re.search(schema['pattern'], value)):
@@ -86,13 +94,52 @@ def read_manifest(root=None, *, check_format=True):
         return manifest
     validate_manifest(manifest, manifest_schema())
     result = deepcopy(manifest)
-    modules = result.setdefault('modules', {})
-    modules.setdefault('fuel', False)
-    modules.setdefault('investments', {}).setdefault('prices', None)
-    modules.setdefault('history', {}).setdefault('oldLedger', None)
-    modules.setdefault('weeklyReview', False)
+    result['modules'] = module_settings(result)
     result.setdefault('review', {}).setdefault('storageKey', None)
     return result
+
+
+def module_settings(manifest):
+    """One normalized module contract, also usable with an omitted modules object."""
+    value = manifest.get('modules', {})
+    return {'fuel': value.get('fuel', False),
+            'investments': False if value.get('investments') is False else
+                {'prices': value.get('investments', {}).get('prices')},
+            'history': {'oldLedger': value.get('history', {}).get('oldLedger')},
+            'weeklyReview': value.get('weeklyReview', False)}
+
+
+def price_source(manifest):
+    investments = module_settings(manifest)['investments']
+    return investments['prices'] if investments is not False else None
+
+
+@lru_cache(maxsize=1)
+def deprecated_old_ledger():
+    import os
+    import warnings
+    value = os.getenv('EXPENSES_OLD_LEDGER')
+    if value:
+        warnings.warn('EXPENSES_OLD_LEDGER is deprecated; set modules.history.oldLedger in ledger.json.',
+                      FutureWarning, stacklevel=2)
+    return value
+
+
+def old_ledger_path(root, *, fallback=None):
+    """Only advertise readable history, resolving ledger-relative and home paths."""
+    import os
+    value = module_settings(read_manifest(root))['history']['oldLedger']
+    value = value or fallback or deprecated_old_ledger()
+    if not value:
+        return None
+    try:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = Path(root) / path
+        path = path.resolve()
+        return path if path.is_file() and os.access(path, os.R_OK) else None
+    except (OSError, RuntimeError):
+        return None
 
 
 if __name__ == '__main__':

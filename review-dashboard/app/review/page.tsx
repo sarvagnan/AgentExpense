@@ -1,5 +1,6 @@
 import {formatTimestamp} from '../date-time';
 import { reviewKeys } from '../../scripts/account-metadata.mjs';
+import { moduleSettings } from '../../scripts/ledger-modules.mjs';
 import { fuelLedgerEntry } from '../fuel-links';
 import { useWorkStore, useReviewEditor } from './storage';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type CSSProperties, type ReactNode } from 'react';
@@ -101,7 +102,7 @@ function FuelLog({ onClose }: { onClose: () => void }) {
   return <aside ref={panel} id="fuel-log" className="panel fuel-panel" aria-labelledby="fuel-title" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
     <div className="panel-header"><div><h2 id="fuel-title">Fuel Log</h2><p>Fills, trips and ledger matches</p></div><button type="button" className="icon-button" aria-label="Close the fuel log" title="Close (Esc)" onClick={onClose}><Icon name="close"/></button></div>
     <div className="table-scroll" tabIndex={0} aria-label="Fuel log entries"><table className="data-table fuel-table"><colgroup><col/><col style={{ width: widths.cost }}/><col style={{ width: widths.litres }}/><col style={{ width: widths.tripKm }}/></colgroup><thead><tr>{heading('date', 'Date / Ledger')}{heading('cost', 'Cost', true)}{heading('litres', 'L', true)}{heading('tripKm', 'km', true)}</tr></thead>
-      <tbody>{entries.map((item) => { const linked = fuelLedgerEntry(item, dashboardData.transactions); return <tr key={item.id}>
+      <tbody>{entries.map((item) => { const linked = fuelLedgerEntry(item, dashboardData.transactions, dashboardData.meta.ledger); return <tr key={item.id}>
         <td className="date">{item.date ? dayLabel(item.date) : 'No date'}<span className="fuel-match">{item.ledgerStatus === 'Linked' ? linked ? <a className="fuel-entry-link" href={`${import.meta.env.BASE_URL}explorer/?month=${linked.month}&entry=${linked.id}`} target="_blank" rel="noopener" title={linked.description} aria-label={`Open linked ledger entry ${linked.sequence + 1}: ${linked.description}`}><Icon name="check"/>Entry {linked.sequence + 1}</a> : <span className="status pending">Marked linked · reference unavailable</span> : <span className="status pending"><Icon name="pending"/>{item.ledgerStatus}</span>}</span><span className="fuel-payment">Paid with {item.payment || 'not recorded'}</span></td>
         <td className="num">{item.cost === null ? '—' : money(item.cost, item.currency)}</td><td className="num">{item.litres === null ? '—' : item.litres.toFixed(2)}</td><td className="num">{item.tripKm === null ? '—' : item.tripKm.toFixed(1)}</td>
       </tr>; })}</tbody></table></div>
@@ -135,7 +136,8 @@ export default function Review() {
   const [selectedId, setSelectedId] = useQueryState('entry', '');
   const [batchIds, setBatchIds] = useState<string[] | null>(null);
   const [fuelParam, setFuelParam] = useQueryState('fuel', '', (value) => value === 'open');
-  const fuelOpen = fuelParam === 'open';
+  const fuelEnabled = moduleSettings(dashboardData.meta.ledger).fuel;
+  const fuelOpen = fuelEnabled && fuelParam === 'open';
   const setFuelOpen = (open: boolean) => setFuelParam(open ? 'open' : '');
   const listRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLElement>(null);
@@ -428,7 +430,7 @@ export default function Review() {
         <progress max={counts.all} value={counts.resolved} aria-label={`${resolvedShare}% resolved`}/>
         <span className={`export-state ${workCount && workFingerprint !== exportedWork ? 'warning' : ''}`}>{lastExport ? `${workFingerprint !== exportedWork ? 'Changes since last export · ' : 'Last exported '}${formatTimestamp(lastExport)}` : workCount ? `${Object.keys(drafts).length ? plural(Object.keys(drafts).length, 'draft') + ' not exported · ' : ''}Not exported from this browser yet` : 'Nothing to export yet'}{unmatchedCount ? ` · ${unmatchedCount} kept for entries no longer pending` : ''}</span>
       </div>
-      <button type="button" className="button" aria-pressed={fuelOpen} aria-controls="fuel-log" onClick={() => setFuelOpen(!fuelOpen)}><Icon name="fuel"/>Fuel Log</button>
+      {fuelEnabled && <button type="button" className="button" aria-pressed={fuelOpen} aria-controls="fuel-log" onClick={() => setFuelOpen(!fuelOpen)}><Icon name="fuel"/>Fuel Log</button>}
       <button type="button" className="button" aria-haspopup="menu" onClick={(event) => menu.openBelow(event.currentTarget, [
         { label: 'Import Decisions…', action: () => importRef.current?.click(), disabled: readOnly },
         'separator',

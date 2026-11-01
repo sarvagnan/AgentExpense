@@ -55,5 +55,4 @@ class Settings:
                    codex_home=(Path(os.environ['EXPENSES_CODEX_HOME']).expanduser().resolve()
                                if os.getenv('EXPENSES_CODEX_HOME') else None),
                    model=os.getenv('EXPENSES_AGENT_MODEL', 'gpt-6.1-terra'),
-                   effort=os.getenv('EXPENSES_AGENT_EFFORT', 'xhigh'), timeout=timeout,
-                   old_ledger=(Path(os.environ['EXPENSES_OLD_LEDGER']).expanduser() if os.getenv('EXPENSES_OLD_LEDGER') else None))
+                   effort=os.getenv('EXPENSES_AGENT_EFFORT', 'xhigh'), timeout=timeout)

@@ -1,3 +1,4 @@
+import { moduleSettings } from './ledger-modules.mjs';
 import { accountLabel, expenseCategory, hasSegment, paymentAccounts } from './account-metadata.mjs';
 /** Historical suggestions use account meanings and generic category segments. */
 export function patternOf(entry, metadata = {}) {
@@ -13,13 +14,13 @@ export function patternOf(entry, metadata = {}) {
   if (segment(['Dining', 'Restaurants', 'Eating Out'])) return 'dining';
   return null;
 }
-export function buildPatterns(transactions, metadata = {}) {
+export function buildPatterns(transactions, metadata = {}, manifest = {}) {
   const patterns = {}, accounts = Object.keys(metadata);
   const people = Object.entries(metadata).filter(([, m]) => m.kind === 'person').map(([a]) => accountLabel(a, metadata));
   const payments = paymentAccounts(metadata);
   const top = counts => [...counts].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]))[0] || [null, 0];
   for (const entry of transactions) {
-    const id = patternOf(entry, metadata); if (!id) continue;
+    const id = patternOf(entry, metadata); if (!id || id === 'fuel' && !moduleSettings(manifest).fuel) continue;
     const st = patterns[id] ||= {count:0, last:[], pays:new Map(), expenses:new Map(), names:new Map()};
     const sides = entry.postings.filter(p => payments[p.account]);
     const pay = sides.find(p => !['person'].includes(metadata[p.account].kind) && p.amount < 0) || sides.find(p => metadata[p.account].kind !== 'person') || sides[0];
@@ -28,7 +29,7 @@ export function buildPatterns(transactions, metadata = {}) {
     if (pay) st.pays.set(pay.account, (st.pays.get(pay.account) || 0) + 1);
     if (expense) st.expenses.set(expense.account, (st.expenses.get(expense.account) || 0) + 1);
     st.names.set(entry.description, (st.names.get(entry.description) || 0) + 1);
-    st.last.push({date:entry.date, description:entry.description, currency:pay ? metadata[pay.account]?.currency || pay.currency : null, amount:pay ? String(Math.abs(pay.amount)) : '', ...(entry['fuel-filled-litres'] ? {litres:entry['fuel-filled-litres']} : {})});
+    st.last.push({date:entry.date, description:entry.description, currency:pay ? metadata[pay.account]?.currency || pay.currency : null, amount:pay ? String(Math.abs(pay.amount)) : '', ...(moduleSettings(manifest).fuel && entry['fuel-filled-litres'] ? {litres:entry['fuel-filled-litres']} : {})});
   }
   for (const st of Object.values(patterns)) {
     [st.usualPay, st.usualShare] = top(st.pays); [st.usualExpense] = top(st.expenses);

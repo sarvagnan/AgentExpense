@@ -84,3 +84,7 @@ set-account-currency:
 
 set-default-currency:
 	uv run --with jsonschema python scripts/ledger/set_default_currency.py $(ARGS)
+
+.PHONY: weekly-review
+weekly-review:
+	uv run --with jsonschema python scripts/ledger/weekly_review.py

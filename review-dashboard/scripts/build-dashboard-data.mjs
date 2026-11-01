@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(scriptDir, '..');
 const outputPath = path.join(projectDir, 'app', 'data', 'dashboard.json');
+import { moduleSettings } from './ledger-manifest.mjs';
 const { transactions, rules, prices, manifest, accounts } = await loadExpenseStore();
 const provenance = await auditProvenance();
 
@@ -86,7 +87,7 @@ function toRecord(transaction, sequence) {
     classification: compact(transaction.classification),
     originalAmount: transaction['original-amount'] ? `${transaction['original-amount'].amount} ${transaction['original-amount'].commodity}` : '',
     // Physical readings and explicit fuel-log confirmation are evidence, not an amount/date guess.
-    fuelLog: /^\d+(?:\.\d+)?$/.test(transaction['fuel-filled-litres'] || '') ? {
+    fuelLog: moduleSettings(manifest).fuel && /^\d+(?:\.\d+)?$/.test(transaction['fuel-filled-litres'] || '') ? {
       litres: Number(transaction['fuel-filled-litres']),
       tripKm: /^\d+(?:\.\d+)?$/.test(transaction['trip-km'] || '') ? Number(transaction['trip-km']) : null,
       confirmed: transaction.postings.some((posting) => hasSegment(posting.account, ['Fuel']))

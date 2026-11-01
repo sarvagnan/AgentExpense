@@ -238,10 +238,6 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 /* Status line in the sidebar: the last confirmation, until the next one. */
 .sidebar-status { min-height: 14px; padding: 0 var(--space-2); color: var(--text-secondary); font: var(--text-caption); }
 
-/* Modeless panel docked beside the work (the fuel log). */
-.fuel-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
-.fuel-table { table-layout: fixed; }
-
 /* Alerts */
 .dialog.alert { width: min(420px, 100%); grid-template-rows: auto auto; padding: var(--space-5) var(--space-5) var(--space-4); }
 .alert-title { font: var(--text-headline); }

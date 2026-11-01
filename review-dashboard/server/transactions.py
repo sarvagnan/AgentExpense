@@ -20,7 +20,7 @@ from settings import APPLICATION
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
 from store import dump, load, store_paths
-from ledger_manifest import read_manifest
+from ledger_manifest import read_manifest, module_settings
 from account_metadata import infer_kind, is_balance_sheet
 from ledger_lock import ledger_lock, LOCK_FD_ENV
 sys.path.insert(0, str(APPLICATION / 'scripts/receipts'))
@@ -61,6 +61,8 @@ def to_store(answer, root, file_count):
     if len(answer['attachment_names']) != file_count:
         raise ProposalError('attachment_names must have one name per attachment')
     a = answer['entry']
+    if not module_settings(read_manifest(root))['fuel'] and any(k in a for k in ('fuel_filled_litres', 'trip_km', 'fuel-filled-litres', 'trip-km')):
+        raise ProposalError('Fuel fields are disabled by ledger.json modules.fuel')
     try:
         date.fromisoformat(a['date'])
     except ValueError as exc:

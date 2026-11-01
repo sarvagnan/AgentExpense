@@ -125,6 +125,24 @@ class MigrationTests(Fixture):
         with redirect_stdout(io.StringIO()):
             check(self.root)
 
+    def test_manual_prices_without_mapping_survive_format_zero_migration(self):
+        path = self.root / 'data/prices/mutual-funds.prices'
+        path.parent.mkdir()
+        path.write_text('P 2026-01-02 USD 80 INR\n')
+        self.assertFalse((path.parent / 'fund-sources.json').exists())
+        self.run_command('jj', 'commit', '-m', 'Fictional manual prices')
+        before = snapshot(self.root)
+        self.assertIn('include data/prices/mutual-funds.prices', before['journal'])
+        expected_prices = [dict(commodity='USD', currency='INR', dates=['2026-01-02'], navs=[80])]
+        self.assertEqual(before['dashboard/dashboard.json']['prices'], expected_prices)
+        self.run_upgrade()
+        self.assertIsNone(read_manifest(self.root)['modules']['investments']['prices'])
+        after = snapshot(self.root)
+        self.assertTrue(compare(before, after, ignores=('meta.ledger',), emit=False))
+        self.assertEqual(after['dashboard/dashboard.json']['prices'], expected_prices)
+        self.assertIn('include data/prices/mutual-funds.prices', after['journal'])
+        self.assertEqual(path.read_text(), 'P 2026-01-02 USD 80 INR\n')
+
     def test_uninferable_kind_and_override(self):
         path = self.root / 'data/accounts.json';data=read_json(path);data['accounts'].append('Assets:Other:Test');path.write_text(json.dumps(data)+'\n')
         self.run_command('jj','commit','-m','Unknown kind fixture')

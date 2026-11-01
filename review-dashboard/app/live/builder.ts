@@ -1,3 +1,4 @@
+import { moduleSettings } from '../../scripts/ledger-modules.mjs';
 import { money, currencySymbol, moneySettings } from '../../scripts/formatting.mjs';
 import type { Accounts } from '../account-metadata';
 import { localDate } from '../../scripts/date-time.mjs';
@@ -6,7 +7,7 @@ import { accountLabel, paymentAccounts } from '../../scripts/account-metadata.mj
 export type Source = 'typed' | 'usual' | 'agent' | 'missing';
 export type Piece = { value: string; source: Source; shown: string };
 export type PatternStats = { count: number; last: { date: string; description: string; amount: string; currency?: string | null; litres?: string }[]; usualPay: string | null; usualShare: number; usualExpense: string | null; usualCategory?: string | null; known?: string[] };
-export type PatternData = { patterns: Record<string, PatternStats>; people: string[]; accounts: string[]; payments?: Accounts };
+export type PatternData = { modules?: Record<string, unknown>; patterns: Record<string, PatternStats>; people: string[]; accounts: string[]; payments?: Accounts };
 export const LABELS: Record<string, string> = { amount: 'Amount', currency: 'Currency', litres: 'Litres', km: 'Trip', outlet: 'Outlet', pay: 'Paid with', date: 'Date', vehicle: 'Vehicle', service: 'Service', route: 'Route', plan: 'Plan', charged: 'Charged amount', items: 'Items', place: 'Place', person: 'From', purpose: 'For', what: 'What', category: 'Category' };
 export const SOURCES: Record<Source, string> = { typed: 'You typed it', usual: 'Usual for this', agent: 'The agent reads it', missing: 'Missing' };
 export const payLabel = (value: string, accounts: Accounts = {}) => accountLabel(value, accounts);
@@ -20,6 +21,7 @@ export const PATTERN_DEFS: Pattern[] = [
   {id:'cardbill', name:'Card bill payment', keys:['card bill','bill payment','paid my card','credit card bill'], pieces:['amount','pay','date'], sentence:'Card bill of {amount} paid from {pay}, {date}.'},
   {id:'rewards', name:'Card rewards', keys:['cashback','rewards','reward'], pieces:['amount','pay','date'], sentence:'Card rewards of {amount} credited to {pay}, {date}.'},
 ];
+export const availablePatterns = (manifest: {modules?: unknown}) => PATTERN_DEFS.filter(p => p.id !== 'fuel' || moduleSettings(manifest).fuel);
 const NEW: Pattern = { id: 'new', name: 'Something new', pieces: ['what', 'amount', 'pay', 'date'], sentence: '{what} for {amount}, paid with {pay}, {date}.' };
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const words = (s: string) => new RegExp(`(?<![\\p{L}\\p{N}_])${escape(s)}(?![\\p{L}\\p{N}_])`, 'iu');
@@ -27,7 +29,8 @@ const validDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(D
 export function buildSentence(text: string, data: PatternData, edits: Record<string, string> = {}, hasFiles = false, today = localDate()) {
   const low = text.toLowerCase().replace(/’/g, "'");
   // A repayment mentioning coffee is still a repayment; specific financial patterns win.
-  const priority = [...PATTERN_DEFS.filter(p => ['payback', 'cardbill', 'rewards'].includes(p.id)), ...PATTERN_DEFS.filter(p => !['payback', 'cardbill', 'rewards'].includes(p.id))];
+  const definitions = availablePatterns(data);
+  const priority = [...definitions.filter(p => ['payback', 'cardbill', 'rewards'].includes(p.id)), ...definitions.filter(p => !['payback', 'cardbill', 'rewards'].includes(p.id))];
   const payments = paymentAccounts(data.payments);
   // Remove specific payment names before looking for category trigger words.
   let patternText = low;
@@ -44,8 +47,10 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
     take(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/, 'date', m=>{const day=`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;return validDay(day)?day:'';}) ||
     take(/\byesterday\b/, 'date', () => new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10)) || take(/\btoday\b/, 'date', () => today) ||
     take(/\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?\b/, 'date', m => { const n = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].slice(0,3)) + 1; const day = `${m[3] || today.slice(0,4)}-${String(n).padStart(2,'0')}-${m[1].padStart(2,'0')}`; return validDay(day) ? day : ''; });
-  take(/\b(\d+(?:\.\d+)?)\s*(?:litres?|liters?|ltr|l)\b/, 'litres');
-  take(/\b(\d+(?:\.\d+)?)\s*km\b/, 'km');
+  if (moduleSettings(data).fuel) {
+    take(/\b(\d+(?:\.\d+)?)\s*(?:litres?|liters?|ltr|l)\b/, 'litres');
+    take(/\b(\d+(?:\.\d+)?)\s*km\b/, 'km');
+  }
   // Explicit ISO codes and recognizable currency symbols are evidence. An
   // unmarked amount inherits its selected payment account's currency below.
   const codes = [...new Set([moneySettings().defaultCurrency, ...Object.values(payments).map(meta => meta.currency), ...Intl.supportedValuesOf('currency')].filter((code): code is string => !!code && /^[A-Z]{3}$/.test(code)))];
@@ -75,7 +80,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
     rest = rest.replace(phrase, ' ');
     break;
   }
-  take(/\b(?:other vehicle|rental|rented|scooter)\b/, 'vehicle', () => 'another vehicle');
+  if (moduleSettings(data).fuel) take(/\b(?:other vehicle|rental|rented|scooter)\b/, 'vehicle', () => 'another vehicle');
   for (const person of data.people || []) if (take(words(person), 'person', () => person)) break;
   if (pattern.id === 'payback' && !typed.person) take(/^\s*([\p{L}][\p{L}'-]*(?:\s+[\p{L}'-]+)?)(?=\s+(?:paid|repaid|sent|returned)\b)/u, 'person');
   const hit = 'keys' in pattern ? pattern.keys?.find(k => words(k).test(rest)) : undefined;
@@ -109,4 +114,4 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   return { pattern: pattern.id, name: pattern.name, sentence: pattern.sentence, fields, stats, empty: !text.trim() && !hasFiles };
 }
 export type BuiltSentence = ReturnType<typeof buildSentence>;
-export function draftPieces(b: BuiltSentence, edits?: Record<string,string>) { return { ...(edits ? {edits:{...edits}} : {}), pattern: b.pattern, fields: Object.fromEntries(Object.entries(b.fields).map(([k, {value, source}]) => [k, {value, source}])) }; }
+export function draftPieces(b: BuiltSentence, edits?: Record<string,string>) { return { ...(edits ? {edits:Object.fromEntries(Object.entries(edits).filter(([key]) => !['litres','km','vehicle','outlet'].includes(key) || key in b.fields))} : {}), pattern: b.pattern, fields: Object.fromEntries(Object.entries(b.fields).map(([k, {value, source}]) => [k, {value, source}])) }; }

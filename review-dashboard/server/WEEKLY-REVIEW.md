@@ -1,6 +1,6 @@
 # Weekly audit review
 
-Run from the application root with an absolute `LEDGER_DIR`. Scheduling is external to the application. Review every unreviewed outcome and report findings to the user. Read first, then record all verdicts in one command. Corrections to entries or evidence require user agreement. Keep the ledger clean on failure.
+Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` from the application root with an absolute `LEDGER_DIR`. Scheduling is external to the application. Review every unreviewed outcome and report findings to the user. Read first, then record all verdicts in one command. Corrections to entries or evidence require user agreement. Keep the ledger clean on failure.
 
 1. Read the current policy and every line still waiting for a verdict:
 
@@ -20,14 +20,14 @@ Run from the application root with an absolute `LEDGER_DIR`. Scheduling is exter
    typed words, manual pieces, questions/answers, final proposal, doubts and runs.
    Check duplicate merchants/order IDs/references/amounts, established account
    naming and posting structure, printed dates, original currency and the actual
-   payment account. Use the old ledger when the policy requires it. These commands
+   payment account. Use the readable path configured by `modules.history.oldLedger` when the policy requires it. Relative paths resolve from the ledger root and `~` expands to the user home. These commands
    locate an entry, its cited evidence and a merchant precedent (substitute the
    actual ID, path or merchant):
 
    ```sh
    uv run python -c 'import json,pathlib; wanted="ENTRY_ID"; print(json.dumps([e for p in (pathlib.Path(__import__("os").environ["LEDGER_DIR"])/"data/expenses").glob("*.json") for e in json.loads(p.read_text()) if e["id"]==wanted],ensure_ascii=False,indent=2))'
    ls -l -- "$LEDGER_DIR"/Bills/YYYY-MM-DD/EVIDENCE.pdf
-   grep -n -i -- "MERCHANT" "$EXPENSES_OLD_LEDGER"
+   uv run python -c 'import sys; sys.path.insert(0,"scripts"); from project_paths import ledger_root; from ledger_manifest import old_ledger_path; p=old_ledger_path(ledger_root()); print("\n".join(line for line in p.read_text().splitlines() if "MERCHANT".casefold() in line.casefold()) if p else "Old ledger not configured or unreadable")'
    ```
 
    Open receipts, PDFs and images directly with your file-reading tool and look at

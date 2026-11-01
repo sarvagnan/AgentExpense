@@ -36,6 +36,9 @@ test('decimal strings use the hledger mantissa/scale conversion without early ro
 test('the loader preserves IDs, structured fields, source order and entry dates', async (t) => {
   const original = entry({ 'original-amount': { amount: '1.2300', commodity: 'USD' }, 'reimbursement-group': 'group', notes: ['classification: never read this'] });
   const root = await fixture(t, [original]);
+  const manifest = JSON.parse(await readFile(path.join(root, 'ledger.json')));
+  manifest.modules = {investments:{prices:'mutual-fund-nav'}};
+  await writeFile(path.join(root, 'ledger.json'), JSON.stringify(manifest));
   const { transactions, rules, prices } = await loadExpenseStore(root);
   assert.equal(transactions[0].id, original.id);
   assert.deepEqual(transactions[0].sources, original.sources);

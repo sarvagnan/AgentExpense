@@ -1,3 +1,5 @@
+import { moduleSettings } from './ledger-modules.mjs';
+export { moduleSettings, priceSource } from './ledger-modules.mjs';
 // Shared format gate; validate the application-owned manifest schema before defaults.
 import { readFile } from 'node:fs/promises';
 import { ledgerRoot, applicationRoot } from '../../scripts/project-paths.mjs';
@@ -5,6 +7,10 @@ import path from 'node:path';
 
 export const CURRENT_FORMAT = 1;
 export function validate(value, schema, field = 'ledger.json', rootSchema = schema) {
+  if (schema.anyOf) {
+    if (!schema.anyOf.some(option => { try { validate(value, option, field, rootSchema); return true; } catch { return false; } })) throw new Error(`Invalid ${field}.`);
+    return;
+  }
   if (schema.$ref) return validate(value, rootSchema.$defs[schema.$ref.slice('#/$defs/'.length)], field, rootSchema);
   const types = Array.isArray(schema.type) ? schema.type : [schema.type];
   const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value === 'number' && Number.isInteger(value) ? 'integer' : typeof value;
@@ -46,7 +52,6 @@ export async function readManifest(root = ledgerRoot()) {
   if (version > CURRENT_FORMAT) throw new Error(`This app reads format ${CURRENT_FORMAT}; this ledger uses format ${version}; a newer AgentExpense is needed.`);
   const schema = JSON.parse(await readFile(path.join(applicationRoot, 'schema/ledger.schema.json'), 'utf8'));
   validate(value, schema);
-  return { ...value, modules: { fuel: false, weeklyReview: false, ...value.modules,
-    investments: { prices: null, ...value.modules?.investments }, history: { oldLedger: null, ...value.modules?.history } },
+  return { ...value, modules: moduleSettings(value),
     review: { storageKey: null, ...value.review } };
 }

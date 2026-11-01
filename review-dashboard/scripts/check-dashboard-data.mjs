@@ -21,7 +21,7 @@ console.log('Dashboard data checks passed.');
 
 const { buildPatterns } = await import('./add-patterns.mjs');
 const patterns = JSON.parse(await readFile(path.join(scriptDir, '..', 'app/data/add-patterns.json'), 'utf8'));
-assert.deepEqual(patterns, buildPatterns(storeEntries, accounts), 'Add patterns match the selected expense store');
+assert.deepEqual(patterns, buildPatterns(storeEntries, accounts, manifest), 'Add patterns match the selected expense store');
 
 assert.deepEqual(dashboard.meta.ledger, manifest, 'Dashboard includes the selected manifest');
 assert.deepEqual(dashboard.meta.accounts, accounts, 'Dashboard preserves account metadata and declaration order');

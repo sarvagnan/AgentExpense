@@ -82,7 +82,8 @@ def render(documents: dict, root: Path = ROOT) -> str:
     lines = [HEADER.rstrip(), "", *("commodity " + x for x in declarations["commodities"]), "", *("account " + x for x in declarations["accounts"]), ""]
     for entry in entries(documents):
         lines.extend(render_entry(entry))
-    if (root / "data/prices/mutual-funds.prices").exists():
+    from ledger_manifest import read_manifest, module_settings
+    if module_settings(read_manifest(root))["investments"] is not False and (root / "data/prices/mutual-funds.prices").exists():
         lines.extend([
         "; Mutual fund NAVs in INR from AMFI.",
         "; Valuation uses the latest NAV on or before each date.",

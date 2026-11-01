@@ -1,0 +1,5 @@
+Scheme Code;Scheme Name;Type;Option;ISIN;Alternate ISIN;Net Asset Value;Date
+999001;Fictional Demo Fund;Open;Growth;FICTIONAL0001;;20.2500;01-Oct-2026
+999001;Fictional Demo Fund;Open;Growth;FICTIONAL0001;;20.5000;02-Oct-2026
+999001;Fictional Demo Fund;Open;Growth;FICTIONAL0001;;N.A.;03-Oct-2026
+999002;Fictional Unselected Fund;Open;Growth;FICTIONAL0002;;8.0000;01-Oct-2026

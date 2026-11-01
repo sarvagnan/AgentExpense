@@ -17,6 +17,6 @@ export async function personaData(name) {
       execFileSync(process.execPath, [join(copy.dash, 'scripts', script + '.mjs')], { env, stdio: 'pipe' });
     }
     const read = async file => JSON.parse(await readFile(join(copy.dash, 'app/data', file + '.json'), 'utf8'));
-    return { dashboard: await read('dashboard'), review: await read('pending-transactions'), fuel: await read('fuel-log'), root };
+    return { dashboard: await read('dashboard'), review: await read('pending-transactions'), fuel: (await read('dashboard')).meta.ledger.modules.fuel ? await read('fuel-log') : {meta:{},entries:[]}, root };
   }
 }
