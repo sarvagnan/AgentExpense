@@ -20,26 +20,55 @@ export function errorMessage(status: number, body: unknown) {
   if (Array.isArray(detail)) return 'Please check the entered values and try again.';
   return `The server could not complete this action (HTTP ${status}). Try again.`;
 }
+// An autosave timer can resume during document teardown. WebKit reports even a
+// caught fetch started there as a page error; keep the local recovery copy and
+// leave that request for the next document. Already-started writes still finish.
+let departing=false;
+if(typeof window!=='undefined') {
+  window.addEventListener('pagehide',()=>{departing=true;});
+  window.addEventListener('pageshow',()=>{departing=false;});
+}
 export async function request<T>(path: string, options: RequestInit = {}, timeout = 12000): Promise<T> {
+  if(departing)throw new DOMException('Request cancelled','AbortError');
+  const read = ['GET','HEAD'].includes((options.method || 'GET').toUpperCase());
+  // A write can already be in flight before pagehide. Keep ordinary JSON writes
+  // alive too, without changing explicit cancellation. Eight thousand UTF-16
+  // units use at most 24 KiB, leaving room in the browser's 64 KiB budget for
+  // another autosave; larger supported inputs retain the normal transport.
+  const smallBody=typeof options.body==='string' && options.body.length<=8192;
+  const keepalive=read || (options.keepalive ?? smallBody);
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout);
-  const cancelled=()=>controller.abort();
-  if(options.signal?.aborted) cancelled();
-  else options.signal?.addEventListener('abort',cancelled,{once:true});
+  let rejectCancellation: ((reason: DOMException) => void) | undefined;
+  const cancellation = read && options.signal ? new Promise<never>((_,reject) => {rejectCancellation=reject;}) : null;
+  const abortError = () => new DOMException('Request cancelled','AbortError');
+  // Read cancellation is logical: the caller stops waiting immediately, while a
+  // keepalive transport finishes safely across WebKit document teardown. Writes
+  // retain transport cancellation. Both retain the original network deadline.
+  const cancelled=()=>{if(read)rejectCancellation?.(abortError());else controller.abort();};
+  let started=false;
   try {
-    const response = await fetch(apiUrl(path), { ...options, signal: controller.signal, cache: 'no-store' });
-    if (!response.ok) { const body = await response.json().catch(() => null); throw new ApiError(response.status,errorMessage(response.status, body)); }
-    if (response.status === 204) return undefined as T;
-    return await response.json() as T;
+    if(options.signal?.aborted) throw abortError();
+    options.signal?.addEventListener('abort',cancelled,{once:true});
+    started=true;
+    const operation=(async()=>{
+      try {
+        const response = await fetch(apiUrl(path), { ...options, keepalive, signal:controller.signal, cache:'no-store' });
+        if (!response.ok) {const body=await response.json().catch(()=>null);throw new ApiError(response.status,errorMessage(response.status,body));}
+        return response.status===204 ? undefined as T : await response.json() as T;
+      } finally {clearTimeout(timer);}
+    })();
+    return await (cancellation ? Promise.race([operation,cancellation]) : operation);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError' && options.signal?.aborted) throw error;
     if (error instanceof Error && error.name === 'AbortError') throw new Error('The server took too long. Try again.');
     if (error instanceof TypeError) throw new Error('Could not reach the live server. Check your connection and try again.');
     throw error;
-  } finally { clearTimeout(timer); options.signal?.removeEventListener('abort',cancelled); }
+  } finally {if(!started)clearTimeout(timer);options.signal?.removeEventListener('abort',cancelled);}
 }
+
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}) });
 export const api = {
-  health: (signal?: AbortSignal) => request<{ok: boolean}>('health', {signal}, 5000),
+  health: (signal?: AbortSignal) => request<{ok: boolean}>('health', {signal, keepalive:true}, 5000),
   list: (signal?: AbortSignal) => request<Draft[]>('drafts?include_added=true', {signal}),
   get: (id: string) => request<Draft>(`drafts/${encodeURIComponent(id)}`),
   create: (text: string, pieces: unknown, client_updated_at=0) => request<Draft>('drafts', json('POST', {text, pieces, client_updated_at, ...clientTime()})),

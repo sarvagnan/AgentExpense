@@ -88,3 +88,10 @@ set-default-currency:
 .PHONY: weekly-review
 weekly-review:
 	uv run --with jsonschema python scripts/ledger/weekly_review.py
+
+.PHONY: browser-tests browser-capture
+browser-tests:
+	node review-dashboard/tests/browser/run.mjs
+
+browser-capture:
+	CAPTURE=1 node review-dashboard/tests/browser/run.mjs

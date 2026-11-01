@@ -68,7 +68,8 @@
 @media (max-width: 1280px) {
   .explorer-body.with-aside { grid-template-columns: minmax(0, 1fr); }
   .explorer-aside { display: contents; }
-  .explorer-day-filter { grid-row: 1; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--surface); }
+  .explorer-day-filters { grid-row:1; display:grid; gap:var(--space-4); }
+  .explorer-day-filter { border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--surface); }
   .entries-panel { grid-row: 2; }
   .explorer-aside .aside-section { grid-row: 3; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--surface); }
   .explorer-day-filter .calendar { max-width: 440px; }
@@ -610,7 +611,16 @@
 }
 .entry-text-tooltip { position: fixed; z-index: 60; max-width: min(480px, calc(100vw - 16px)); max-height: 164px; overflow: auto; padding: 10px 12px; border: 1px solid var(--control-border); border-radius: var(--radius-control); background: var(--surface); color: var(--text); font: var(--text-callout); box-shadow: var(--shadow-popover); overflow-wrap: anywhere; }
 @media (max-width: 760px) {
-  .entries-table td.col-payment, .journal-table td.journal-route { display: block; grid-column: 1 / -1; grid-row: 3; color: var(--text-secondary); }
+  .journal-table td.journal-route { display: block; grid-column: 1 / -1; grid-row: 3; color: var(--text-secondary); }
+  /* The merchant's metadata already includes the category and payment account. */
+  .entries-table, .entries-table thead, .entries-table tbody { display:block; width:100%; }
+  .entries-table colgroup, .entries-table .col-category, .entries-table td.col-payment { display:none; }
+  .entries-table thead tr, .entries-table tr.interactive { display:grid; grid-template-columns:54px minmax(0,1fr) 92px; gap:0; padding:8px 0; }
+  .entries-table thead th, .entries-table tr.interactive > td { min-width:0; height:auto; padding:4px 8px; }
+  .entries-table thead .column-resizer { display:none; }
+  .entries-table td.date { grid-column:1; grid-row:1; align-self:center; }
+  .entries-table .col-description { grid-column:2; grid-row:1; }
+  .entries-table td.num { grid-column:3; grid-row:1; align-self:center; }
 }
 
 @media (max-width: 760px) {

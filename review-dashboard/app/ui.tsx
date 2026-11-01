@@ -568,7 +568,7 @@ export function useDocumentScrollLock() {
     const body = document.body;
     const x = window.scrollX, y = window.scrollY;
     const width = root.clientWidth;
-    const properties = ['position', 'top', 'left', 'width'] as const;
+    const properties = ['position', 'top', 'left', 'width', 'max-width'] as const;
     const previous = properties.map(property => [property, body.style.getPropertyValue(property), body.style.getPropertyPriority(property)]);
     const overflow = [root.style.getPropertyValue('overflow'), root.style.getPropertyPriority('overflow')];
     root.style.setProperty('overflow', 'hidden');
@@ -576,7 +576,12 @@ export function useDocumentScrollLock() {
     body.style.setProperty('top', `${-y}px`);
     body.style.setProperty('left', `${-x}px`);
     body.style.setProperty('width', `${width}px`);
+    body.style.setProperty('max-width', '100%');
+    // Rotation and window resizing must not retain the old fixed body width.
+    const resize = () => body.style.setProperty('width', `${root.clientWidth}px`);
+    window.addEventListener('resize', resize);
     return () => {
+      window.removeEventListener('resize', resize);
       for (const [property, value, priority] of previous) {
         if (value) body.style.setProperty(property, value, priority); else body.style.removeProperty(property);
       }

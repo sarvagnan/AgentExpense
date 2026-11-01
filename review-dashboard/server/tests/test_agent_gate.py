@@ -105,6 +105,34 @@ class GateTests(unittest.TestCase):
         self.gate.require_ready()
         self.assertEqual(self.gate.status()['state'], 'ready')
 
+    def test_background_notices_login_without_requiring_a_disabled_submission(self):
+        self.configure(signed_out=True)
+        self.gate.login_poll_seconds = .05
+        self.gate.start()
+        end = time.monotonic() + 5
+        while self.gate.status()['state'] != 'signed out' and time.monotonic() < end:
+            time.sleep(.01)
+        self.assertEqual(self.gate.status()['state'], 'signed out')
+        self.configure(signed_out=False)
+        end = time.monotonic() + 5
+        while self.gate.status()['state'] != 'ready' and time.monotonic() < end:
+            time.sleep(.01)
+        self.assertEqual(self.gate.status()['state'], 'ready')
+
+    def test_background_recovers_login_lost_after_startup_finished(self):
+        self.gate.login_poll_seconds = .05
+        self.gate.start()
+        self.gate.thread.join(5)
+        self.assertEqual(self.gate.status()['state'], 'ready')
+        self.configure(signed_out=True)
+        with self.assertRaisesRegex(ValueError, 'make agent-login'):
+            self.gate.require_ready()
+        self.configure(signed_out=False)
+        end = time.monotonic() + 5
+        while self.gate.status()['state'] != 'ready' and time.monotonic() < end:
+            time.sleep(.01)
+        self.assertEqual(self.gate.status()['state'], 'ready')
+
     def test_sign_out_after_a_cached_pass_blocks_execution_and_recovers(self):
         self.gate.require_ready()
         before = (self.settings.state_dir / 'agent-check.json').read_bytes()

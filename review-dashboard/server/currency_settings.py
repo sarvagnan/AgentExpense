@@ -12,7 +12,7 @@ from ledger_lock import ledger_lock, LOCK_FD_ENV
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 # The shared module uses a distinct name to avoid importing this API module again.
 from account_currency import currency_changes
-from store import dump
+from store import dump, read_json
 
 
 class SettingsRecords:
@@ -43,6 +43,44 @@ class SettingsRecords:
 
 
 def update_currency(settings, code, account=None):
+    return update_settings(settings, lambda: currency_changes(settings.ledger, code, account),
+                           dict(currency=code, account=account),
+                           f"Change {'account ' + account if account else 'default'} currency to {code}")
+
+
+def update_name(settings, name):
+    name = name.strip()
+    if not name or any(char in name for char in '\r\n'):
+        raise ValueError('Enter a name on one line')
+
+    def changes():
+        manifest = read_json(settings.ledger / 'ledger.json')
+        manifest['name'] = name
+        return {settings.ledger / 'ledger.json': manifest}
+
+    return update_settings(settings, changes, dict(name=name), 'Change ledger name')
+
+
+def account_details(settings, account):
+    from store import load, entries
+    documents = load(settings.ledger)
+    metadata = documents[settings.ledger / 'data/accounts.json']['accounts'].get(account)
+    if not metadata or not metadata.get('currency'):
+        raise ValueError('Choose a declared balance-sheet account')
+    reason = None
+    try:
+        # Use the write path's exact opening/forecast/statement rules, without writing.
+        currency_changes(settings.ledger, metadata['currency'], account)
+    except ValueError as exc:
+        reason = str(exc)
+    from decimal import Decimal
+    opening = sum((Decimal(p['amount']) for entry in entries(documents) for p in entry['postings']
+                   if p['account'] == account and p['commodity'] == metadata['currency']), Decimal(0))
+    return dict(account=account, **metadata, currencyEditable=reason is None, reason=reason,
+                openingBalance=format(opening, 'f') if reason is None else None)
+
+
+def update_settings(settings, get_changes, result, description):
     records = SettingsRecords(settings.ledger)
     with ledger_lock(settings.ledger) as fd:
         for folder in records.root.iterdir():
@@ -50,8 +88,8 @@ def update_currency(settings, code, account=None):
                 draft = json.loads((folder / 'record.json').read_text())
                 Transaction(settings, records, draft).recover()
         if not clean(settings.ledger):
-            raise ValueError('The ledger has uncommitted changes; finish them before changing currencies')
-        changes = currency_changes(settings.ledger, code, account)
+            raise ValueError('The ledger has uncommitted changes; finish them before changing settings')
+        changes = get_changes()
         draft = dict(id=secrets.token_hex(16))
         records.put(draft)
         transaction = Transaction(settings, records, draft)
@@ -59,15 +97,14 @@ def update_currency(settings, code, account=None):
         try:
             for path, value in changes.items():
                 dump(path, value)
-            result = dict(currency=code, account=account)
             journal['result'] = result
             transaction.save_journal(journal)
-            message = f"Change {'account ' + account if account else 'default'} currency to {code}\n\n{transaction.marker}"
+            message = f"{description}\n\n{transaction.marker}"
             run = subprocess.run(['make', 'commit'], cwd=settings.application,
                                  env={**os.environ, 'LEDGER_DIR': str(settings.ledger), LOCK_FD_ENV: str(fd), 'EXPENSES_COMMIT_MESSAGE': message},
                                  pass_fds=(fd,), capture_output=True, text=True)
             if run.returncode:
-                raise RuntimeError('Currency change failed verification: ' + (run.stdout + run.stderr)[-4000:])
+                raise RuntimeError('Settings change failed verification: ' + (run.stdout + run.stderr)[-4000:])
             result['commit_id'] = jj(settings.ledger, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
             draft['committed_result'] = result
             records.put(draft)

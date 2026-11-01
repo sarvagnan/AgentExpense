@@ -1,0 +1,122 @@
+// All browsers are headless; all writable runtime state and artifacts stay under /tmp.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {homedir} from 'node:os';
+import {dirname,join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {cp,mkdir,mkdtemp,readFile,writeFile,rm,open} from 'node:fs/promises';
+import {spawn,execFileSync} from 'node:child_process';
+import {createServer} from 'node:net';
+import {capture,contactSheet,shots} from './capture.mjs';
+import {runSuite} from './suites.mjs';
+
+const source=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
+const cache=join(homedir(),'.cache/expense-playwright');
+const require=createRequire(join(cache,'package.json'));
+const pw=require('playwright'),{expect}=require('playwright/test');
+assert.equal(require('playwright/package.json').version,'1.64.1','Use the pinned headless browser package');
+const engines=(process.env.ENGINES || 'chromium,firefox,webkit').split(',');
+const personas=(process.env.PERSONA || 'asha,empty,jordan,sam').split(',');
+for(const engine of engines)assert.ok(['chromium','firefox','webkit'].includes(engine));
+for(const persona of personas)assert.ok(['asha','empty','jordan','sam'].includes(persona));
+const artifacts=await mkdtemp('/tmp/agentexpense-4a-browser-');
+process.env.TMPDIR=join(artifacts,'tmp');await mkdir(process.env.TMPDIR);
+const venv=join(source,'review-dashboard/server/.venv'),python=join(venv,'bin/python');
+if(process.env.CAPTURE!=='0' && !process.env.ENGINES && !process.env.PERSONA)await rm(shots,{recursive:true,force:true});
+const manifest=[],results=[];let activeServer,activeBrowser,stage;
+const filter=path=>!['.git','.jj','.venv','node_modules','dist','__pycache__'].includes(path.split('/').at(-1));
+async function run(command,args,options) {
+  const child=spawn(command,args,{...options,stdio:['ignore','pipe','pipe']});
+  let log='';child.stdout.on('data',data=>log+=data);child.stderr.on('data',data=>log+=data);
+  const code=await new Promise((done,reject)=>{child.on('exit',done);child.on('error',reject);});
+  if(options.log)await writeFile(options.log,log);
+  assert.equal(code,0,`${command} ${args.join(' ')} failed:\n${log.slice(-12000)}`);
+  return log;
+}
+async function stop(child) {
+  if(!child || child.exitCode!==null || child.signalCode!==null)return;
+  child.kill('SIGTERM');
+  await new Promise(done=>{const timer=setTimeout(()=>child.kill('SIGKILL'),5000);child.once('exit',()=>{clearTimeout(timer);done();});});
+}
+async function port() {
+  const server=createServer();await new Promise((done,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',done);});
+  const value=server.address().port;await new Promise(done=>server.close(done));return value;
+}
+async function staging(persona) {
+  const root=join(artifacts,persona),app=join(root,'application'),dash=join(app,'review-dashboard'),ledger=join(app,'ledger');
+  await mkdir(app,{recursive:true});
+  for(const path of ['scripts','schema','migrations','Makefile'])await cp(join(source,path),join(app,path),{recursive:true,filter,preserveTimestamps:true});
+  for(const path of ['app','public','scripts','server','tests','index.html','package.json','package-lock.json','tsconfig.json','vite.config.ts'])await cp(join(source,'review-dashboard',path),join(dash,path),{recursive:true,filter,preserveTimestamps:true});
+  // Private dependency directory; package links are read-only inputs. Vite caches stay local.
+  const {readdir,symlink}=await import('node:fs/promises');
+  await mkdir(join(dash,'node_modules'));
+  for(const name of await readdir(join(source,'review-dashboard/node_modules')))if(!name.startsWith('.vite'))await symlink(join(source,'review-dashboard/node_modules',name),join(dash,'node_modules',name));
+  await cp(join(source,'fixtures/ledgers',persona),ledger,{recursive:true,filter,preserveTimestamps:true});
+  await readFile(join(ledger,'AGENTS.md'),'utf8');
+  await writeFile(join(ledger,'.gitignore'),'/drafts/\n/.lock\n/expense_ledger.ledger\n');
+  const jjConfig=join(root,'jj.toml');await writeFile(jjConfig,'[user]\nname = "Browser Fixture"\nemail = "browser@example.invalid"\n');
+  const fake=join(root,'fake-agent');await writeFile(fake,`#!${python}\n`+(await readFile(join(source,'review-dashboard/server/tests/fake_agent.py'),'utf8')).split('\n').slice(1).join('\n'),{mode:0o755});
+  const config=join(root,'fake.json');await writeFile(config,JSON.stringify({steps:[]}));
+  const env={...process.env,PYTHONDONTWRITEBYTECODE:'1',VIRTUAL_ENV:venv,PATH:join(venv,'bin')+':'+process.env.PATH,UV_OFFLINE:'1',UV_NO_SYNC:'1',UV_CACHE_DIR:join(root,'uv-cache'),npm_config_cache:join(root,'npm-cache'),NODE_COMPILE_CACHE:join(root,'node-cache'),JJ_CONFIG:jjConfig,LEDGER_DIR:ledger,EXPENSES_STATE_DIR:join(root,'state'),EXPENSES_CODEX_HOME:join(root,'agent-home'),EXPENSES_CODEX:fake,EXPENSES_FAKE_CONFIG:config,EXPENSES_DEV:'1',EXPENSES_BASE_PATH:'/expenses/',EXPENSES_AGENT_TIMEOUT:'10',BROWSER_PERSONA:persona};
+  await run('jj',['git','init','--colocate',ledger],{cwd:app,env});
+  await run('jj',['-R',ledger,'commit','-m','Fictional browser baseline'],{cwd:app,env});
+  await run('jj',['-R',ledger,'bookmark','set','main','-r','@-'],{cwd:app,env});
+  await run(python,[join(app,'scripts/ledger/generate_ledger.py')],{cwd:app,env});
+  await run('npm',['--prefix','review-dashboard','run','data'],{cwd:app,env,log:join(root,'data.log')});
+  await run('npm',['--prefix','review-dashboard','run','build'],{cwd:app,env,log:join(root,'build.log')});
+  env.EXPENSES_PORT=String(await port());
+  const log=await open(join(root,'server.log'),'w');
+  activeServer=spawn(python,[join(dash,'tests/browser/serve.py')],{cwd:app,env,stdio:['ignore',log.fd,log.fd]});await log.close();
+  const base=`http://127.0.0.1:${env.EXPENSES_PORT}/expenses/`;
+  const deadline=Date.now()+20000;let started=false;
+  while(Date.now()<deadline){try{if((await fetch(base+'api/health')).ok){started=true;break;}}catch{}if(activeServer.exitCode!==null)break;await new Promise(done=>setTimeout(done,100));}
+  assert.ok(started,await readFile(join(root,'server.log'),'utf8'));
+  return {root,app,dash,ledger,env,base,persona};
+}
+async function launch(engine,root) {
+  const downloadsPath=join(root,'downloads',engine);await mkdir(downloadsPath,{recursive:true});
+  const options={headless:true,downloadsPath,tracesDir:join(root,'traces',engine)};
+  if(engine==='firefox' && process.platform==='darwin') {
+    // Firefox 157 otherwise looks up the real macOS app-data directory before its profile.
+    // https://github.com/microsoft/playwright/issues/42768
+    const appData=join(root,'firefox-app-data');await mkdir(appData,{recursive:true});
+    options.env={...process.env,CFFIXED_USER_HOME:appData};
+  }
+  if(engine==='chromium') {
+    const data=JSON.parse(await readFile(join(cache,'node_modules/playwright-core/browsers.json'),'utf8'));
+    const revision=data.browsers.find(browser=>browser.name==='chromium-headless-shell').revision;
+    const browserRoot=process.env.PLAYWRIGHT_BROWSERS_PATH || (process.platform==='darwin'?join(homedir(),'Library/Caches/ms-playwright'):join(homedir(),'.cache/ms-playwright'));
+    options.executablePath=join(browserRoot,`chromium_headless_shell-${revision}`,process.platform==='darwin'?`chrome-headless-shell-mac-${process.arch==='arm64'?'arm64':'x64'}`:'chrome-headless-shell-linux64','chrome-headless-shell');
+    assert.ok(!options.executablePath.includes('.app/'));
+  }
+  return pw[engine].launch(options);
+}
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{await activeBrowser?.close();await stop(activeServer);process.exit(130);});
+try {
+  for(const persona of personas) {
+    stage=await staging(persona);
+    for(const engine of engines) {
+      activeBrowser=await launch(engine,stage.root);
+      if(persona===personas[0] && engine===engines[0]) {
+        const context=await activeBrowser.newContext(),page=await context.newPage();
+        await page.route('**/*',route=>route.request().url().startsWith('file:')?route.continue():route.abort());
+        await page.goto('file://'+join(source,'tmp/mockups/index.html'));
+        assert.ok((await page.title()).includes('mockup'));
+        await context.close();
+      }
+      await runSuite({browser:activeBrowser,engine,stage,expect,results,capture:process.env.CAPTURE==='0'?async()=>{}:async(page,info)=>capture(page,manifest,{...info,engine,persona})});
+      await activeBrowser.close();activeBrowser=null;
+      console.log(`PASS ${persona} ${engine}`);
+    }
+    await stop(activeServer);activeServer=null;
+    assert.equal(execFileSync('jj',['-R',stage.ledger,'diff','--summary'],{env:stage.env,encoding:'utf8'}).trim(),'','Fixture working copy remains clean');
+  }
+} catch(error) {
+  console.error(error);process.exitCode=1;
+} finally {
+  await activeBrowser?.close();await stop(activeServer);
+  if(process.env.CAPTURE!=='0')await contactSheet(manifest);
+  await writeFile(join(artifacts,'results.json'),JSON.stringify({engines,personas,results,captures:manifest.length},null,2)+'\n');
+  console.log(`Browser results: ${join(artifacts,'results.json')}`);
+  console.log(`Screenshot contact sheet: ${shots}/index.html`);
+}

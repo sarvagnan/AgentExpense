@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { reloadData } from '../data';
-import { api, type Draft } from './api';
-export const needsAttention = (d: Draft) => d.state === 'question' || d.state === 'failed';
+import { api, type Draft, request } from './api';
+import type { AgentStatus } from './agent-status';
+import { statementsApi, type StatementSession } from './statements-api';
+export const statementNeedsAttention = (s: StatementSession) => ['locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
+export const needsAttention = (d: Draft) => d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
 export const isRunning = (d: Draft) => d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 export const pollDelay = (drafts: Draft[]) => drafts.some(isRunning) ? 3000 : 30000;
 export function useDrafts() {
+  const [agent,setAgent] = useState<AgentStatus>({state:'checking',reason:null});
+  const [statements,setStatements] = useState<StatementSession[]>([]);
   const [undo,setUndo]=useState<{id:string;until:number}[]>([]),[undoError,setUndoError]=useState('');
   const [drafts, setDrafts] = useState<Draft[]>([]), [online, setOnline] = useState<boolean | null>(null), [error, setError] = useState('');
   const [reloadError, setReloadError] = useState('');
@@ -18,8 +23,13 @@ export function useDrafts() {
     again.current=false;
     controller.current=new AbortController();
     try {
-      const health = await api.health(controller.current.signal); if (!health.ok) throw new Error('The live server is unavailable.');
-      const next = newestFirst(await api.list(controller.current.signal));
+      // Let this cheap read finish across navigation. Aborting a health fetch
+      // during document teardown can surface a WebKit access-control error.
+      const health = await api.health(); if (!health.ok) throw new Error('The live server is unavailable.');
+      if (!mounted.current || leaving.current || document.hidden || controller.current.signal.aborted) continue;
+      const [listed, status, statementList] = await Promise.all([api.list(controller.current.signal), request<AgentStatus>('agent-status', {signal:controller.current.signal}), statementsApi.list(controller.current.signal)]);
+      const next = newestFirst(listed);
+      if (mounted.current) {setAgent(status);setStatements(statementList.sessions);}
       if (!mounted.current) return;
       setOnline(true); setError(''); latest.current=next; setDrafts(next);
       const additions = next.filter(d => d.state === 'added' && d.result?.entry_id && !reloaded.current.has(d.id));
@@ -55,7 +65,7 @@ export function useDrafts() {
   useEffect(()=>{if(!undo.length)return;const timer=setTimeout(()=>setUndo(xs=>xs.filter(x=>x.until>Date.now())),Math.max(0,Math.min(...undo.map(x=>x.until))-Date.now()));return()=>clearTimeout(timer);},[undo]);
   async function discard(id:string){await api.discard(id);setUndo(xs=>[...xs,{id,until:Date.now()+30000}]);await refresh();}
   async function restore(id:string){try{setUndoError('');await api.restore(id);setUndo(xs=>xs.filter(x=>x.id!==id));await refresh();}catch(e){setUndoError(`Could not undo Discard. ${(e as Error).message}`);}}
-  return {undo,undoError,discard,restore, drafts, online, error, reloadError, refresh, attention: drafts.filter(needsAttention).length };
+  return {agent,statements,undo,undoError,discard,restore, drafts, online, error, reloadError, refresh, attention: drafts.filter(needsAttention).length + statements.filter(statementNeedsAttention).length };
 }
 export type LiveDrafts = ReturnType<typeof useDrafts>;
 export const draftsChanged = () => window.dispatchEvent(new Event('drafts-changed'));

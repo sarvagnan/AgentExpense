@@ -37,7 +37,9 @@ class AgentGate:
         self.status_lock = threading.Lock()
         self.stop = threading.Event()
         self.thread = None
+        self.login_thread = None
         self.generation = 0
+        self.login_poll_seconds = 30
         self.state = {'state': 'checking', 'reason': None}
 
     def status(self):
@@ -53,6 +55,9 @@ class AgentGate:
             self.stop.clear()
             self.thread = threading.Thread(target=self._background, name='expense-agent-check', daemon=True)
             self.thread.start()
+        if self.login_thread is None or not self.login_thread.is_alive():
+            self.login_thread = threading.Thread(target=self._watch_login, name='expense-agent-login', daemon=True)
+            self.login_thread.start()
 
     def close(self):
         deadline = time.monotonic() + 5
@@ -61,14 +66,26 @@ class AgentGate:
         # A later draft can own the check after the startup thread has exited.
         if self.lock.acquire(timeout=max(0, deadline - time.monotonic())):
             self.lock.release()
-        if self.thread:
-            self.thread.join(timeout=max(0, deadline - time.monotonic()))
+        for thread in (self.thread, self.login_thread):
+            if thread:
+                thread.join(timeout=max(0, deadline - time.monotonic()))
 
     def _background(self):
         try:
             self.require_ready()
         except ValueError:
             pass  # Health and draft errors expose the same safe reason.
+
+    def _watch_login(self):
+        # Signed-out clients cannot submit a draft to discover a new login. This
+        # also covers a login expiring after a cached pass, not just startup.
+        # Unavailable checks still retry only on the next draft.
+        while not self.stop.wait(self.login_poll_seconds):
+            if self.status()['state'] == 'signed out':
+                try:
+                    self.require_ready()
+                except ValueError:
+                    pass
 
     def read_cache(self):
         try:

@@ -65,6 +65,11 @@ class AccountCurrencyChange(CurrencyChange):
     account: str = Field(min_length=1)
 
 
+class NameChange(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(min_length=1, max_length=200)
+
+
 def sniff(data):
     try:
         with Image.open(io.BytesIO(data)) as image:
@@ -183,6 +188,27 @@ def create_app(settings=None, *, start_worker=True):
     def health():
         return {'ok': True, 'base_path': settings.base_path, 'worker': bool(worker.thread and worker.thread.is_alive()),
                 'agent': gate.status()}
+
+    @app.get('/api/agent-status')
+    def agent_status():
+        # Reading status must never start a check or run an agent.
+        return gate.status()
+
+    @app.post('/api/settings/name')
+    def ledger_name(body: NameChange):
+        from currency_settings import update_name
+        try:
+            return update_name(settings, body.name)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get('/api/accounts/details')
+    def account_details_read(account: str):
+        from currency_settings import account_details
+        try:
+            return account_details(settings, account)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post('/api/settings/default-currency')
     def default_currency(body: CurrencyChange):

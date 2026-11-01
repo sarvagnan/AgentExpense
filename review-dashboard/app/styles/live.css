@@ -238,7 +238,7 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .statement-review-action > span { font:var(--text-caption); color:var(--text-secondary); }
 .dialog-close { position:relative; overflow:visible; }
 .dialog-close::after { content:attr(data-tooltip); position:absolute; right:0; top:calc(100% + 8px); width:max-content; padding:6px 9px; border:1px solid var(--control-border); border-radius:4px; background:var(--surface); color:var(--text); font:var(--text-caption); pointer-events:none; opacity:0; z-index:3; }
-.dialog-close:hover::after,.dialog-close:focus::after { opacity:1; }
+.dialog-close:hover::after { opacity:1; }
 .provenance-original > summary { cursor:pointer; }
 .provenance-preview { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; overflow-wrap:anywhere; }
 .provenance-disclose { display:block; color:var(--accent); margin-top:6px; }
@@ -254,7 +254,7 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
  .statement-review-action > span { max-width:45%; }
  .statement-review-action > .button { min-height:44px; }
  .statements-page:has(.statement-review-action) { padding-bottom:var(--live-bottom-space,160px); }
- .phone-live-nav a,.phone-live-nav button { flex-direction:column; flex-wrap:nowrap; gap:4px; }
+ .phone-live-nav a,.phone-live-nav button { flex-direction:row; flex-wrap:nowrap; gap:5px; padding:8px 2px; }
 }
 
 /* Grid tracks must be allowed to shrink below a dialog’s content width. */

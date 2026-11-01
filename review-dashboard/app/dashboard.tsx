@@ -1,8 +1,9 @@
+import { SettingsDialog } from './settings-dialog';
 import { moduleSettings } from '../scripts/ledger-modules.mjs';
-import { money as amountMoney } from './formatting';
+import { money as amountMoney, axisMoney } from './formatting';
 import {formatTimestamp} from './date-time';
 import { reviewKeys } from '../scripts/account-metadata.mjs';
-import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { dashboard as data, review as reviewData, type DashboardData } from './data';
 import Review from './review/page';
@@ -30,15 +31,14 @@ type Transaction = DashboardData['transactions'][number];
 type Month = DashboardData['months'][number];
 
 export const VIEWS: { id: View; label: string; href: string; icon: IconName; carriesMonth: boolean }[] = [
+  { id: 'add', label: 'Add', href: 'add/', icon: 'pencil', carriesMonth: false },
+  { id: 'drafts', label: 'Drafts', href: 'drafts/', icon: 'stack', carriesMonth: false },
+  { id: 'review', label: 'Review', href: 'review/', icon: 'review', carriesMonth: false },
   { id: 'explorer', label: 'Explorer', href: 'explorer/', icon: 'explorer', carriesMonth: true },
   { id: 'atlas', label: 'Atlas', href: 'atlas/', icon: 'atlas', carriesMonth: true },
   { id: 'journal', label: 'Journal', href: 'journal/', icon: 'journal', carriesMonth: true },
   { id: 'forecast', label: 'Forecast', href: 'forecast/', icon: 'forecast', carriesMonth: false },
   { id: 'accounts', label: 'Accounts', href: 'account-summary/', icon: 'accounts', carriesMonth: false },
-  { id: 'review', label: 'Review', href: 'review/', icon: 'review', carriesMonth: false },
-  { id: 'add', label: 'Add', href: 'add/', icon: 'pencil', carriesMonth: false },
-  { id: 'drafts', label: 'Drafts', href: 'drafts/', icon: 'stack', carriesMonth: false },
-  { id: 'statements', label: 'Statements', href: 'statements/', icon: 'source', carriesMonth: false },
 ];
 
 const MONEY_IN = new Set(['Income', 'Refund', 'Reimbursement']);
@@ -134,17 +134,26 @@ function DataBuilt() {
   return <p className="data-built"><strong>{data.meta.ledger.name}</strong>Data built {formatTimestamp(data.meta.generatedAt)}</p>;
 }
 
-function Sidebar({ active, month, attention, status, unreviewed, onHelp }: { active: View; month: string; attention: number; status: string; unreviewed: number; onHelp: () => void }) {
+function Identity({onSettings}: {onSettings:()=>void}) {
+  const name=data.meta.ledger.name;
+  const initials=name.trim().split(/\s+/).slice(0,2).map(part=>Array.from(part)[0]).join('').toUpperCase();
+  return <button type="button" className="identity" aria-label={`${name}, Settings`} onClick={e=>{e.currentTarget.focus();onSettings();}}><span className="avatar" aria-hidden="true">{initials}</span><span className="identity-text">{name}<small>Settings</small></span><Icon name="chevron-up-down"/></button>;
+}
+export function EmptyView({title,expenses=false}: {title:string;expenses?:boolean}) {
+  return <section className="page"><PageHeader title={title}/><div className="panel empty viewing-empty"><strong>{expenses?'No expenses yet.':'No entries yet.'}</strong><p>Your {title.toLowerCase()} will appear as you add expenses.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></div></section>;
+}
+
+function Sidebar({ active, month, attention, status, unreviewed, onHelp, onSettings }: { active: View; month: string; attention: number; status: string; unreviewed: number; onHelp: () => void; onSettings: () => void }) {
   const [appearance, setAppearance] = useAppearance();
   const nextAppearance = appearance === 'light' ? 'dark' : 'light';
   const appearanceLabel = `Switch to ${nextAppearance === 'light' ? 'Light' : 'Dark'} appearance`;
   const query = month !== data.meta.defaultMonth ? `?month=${month}` : '';
   return <aside className="sidebar">
-    <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">A</span><span className="sidebar-label">Ledger</span></a>
-    <nav aria-label="Views">{VIEWS.map((view) => <a key={view.id} href={`${import.meta.env.BASE_URL}${view.href}${view.carriesMonth ? query : ''}`} aria-current={view.id === active ? 'page' : undefined} title={view.label}>
+    <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">A</span><span className="sidebar-label">AgentExpense</span></a>
+    <Identity onSettings={onSettings}/><nav aria-label="Views">{VIEWS.map((view, index) => <Fragment key={view.id}>{index===3 && <hr/>}<a key={view.id} href={`${import.meta.env.BASE_URL}${view.href}${view.carriesMonth ? query : ''}`} aria-current={view.id === active ? 'page' : undefined} title={view.label}>
       <Icon name={view.icon}/><span className="sidebar-label">{view.label}</span>{view.id === 'review' && unreviewed > 0 && <span className="nav-count"><span className="sr-only">, </span>{unreviewed}<span className="sr-only"> to review</span></span>}
       {view.id === 'drafts' && attention > 0 && <span className="nav-count"><span className="sr-only">, </span>{attention}<span className="sr-only"> need attention</span></span>}
-    </a>)}</nav>
+    </a></Fragment>)}</nav>
     <div className="sidebar-footer">
       <p className="sidebar-status" aria-hidden="true">{status}</p>
       <button type="button" className="sidebar-button" aria-label={appearanceLabel} title={appearanceLabel} onClick={() => setAppearance(nextAppearance)}>
@@ -247,7 +256,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
 }
 
 /** One calendar, beside wide lists and disclosed above narrower lists. */
-function ExplorerDayFilter({ month, current, day, onDay }: Parameters<typeof SpendingCalendar>[0]) {
+function ExplorerDayFilter({ month, current, day, onDay, mixed=false }: Parameters<typeof SpendingCalendar>[0] & {mixed?:boolean}) {
   const [wide, setWide] = useState(() => typeof matchMedia === 'undefined' || matchMedia('(min-width: 1281px)').matches);
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
@@ -257,8 +266,8 @@ function ExplorerDayFilter({ month, current, day, onDay }: Parameters<typeof Spe
     return () => media.removeEventListener('change', update);
   }, []);
   return <details className="explorer-day-filter" open={wide || expanded} onToggle={(event) => { if (!wide) setExpanded(event.currentTarget.open); }}>
-    <summary>Filter by day{day ? ` · ${dayShort(`${month}-${String(day).padStart(2, '0')}`)}` : ''}</summary>
-    <PanelHeader title="Daily spending" meta={day ? `Listing ${dayShort(`${month}-${String(day).padStart(2, '0')}`)} only` : 'Select a day to list only its entries'}/>
+    <summary>Filter by day{mixed ? ` · ${current.currency}` : ''}{day ? ` · ${dayShort(`${month}-${String(day).padStart(2, '0')}`)}` : ''}</summary>
+    <PanelHeader title={`Daily spending${mixed ? ` · ${current.currency}` : ''}`} meta={day ? `Listing ${dayShort(`${month}-${String(day).padStart(2, '0')}`)} only` : 'Select a day to list only its entries'}/>
     <SpendingCalendar month={month} current={current} day={day} onDay={onDay}/>
   </details>;
 }
@@ -306,6 +315,16 @@ function CategoryComparison({ current, previous }: { current: Month; previous?: 
   </div>;
 }
 
+/** Compare categories within each native currency; never rank amounts across currencies. */
+function MixedCategories({currents}: {currents:Month[]}) {
+  const categories=[...new Set(currents.flatMap(month=>month.categories.map(row=>row.category)))].sort();
+  const maxima=new Map(currents.map(month=>[month.currency,Math.max(1,...month.categories.map(row=>Math.abs(row.amount)))]));
+  return <div className="mixed-categories">{categories.map(category=><section className="mixed-category" key={category}><h4>{category}</h4>{currents.map(month=>{
+    const row=month.categories.find(row=>row.category===category);
+    return row && <div className="category-currency currency-series" data-currency={month.currency} key={month.currency}><span>{month.currency}</span><i aria-hidden="true" style={{'--bar':`${Math.max(1,Math.abs(row.amount)/maxima.get(month.currency)!*100)}%`} as CSSProperties}/><span>{money(row.amount,month.currency)}</span></div>;
+  })}</section>)}</div>;
+}
+
 export function Explorer({ month, setMonth }: { month: string; setMonth: (month: string, mode?: 'push' | 'replace') => void }) {
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [query, setQuery] = useQueryState('q', '');
@@ -328,7 +347,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   const totals = Object.fromEntries(currents.map(item => [item.currency, item.total]));
   const count = currents.reduce((sum, item) => sum + item.count, 0);
   const pending = currents.reduce((sum, item) => sum + item.pending, 0);
-  const monthTransactions = useMemo(() => data.transactions.filter((item) => item.month === month), [month]);
+  const monthTransactions = useMemo(() => data.transactions.filter((item) => item.month === month && !item.postings.some(posting=>posting.account==='Equity:Opening Balances')), [month]);
   const selected = monthTransactions.find((item) => item.id === selectedId) || null;
   const categories = [...new Set(monthTransactions.map((item) => item.category))].sort();
   const needle = query.trim().toLowerCase();
@@ -351,7 +370,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   function sortBy(key: SortKey) {
     setSort(`${key}-${key === sortKey ? (sortDirection === 'asc' ? 'desc' : 'asc') : key === 'amount' || key === 'date' ? 'desc' : 'asc'}`);
   }
-  if (!current) return <section className="page explorer"><PageHeader title="Explorer"/><div className="empty"><strong>No entries yet</strong><span>Add an expense to start your ledger.</span></div></section>;
+  if (!current || !data.months.some(row=>row.count>0)) return <section className="page explorer"><PageHeader title="Explorer" subtitle="Spending across your accounts, all in one place."/><div className="panel empty viewing-empty"><Icon name="explorer"/><strong>Your spending starts here.</strong><p>Once you add an expense, you’ll see totals, categories and transactions here. Your opening balances are in Accounts.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a><a className="button plain" href={`${import.meta.env.BASE_URL}account-summary/`}>See opening balances</a></div></section>;
   const columns: { key: SortKey; label: string; numeric?: boolean; className?: string; width?: string }[] = [
     { key: 'date', label: 'Date', width: 'date' }, { key: 'description', label: 'Description' }, { key: 'category', label: 'Category', className: 'col-category', width: 'category' },
     { key: 'paymentLabel', label: 'Payment account', className: 'col-payment', width: 'payment' }, { key: 'amount', label: 'Amount', numeric: true, width: 'amount' },
@@ -392,7 +411,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
             <td className="col-description"><EntryLink entryId={item.id} className="row-open" {...rows.rowProps(item)} aria-label={fullEntryText(item)} title={item.description} aria-current={item.id === selectedId ? 'true' : undefined} aria-controls="transaction-inspector" data-copy={copyLine(item)} onOpen={() => { select(item); rows.focusRow(item.id); }} onFocus={(event) => { setCursor(item.id); textTooltip.show(event, fullEntryText(item)); }} onBlur={textTooltip.hide}
               onKeyDown={(event) => { if (menu.keyOpens(event)) openMenu(event, item, event.currentTarget.closest('tr')); }}>
               <span className="row-title" title={item.description}>{rowTitle(item.description)}</span>
-              <span className="row-sub-line">{item.status === 'Pending' && <span className="status pending"><Icon name="pending"/>Unclassified</span>}</span></EntryLink></td>
+              <span className="phone-entry-meta">{item.category} · {paymentSide(item).short}</span><span className="row-sub-line">{item.status === 'Pending' && <span className="status pending"><Icon name="pending"/>Unclassified</span>}</span></EntryLink></td>
             <td className="col-category" title={item.category}>{item.category}</td>
             <td className="col-payment" title={paymentSide(item).full} aria-label={paymentSide(item).full}><span className="payment-name">{paymentSide(item).short}</span></td>
             <td className={`num ${amountClass(item)}`}>{signedAmount(item)}</td>
@@ -400,14 +419,36 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
         </table>{filtered.length === 0 && <div className="empty"><strong>No matching entries</strong><span>Try another search or category, or show all entries.</span><button type="button" className="button" onClick={showAll}>Show All</button></div>}</div>
       </section>
       <aside className="explorer-aside panel" aria-label="The month at a glance">
-        {currents.map(item => <div key={item.currency}>{currents.length > 1 && <h3>{item.currency}</h3>}<ExplorerDayFilter month={month} current={item} day={day} onDay={setDay}/></div>)}
-        <section className="aside-section"><div className="aside-section-head"><h3>Categories</h3><p>{previous ? <><span className="key key-current"/>{monthName(month)} <span className="key key-previous"/>{monthName(previous.month)}</> : monthLong(month)}</p></div>{currents.map(item => <div key={item.currency}>{currents.length > 1 && <h3>{item.currency}</h3>}<CategoryComparison current={item} previous={data.months.find(row => row.month === previousKey && row.currency === item.currency)}/></div>)}</section>
+        <div className="explorer-day-filters">{currents.map(item => <ExplorerDayFilter key={item.currency} mixed={currents.length>1} month={month} current={item} day={day} onDay={setDay}/>)}</div>
+        <section className="aside-section"><div className="aside-section-head"><h3>Categories</h3><p>{currents.length>1 ? `${currents.map(item=>item.currency).join(' and ')} shown separately.` : previous ? <><span className="key key-current"/>{monthName(month)} <span className="key key-previous"/>{monthName(previous.month)}</> : monthLong(month)}</p></div>{currents.length>1 ? <MixedCategories currents={currents}/> : <CategoryComparison current={current} previous={previous}/>}</section>
       </aside>
       </div>
+      <SpendingTrend/>
     </section>
     <TransactionDetails transaction={selected} onClose={close} entries={filtered} onStep={(id) => setSelectedId(id, 'replace')}/>
     {menu.element}
   </div>;
+}
+
+function SpendingTrend() {
+  const last=monthKeys().at(-1)!;
+  const end=new Date(Number(last.slice(0,4)),Number(last.slice(5,7))-1,1);
+  const keys=Array.from({length:12},(_,i)=>{const day=new Date(end.getFullYear(),end.getMonth()-11+i,1);return `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}`;});
+  const currencies=currencyOrder(data.months.filter(row=>keys.includes(row.month) && row.count>0).map(row=>row.currency));
+  return <section className="panel spending-trend"><PanelHeader title="Spending · twelve months" meta={`${monthLong(keys[0])} – ${monthLong(last)}`}/><div className="trend-charts">{currencies.map(currency=>{
+    const rows=keys.map(key=>data.months.find(row=>row.month===key && row.currency===currency && row.count>0));
+    const max=Math.max(1,...rows.map(row=>row?.total || 0));
+    const min=Math.min(0,...rows.map(row=>row?.total || 0));
+    const y=(value:number)=>140-(value-min)/(max-min)*112;
+    const segments:string[][]=[];let segment:string[]=[];
+    rows.forEach((row,i)=>{if(row)segment.push(`${58+i*44},${y(row.total)}`);else if(segment.length){segments.push(segment);segment=[];}});if(segment.length)segments.push(segment);
+    return <figure key={currency} className="trend-currency currency-series" data-currency={currency}><figcaption>{currencies.length>1 ? <><i className="currency-key" aria-hidden="true"/>{currency} spending</> : 'Spending'}</figcaption><svg viewBox="0 0 560 180" role="img" aria-label={`Twelve-month spending in ${currency}. Each currency has its own axis; missing months have no point.`}>
+      {[min,(max+min)/2,max].map((value,i)=><g key={i}><path className="trend-grid" d={`M54 ${y(value)}H550`}/><text x="48" y={y(value)+4} textAnchor="end">{axisMoney(value,max,currency)}</text></g>)}
+      {segments.map((points,i)=><polyline key={i} className="trend-line" points={points.join(' ')}/>)}
+      {rows.map((row,i)=>row && <circle key={row.month} className="trend-dot" cx={58+i*44} cy={y(row.total)} r="3"><title>{`${monthLong(row.month)}: ${money(row.total,currency)}`}</title></circle>)}
+      {keys.map((key,i)=><text key={key} x={58+i*44} y="167" textAnchor="middle">{monthName(key).slice(0,3)}</text>)}
+    </svg><details><summary>Monthly amounts in {currency}</summary><dl>{rows.filter((row):row is Month=>!!row).map(row=><div key={row.month}><dt>{monthLong(row.month)}</dt><dd>{money(row.total,currency)}</dd></div>)}</dl></details></figure>;
+  })}</div><p className="panel-note">{currencies.length>1 ? 'Each currency has its own total and chart. Amounts are never converted.' : 'Months without recorded spending have no point.'}</p></section>;
 }
 
 function Atlas(props: {month: string; setMonth: (month: string, mode?: 'push'|'replace') => void}) {
@@ -492,7 +533,7 @@ function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; c
   </section>;
 }
 
-function CurrencyJournalSummary({ month, rows, current }: { month: string; rows: Transaction[]; current: Month }) {
+function CurrencyJournalSummary({ month, rows, current, mixed }: { mixed:boolean; month: string; rows: Transaction[]; current: Month }) {
   const money = (value: number) => amountMoney(value, current.currency);
   const days = daysInMonth(month);
   const cumulative: number[] = [];
@@ -506,7 +547,7 @@ function CurrencyJournalSummary({ month, rows, current }: { month: string; rows:
   const all = data.transactions.filter((item) => item.month === month && item.currency === current.currency);
   const withSource = all.filter((item) => item.sources.length > 0).length;
   return <aside className="journal-summary panel" aria-label="Month summary">
-    <section><PanelHeader title={`${monthLong(month)} · ${current.currency}`} meta="Spent this month"><span className="summary-total">{money(current.total)}</span></PanelHeader>
+    <section><PanelHeader title={`${monthLong(month)}${mixed ? ` · ${current.currency}` : ''}`} meta="Spent this month"><span className="summary-total">{money(current.total)}</span></PanelHeader>
       <div className="panel-body"><svg className="sparkline" viewBox="0 0 300 100" preserveAspectRatio="none" role="img" aria-label={`Cumulative spending reached ${money(cumulative[recordedDays - 1] || 0)} by day ${recordedDays}`}><polyline points={points} fill="none" vectorEffect="non-scaling-stroke"/></svg>
         <div className="sparkline-axis"><span>1 {monthName(month).slice(0, 3)}</span><span>Cumulative</span><span>{days} {monthName(month).slice(0, 3)}</span></div></div></section>
     <section className="summary-section"><h3>{current.categories.length > 8 ? `Top 8 of ${current.categories.length} categories` : 'By category'}</h3>
@@ -517,7 +558,8 @@ function CurrencyJournalSummary({ month, rows, current }: { month: string; rows:
 }
 
 function JournalSummary({month, rows}: {month: string; rows: Transaction[]}) {
-  return <div>{spendingMonths().filter(item => item.month === month).map(current => <CurrencyJournalSummary key={current.currency} month={month} rows={rows.filter(item => item.currency === current.currency)} current={current}/>)}</div>;
+  const currents=spendingMonths().filter(item => item.month === month);
+  return <div>{currents.map(current => <CurrencyJournalSummary mixed={currents.length>1} key={current.currency} month={month} rows={rows.filter(item => item.currency === current.currency)} current={current}/>)}</div>;
 }
 
 /** One side of an entry's movement: its accounts, summarized when an order has many item postings. */
@@ -603,6 +645,7 @@ export default function Dashboard({ view }: { view: View }) {
   useAnswerGuard();
   useLiveFocus(view);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [settingsOpen,setSettingsOpen] = useState(false);
   const [status, setStatus] = useState('');
   const [unreviewed, setUnreviewed] = useState(() => typeof window === 'undefined' ? reviewData.meta.pendingTransactionCount : unreviewedCount());
   useEffect(() => {
@@ -655,11 +698,12 @@ export default function Dashboard({ view }: { view: View }) {
     document.addEventListener('copy', onCopy);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onStep); document.removeEventListener('copy', onCopy); };
   }, []);
-  return <main className={`app ${view === 'add' || view === 'drafts' || view === 'statements' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} onHelp={() => setShortcutsOpen(true)}/><p className="sr-only navigation-status" role="status">{status}</p>
-    <div className="content" id="main-content" tabIndex={-1}>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'drafts' ? <Drafts live={live}/> : view === 'statements' ? <Statements/> : <div key={version}>{view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? <Journal month={month} setMonth={setMonth}/> : view === 'forecast' ? <Forecast/> : view === 'accounts' ? <AccountSummary/> : <Review/>}</div>}</div>
+  return <main className={`app ${view === 'add' || view === 'drafts' || view === 'statements' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)}/><p className="sr-only navigation-status" role="status">{status}</p>
+    <div className="content" id="main-content" tabIndex={-1}><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'drafts' ? <Drafts live={live}/> : view === 'statements' ? <Statements/> : <div key={version}>{view==='review' && !reviewData.transactions.length ? <section className="page"><PageHeader title="Review" subtitle="A second look at entries already in your records."/><div className="panel empty viewing-empty"><Icon name="review"/><strong>Nothing to review.</strong><p>Entries that need a second look will appear here. Add an expense whenever you’re ready.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add an expense</a></div></section> : ((view==='atlas' || (view==='forecast' && !data.forecasts.some(item=>item.items.length))) && !data.months.some(row=>row.count>0)) ? <EmptyView title={TITLES[view]} expenses/> : !data.transactions.length && ['journal','forecast'].includes(view) ? <EmptyView title={TITLES[view]}/> : view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? <Journal month={month} setMonth={setMonth}/> : view === 'forecast' ? <Forecast/> : view === 'accounts' ? <AccountSummary/> : <Review/>}</div>}</div>
     {!!live.undo.length && <div className="draft-undo panel" role="status">{live.undo.map(item=><div key={item.id}>Draft discarded. <button className="button" onClick={()=>void live.restore(item.id)}>Undo</button></div>)}{live.undoError && <p role="alert" className="live-error">{live.undoError}</p>}</div>}
-    <nav className="phone-live-nav" aria-label="Quick navigation"><a href={`${import.meta.env.BASE_URL}add/`} aria-current={view==='add'?'page':undefined}><Icon name="pencil"/>Add</a><a href={`${import.meta.env.BASE_URL}drafts/`} aria-current={view==='drafts'?'page':undefined}><Icon name="stack"/>Drafts{live.attention>0 && <span aria-label={`${live.attention} need attention`}>{live.attention}</span>}</a><a href={`${import.meta.env.BASE_URL}statements/`} aria-current={view==='statements'?'page':undefined}><Icon name="source"/>Statements</a><button ref={viewsButton} type="button" aria-current={!(['add', 'drafts', 'statements'] as View[]).includes(view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>setMore(!more)}><Icon name="explorer"/>Views</button></nav>
-    {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.filter(v=>v.id!=='add' && v.id!=='drafts' && v.id!=='statements').map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}{v.id === 'review' && unreviewed > 0 && <span className="nav-count"><span className="sr-only">, </span>{unreviewed}<span className="sr-only"> to review</span></span>}</a>)}</nav><button className="button" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}>Switch to {appearance==='light'?'Dark':'Light'} appearance</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><DataBuilt/><button className="button" onClick={closeViews}>Close views</button></div>}
+    <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='drafts'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className="nav-count" aria-label={v.id==='drafts'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='drafts'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
+    {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><button className="button" onClick={closeViews}>Close views</button></div>}
+    {settingsOpen && <SettingsDialog agent={live.agent} onClose={()=>setSettingsOpen(false)}/>}
     {shortcutsOpen && <HelpDialog onClose={() => setShortcutsOpen(false)}/>}
   </main>;
 }

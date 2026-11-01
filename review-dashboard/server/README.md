@@ -330,3 +330,39 @@ and recorded notes establish them; no historical matching rule is inferred.
 The currency endpoints, opening-balance lock rules and generated amount contracts are documented in [Account currencies](../../docs/CURRENCIES.md). Both settings writes use the existing write-access checks and the locked, verified commit path.
 
 Optional fuel fields, investment price sources, history tools and weekly review follow the selected manifest. See [module settings](../../docs/MODULES.md) and [scheduling examples](../../docs/scheduling/README.md).
+
+
+## Shell and Settings
+
+`GET /api/agent-status` returns the gate’s current `state` and safe `reason`.
+It is read-only: it never starts a check or a model run. The dashboard polls with
+the existing draft refresh cadence (30 seconds idle, three seconds while working,
+paused while hidden). In-flight read-only requests finish with keepalive transport;
+caller cancellation is immediate and departed views cannot publish stale data.
+This avoids WebKit teardown errors. Writes retain transport cancellation and all
+requests retain their network deadlines. Only Add, Drafts and Settings explain agent readiness.
+Signed-out and paused states disable agent submission, answer and retry controls;
+editing and uploads remain available. An unavailable check retries on the next
+draft. While signed out, a separate server watcher checks for login every 30
+seconds, including after a previously ready login expires. Both check threads
+stop with the application. Paused and unavailable states are not retried by that
+watcher.
+
+`POST /api/settings/name` accepts `{"name":"River Ledger"}`. Names are trimmed,
+nonblank, single-line and at most 200 characters. It shares the clean-copy guard,
+ledger lock, recovery journal, verification, commit and dashboard refresh used by
+currency writes. The Settings dialog saves changed fields through their respective
+endpoints; each field makes its own verified commit. A failed later field leaves
+the dialog open and reloads the committed state before retrying.
+
+`GET /api/accounts/details?account=…` returns metadata, `currencyEditable`, a
+fixed-currency reason, and an opening balance for the relabelling preview. Its
+read-only calculation uses the same transaction, forecast and filed-statement
+rules as the currency write endpoint. Fixed currency is plain text in the dialog;
+account name and kind are informational. Opening-only currency edits use the
+existing `POST /api/accounts/currency` endpoint.
+
+The legacy Statements route remains available while statement intake moves to
+Add in the next UI step. The shell has no separate Statements navigation item.
+Headless fixture browser tests and captures are documented in
+[the browser harness](../tests/browser/README.md).

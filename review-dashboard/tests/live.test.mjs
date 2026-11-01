@@ -61,7 +61,11 @@ test('API URLs, action errors, timeouts and atomic concurrent data reload',async
   globalThis.fetch=async()=>new Response('not JSON',{status:502});await assert.rejects(request('health'),/HTTP 502/);
   globalThis.fetch=async()=>{throw new TypeError('offline');};await assert.rejects(request('health'),/Could not reach/);
   globalThis.fetch=async(_url,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError'))));await assert.rejects(request('health',{},1),/took too long/);
-  const cancel=new AbortController();const pending=request('health',{signal:cancel.signal});cancel.abort();await assert.rejects(pending,e=>e.name==='AbortError');
+  let finishRead,readSignal;
+  globalThis.fetch=async(_url,init)=>{assert.equal(init.keepalive,true);readSignal=init.signal;return new Promise(resolve=>{finishRead=()=>resolve(new Response('{}'));});};
+  const cancel=new AbortController();const pending=request('health',{signal:cancel.signal});cancel.abort();await assert.rejects(pending,e=>e.name==='AbortError');assert.equal(readSignal.aborted,false,'Read cancellation must not abort WebKit transport during departure');finishRead();await new Promise(resolve=>setImmediate(resolve));
+  let writeSignal;globalThis.fetch=async(_url,init)=>new Promise((_,reject)=>{assert.equal(init.keepalive,true);writeSignal=init.signal;init.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')));});
+  const stopWrite=new AbortController();const writing=request('drafts',{method:'POST',body:'{}',signal:stopWrite.signal});stopWrite.abort();await assert.rejects(writing,e=>e.name==='AbortError');assert.equal(writeSignal.aborted,true,'Writes retain transport cancellation');
   const m=await server.ssrLoadModule('/app/data.ts');let notified=0;const off=m.subscribeData(()=>notified++);let calls=0;
   globalThis.fetch=async(url,init)=>{calls++;assert.equal(init.cache,'no-store');return new Response(JSON.stringify({tag:'new',url,meta:{ledger:{modules:{fuel:true}}}}));};
   const a=m.reloadData(),b=m.reloadData();assert.equal(a,b);await a;assert.equal(calls,3);assert.equal(notified,1);const prior=m.dashboard;
