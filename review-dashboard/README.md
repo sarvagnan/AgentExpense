@@ -18,7 +18,7 @@ The optional Python server serves the built dashboard, evidence and API; see [se
 
 ## Review storage
 
-Decisions use `agentexpense-review-v2` in the browser's local storage. Draft edits and export timestamps use the same application prefix. Export and Import move decisions across origins. Each browser/origin keeps separate decisions; phase 2 will provide a migration setting for existing ledger installations.
+Review decisions and counts come from the server and are shared across devices. Browser storage, scoped by ledger identity or its configured legacy key, keeps unsent edits and failed requests for explicit retry/discard. Export retains version 2; Import previews valid, unknown and changed entries, then applies valid decisions in one audited commit. Review offers to move pre-existing browser decisions into the ledger. See [server Review](server/README.md#server-review) for the write and recovery contract.
 
 For card statement parsing or adaptation, read [the example layout and reader](../scripts/statements/README.md). Payment shortcuts are `card` (Rewards card), `savings` (Savings account), `salary` (Salary account), `wallet` (Shopping wallet), `appstore` (App store balance) and `cash`. Both wallet accounts appear as prepaid balances, and bank-funded top-ups appear as Balance top-up.
 

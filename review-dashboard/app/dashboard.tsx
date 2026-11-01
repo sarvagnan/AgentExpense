@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, use
 import { createPortal } from 'react-dom';
 import { dashboard as data, review as reviewData, type DashboardData } from './data';
 import Review from './review/page';
+import {useReview} from './review/api';
 import Add from './live/add';
 import {useAnswerGuard} from './live/answers';
 import {useComposer} from './live/composer';
@@ -89,7 +90,6 @@ const SHORTCUTS: [string, [string, string][]][] = [
   ['Calendar, Atlas and month buttons', [['←  →  ↑  ↓', 'Move between days or months']]],
   ['Forecast chart', [['←  →', 'Move between days (click, tap or Tab to the chart first)'], ['Home  End', 'First or last day'], ['Esc', 'Hide the tooltip; focus and the selected day stay on the chart']]],
   ['Investment value charts', [['←  →', 'Move between NAV dates (click, tap or Tab to the chart first)'], ['Home  End', 'First or last NAV date'], ['Esc', 'Hide the tooltip; focus and the selected date stay on the chart']]],
-  ['Review', [['⌘↩', 'Resolve'], ['⇧⌘↩', 'Mark for Follow-Up'], ['⌘Z', 'Undo the last decision'], ['⇧⌘Z', 'Redo']]],
 ];
 const VIEW_GUIDE: [string, string][] = [
   ['Explorer', 'One month: what was spent, by day and by category, and every ledger entry with its postings and evidence. On phones, More month figures expands the average, expense count and largest expense below Spent.'],
@@ -97,7 +97,7 @@ const VIEW_GUIDE: [string, string][] = [
   ['Journal', 'Every entry of a month by day, with the day’s net expenses and where each payment came from and went.'],
   ['Forecast', 'This month so far, then recurring commitments and the usual variable spending to month end, against earlier months.'],
   ['Accounts', 'Balances on any date, each account’s history, and the entries that moved it. Investments opens the portfolio: mutual funds at the latest NAV on or before that date, with cost and unrealised gain; other investments at contributions. Click, tap or use the value chart’s arrow keys to inspect NAV dates. On phones, Choose account switches accounts and More account context expands the totals and full account list.'],
-  ['Review', 'Check the evidence → choose an account → Resolve. Work is saved in this browser; use Export Work… to back it up.'],
+  ['Review', 'Check the evidence → choose an account → Resolve. Decisions are saved to the ledger. Unsent work is kept in this browser; Export decisions backs it up.'],
   ['Appearance', 'The appearance toggle in the sidebar, or Views on phones, switches between Light and Dark. Your first visit starts with the system appearance; your choice is remembered across reloads and tabs.'],
 ];
 function HelpDialog({ onClose }: { onClose: () => void }) {
@@ -105,29 +105,21 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
     <div className="help" tabIndex={0} aria-label="Help">
       <section><h3>Views</h3><dl className="help-views">{VIEW_GUIDE.map(([view, text]) => <div key={view}><dt>{view}</dt><dd>{view === 'Accounts' && moduleSettings(data.meta.ledger).investments === false ? 'Balances on any date, each account’s history, and the entries that moved it.' : view === 'Accounts' && !data.prices.length ? 'Balances on any date, each account’s history, and investments at recorded cost. Add recorded prices for market values.' : text}</dd></div>)}</dl></section>
       <section className="help-review"><h3>Review</h3>
-        <details><summary>Backup and moving browsers</summary><p>Export Work… saves decisions and drafts to a file. Import that file in the other browser or at a new dashboard address.</p></details>
-        <details><summary>Multiple tabs</summary><p>One tab edits; others follow saved work read-only. Use Edit Here Instead to take over.</p></details>
-        <details><summary>Recovery</summary><p>If work cannot be saved, keep the tab open and export it. A recovery notice offers Export Unsaved Work and Discard. Take editing back to Restore Unsaved Work; Undo and Redo are available. Keep the tab open until the work is saved or deliberately discarded.</p></details>
-        {moduleSettings(data.meta.ledger).fuel && <details><summary>Fuel Log</summary><p>Open Fuel Log beside the entry to compare its payment and readings. Numbered Entry links open the confirmed ledger entries in a new tab.</p></details>}
+        <details><summary>Backup and moving browsers</summary><p>Export decisions saves a version-2 backup. Import previews its valid, changed and unknown entries before saving valid decisions to the ledger.</p></details>
+        <details><summary>Multiple tabs</summary><p>Every device reads the same ledger queue and count. If another device changes an entry, reload and check it before applying your decision.</p></details>
+        <details><summary>Recovery</summary><p>Unsent edits and failed requests remain in this browser. Resume or discard edits, or retry the saved request. Duplicate separations can be undone immediately or from Change history.</p></details>
+        {moduleSettings(data.meta.ledger).fuel && <details><summary>Fuel Log</summary><p>Open Fuel Log while reviewing an entry to compare its payment and readings. Numbered Entry links open the confirmed ledger entries in a new tab.</p></details>}
       </section>
       <section><h3>Keyboard shortcuts</h3><div className="shortcuts">{SHORTCUTS.filter(([group]) => group !== 'Investment value charts' || (moduleSettings(data.meta.ledger).investments !== false && data.prices.length > 0)).map(([group, items]) => <section key={group}><h4>{group}</h4><dl>{items.map(([keys, action]) => <div key={keys}><dt><kbd>{keys}</kbd></dt><dd>{action}</dd></div>)}</dl></section>)}</div>
         <p className="help-note">In entry details, ↑/↓ or Previous/Next steps through the list. The title, amount and tools stay visible above the scrolling detail body. Esc, Close, or the dimmed page exits. Tab stays inside until you close it. The page behind stays still and returns to its exact scroll position on close.</p>
         <p className="help-note">Entry titles are links: click for details or ⌘/Ctrl-click or middle-click for a new tab. Drag the title to copy the entry to another app; title links include its URL. Select text in other cells to copy just that part. Right-click anywhere on a row for its commands; Shift+right-click opens the browser’s menu.</p>
-        <p className="help-note">Show All clears Explorer filters. Clear Search in Journal, Accounts and Review keeps other filters. Explorer’s matching subtotal excludes transfers; the month summary shows the whole month.</p>
+        <p className="help-note">Show All clears Explorer filters. Clear Search in Journal and Accounts keeps other filters. Explorer’s matching subtotal excludes transfers; the month summary shows the whole month.</p>
         <p className="help-note">Right-click a column heading for Reset Column Widths. Browser shortcuts still work, including ⌘F. If data cannot load, use Retry; Details explains the problem. A successful Retry focuses the loaded view’s heading.</p></section>
     </div>
   </Dialog>;
 }
 
-const reviewKey = () => reviewKeys(data.meta.ledger).decisions;
-/** Entries still unreviewed in this browser: the ledger's pending count less saved decisions. */
-function unreviewedCount() {
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(reviewKey()) || '{}') as Record<string, { status: string }>;
-    const ids = new Set(reviewData.transactions.map((item) => item.id));
-    return reviewData.meta.pendingTransactionCount - Object.entries(saved).filter(([id, decision]) => ids.has(id) && decision.status !== 'unreviewed').length;
-  } catch { return reviewData.meta.pendingTransactionCount; }
-}
+
 
 function DataBuilt() {
   return <p className="data-built"><strong>{data.meta.ledger.name}</strong>Data built {formatTimestamp(data.meta.generatedAt)}</p>;
@@ -142,7 +134,7 @@ export function EmptyView({title,expenses=false}: {title:string;expenses?:boolea
   return <section className="page"><PageHeader title={title}/><div className="panel empty viewing-empty"><strong>{expenses?'No expenses yet.':'No entries yet.'}</strong><p>Your {title.toLowerCase()} will appear as you add expenses.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></div></section>;
 }
 
-function Sidebar({ active, month, attention, status, unreviewed, onHelp, onSettings }: { active: View; month: string; attention: number; status: string; unreviewed: number; onHelp: () => void; onSettings: () => void }) {
+function Sidebar({ active, month, attention, status, unreviewed, important, onHelp, onSettings }: { active: View; month: string; attention: number; status: string; unreviewed: number; important: boolean; onHelp: () => void; onSettings: () => void }) {
   const [appearance, setAppearance] = useAppearance();
   const nextAppearance = appearance === 'light' ? 'dark' : 'light';
   const appearanceLabel = `Switch to ${nextAppearance === 'light' ? 'Light' : 'Dark'} appearance`;
@@ -150,7 +142,7 @@ function Sidebar({ active, month, attention, status, unreviewed, onHelp, onSetti
   return <aside className="sidebar">
     <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">A</span><span className="sidebar-label">AgentExpense</span></a>
     <Identity onSettings={onSettings}/><nav aria-label="Views">{VIEWS.map((view, index) => <Fragment key={view.id}>{index===3 && <hr/>}<a key={view.id} href={`${import.meta.env.BASE_URL}${view.href}${view.carriesMonth ? query : ''}`} aria-current={view.id === active ? 'page' : undefined} title={view.label}>
-      <Icon name={view.icon}/><span className="sidebar-label">{view.label}</span>{view.id === 'review' && unreviewed > 0 && <span className="nav-count"><span className="sr-only">, </span>{unreviewed}<span className="sr-only"> to review</span></span>}
+      <Icon name={view.icon}/><span className="sidebar-label">{view.label}</span>{view.id === 'review' && unreviewed > 0 && <span className={`nav-count ${important?'important':''}`}><span className="sr-only">, </span>{unreviewed}<span className="sr-only"> to review</span></span>}
       {view.id === 'drafts' && attention > 0 && <span className="nav-count"><span className="sr-only">, </span>{attention}<span className="sr-only"> need attention</span></span>}
     </a></Fragment>)}</nav>
     <div className="sidebar-footer">
@@ -646,16 +638,10 @@ export default function Dashboard({ view }: { view: View }) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen,setSettingsOpen] = useState(false);
   const [status, setStatus] = useState('');
-  const [unreviewed, setUnreviewed] = useState(() => typeof window === 'undefined' ? reviewData.meta.pendingTransactionCount : unreviewedCount());
-  useEffect(() => {
-    const onStatus = (event: Event) => setStatus((event as CustomEvent<string>).detail);
-    const onProgress = () => setUnreviewed(unreviewedCount());
-    const unsubscribe = subscribeData(onProgress);
-    window.addEventListener('ledger-status', onStatus);
-    window.addEventListener('review-progress', onProgress);
-    window.addEventListener('storage', onProgress);
-    return () => { unsubscribe(); window.removeEventListener('ledger-status', onStatus); window.removeEventListener('review-progress', onProgress); window.removeEventListener('storage', onProgress); };
-  }, []);
+  const reviewLive=useReview();
+  const unreviewed=reviewLive.data?.count || 0;
+  const important=!!reviewLive.data?.important;
+  useEffect(()=>{const listener=(event:Event)=>setStatus((event as CustomEvent<string>).detail);window.addEventListener('ledger-status',listener);return()=>window.removeEventListener('ledger-status',listener);},[]);
   const [more, setMore] = useState(false);
   const viewsButton=useRef<HTMLButtonElement>(null);
   const closeViews=()=>{setMore(false);viewsButton.current?.focus();};
@@ -697,10 +683,10 @@ export default function Dashboard({ view }: { view: View }) {
     document.addEventListener('copy', onCopy);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onStep); document.removeEventListener('copy', onCopy); };
   }, []);
-  return <main className={`app ${view === 'add' || view === 'drafts' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)}/><p className="sr-only navigation-status" role="status">{status}</p>
-    <div className="content" id="main-content" tabIndex={-1}><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'drafts' ? <Drafts live={live}/> : <div key={version}>{view==='review' && !reviewData.transactions.length ? <section className="page"><PageHeader title="Review" subtitle="A second look at entries already in your records."/><div className="panel empty viewing-empty"><Icon name="review"/><strong>Nothing to review.</strong><p>Entries that need a second look will appear here. Add an expense whenever you’re ready.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add an expense</a></div></section> : ((view==='atlas' || (view==='forecast' && !data.forecasts.some(item=>item.items.length))) && !data.months.some(row=>row.count>0)) ? <EmptyView title={TITLES[view]} expenses/> : !data.transactions.length && ['journal','forecast'].includes(view) ? <EmptyView title={TITLES[view]}/> : view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? <Journal month={month} setMonth={setMonth}/> : view === 'forecast' ? <Forecast/> : view === 'accounts' ? <AccountSummary/> : <Review/>}</div>}</div>
+  return <main className={`app ${view === 'add' || view === 'drafts' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} important={important} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)}/><p className="sr-only navigation-status" role="status">{status}</p>
+    <div className="content" id="main-content" tabIndex={-1}><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'drafts' ? <Drafts live={live}/> : <div key={view==='review'?'review':version}>{((view==='atlas' || (view==='forecast' && !data.forecasts.some(item=>item.items.length))) && !data.months.some(row=>row.count>0)) ? <EmptyView title={TITLES[view]} expenses/> : !data.transactions.length && ['journal','forecast'].includes(view) ? <EmptyView title={TITLES[view]}/> : view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? <Journal month={month} setMonth={setMonth}/> : view === 'forecast' ? <Forecast/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
     {!!live.undo.length && <div className="draft-undo panel" role="status">{live.undo.map(item=><div key={item.id}>Draft discarded. <button className="button" onClick={()=>void live.restore(item.id)}>Undo</button></div>)}{live.undoError && <p role="alert" className="live-error">{live.undoError}</p>}</div>}
-    <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='drafts'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className="nav-count" aria-label={v.id==='drafts'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='drafts'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
+    <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='drafts'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className={`nav-count ${v.id==='review'&&important?'important':''}`} aria-label={v.id==='drafts'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='drafts'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
     {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><button className="button" onClick={closeViews}>Close views</button></div>}
     {settingsOpen && <SettingsDialog agent={live.agent} onClose={()=>setSettingsOpen(false)}/>}
     {shortcutsOpen && <HelpDialog onClose={() => setShortcutsOpen(false)}/>}

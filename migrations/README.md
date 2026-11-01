@@ -33,3 +33,21 @@ Dashboard comparisons for format 0 use the proposed format-1 manifest and accoun
 metadata on both sides. This checks the unchanged entries under the same current
 classification rules; new manifest fields have no format-0 counterpart. Journal
 and hledger report comparisons remain exact.
+
+### Unreleased format 1: server Review
+
+Format 1 is not released yet; phase 5 extends it without a format bump. Actual
+entries may contain `possible-duplicate-of: [{"id":"<other entry ID>","reason":"amount-date-gap"}]`.
+Each pair is stored only on its lexicographically smaller ID, with unique targets
+sorted by ID. References must name existing actual entries; forecasts cannot link.
+The other reasons are `dissimilar-name`, `several-candidates`,
+`overlapping-statements` and `imported-after-start`. The last two are hooks for
+future reader/history imports. This metadata does not change financial postings or
+journal output. Settled links are removed only by explicit review actions.
+
+Version 1 audit logs accept the new `review-action` kind with `action`,
+`request_id`, `request_hash` and `changes`. Actions are resolve, followup,
+acknowledge, separate, undo-separate, merge and import. Changes record entry IDs,
+before/after hashes, decisions with their original export identity, pair reasons, undo targets and moved evidence/notes
+as appropriate. Existing lines are never rewritten. This log supplies the server's
+decision history and idempotency receipts. Browser exports retain reviewVersion 2.

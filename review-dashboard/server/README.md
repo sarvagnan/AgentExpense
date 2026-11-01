@@ -410,3 +410,40 @@ Draft storage exposes a condition notified after each durable write. Offline lif
 tests synchronize on states and audit completion through that condition; the timeout
 is solely a deadlock guard. They still check the HTTP response and every commit,
 evidence, refresh, rollback and purge assertion.
+
+### Server Review
+
+`GET /api/review` returns the authoritative queue, plain waiting count, important
+count, entry versions, saved decisions and change history. Pending entries, pairs
+linked in the store, and unreviewed doubtful Add outcomes from the last seven days
+are included; an entry represented by a pair/doubt is not counted again as pending.
+Only duplicate pairs and recent doubts are important. The clock is injectable by
+offline tests and defaults to UTC now; amounts never affect importance.
+
+`POST /api/review/actions` accepts a 32-hex `request_id`, `action`, entry IDs and
+`versions` keyed by entry ID. Resolve/followup also take a version-2 `decision`
+(status, account, label, notes, updatedAt). Resolve replaces the first review
+account's matching postings, confirms the entry, uses a nonblank label as its
+description and appends notes as lines. Followup changes only the audit log and
+leaves the entry waiting. Acknowledge settles a doubt without changing postings.
+Separate removes a canonical pair; undo-separate takes its audit ID in `undoes`.
+Merge keeps statement membership first, then the earliest committed/audited
+addition (ID breaks a same-commit tie), unions sources and notes in retained-first
+order and retargets other unresolved links. Both-statement pairs are refused until
+their membership is reconciled. The confirmation identifies both entries by
+merchant, date, account and amount, and lists moved sources/notes.
+
+Every action re-reads policy, holds the ledger lock, requires a clean working copy,
+validates expected hashes, atomically publishes JSON, appends a version-1
+`review-action` audit event, verifies and commits through `make commit`. Durable
+rollback journals live in ignored `drafts/review/`; interrupted operations recover
+before the next action. Reusing an identical request ID returns its audit receipt;
+reusing it with a different payload is refused. Original audit lines remain intact. Decision changes retain their original export identity so a resolved decision can still be imported into an unchanged ledger copy.
+
+`POST /api/review/import-preview` accepts the existing reviewVersion-2 export and
+returns valid/unknown/changed/already counts and a preview token. Import actions
+include `payload` and `preview_token`; all valid decisions share one audited commit.
+A changed preview requires another preview. Legacy derived IDs require a unique
+match on date, description, amount, source, reference, account and currency when
+present. Browser storage contains only unsent work, failed requests and legacy work
+awaiting migration. Retry and discard are explicit; Export retains version 2.

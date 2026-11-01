@@ -38,7 +38,7 @@ FIELD_LABELS = {
     "variable-estimate": "variable-estimate",
     "policy-term": "policy-term",
 }
-ENTRY_KEYS = ("id", "date", "status", "description", "schedule", "sources", *FIELD_LABELS, "notes", "postings")
+ENTRY_KEYS = ("id", "date", "status", "description", "schedule", "sources", *FIELD_LABELS, "possible-duplicate-of", "notes", "postings")
 STATEMENT_KEYS = ("id", "account", "start", "end", "source", "previous-balance", "purchases", "cash-advances", "credits", "total-due", "rows")
 KEY_ORDER = {name: index for index, name in enumerate((
     *ENTRY_KEYS, "account", "amount", "commodity", "cost", "assert", "every", "from", "interval", "per",
@@ -206,6 +206,16 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
                 previous = entry["date"]
             elif entry["date"] != entry["schedule"]["from"]:
                 raise ValueError(f"{identity}: forecast date must equal schedule.from")
+
+    actual = {e['id']: e for e in entries(documents)}
+    for identity, entry in actual.items():
+        links = entry.get('possible-duplicate-of', [])
+        targets = [link['id'] for link in links]
+        if targets != sorted(set(targets)):
+            raise ValueError(f'{identity}: duplicate links must have unique, sorted targets')
+        for target in targets:
+            if target not in actual or identity >= target:
+                raise ValueError(f'{identity}: duplicate link must name an existing, greater actual entry ID')
 
 
 def load(root: Path = ROOT) -> dict[Path, Any]:

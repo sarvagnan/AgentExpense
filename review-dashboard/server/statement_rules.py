@@ -2,6 +2,7 @@
 from collections import Counter
 from copy import deepcopy
 from datetime import date
+from difflib import SequenceMatcher
 from decimal import Decimal
 import re
 from reconcile_statement import activity, card_amount, reconcile, select_account
@@ -85,8 +86,15 @@ def plan(documents, statement, root):
             continue
         bucket = buckets[row['serial']]
         candidates = [c for c in bucket.get('candidates', []) if c['entryId'] not in used]
-        # An off-day weak merchant match needs confirmation even when unique.
-        if len(candidates) == 1 and not (candidates[0]['dayDistance'] and candidates[0]['descriptionSimilarity'] < .2):
+        # Widen only the uncertain bucket: equal signed amounts outside the safe
+        # three-day window must be explicitly settled, never silently matched.
+        if not candidates:
+            signed = Decimal(row['amount']) * (-1 if row['direction'] == 'Debit' else 1)
+            candidates = [dict(entryId=e['id'], date=e['date'], description=e['description'], dayDistance=distance(e, row),
+                               descriptionSimilarity=SequenceMatcher(None, normal(e['description']), normal(row['description'])).ratio())
+                          for e in available if e['id'] not in used and card_amount(e, account) == signed]
+        # A weak merchant match needs confirmation even on the same day.
+        if len(candidates) == 1 and candidates[0]['dayDistance'] <= 3 and candidates[0]['descriptionSimilarity'] >= .2:
             candidate = candidates[0]
             competing = [r for r in rows if r['serial'] not in decisions and r['serial'] != row['serial'] and any(c['entryId'] == candidate['entryId'] for c in buckets[r['serial']].get('candidates', []))]
             if not competing:

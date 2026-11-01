@@ -244,7 +244,7 @@ class Transaction:
         if not self.journal.exists():
             return None
         journal = json.loads(self.journal.read_text())
-        revision = 'description(' + json.dumps(self.marker) + ') & ancestors(@)'
+        revision = 'description(substring:' + json.dumps(self.marker) + ') & ancestors(@)'
         committed = jj(self.root, 'log', '-r', revision, '--no-graph', '-T', 'commit_id ++ "\n"').splitlines()
         if journal['result'] and committed:
             result = {**journal['result'], 'commit_id': committed[0]}

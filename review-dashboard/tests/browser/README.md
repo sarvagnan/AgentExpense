@@ -9,7 +9,7 @@ make browser-capture
 ```
 
 The default runs every engine and all four fictional fixture personas. Both targets capture the shell, notices, Settings, opening balances, currency views,
-account dialogs and all step 4B Add/Drafts states. `CAPTURE=0 make browser-tests` runs assertions without captures.
+account dialogs and all step 4B Add/Drafts and group-5 Review states. `CAPTURE=0 make browser-tests` runs assertions without captures.
 `ENGINES` and `PERSONA` accept comma-separated subsets.
 
 Use the installed Playwright **1.64.1** at `~/.cache/expense-playwright`. Chromium
@@ -21,7 +21,7 @@ with `CFFIXED_USER_HOME`, avoiding the real browser directory and the
 The harness refuses any other package version. It never launches a desktop browser.
 
 Each run copies application sources and each selected fixture to a unique
-`/tmp/agentexpense-4b-browser-*` directory. Package links reuse installed Node
+`/tmp/agentexpense-5-browser-*` directory. Package links reuse installed Node
 dependencies, while Vite caches and builds stay in the private copy. The installed
 server virtual environment supplies Python dependencies. Each fixture becomes its
 own jj-colocated repository with an isolated jj configuration. Settings and account
@@ -42,7 +42,7 @@ terminated in `finally`; browsers and contexts are also closed on failure. Artif
 are retained for diagnosis, including a `results.json` assertion matrix.
 
 Screenshots and their contact sheet are written to
-`/tmp/agentexpense-4b-shots/index.html`. `manifest.json` records engine, persona,
+`/tmp/agentexpense-5-shots/index.html`. `manifest.json` records engine, persona,
 state, theme, viewport and real route for every image. Exact 1440×900 and 412×915
 captures include Light and Dark, with full-page companions for tall screens. The
 suite also checks every route and both dialogs at 320px. It opens the approved
@@ -82,4 +82,15 @@ scripts are superseded by this pinned, isolated matrix.
 `BROWSER_SHOTS=/tmp/<directory>` selects a separate capture directory. This allows
 independent persona invocations to run concurrently without clobbering manifests;
 each invocation still creates its own application, ledger, ports, homes and profiles.
-The default capture index remains `/tmp/agentexpense-4b-shots/index.html`.
+The default capture index remains `/tmp/agentexpense-5-shots/index.html`.
+
+
+Phase 5 adds `review.mjs`: every engine, theme and size checks server counts,
+important ordering, empty Review and native amounts. Asha exercises separate,
+immediate/history undo, merge confirm/cancel, receipt/note movement and agreement
+between two independent browser contexts. Populated personas exercise Follow-up,
+Resolve, recovery after an unreadable successful response, idempotent retry after
+reload, actual version-2 export download/import preview/apply and legacy saved-work
+migration. The fixture host injects 2026-11-01 for review age calculations and resets
+only its disposable ledger between cases. Group-5 captures are review-asha,
+review-jordan, review-empty, review-separate, review-confirm and review-merged.

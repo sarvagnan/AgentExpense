@@ -108,7 +108,7 @@ test('Review and investment sections render only when enabled; unpriced units re
     const data = structuredClone(asha.dashboard); data.meta.ledger.modules = modules;
     if (modules.investments === false) data.prices = [];
     dataModule.setData({dashboard:data,review:asha.review,fuel:asha.fuel});
-    return renderToStaticMarkup(createElement(view));
+    return renderToStaticMarkup(createElement(view,view===Review?{live:{data:{export_entries:{},count:0,important:0,items:[],entries:{},decisions:{},accounts:[],history:[]},error:'',refresh:async()=>null}}:{}));
   };
   assert.match(show({fuel:true,investments:{prices:'mutual-fund-nav'}},Review),/Fuel Log/);
   assert.doesNotMatch(show({fuel:false,investments:false,weeklyReview:false},Review),/Fuel Log|fuel-log|weekly.review/i);

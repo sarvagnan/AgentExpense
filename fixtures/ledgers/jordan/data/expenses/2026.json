@@ -232,6 +232,32 @@
     ]
   },
   {
+    "id": "0000000000000102",
+    "date": "2026-10-26",
+    "status": "pending",
+    "description": "Paper Kite Services",
+    "sources": [
+      "Bills/2026-10-26/paper-kite-services-258.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Uncategorized", "amount": "48.20", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-48.20", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000103",
+    "date": "2026-10-28",
+    "status": "pending",
+    "description": "Cedar Workshop",
+    "sources": [
+      "Bills/2026-10-28/cedar-workshop-259.md"
+    ],
+    "postings": [
+      {"account": "Expenses:Uncategorized", "amount": "124.50", "commodity": "USD"},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-124.50", "commodity": "USD"}
+    ]
+  },
+  {
     "id": "0000000000000013",
     "date": "2026-10-29",
     "status": "confirmed",

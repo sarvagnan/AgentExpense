@@ -118,7 +118,7 @@ class DashboardGZipMiddleware(GZipMiddleware):
             await super().__call__(scope, receive, send)
 
 
-def create_app(settings=None, *, start_worker=True):
+def create_app(settings=None, *, start_worker=True, review_clock=None):
     settings = settings or Settings.from_env()
     read_manifest(settings.ledger)
     drafts = Drafts(settings.ledger)
@@ -249,6 +249,31 @@ def create_app(settings=None, *, start_worker=True):
         try:
             return create_account(settings, body.kind, body.name, body.currency)
         except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get('/api/review')
+    def review_queue():
+        from review import snapshot
+        from ledger_lock import ledger_lock
+        with ledger_lock(settings.ledger):
+            return snapshot(settings.ledger, clock=review_clock)
+
+    @app.post('/api/review/import-preview')
+    def review_import_preview(body: dict):
+        from review import import_preview
+        from ledger_lock import ledger_lock
+        try:
+            with ledger_lock(settings.ledger):
+                return import_preview(settings.ledger, body, clock=review_clock)
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/review/actions')
+    def review_action(body: dict):
+        from review import apply
+        try:
+            return apply(settings, body, clock=review_clock)
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
             raise HTTPException(409, str(exc)) from exc
 
     @app.post('/api/drafts', status_code=201)

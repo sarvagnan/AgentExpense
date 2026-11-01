@@ -1,4 +1,5 @@
 """Disposable browser-test host. Test controls never enter the production app."""
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -20,8 +21,9 @@ assert settings.ledger.resolve().is_relative_to(Path('/tmp').resolve())
 assert settings.state_dir.is_relative_to(Path('/tmp').resolve())
 assert settings.codex_home.is_relative_to(Path('/tmp').resolve())
 assert Path(settings.codex).name == 'fake-agent'
-app = create_app(settings)
+app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc))
 config = Path(os.environ['EXPENSES_FAKE_CONFIG'])
+original_audit = {path:path.read_bytes() for path in (settings.ledger/'data/additions').glob('*.jsonl')}
 original = {path: read_json(path) for path in [settings.ledger/'data/accounts.json',settings.ledger/'data/card-statements.json',settings.ledger/'ledger.json', *sorted((settings.ledger/'data/expenses').glob('*.json'))]}
 
 
@@ -158,6 +160,26 @@ def reset_workflows():
         for session in app.state.statements.all():
             shutil.rmtree(app.state.statements.folder(session['id']))
     return update_settings(settings,lambda:original,dict(reset=True),'Restore browser workflow baseline')
+
+
+@app.post('/__test/reset-review')
+def reset_review():
+    from store import dump
+    from transactions import jj
+    # Test-only reset in a disposable repository. Production audit is append-only;
+    # tests restore the complete seed before exercising the next matrix case.
+    with ledger_lock(settings.ledger):
+        for path in (settings.ledger/'data/additions').glob('*.jsonl'):
+            if path not in original_audit:
+                path.unlink()
+        for path,content in original_audit.items():
+            path.write_bytes(content)
+        for path,document in original.items():
+            dump(path,document)
+        jj(settings.ledger,'commit','-m','Restore fictional browser review baseline')
+        jj(settings.ledger,'bookmark','set','main','-r','@-')
+    from transactions import refresh
+    return refresh(settings,dict(reset=True))
 
 
 @app.post('/__test/receipt')

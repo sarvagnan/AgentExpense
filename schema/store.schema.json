@@ -346,6 +346,15 @@
           "minimum": 1,
           "description": "Positive page number of the row in the billing statement PDF.",
           "x-ledger-label": "statement-page"
+        },
+        "possible-duplicate-of": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/duplicate-link"
+          },
+          "description": "Unsettled pairs, stored only on the lexicographically smaller actual entry ID; sorted by target ID. Review removes settled links. Reserved reasons support later reader/history imports."
         }
       },
       "description": "One actual entry. Year files are chronological; same-date array order is the posting sequence."
@@ -659,7 +668,9 @@
                   "type": "string",
                   "minLength": 1,
                   "pattern": "\\S",
-                  "not": { "pattern": "[\\r\\n]" },
+                  "not": {
+                    "pattern": "[\\r\\n]"
+                  },
                   "description": "Display category inherited by descendants unless they declare their own. Does not change journal accounts."
                 }
               }
@@ -812,6 +823,29 @@
               "pattern": "^[^\\r\\n]+$"
             }
           }
+        }
+      }
+    },
+    "duplicate-link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "reason": {
+          "enum": [
+            "amount-date-gap",
+            "dissimilar-name",
+            "several-candidates",
+            "overlapping-statements",
+            "imported-after-start"
+          ]
         }
       }
     }

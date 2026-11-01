@@ -24,6 +24,7 @@ export function validate(value, schema, field = 'ledger.json', rootSchema = sche
     if (schema.format === 'date' && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)) throw new Error(`Invalid ${field}.`);
   }
   if (type === 'array') {
+    if (schema.minItems && value.length < schema.minItems) throw new Error(`Invalid ${field}: too few items.`);
     if (schema.uniqueItems && new Set(value.map(item => JSON.stringify(item))).size !== value.length) throw new Error(`Invalid ${field}: duplicate items.`);
     if (schema.items) value.forEach((item, index) => validate(item, schema.items, `${field}.${index}`, rootSchema));
   }

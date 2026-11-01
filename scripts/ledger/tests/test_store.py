@@ -32,3 +32,24 @@ class PublicationTests(unittest.TestCase):
             self.assertEqual(target.read_text(), canonical_text(updated))
             self.assertEqual(target.stat().st_mode & 0o777, 0o640)
             self.assertEqual(list(Path(folder).iterdir()), [target])
+
+
+from test_ledger import Fixture, entry
+from store import load
+from generate_ledger import render
+
+
+class DuplicateLinkTests(Fixture):
+    def test_canonical_pair_validation_and_unchanged_journal(self):
+        rows=[entry(),entry(identity='0000000000000002')]
+        dump(self.year,rows)
+        before=render(load(self.root),self.root)
+        rows[0]['possible-duplicate-of']=[dict(id=rows[1]['id'],reason='amount-date-gap')]
+        dump(self.year,rows)
+        self.assertEqual(render(load(self.root),self.root),before)
+        self.assertLess(canonical_text(rows).index('possible-duplicate-of'),canonical_text(rows).index('postings'))
+        for links in ([dict(id=rows[0]['id'],reason='dissimilar-name')],[dict(id='f'*16,reason='amount-date-gap')],[dict(id=rows[1]['id'],reason='unknown')],rows[0]['possible-duplicate-of']*2):
+            rows[0]['possible-duplicate-of']=links;dump(self.year,rows)
+            with self.assertRaises(ValueError):load(self.root)
+        rows[0].pop('possible-duplicate-of');rows[1]['possible-duplicate-of']=[dict(id=rows[0]['id'],reason='amount-date-gap')];dump(self.year,rows)
+        with self.assertRaisesRegex(ValueError,'greater actual'):load(self.root)

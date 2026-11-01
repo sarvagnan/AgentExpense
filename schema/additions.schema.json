@@ -22,7 +22,8 @@
       "enum": [
         "draft",
         "statement",
-        "review"
+        "review",
+        "review-action"
       ]
     },
     "time": {
@@ -285,6 +286,114 @@
       "minLength": 1,
       "pattern": "^[A-Za-z0-9_+/-]+$",
       "description": "IANA zone at save time, or the server local zone for non-browser and legacy drafts."
+    },
+    "action": {
+      "enum": [
+        "resolve",
+        "followup",
+        "acknowledge",
+        "separate",
+        "undo-separate",
+        "merge",
+        "import"
+      ]
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "request_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entry_id",
+          "before_version",
+          "after_version"
+        ],
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "other_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "before_version": {
+            "type": "string"
+          },
+          "after_version": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "account",
+              "label",
+              "notes",
+              "updatedAt"
+            ],
+            "properties": {
+              "account": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "resolved",
+                  "followup"
+                ]
+              }
+            }
+          },
+          "reason": {
+            "$ref": "#/$defs/reason"
+          },
+          "undoes": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "kept_id": {
+            "type": "string"
+          },
+          "removed_id": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "original": {
+            "type": "object",
+            "description": "Original version-2 export identity before the first decision, retained for portable exports and changed-entry detection."
+          }
+        }
+      }
     }
   },
   "allOf": [
@@ -348,6 +457,23 @@
           "reviewer"
         ]
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "review-action"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "action",
+          "request_id",
+          "request_hash",
+          "changes"
+        ]
+      }
     }
   ],
   "dependentRequired": {
@@ -357,5 +483,16 @@
     "client_zone": [
       "client_time"
     ]
+  },
+  "$defs": {
+    "reason": {
+      "enum": [
+        "amount-date-gap",
+        "dissimilar-name",
+        "several-candidates",
+        "overlapping-statements",
+        "imported-after-start"
+      ]
+    }
   }
 }

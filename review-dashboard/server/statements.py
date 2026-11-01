@@ -490,6 +490,7 @@ class StatementTransaction(Transaction):
             actuals = {e['id']:e for e in entries(documents)}
             changed, added, used = [], [], set()
             new_entries = []
+            uncertain = []
             for item in checklist:
                 row, decision = item['row'], item['decision']
                 identity = decision.get('entry_id') if decision and decision['action']=='match' else item['entry_id'] if not decision or decision['action']=='conversion' else None
@@ -520,6 +521,8 @@ class StatementTransaction(Transaction):
                     if row.get('foreignAmount'):
                         entry['original-amount']=dict(amount=f"{Decimal(row['foreignAmount']):.2f}",commodity=row['foreignCurrency'])
                     new_entries.append(entry)
+                    if decision and decision['action'] == 'pending' and item.get('candidates'):
+                        uncertain.append((entry, item['candidates']))
                 entry.update({'statement-end':statement['periodEnd'],'serial-number':row['serial'],'statement-page':row['page']})
                 entry.setdefault('sources',[])
                 if source not in entry['sources']:
@@ -556,6 +559,18 @@ class StatementTransaction(Transaction):
                 dump(path,document)
             for entry in new_entries:
                 added.append(add_entry(entry,root=self.root))
+            if uncertain:
+                from review import link_pair
+                linked_documents = load(self.root)
+                linked = {e['id']: e for e in entries(linked_documents)}
+                for proposed, candidates in uncertain:
+                    identity = added[new_entries.index(proposed)]
+                    reason = 'several-candidates' if len(candidates) > 1 else 'amount-date-gap' if candidates[0]['dayDistance'] > 3 else 'dissimilar-name'
+                    for candidate in candidates:
+                        link_pair(linked, identity, candidate['entryId'], reason)
+                for path, document in linked_documents.items():
+                    if path.parent.name == 'expenses':
+                        dump(path, document)
             dump(reconciliation,{key:statement[key] for key in ('account','accountLabel','currency','card_last4','periodStart','periodEnd','previousBalance','purchasesCharges','paymentsCredits','totalDue','rows')}|{'source':source})
             record['entry_ids']=changed+added+([opening['id']] if opening else [])
             append(self.root,record)

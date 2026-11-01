@@ -189,7 +189,7 @@ def main(argv=None):
             print(json.dumps(lines, ensure_ascii=False, indent=2))
         else:
             for r in lines:
-                print(f"{r['time']} {r['id']} {r['kind']} {r.get('outcome', r.get('verdict', r.get('statement', {}).get('periodEnd', '')))}")
+                print(f"{r['time']} {r['id']} {r['kind']} {r.get('action', r.get('outcome', r.get('verdict', r.get('statement', {}).get('periodEnd', ''))))}")
                 print(json.dumps(r, ensure_ascii=False, indent=2))
     else:
         try:

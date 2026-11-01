@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {runReview} from './review.mjs';
 import {runWorkflows} from './workflows.mjs';
 import {execFileSync} from 'node:child_process';
 
@@ -68,11 +69,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
       const draftsLink=nav.locator('a[href$="drafts/"]');
       if(seeded.attention)await expect(draftsLink.locator('.nav-count')).toHaveText(new RegExp(`^(?:, )?${seeded.attention}(?: need attention)?$`));
       else await expect(draftsLink.locator('.nav-count')).toHaveCount(0);
-      const reviewData=JSON.parse(await readFile(join(stage.dash,'app/data/pending-transactions.json'),'utf8'));
+      const reviewData=await (await fetch(base+'api/review')).json();
       const reviewLink=nav.locator('a[href$="review/"]');
-      if(reviewData.meta.pendingTransactionCount)await expect(reviewLink.locator('.nav-count')).toContainText(String(reviewData.meta.pendingTransactionCount));
+      if(reviewData.count)await expect(reviewLink.locator('.nav-count')).toContainText(String(reviewData.count));
       else await expect(reviewLink.locator('.nav-count')).toHaveCount(0);
-      await expect(nav.locator('.urgent,.important')).toHaveCount(0);
+      await expect(reviewLink.locator('.important')).toHaveCount(reviewData.important?1:0);
       if(width>760) {
         await page.locator('.skip-link').focus();await page.keyboard.press(shellTab);await expect(page.locator('.sidebar .wordmark')).toBeFocused();
         await page.keyboard.press(shellTab);await expect(identity()).toBeFocused();
@@ -325,6 +326,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         await page.goBack();await expect(page.locator('.holdings-table')).toBeVisible();
         await overflow('Asha investments');record('Asha holdings, cost/value/gain, chart keyboard inspection, account drill-down and history return');
       }
+      await runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce});
       await runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');

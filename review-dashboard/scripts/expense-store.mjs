@@ -137,6 +137,15 @@ export async function loadExpenseStore(root = storeRoot) {
     if (typeof entry.id !== 'string' || !/^[0-9a-f]{16}$/.test(entry.id) || ids.has(entry.id)) throw new Error(`Invalid or duplicate store ID: ${entry.id}`);
     ids.add(entry.id);
   }
+  if (rawRules.some(rule => Object.hasOwn(rule, 'possible-duplicate-of'))) throw new Error('Forecasts cannot contain possible duplicate links');
+  const actualIds = new Set(actuals.map(entry => entry.id));
+  for (const entry of actuals) {
+    if (!entry['possible-duplicate-of']) continue;
+    validate(entry['possible-duplicate-of'], schema.$defs.entry.properties['possible-duplicate-of'], 'possible-duplicate-of', schema);
+    const targets = entry['possible-duplicate-of'].map(link => link.id);
+    if (new Set(targets).size !== targets.length || targets.join() !== [...targets].sort().join()
+        || targets.some(id => !actualIds.has(id) || id <= entry.id)) throw new Error('Duplicate links must name unique, sorted, greater actual entry IDs');
+  }
   if (actuals.some((entry, index) => index && entry.date < actuals[index - 1].date)) throw new Error('Expenses are not in date order');
   // Normalize before filtering so bad assertion entries cannot silently bypass input checks.
   const transactions = actuals.map(entry => toTransaction(entry, declarations.accounts)).filter((_, index) => !isAssertionOnly(actuals[index]));

@@ -191,3 +191,18 @@ test('empty ledger builds and checks without expenses, fuel or prices files', as
   assert.equal(data.forecast.asOf, '1970-01-01');
   assert.equal(data.forecast.start, '1970-01-02');
 });
+
+test('possible duplicate links preserve metadata and reject dangling, reversed and invalid edges',async t=>{
+ const one=entry(),two=entry({id:'0000000000000002'});
+ one['possible-duplicate-of']=[{id:two.id,reason:'amount-date-gap'}];
+ const root=await fixture(t,[one,two],[]);
+ const forecast=rule();forecast['possible-duplicate-of']=[{id:one.id,reason:'amount-date-gap'}];
+ await writeFile(path.join(root,'data/forecast.json'),JSON.stringify([forecast]));
+ await assert.rejects(loadExpenseStore(root),/Forecasts/);
+ await writeFile(path.join(root,'data/forecast.json'),'[]');
+ assert.deepEqual((await loadExpenseStore(root)).transactions[0]['possible-duplicate-of'],one['possible-duplicate-of']);
+ for(const links of [[{id:one.id,reason:'amount-date-gap'}],[{id:'f'.repeat(16),reason:'amount-date-gap'}],[{id:two.id,reason:'unknown'}],one['possible-duplicate-of'].concat(one['possible-duplicate-of'])]){
+  one['possible-duplicate-of']=links;await writeFile(path.join(root,'data/expenses/2026.json'),JSON.stringify([one,two]));
+  await assert.rejects(loadExpenseStore(root),/duplicate|Duplicate|Invalid/);
+ }
+});
