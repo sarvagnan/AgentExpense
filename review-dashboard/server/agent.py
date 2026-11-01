@@ -267,11 +267,11 @@ def communicate(process, timeout):
     return process.communicate(timeout=timeout)
 
 
-def run(settings, draft, folder):
+def run(settings, draft, folder, *, cancel=None):
     started = time.monotonic()
     record = {'start': now(), 'end': None, 'model': settings.model, 'effort': settings.effort,
               'outcome': None, 'question': None, 'doubts': [], 'error': None, 'duration': 0,
-              'usage': {}, 'lookups': []}
+              'usage': {}, 'lookups': [], 'adapter': settings.adapter, 'errors': []}
     log = ''
     gate_passed = False
     try:
@@ -279,25 +279,18 @@ def run(settings, draft, folder):
         from agent_gate import get_gate
         get_gate(settings).require_ready()
         gate_passed = True
-        with tempfile.TemporaryDirectory(prefix='expense-agent-') as tmp:
+        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-') as tmp:
             work = Path(tmp)
             prompt, images = prompt_for(settings, draft, folder, work)
             schema = STATEMENT_SCHEMA if draft.get('statement_task') else schema_for(settings)
-            (work / 'schema.json').write_text(json.dumps(schema))
-            process = subprocess.Popen(command_for(settings, prompt, images), cwd=work, env=codex_environment(settings),
-                                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       text=True, start_new_session=True)
-            try:
-                out, err = communicate(process, settings.timeout)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                out, err = process.communicate()
-                log = out + '\n' + err
-                raise ValueError(f'Agent timed out after {settings.timeout}s')
-            log = out + '\n' + err
-            if process.returncode:
-                raise ValueError(f'Agent exited {process.returncode}: {err[-2000:]}')
-            answer = json.loads((work / 'answer.json').read_text())
+            from adapters import get_adapter
+            from adapters.base import Task, LookupTools
+            import threading
+            task = Task(prompt, tuple(images), LookupTools.for_settings(settings), schema,
+                        time.monotonic() + settings.timeout, cancel or threading.Event(), work)
+            result = get_adapter(settings).run(task)
+            answer = result.answer
+            record.update(usage=result.usage, lookups=result.lookups, errors=result.errors)
             validate(answer, schema)
             if draft.get('statement_task'):
                 statement_result(answer)
@@ -311,9 +304,14 @@ def run(settings, draft, folder):
                 raise ValueError('Not-expense answer needs an explanation')
             record.update(outcome=answer['status'], question=answer['question'], doubts=answer['doubts'])
     except Exception as exc:
-        record.update(outcome='error', error=str(exc))
-        raise AgentFailure(str(exc), record, retryable=gate_passed) from exc
+        from adapters.base import AdapterError
+        if isinstance(exc, AdapterError):
+            record.update(usage=exc.usage, lookups=exc.lookups)
+        # jsonschema and JSON errors may echo provider/private values.
+        message = str(exc) if isinstance(exc, (AdapterError, ValueError)) and type(exc).__module__ not in ('json.decoder',) else type(exc).__name__
+        record.update(outcome='error', error=message)
+        raise AgentFailure(message, record, retryable=gate_passed) from exc
     finally:
         record.update(end=now(), duration=round(time.monotonic() - started, 3))
-        record['usage'], record['lookups'] = parse_events(log)
+
     return answer, record

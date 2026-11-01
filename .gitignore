@@ -14,3 +14,5 @@ __pycache__/
 /fixtures/ledgers/*/expense_ledger.ledger
 /fixtures/ledgers/*/drafts/
 /fixtures/ledgers/*/.lock
+
+/local.json

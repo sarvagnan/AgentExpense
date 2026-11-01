@@ -209,7 +209,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
     @app.get('/api/agent-status')
     def agent_status():
         # Reading status must never start a check or run an agent.
-        return gate.status()
+        from adapters import status_details
+        return {**gate.status(), **status_details(settings)}
 
     @app.post('/api/settings/name')
     def ledger_name(body: NameChange):

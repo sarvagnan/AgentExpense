@@ -404,16 +404,25 @@ def main():
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     try:
         settings = Settings.from_env()
-        require_codex(settings)
-        settings.codex_home.mkdir(parents=True, exist_ok=True)
+        from adapters import get_adapter
+        adapter = get_adapter(settings)
+        if settings.adapter == 'codex':
+            require_codex(settings)
+        if os.getenv('LIVE') == '1':
+            from agent_gate import AgentGate
+            gate = AgentGate(settings)
+            try:
+                gate.require_ready()
+                print('PASS live gate: passing fingerprint retained')
+            finally:
+                gate.close()
+            return 0
         with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-check-') as folder:
             work = Path(folder)
             ledger, old, account = fixture(work)
             settings = replace(settings, ledger=ledger, old_ledger=old if 'search_old_ledger' in lookup_names(settings) else None)
-            if os.getenv('LIVE') == '1':
-                check_live(settings, work, account)
-            else:
-                check_offline(settings, work)
+            adapter = get_adapter(settings)
+            adapter.offline_check(work)
     except (OSError, ValueError, KeyError, TypeError, ValidationError) as exc:
         # JSON/schema diagnostics may quote model or host contents; don't echo.
         safe = type(exc) is ValueError or isinstance(exc, (OfflineFailure, PolicyFailure, DiagnosticUnavailable))

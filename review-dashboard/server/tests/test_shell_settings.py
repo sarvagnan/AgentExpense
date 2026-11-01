@@ -43,7 +43,11 @@ class ShellSettingsTests(Fixture):
                 gate.set_state(state,reason)
                 with patch.object(gate,'require_ready',side_effect=AssertionError('Read started an agent check')):
                     for _ in range(2):
-                        self.assertEqual(client.get('/api/agent-status').json(),dict(state=state,reason=reason))
+                        status=client.get('/api/agent-status').json()
+                        self.assertEqual({k:status[k] for k in ('state','reason')},dict(state=state,reason=reason))
+                        self.assertEqual(status['adapter']['id'],'codex')
+                        self.assertEqual(status['login_command'],'make agent-login')
+                        self.assertTrue(status['adapter']['isolation'])
 
     def test_account_details_share_currency_write_rules(self):
         with self.client(worker=False) as client:

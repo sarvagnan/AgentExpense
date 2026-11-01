@@ -7,10 +7,18 @@ import sys
 import subprocess
 import time
 
-# A real caller must close stdin; deliberately block otherwise.
-assert sys.stdin.read() == ''
 config = Path(os.environ['EXPENSES_FAKE_CONFIG'])
 settings = json.loads(config.read_text())
+if settings.get('adapter') in ('claude','pi','opencode'):
+    # The executable is often copied into /tmp; resolve the protocol module from
+    # an explicit test-only path supplied in the fake configuration.
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('offline_protocols',settings['protocol_module'])
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    module.run(settings,config)
+    sys.exit(0)
+# A real caller must close stdin; deliberately block otherwise.
+assert sys.stdin.read() == ''
 # The startup gate uses this same executable, never a real Codex/model. Keep
 # diagnostics/probes separate from the existing production-call assertions.
 def diagnostic():

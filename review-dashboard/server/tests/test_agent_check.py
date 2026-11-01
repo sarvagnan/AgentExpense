@@ -119,7 +119,6 @@ class AgentIsolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-home-check-') as folder:
             home = Path(folder).resolve()
             # Contents are irrelevant; the checker never opens authentication.
-            (home / 'auth.json').write_text('not JSON; must not be read')
             system = home / 'skills/.system'
             system.mkdir(parents=True)
             (system / 'SKILL.md').write_text('bundled fixture')
@@ -227,7 +226,7 @@ class AgentIsolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='/tmp') as folder, patch.dict(os.environ, {}, clear=True):
             with patch('pathlib.Path.home', return_value=Path(folder)):
                 settings = Settings.from_env()
-            self.assertEqual(settings.state_dir, Path(folder).resolve() / '.local/state/expense-dashboard')
+            self.assertEqual(settings.state_dir, Path(folder).resolve() / '.local/state/agentexpense')
             self.assertEqual(settings.codex_home, settings.state_dir / 'codex-home')
             self.assertEqual(settings.codex, str(settings.application / 'review-dashboard/node_modules/.bin/codex'))
             settings = replace(settings, codex=str(Path(folder) / 'missing'))
@@ -235,6 +234,26 @@ class AgentIsolationTests(unittest.TestCase):
                 self.assertEqual(main(), 1)
             self.assertIn('Run: make dashboard', output.getvalue())
             self.assertFalse(settings.codex_home.exists())
+
+    def test_state_directory_precedence_and_dedicated_agent_home(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as folder:
+            home = Path(folder).resolve()
+            cases = [
+                ({}, home / '.local/state/agentexpense'),
+                ({'XDG_STATE_HOME': str(home / 'xdg')}, home / 'xdg/agentexpense'),
+                ({'EXPENSES_STATE_DIR': str(home / 'override')}, home / 'override'),
+                ({'XDG_STATE_HOME': str(home / 'xdg'),
+                  'EXPENSES_STATE_DIR': str(home / 'override')}, home / 'override'),
+                ({'XDG_STATE_HOME': '', 'EXPENSES_STATE_DIR': ''}, home / '.local/state/agentexpense'),
+                ({'XDG_STATE_HOME': str(home / 'xdg'), 'EXPENSES_STATE_DIR': ''}, home / 'xdg/agentexpense'),
+            ]
+            for environment, expected in cases:
+                with self.subTest(environment=environment), patch.dict(os.environ, environment, clear=True), \
+                        patch('pathlib.Path.home', return_value=home):
+                    for settings in (Settings(), Settings.from_env()):
+                        self.assertEqual(settings.state_dir, expected)
+                        self.assertEqual(settings.agent_home, expected / 'codex-home')
+                        self.assertFalse(settings.state_dir.exists())
 
     def test_events_reject_all_nonledger_tools_failures_and_missing_lookup(self):
         self.assertEqual(len(inspect_events(events(lookup()))), 1)

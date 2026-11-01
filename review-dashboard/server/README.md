@@ -5,6 +5,8 @@ For fictional local checks, select `LEDGER_DIR="$PWD/fixtures/ledgers/asha"` fro
 Build the existing dashboard with `make dashboard` at the application root.
 From this directory run `EXPENSES_DEV=1 uv run app.py`; it binds to 127.0.0.1.
 On the server host, `make service` installs the tracked `expense-dashboard.service` when changed, reloads systemd and restarts it. It stops with an explanation on hosts without a user systemd session. Customize the service template paths and access settings for your installation before using it.
+The template sets `EXPENSES_STATE_DIR=%S/agentexpense`, using systemd's user state
+root. Override that setting in the unit if you need another dedicated directory.
 For Vite development, enable `EXPENSES_DEV=1 EXPENSES_PORT=8701` in the dashboard
 process as well to proxy only `/api/` to the local server. See `../README.md`.
 
@@ -16,11 +18,13 @@ process as well to proxy only `/api/` to the local server. See `../README.md`.
 | `EXPENSES_ALLOWED_LOGINS` | empty, comma-separated Tailscale logins |
 | `EXPENSES_DEV` | off (`1`, `true`, `yes`, `on` enable local writes) |
 | `LEDGER_DIR` | application `ledger/`; relative values use caller cwd |
+| `EXPENSES_AGENT` | `codex`; overrides `agent.adapter` in application `local.json` |
+| `EXPENSES_AGENT_BINARY` | explicit offline-double/maintainer candidate override for non-Codex CLIs |
 | `EXPENSES_CODEX` | app `review-dashboard/node_modules/.bin/codex` |
-| `EXPENSES_STATE_DIR` | `~/.local/state/expense-dashboard` |
+| `EXPENSES_STATE_DIR` | `${XDG_STATE_HOME:-$HOME/.local/state}/agentexpense` (`~/.local/state/agentexpense` without `XDG_STATE_HOME`) |
 | `EXPENSES_CODEX_HOME` | `<state>/codex-home` |
-| `EXPENSES_AGENT_MODEL` | `gpt-6.1-terra` |
-| `EXPENSES_AGENT_EFFORT` | `xhigh` |
+| `EXPENSES_AGENT_MODEL` | adapter default; `local.json` model when supplied |
+| `EXPENSES_AGENT_EFFORT` | Codex `xhigh`, other adapters `high`; machine setting when supplied |
 | `EXPENSES_AGENT_TIMEOUT` | `600` seconds |
 | `EXPENSES_OLD_LEDGER` | deprecated fallback; use `modules.history.oldLedger` in `ledger.json` |
 
@@ -106,105 +110,68 @@ completed results leave the active list immediately; records last 24 hours and
 uploads are deleted. Other states persist until discarded. Retry retains earlier
 runs/questions and resets only the proposal/error/check-repair allowance.
 
-Codex runs with commands off, read-only sandbox, ephemeral temporary workspace,
-closed stdin and the approved MCP settings. Images are passed unchanged; PDFs
-provide up to 12 PNG pages at scale 2 and text from those pages. The runtime
-policy, pieces, save time, earlier answers and server-check errors are in its
-prompt. Execution/schema failures retry once; entry validation errors get one
-agent correction. MCP sees all history by default; `--cutoff` and `--exclude`
-remain available for offline tests. Only configured, readable old-ledger history is offered by the
-lookup response; set the path if historical lookup is desired.
+## Adapter isolation and readiness
 
-The app pins its own Codex through npm, independently of the operator's host Codex
-and nightly updates. `make dashboard`, `make test-server` and `make agent-check`
-install with `npm ci` only when the tracked lockfile is newer than the installed
-lockfile (or no install exists). A missing binary asks for `make dashboard`.
+The server selects Codex, Claude Code, Pi, OpenCode, OpenAI-compatible or Anthropic
+API through `EXPENSES_AGENT` or application-root ignored `local.json`. Custom modules
+have the same version-1 contract. See [ADAPTERS.md](../../docs/ADAPTERS.md) for exact
+pins, flags, machine/API configuration, login, offline evidence and custom registration.
+All CLI copies are pinned in the dashboard npm lockfile, never taken from PATH.
+`make dashboard`, `make test-server` and `make agent-check` run npm ci only when
+installation is absent or the tracked lockfile is newer.
 
-The server and checker create `<state>/codex-home` if needed, and each Codex child
-uses it without changing the server's environment. The operator's one manual step,
-from the application root, is:
+Adapters run in an empty disposable workspace and their own dedicated home under
+`EXPENSES_STATE_DIR`; other agent authentication/configuration is never copied or
+linked, and no existing state directory is migrated. The server validates every answer and owns every write. Only the enabled
+read-only ledger lookups are offered; old history is optional. PDFs provide up to
+12 PNG pages plus extracted text, and images reach each adapter's image protocol.
+Runtime policy, browser save context, earlier answers and check errors stay in the
+shared production prompt. Execution/schema errors retain the existing bounded retry.
 
-```sh
-make agent-login
-```
-
-This runs the app's Codex `login --device-auth` interactively under the dedicated
-home. Authentication is never copied or linked, and there is no fallback to the
-owner's home. Keep the dedicated home free of config, AGENTS instructions, rules,
-plugins and custom skills.
-
-The server starts its isolation check in the background. Before each agent run,
-the shared Add/Statements runner waits for that check. A key hashes the Codex
-version, isolation flags, model and allow-lists. A changed key requires the offline
-check followed by exactly one low-effort probe on a fresh fictional ledger.
-`<state>/agent-check.json` retains a passing key or a verified policy failure; matching keys
-skip both checks, including after a restart. A lightweight login-status check still
-protects a cached pass if the agent has since signed out. A version change is detected before
-the next run without restarting the server. A failed login is never cached:
-signing in fixes the next draft without a restart.
-
-`GET api/health` exposes `agent.state`: `checking`, `ready`, `signed out`,
-`paused`, or `unavailable`, with `agent.reason` on failures. Signed-out drafts say
-`The agent isn't signed in. Run: make agent-login`. Paused drafts include the
-changed input categories and safe section/tool identifiers. Temporary diagnostic
-failures report `unavailable` without changing the cache; the next draft or server
-start checks again. Shutdown cancels diagnostic process groups before waiting for
-the worker, and an interrupted check is never cached. These errors also
-appear in draft run records and statement extraction failures. Visible Add/Drafts
-notices belong to the later screens round; this round adds no UI notice.
-
-`agent.py:ISOLATION_FLAGS` is shared by Add and Statements. The flags ignore user
-config and execpolicy rules, remove skills and collaboration-mode instructions,
-disable plugins/apps, user-input and sleep tools, file-image inspection, hosted
-web/image generation, runtime memories, hooks and browser/computer automation.
-`agents.max_threads=1` prevents spawning; the sub-agent tools and their role text
-remain. The base prompt and code-mode `exec` remain too; its `apply_patch` tool
-is constrained by the read-only sandbox. The ledger MCP approval mode stays
-`approve`. For explicit diagnostics, from the application root:
+The gate runs offline checks, then one fictional live probe for a new fingerprint
+(adapter/interface/pin/version, flags, model, effort, allow-lists and policy source).
+The probe verifies a successful account lookup, unavailable/refused shell execution
+and schema-valid JSON. Passing/policy-failed fingerprints persist in
+`<state>/agent-check.json`; temporary diagnostics and sign-out are not cached.
+Shutdown cancels process groups before joining the worker. Owner commands:
 
 ```sh
-make agent-check          # offline prompt-input diagnostic, no model
-make agent-check LIVE=1   # one low-effort model probe, disposable fixture only
+make agent-check ADAPTER=claude          # offline, no model
+make agent-login ADAPTER=claude          # owner signs in under dedicated home
+make agent-check LIVE=1 ADAPTER=claude   # owner only; fixture probe and retained gate result
 ```
 
-Both modes use a fresh fictional ledger, closed stdin and the real `command_for`
-configuration under the configured dedicated home. Output contains names and counts, never
-home file contents. Offline mode checks `codex login status`, home names and every
-feature switch against `codex features list`. It rejects `config.toml`, `AGENTS.md`,
-`AGENTS.override.md`, `rules/`, `plugins/` and skills outside bundled `.system`.
-It renders the server model and supported flags in a temporary cwd. Codex 0.166.0's
-`debug prompt-input` lacks exec's `--ignore-user-config` and `--ignore-rules`; these
-are omitted from the render and covered by the home check.
+The defaults remain Codex when ADAPTER is omitted. Pi login opens its isolated CLI;
+the owner types `/login` then exits. Direct API login prints key-configuration
+instructions. Never copy authentication. Maintainers move exact CLI pins with
+`make agent-upgrade ADAPTER=claude VERSION=x.y.z` (`DRY_RUN=1` checks without changing
+the pin). The candidate's home is under `/tmp`; this command never signs in or runs
+a model. Review any widened allow-list before shipping.
 
-The render allow-lists the base prompt, permissions, multi-agent role/mode,
-environment context and deliberate prompt; top-level `functions.exec`,
-`functions.wait`, `collaboration.*`; and nested `apply_patch`, the three MCP
-resource tools, `clock__curr_time`, `mcp__ledger__*`. Extra sections or tools and
-missing tool inventories fail. Debug does not start MCP servers, so ledger tools
-may be absent. A failed login still allows the remaining offline checks to run.
-Live mode checks the fixture account returned by a
-successful lookup, valid schema JSON, a shell-unavailable result, and all JSONL
-events for non-ledger tools. With shell tools disabled, unavailable is the expected
-failure to execute; there can be no shell-call event. It never applies an expense
-or commits. Rendering cannot certify runtime tool behavior; the automatic gate runs the
-fixture probe on the service host after signing in. The dedicated home must be authenticated before a live run.
+Codex retains its established read-only sandbox, disabled shell features,
+`--ignore-user-config`, `--ignore-rules`, disabled skills/plugins/hooks/apps and
+narrow `debug prompt-input` allow-lists. `agents.max_threads=1` prevents spawning;
+code-mode exec/base/subagent definitions remain under the sandbox. The offline
+renderer omits exec-only ignore flags and checks dedicated-home names instead.
+It verifies configured features and allows only known prompt sections, top-level
+exec/wait/collaboration, nested sandboxed apply_patch/resource/clock functions and
+the enabled ledger MCP names. Authentication contents are never inspected.
 
-## Codex versions
+Claude's safe mode retains subscription login; bare mode is not used. Pi disables
+all discovery and built-in MCP and loads only the application lookup extension.
+OpenCode cannot remove its built-in tool definitions completely: it declares that
+limit, requires explicit `agent.allowUnisolated:true`, and discloses it in Settings.
+Its generated deny-all policy still allows only exact ledger execution exceptions.
+The direct APIs run a bounded in-process read-only tool loop with no CLI tools.
 
-Users never upgrade the app's Codex manually. The checked-in exact npm pin and
-lockfile control the agent; updating the host Codex has no effect. Maintainers use:
-
-```sh
-make agent-upgrade VERSION=x.y.z  # exact version; omit VERSION for latest on npm
-make agent-upgrade DRY_RUN=1     # latest offline check, keep the pin unchanged
-```
-
-The command installs the candidate under `/tmp`, runs every offline check under
-an empty temporary home, and accepts only the expected login failure. On a pass
-it updates the exact dependency and lockfile; on a failure it changes neither and
-prints section/tool identifiers for review. It never runs a model or touches an
-owner/service home. Review and commit any allow-list widening. Later, a scheduled
-CI job in the public repository will run this command and open a pull request.
+`GET api/health` keeps readiness state/reason. `GET api/agent-status` additionally
+returns adapter description/pin/isolation, model/effort, selected login command and
+an isolation warning when applicable. Reads never run diagnostics or a model.
+States remain checking, ready, signed out, paused and unavailable. The existing
+Add/Drafts/Settings notice explains the selected login/key action. Signed-out and
+paused states block agent submission; edits/uploads and built-in statement parsing
+remain usable. The signed-out watcher checks every 30 seconds. Unavailable checks
+retry on the next draft. Both threads stop with the application.
 
 Run the fast offline tests from the application root:
 
@@ -224,7 +191,8 @@ the same environment explicitly while using its Python directly; neither path
 needs pre-filled caches or a venv resync.
 
 The suite uses unittest, TestClient, temporary fixture ledgers with their own jj
-repositories and `tests/fake_agent.py`. It never runs a model or uses the network.
+repositories and `tests/fake_agent.py`. It never runs a model or contacts an external network. Direct API protocols use
+local loopback fake HTTP servers.
 Each fixture checks the source dashboard data, build and expense JSON at cleanup,
 and fails with the changed paths. As in the Node guard, a changed regular expense
 file is accepted only when its new bytes equal that file at the ledger repository's

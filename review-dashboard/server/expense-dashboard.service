@@ -11,6 +11,7 @@ Environment=EXPENSES_BASE_PATH=/expenses/
 Environment=EXPENSES_ALLOWED_HOSTS=
 Environment=EXPENSES_ALLOWED_LOGINS=
 Environment=LEDGER_DIR=/absolute/path/to/private-ledger
+Environment=EXPENSES_STATE_DIR=%S/agentexpense
 Environment=EXPENSES_AGENT_MODEL=gpt-6.1-terra
 Environment=EXPENSES_AGENT_EFFORT=xhigh
 Environment=EXPENSES_AGENT_TIMEOUT=600

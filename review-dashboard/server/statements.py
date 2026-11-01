@@ -220,7 +220,7 @@ class Statements:
             return False
         return not latest.get('cancelled') and latest.get('generation', 0) == session.get('generation', 0)
 
-    def read(self, session):
+    def read(self, session, *, cancel=None):
         if not self.current_generation(session):
             return
         path = self.folder(session['id']) / 'read.pdf'
@@ -282,11 +282,11 @@ class Statements:
             # The runner's attachment layout is drafts/<id>/files. An isolated
             # temporary folder supplies it without copying the password.
             import tempfile
-            with tempfile.TemporaryDirectory(prefix='expense-statement-reader-') as temporary:
+            with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-statement-reader-') as temporary:
                 folder = Path(temporary); (folder/'files').mkdir()
                 shutil.copyfile(path, folder/'files/read.pdf')
                 try:
-                    answer, record = agent.run(self.settings, fallback, folder)
+                    answer, record = agent.run(self.settings, fallback, folder, cancel=cancel)
                 except agent.AgentFailure as exc:
                     session['runs'].append(exc.record)
                     self.put(session)
@@ -404,7 +404,7 @@ class Statements:
             self.in_flight.add(s['id'])
         try:
             if s['state']=='reading':
-                self.read(s)
+                self.read(s, cancel=stop_event)
             else:
                 with ledger_lock(self.ledger) as fd:
                     with self.mutex:
@@ -443,6 +443,10 @@ class Statements:
                     for p in self.folder(s['id']).glob('*.pdf'):
                         p.unlink()
         except Exception as exc:
+            if stop_event.is_set() and s['state']=='reading':
+                s.update(error=None, waiting=None)
+                self.put(s)
+                return True
             s.update(state='failed' if 'plan' in s else 'couldnt_read', error=str(exc), waiting=None, apply_started=False, failure_reason='stale_checklist' if isinstance(exc, StaleChecklist) else 'apply_failed' if 'plan' in s else 'read_failed')
             self.put(s)
         finally:

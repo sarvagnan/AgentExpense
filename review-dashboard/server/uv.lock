@@ -233,6 +233,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "pillow" },
     { name = "pyoxipng" },
@@ -250,6 +251,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.22" },
     { name = "pillow", specifier = ">=10.4" },
     { name = "pyoxipng", specifier = ">=9.0" },

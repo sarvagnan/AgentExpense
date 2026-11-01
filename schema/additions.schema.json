@@ -176,6 +176,16 @@
               "number",
               "null"
             ]
+          },
+          "adapter": {
+            "type": "string",
+            "description": "Optional adapter id; older runs used Codex."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false

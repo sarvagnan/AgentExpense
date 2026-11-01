@@ -23,13 +23,13 @@ test-server: review-dashboard/node_modules/.package-lock.json
 	HLEDGER_BIN="$(HLEDGER)" uv run --locked --directory review-dashboard/server python -m unittest discover -s tests -v
 
 agent-check: review-dashboard/node_modules/.package-lock.json
-	@PYTHONDONTWRITEBYTECODE=1 LIVE="$(LIVE)" uv run --locked --directory review-dashboard/server python agent_check.py
+	@PYTHONDONTWRITEBYTECODE=1 LIVE="$(LIVE)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_check.py
 
 agent-login: review-dashboard/node_modules/.package-lock.json
-	uv run --locked --directory review-dashboard/server python agent_tools.py login
+	ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_tools.py login
 
 agent-upgrade: review-dashboard/node_modules/.package-lock.json
-	VERSION="$(VERSION)" DRY_RUN="$(DRY_RUN)" uv run --locked --directory review-dashboard/server python agent_tools.py upgrade
+	VERSION="$(VERSION)" DRY_RUN="$(DRY_RUN)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_tools.py upgrade
 
 service:
 	python3 scripts/install_expense_service.py

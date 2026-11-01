@@ -74,6 +74,14 @@ class Worker:
             try:
                 self.process(draft)
             except Exception as exc:
+                if self.stop_event.is_set() and isinstance(exc, agent.AgentFailure):
+                    # Cancellation during shutdown is interrupted work, not an
+                    # expense failure. Resume this FIFO position after restart.
+                    draft.update(state='queued', error=None, waiting=None)
+                    if draft['runs']:
+                        draft['runs'][-1].update(outcome='interrupted', error='Server stopped during agent run')
+                    self.drafts.put(draft)
+                    continue
                 draft.update(state='failed', error=str(exc), waiting=None)
                 queue_outcome(draft, 'failed')
                 self.drafts.put(draft)
@@ -148,11 +156,11 @@ class Worker:
                     draft['runs'].append(pending)
                     self.drafts.put(draft)
                     try:
-                        answer, record = agent.run(self.settings, draft, self.drafts.folder(draft['id']))
+                        answer, record = agent.run(self.settings, draft, self.drafts.folder(draft['id']), cancel=self.stop_event)
                     except agent.AgentFailure as exc:
                         draft['runs'][-1] = exc.record
                         self.drafts.put(draft)
-                        if attempt or not exc.retryable:
+                        if self.stop_event.is_set() or attempt or not exc.retryable:
                             raise
                     else:
                         draft['runs'][-1] = record

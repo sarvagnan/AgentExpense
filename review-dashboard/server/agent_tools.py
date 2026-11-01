@@ -1,4 +1,4 @@
-"""Owner login and maintainer-only, offline Codex pin upgrades."""
+"""Owner login and maintainer-only, offline adapter pin upgrades."""
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -10,28 +10,43 @@ import tempfile
 from agent import codex_environment
 from agent_check import OfflineFailure, check_offline, fixture, require_codex
 from settings import Settings
+from adapters import get_adapter, PACKAGES, login_environment
 
 
 def login(settings):
-    require_codex(settings)
-    settings.codex_home.mkdir(parents=True, exist_ok=True)
-    return subprocess.call([settings.codex, 'login', '--device-auth'], env=codex_environment(settings))
+    adapter = get_adapter(settings)
+    command = adapter.login_command()
+    if not command:
+        print('Set the API key environment variable or dedicated keyFile configured in local.json; then run make agent-check LIVE=1 ADAPTER=' + settings.adapter)
+        return 0
+    return subprocess.call(command, env=login_environment(adapter, settings))
 
 
 def upgrade(settings, version='', *, dry_run=False):
+    if settings.adapter not in PACKAGES:
+        raise ValueError('Only pinned CLI adapters have an npm upgrade')
+    package, binary = PACKAGES[settings.adapter]
     if not version:
-        version = subprocess.check_output(['npm', 'view', '@openai/codex', 'version'], text=True).strip()
+        version = subprocess.check_output(['npm', 'view', package, 'version'], text=True).strip()
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', version):
         raise ValueError('VERSION must be an exact npm version')
-    print('Checking Codex ' + version, flush=True)
+    print('Checking ' + settings.adapter + ' ' + version, flush=True)
     with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-upgrade-') as folder:
         work = Path(folder)
-        subprocess.run(['npm', 'install', '--prefix', str(work), '--save-exact', '@openai/codex@' + version], check=True)
+        npm_env = dict(os.environ, HOME=str(work / 'npm-home'), npm_config_cache=str(work / 'npm-cache'))
+        (work / 'npm-home').mkdir()
+        subprocess.run(['npm', 'install', '--prefix', str(work), '--save-exact', package + '@' + version], check=True, env=npm_env)
         ledger, old, _ = fixture(work)
-        candidate = replace(settings, codex=str(work / 'node_modules/.bin/codex'),
+        # Candidate executable/resource-loader stay outside the installed app;
+        # application schemas and the reviewed extension remain shared.
+        candidate = replace(settings, codex=str(work / 'node_modules/.bin' / binary),
+                            agent_binary=str(work / 'node_modules/.bin' / binary),
                             codex_home=work / 'codex-home', state_dir=work / 'state', ledger=ledger, old_ledger=old)
         try:
-            check_offline(candidate, work)
+            if settings.adapter == 'codex':
+                check_offline(candidate, work)
+            else:
+                get_adapter(candidate).offline_check(work)
         except OfflineFailure as exc:
             if exc.issues:
                 raise
@@ -45,12 +60,12 @@ def upgrade(settings, version='', *, dry_run=False):
         before = [path.read_bytes() for path in paths]
         try:
             subprocess.run(['npm', '--prefix', str(dashboard), 'install', '--save-exact',
-                            '@openai/codex@' + version], check=True)
+                            package + '@' + version], check=True, env=npm_env)
         except Exception:
             for path, content in zip(paths, before):
                 path.write_bytes(content)
             raise
-        print('PASS pinned Codex ' + version)
+        print('PASS pinned ' + settings.adapter + ' ' + version)
         return 0
 
 
