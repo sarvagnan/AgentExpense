@@ -10,10 +10,11 @@ import subprocess
 import threading
 import time
 
-from jsonschema import validate
+from jsonschema import validate, ValidationError
 from . import PACKAGES, pinned_version
 from .base import AdapterError, AdapterPolicyError, Description, LookupTools, Result, Task, image_content, strict_json
 from .process import communicate, kill
+from .failures import event_failure, diagnostic
 
 HERE = Path(__file__).resolve().parent
 # Model-visible tools that OpenCode keeps registered even when permissions deny them.
@@ -289,14 +290,20 @@ class CLI:
             if self.id=='pi':
                 output=self._rpc(process,task,data)
             else:
-                output,_=communicate(process,task,data=data)
-                if process.returncode: raise AdapterError('Agent exited '+str(process.returncode)+'; output withheld')
+                output,err=communicate(process,task,data=data)
             result=self.parse(output,task)
+            if process.returncode: raise AdapterError("Agent exited "+str(process.returncode))
             result.duration=time.monotonic()-started
+            result.stderr_tail=diagnostic(locals().get('err',getattr(self,'_stderr','')))
             validate(result.answer,task.schema)
             return result
-        except subprocess.TimeoutExpired:
-            raise AdapterError('Agent deadline exceeded') from None
+        except subprocess.TimeoutExpired as exc:
+            raise AdapterError('Agent deadline exceeded',kind='transient',stderr_tail=diagnostic(exc.stderr or '')) from None
+        except AdapterError as exc:
+            exc.stderr_tail = diagnostic(locals().get('err', getattr(self, '_stderr', '')))
+            raise
+        except (ValueError, TypeError, KeyError, OSError, ValidationError):
+            raise AdapterError('Agent answer or protocol validation failed',stderr_tail=diagnostic(locals().get('err',getattr(self,'_stderr','')))) from None
         finally:
             if process.poll() is None: kill(process)
             process.communicate()
@@ -304,10 +311,12 @@ class CLI:
     def _rpc(self,process,task,data):
         # Keep stdin open until agent_settled; EOF immediately after prompt aborts
         # real RPC runtimes. Both pipes are drained to avoid backpressure deadlock.
-        records=queue.Queue();lines=[]
+        records=queue.Queue();lines=[];stderr=[];self._stderr=""
         def read(pipe,stdout):
             for line in iter(pipe.readline,''):
                 if stdout: records.put(line)
+                else:
+                    stderr.append(line);stderr[:]=stderr[-40:];self._stderr="".join(stderr)[-4000:]
             if stdout: records.put(None)
         threads=[threading.Thread(target=read,args=(process.stdout,True),daemon=True),
                  threading.Thread(target=read,args=(process.stderr,False),daemon=True)]
@@ -322,9 +331,8 @@ class CLI:
                 lines.append(line)
                 event=json.loads(line)
                 if event.get('type')=='response' and not event.get('success'):
-                    raise AdapterError('Pi command failed; output withheld')
+                    raise event_failure([event])
                 if event.get('type')=='agent_settled':
-                    if event.get('aborted'): raise AdapterError('Pi run aborted')
                     break
             process.stdin.close();process.stdin=None
             process.wait(timeout=task.remaining())
@@ -359,10 +367,18 @@ class CLI:
         def add_usage(values):
             for key,value in (values or {}).items():
                 if isinstance(value,(int,float)):usage[key]=usage.get(key,0)+value
+        failures=[]
+        for line in output.splitlines():
+            try: event=json.loads(line)
+            except ValueError: continue
+            kind=event.get('type')
+            if (kind=='error' or self.id=='claude' and kind=='result' and (event.get('is_error') or event.get('subtype')!='success') or
+                    self.id=='pi' and kind=='message_end' and event.get('message',{}).get('stopReason') in ('error','aborted')):
+                failures.append(event)
         for line in output.split('\n'):
             if not line.strip():continue
             event=json.loads(line);kind=event.get('type')
-            if kind=='error':raise AdapterError('Agent provider error; output withheld',usage=usage,lookups=calls)
+            if kind=='error':continue
             if self.id=='claude':
                 if kind=='system' and event.get('subtype')=='init':
                     extra=set(event.get('tools',[]))-{'mcp__ledger__'+n for n in allowed}
@@ -383,7 +399,8 @@ class CLI:
                             name,args=pending.pop(block['tool_use_id'])
                             call(name,args,block.get('content'),block.get('is_error',False))
                 if kind=='result':
-                    if event.get('is_error') or event.get('subtype')!='success':raise AdapterError('Agent did not finish successfully')
+                    if event.get('is_error') or event.get('subtype')!='success':
+                        usage={};add_usage(event.get('usage'));continue
                     answer=event.get('structured_output')
                     if answer is None:answer=strict_json(event.get('result',''))
                     # result.usage is the authoritative total, not another turn.
@@ -395,7 +412,7 @@ class CLI:
                 if kind=='tool_execution_end':call(event['toolName'],pending.pop(event['toolCallId'],None),event.get('result'),event.get('isError',False))
                 if kind=='message_end' and event.get('message',{}).get('role')=='assistant':
                     message=event['message'];add_usage(message.get('usage'))
-                    if message.get('stopReason') in ('error','aborted'):raise AdapterError('Pi provider failed; output withheld')
+                    if message.get('stopReason') in ('error','aborted'):continue
                     text=[''.join(b.get('text','') for b in message.get('content',[]) if b.get('type')=='text')]
                 if kind=='agent_settled':finished=not event.get('aborted')
             else:
@@ -412,6 +429,7 @@ class CLI:
                 if kind=='step_finish':
                     add_usage(part.get('tokens'));finished=part.get('reason') in ('stop','end_turn')
                     if finished:final_message=part.get('messageID')
+        if failures: raise event_failure(failures,usage=usage,lookups=calls)
         if self.id=='opencode' and message_texts:
             # Progress before a lookup belongs to an earlier assistant message.
             # Validate only the final message, retaining all of its text parts.

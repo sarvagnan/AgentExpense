@@ -406,11 +406,17 @@ class Statements:
                 folder = Path(temporary); (folder/'files').mkdir()
                 shutil.copyfile(path, folder/'files/read.pdf')
                 try:
+                    if getattr(self, 'agent_pause', None) and self.agent_pause.blocked():
+                        session.update(state='agent_waiting');self.put(session);return
                     answer, record = agent.run(self.settings, fallback, folder, cancel=cancel)
                 except agent.AgentFailure as exc:
                     session['runs'].append(exc.record)
+                    if exc.kind != 'bad_answer' and getattr(self, 'agent_pause', None):
+                        self.agent_pause.fail(exc.kind, exc.reset_at)
+                        session.update(state='agent_waiting');self.put(session);return
                     self.put(session)
                     raise ValueError('The parser and second reading could not read this statement. ' + parser_error + '; ' + str(exc)) from None
+            if getattr(self, 'agent_pause', None): self.agent_pause.success()
             session['runs'].append(record)
             statement = agent.statement_result(answer)
             account = session.get('assigned_account') or select_account(documents, self.ledger, statement.get('card_last4'), account)
@@ -534,6 +540,9 @@ class Statements:
     def work(self, stop_event, before=None):
         with self.mutex:
             self.purge()
+            for waiting in self.all():
+                if waiting['state']=='agent_waiting' and not waiting.get('discarded_until') and not self.agent_pause.blocked():
+                    waiting['state']='reading';self.put(waiting)
             queued = sorted((s for s in self.all() if not s.get('discarded_until') and s['state'] in ('reading','applying') and not s.get('waiting')), key=lambda s:(s['queued_at'],s['id']))
             # Waiting sessions periodically rejoin; they must not block other work.
             if not queued:

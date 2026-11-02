@@ -103,7 +103,7 @@ class LifecycleTests(Fixture):
             self.assertEqual(json.loads((self.ledger / 'data/expenses/2026.json').read_text()), [])
 
     def test_failure_modes_retry_once_then_explicit_retry(self):
-        for kind in ('exit', 'timeout', 'noanswer', 'invalid'):
+        for kind in ('exit', 'noanswer', 'invalid'):
             with self.subTest(kind=kind):
                 self.set_answers({'kind': kind})
                 # Gate/login/probe use the ordinary generous fixture deadline.
@@ -131,7 +131,7 @@ class LifecycleTests(Fixture):
                     self.assertEqual(client.delete(f'/api/drafts/{identity}').status_code, 204)
 
     def test_server_checks_correct_once_then_fail(self):
-        for defect in ('invisible', 'inr_original', 'unknown_parent', 'unbalanced', 'text_control', 'missing_names'):
+        for defect in ('invisible', 'unbalanced', 'text_control', 'missing_names'):
             with self.subTest(defect=defect):
                 answer = ready()
                 if defect == 'invisible':
@@ -493,6 +493,6 @@ class ManifestIntegrationTests(Fixture):
         for name in answer['new_accounts'][2:]:
             self.assertEqual(result['accounts'][name], {'kind':'person','currency':'USD'})
         answer['new_accounts'] = ['Dev Sen:Other:Asha']
-        from transactions import ProposalError
-        with self.assertRaisesRegex(ProposalError, 'Cannot infer kind'):
+        from transactions import AccountError
+        with self.assertRaisesRegex(AccountError, 'Cannot infer kind'):
             to_store(answer, self.ledger, 1)

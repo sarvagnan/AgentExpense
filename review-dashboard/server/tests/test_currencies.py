@@ -58,8 +58,8 @@ class CurrencyTests(Fixture):
         entry,decl,_=to_store(answer,self.ledger,0);check(entry,decl,self.ledger)
         self.assertNotIn('cost',entry['postings'][0])
         answer['entry']['original_amount']=dict(amount='46.80',commodity='USD')
-        with self.assertRaisesRegex(ProposalError,'must differ'):
-            to_store(answer,self.ledger,0)
+        normalised,_,_=to_store(answer,self.ledger,0)
+        self.assertNotIn('original-amount',normalised)
         self.assertIn('ask for the amount charged',PREFACE)
         self.assertIn('both the sent and received amounts',PREFACE)
 
@@ -70,9 +70,9 @@ class CurrencyTests(Fixture):
         self.assertEqual([p['amount'] for p in entry['postings']],['-1000.00','920.00'])
         self.assertEqual([p['commodity'] for p in entry['postings']],['USD','EUR'])
         answer['entry']['postings'][1]['commodity']='USD'
-        entry,decl,_=to_store(answer,self.ledger,0)
-        with self.assertRaisesRegex(ProposalError,'account currency EUR'):
-            check(entry,decl,self.ledger)
+        from transactions import AccountError
+        with self.assertRaisesRegex(AccountError,'account currency EUR'):
+            to_store(answer,self.ledger,0)
 
     def test_settings_api_commits_verified_change_under_write_rules_and_locks_activity(self):
         self.setup_currencies()

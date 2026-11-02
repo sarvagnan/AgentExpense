@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from store import ROOT, read_json, _unique_object
 from ledger_lock import LOCK_FD_ENV, ledger_lock
 from project_paths import APPLICATION_ROOT
+from proposal_consent import validate_consent
 
 SCHEMA = Path(__file__).resolve().parents[2] / 'schema/additions.schema.json'
 FORMATS = FormatChecker()
@@ -47,6 +48,7 @@ def records(root=ROOT):
             try:
                 record = json.loads(line, object_pairs_hook=_unique_object)
                 validator.validate(record)
+                validate_consent(record)
                 if record['id'] in used:
                     raise ValueError('Duplicate audit ID ' + record['id'])
                 if datetime.fromisoformat(record['time']).year != int(path.stem):
@@ -65,6 +67,7 @@ def audit_path(root, record):
 def append(root, record):
     """Caller holds the ledger lock; O_APPEND never rewrites an existing line."""
     Draft202012Validator(read_json(SCHEMA), format_checker=FORMATS).validate(record)
+    validate_consent(record)
     existing = next((r for r in records(root) if r['id'] == record['id']), None)
     if existing:
         if existing != record:

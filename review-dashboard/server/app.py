@@ -118,13 +118,15 @@ class DashboardGZipMiddleware(GZipMiddleware):
             await super().__call__(scope, receive, send)
 
 
-def create_app(settings=None, *, start_worker=True, review_clock=None):
+def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clock=None):
     settings = settings or Settings.from_env()
     read_manifest(settings.ledger)
-    drafts = Drafts(settings.ledger)
+    drafts = Drafts(settings.ledger, clock=agent_clock)
     worker = Worker(settings, drafts)
     statements = Statements(settings)
     worker.statements = statements
+    if agent_clock: worker.pause.clock = agent_clock
+    statements.agent_pause = worker.pause
     gate = get_gate(settings)
 
     @asynccontextmanager
@@ -192,25 +194,34 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
             raise HTTPException(404, 'Unknown draft')
 
     def require(draft, *states):
+        if draft.get('claim'):
+            raise HTTPException(409, 'Another page is finishing this draft')
         if draft['state'] not in states:
             raise HTTPException(409, f"Draft is {draft['state']}; expected {', '.join(states)}")
 
     def queue(draft, proposal=None):
-        draft.update(state='queued', queued_at=now(), error=None, waiting=None, proposal=proposal)
+        draft.update(state='queued', queued_at=now(), error=None, waiting=None, proposal=proposal, answer_failures=0)
         drafts.put(draft)
         worker.wake.set()
-        return draft
+        return public(draft)
+
+    def public(draft):
+        result = dict(draft)
+        if result.get('claim'):
+            result['claim'] = {'expires_at': result['claim']['expires_at']}
+        result['agent_pause'] = worker.pause.status()
+        return result
 
     @app.get('/api/health')
     def health():
         return {'ok': True, 'base_path': settings.base_path, 'worker': bool(worker.thread and worker.thread.is_alive()),
-                'agent': gate.status()}
+                'agent': gate.status(), 'agent_pause': worker.pause.status()}
 
     @app.get('/api/agent-status')
     def agent_status():
         # Reading status must never start a check or run an agent.
         from adapters import status_details
-        return {**gate.status(), **status_details(settings)}
+        return {**gate.status(), **status_details(settings), 'agent_pause': worker.pause.status()}
 
     @app.post('/api/settings/name')
     def ledger_name(body: NameChange):
@@ -273,7 +284,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
     def review_action(body: dict):
         from review import apply
         try:
-            return apply(settings, body, clock=review_clock)
+            return worker.call(lambda: apply(settings, body, clock=review_clock))
         except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
             raise HTTPException(409, str(exc)) from exc
 
@@ -286,16 +297,16 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
             raise HTTPException(422, str(exc))
         draft['client_updated_at'] = body.client_updated_at
         drafts.put(draft)
-        return draft
+        return public(draft)
 
     @app.get('/api/drafts')
     def list_drafts(include_added: bool = False):
         drafts.purge()
-        return sorted((d for d in drafts.all() if include_added or d['state'] != 'added'), key=lambda d: d['created_at'])
+        return sorted((public(d) for d in drafts.all() if include_added or d['state'] != 'added'), key=lambda d: d['created_at'])
 
     @app.get('/api/drafts/{identity}')
     def read(identity: str):
-        return get(identity)
+        return public(get(identity))
 
     @app.patch('/api/drafts/{identity}')
     def update(identity: str, body: Edit):
@@ -310,20 +321,24 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
                     raise HTTPException(422, str(exc))
             draft.update(values)
             drafts.put(draft)
-            return draft
+            return public(draft)
 
     @app.post('/api/drafts/{identity}/files', status_code=201)
-    def upload(identity: str, files: list[UploadFile] = File(...), upload_id: str | None = Form(None)):
+    def upload(identity: str, files: list[UploadFile] = File(...), upload_id: str | None = Form(None), claim_token: str | None = Form(None)):
         with drafts.mutex:
             draft = get(identity)
-            require(draft, 'editing')
+            if claim_token:
+                try: drafts.require_claim(draft, claim_token)
+                except ValueError as exc: raise HTTPException(409,str(exc))
+                draft.pop('account_consent', None);draft.pop('hand_checks', None)
+            else: require(draft, 'editing')
             if upload_id is not None:
                 if not re.fullmatch('[a-f0-9]{32}', upload_id) or len(files) != 1:
                     raise HTTPException(422, 'An upload id identifies one file')
                 if upload_id in draft.get('cancelled_uploads', []):
-                    return draft
+                    return public(draft)
                 if any(f['id'] == upload_id for f in draft['files']):
-                    return draft
+                    return public(draft)
             if len(files) + len(draft['files']) > MAX_FILES:
                 raise HTTPException(413, 'At most 10 files per draft')
             staged = []
@@ -346,7 +361,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
                 for info, _ in staged:
                     (folder / info['name']).unlink(missing_ok=True)
                 raise
-            return draft
+            return public(draft)
 
     @app.get('/api/drafts/{identity}/files/{file_id}')
     def read_file(identity: str, file_id: str):
@@ -358,17 +373,21 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
         return FileResponse(path, media_type=file['media_type'], headers={'Cache-Control': 'no-store'})
 
     @app.delete('/api/drafts/{identity}/files/{file_id}')
-    def remove_file(identity: str, file_id: str):
+    def remove_file(identity: str, file_id: str, claim_token: str | None = None):
         with drafts.mutex:
             draft = get(identity)
-            require(draft, 'editing')
+            if claim_token:
+                try: drafts.require_claim(draft, claim_token)
+                except ValueError as exc: raise HTTPException(409,str(exc))
+                draft.pop('account_consent', None);draft.pop('hand_checks', None)
+            else: require(draft, 'editing')
             file = next((f for f in draft['files'] if f['id'] == file_id), None)
             if not file:
                 raise HTTPException(404, 'Unknown file')
             draft['files'].remove(file)
             drafts.put(draft)
             (drafts.folder(identity) / 'files' / file['name']).unlink(missing_ok=True)
-            return draft
+            return public(draft)
 
     @app.delete('/api/drafts/{identity}/uploads/{upload_id}')
     def cancel_upload(identity: str, upload_id: str):
@@ -385,7 +404,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
             drafts.put(draft)
             for file in removed:
                 (drafts.folder(identity) / 'files' / file['name']).unlink(missing_ok=True)
-            return draft
+            return public(draft)
 
     @app.patch('/api/drafts/{identity}/unsent-answer')
     def keep_answer(identity: str, body: UnsentAnswer):
@@ -396,7 +415,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
                 raise HTTPException(409, 'This question has already changed')
             draft['unsent_answer'] = body.model_dump()
             drafts.put(draft)
-            return draft
+            return public(draft)
 
     @app.post('/api/drafts/{identity}/save')
     def save(identity: str, body: SaveTime | None = None):
@@ -417,6 +436,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'question')
+            draft.pop('account_question', None)
+            draft.pop('account_proposal', None)
+            draft.pop('account_consent', None)
             draft.pop('currency_request', None)
             draft.pop('currency_proposal', None)
             draft['questions'][-1].update(answer=body.answer, answered_at=now())
@@ -436,20 +458,93 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
                 raise HTTPException(422, str(exc)) from exc
             return queue(draft, draft['proposal'])
 
+    @app.post('/api/drafts/{identity}/approve-accounts')
+    def approve_accounts(identity: str, body: dict):
+        from proposal_consent import proposal_hash
+        with drafts.mutex:
+            draft = get(identity);require(draft, 'question')
+            proposal = draft.get('account_proposal')
+            if not proposal or body.get('proposal_hash') != proposal_hash(proposal):
+                raise HTTPException(409, 'The proposal changed; review it again')
+            from transactions import Transaction
+            try: prepared = Transaction(settings,drafts,draft).prepare(proposal)
+            except (ValueError, TypeError, ArithmeticError) as exc: raise HTTPException(409,str(exc))
+            draft['account_consent'] = dict(proposal_hash=prepared['proposal_hash'], accounts=prepared['new_roots'], method='create-and-add')
+            draft.pop('account_question', None)
+            draft['questions'][-1].update(answer='Create and add', answered_at=now())
+            return queue(draft, proposal)
+
+    @app.post('/api/drafts/{identity}/claim')
+    def claim_draft(identity: str, body: dict):
+        from hand_finish import prefill
+        with drafts.mutex:
+            draft = get(identity)
+            try: token = drafts.claim(draft, body.get('claim_token'))
+            except ValueError as exc: raise HTTPException(409,str(exc))
+            draft.setdefault('hand_reason', (worker.pause.status() or {}).get('reason') or (draft.get('runs') or [{}])[-1].get('failure_kind') or {'queued':'waiting for the agent','question':'agent question','failed':'agent could not finish'}[draft['state']])
+            drafts.put(draft)
+            return dict(draft=public(draft), claim_token=token, form=prefill(settings,draft))
+
+    @app.post('/api/drafts/{identity}/hand-form')
+    def save_hand_form(identity: str, body: dict):
+        from hand_finish import preview
+        with drafts.mutex:
+            draft=get(identity)
+            try: drafts.require_claim(draft,body.get('claim_token',''))
+            except ValueError as exc: raise HTTPException(409,str(exc))
+            if not isinstance(body.get('proposal'),dict): raise HTTPException(422,'A proposal is required')
+            return preview(settings,drafts,draft,body['proposal'])
+
+    @app.post('/api/drafts/{identity}/hand-add')
+    def add_hand_form(identity: str, body: dict):
+        from hand_finish import preview
+        from proposal_consent import proposal_hash
+        with drafts.mutex:
+            draft=get(identity)
+            try: drafts.require_claim(draft,body.get('claim_token',''))
+            except ValueError as exc: raise HTTPException(409,str(exc))
+            proposal=draft.get('hand_form')
+            if not proposal or body.get('proposal_hash') != proposal_hash(proposal):
+                raise HTTPException(409,'The form changed; check it again')
+            checked=preview(settings,drafts,draft,proposal)
+            if not checked['ok']: raise HTTPException(422,checked['checks'][0])
+            accounts=body.get('approved_accounts',[])
+            if not isinstance(accounts,list) or set(accounts)!=set(checked['new_accounts']):
+                raise HTTPException(409,'Tick every new account before adding')
+            drafts.release_claim(draft)
+            draft['finished_by']=dict(actor='user',reason=draft['hand_reason'].replace('_',' '))
+            draft['account_consent']=dict(proposal_hash=checked['proposal_hash'],accounts=accounts,method='hand-ticks')
+            draft.pop('account_question', None)
+            draft.pop('currency_request', None)
+            # Retain the original FIFO position. Human proposals bypass agent pauses.
+            draft.update(state='queued',queued_at=draft.get('queued_at') or now(),proposal=proposal,error=None,waiting=None)
+            drafts.put(draft);worker.wake.set()
+            return public(draft)
+
+    @app.post('/api/drafts/{identity}/release')
+    def release_draft(identity: str, body: dict):
+        with drafts.mutex:
+            draft=get(identity)
+            try: drafts.require_claim(draft,body.get('claim_token',''))
+            except ValueError as exc: raise HTTPException(409,str(exc))
+            if isinstance(body.get('proposal'),dict): draft['hand_form']=body['proposal']
+            drafts.release_claim(draft);drafts.put(draft);worker.wake.set()
+            return public(draft)
+
     @app.post('/api/drafts/{identity}/retry')
     def retry(identity: str):
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'failed')
             draft['check_errors'] = []
-            return queue(draft)
+            return queue(draft, draft.get('hand_form') if draft.get('finished_by') else None)
 
     @app.delete('/api/drafts/{identity}', status_code=204)
     def discard(identity: str):
         with drafts.mutex:
             draft = get(identity)
-            if draft['state'] == 'working':
-                raise HTTPException(409, 'Cannot discard a working draft')
+            if draft['state'] == 'working' or draft.get('claim'):
+                raise HTTPException(409, 'Release the form or wait for the working draft')
             draft['discarded_until'] = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
             drafts.put(draft)
 
@@ -477,7 +572,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
                     draft.pop('handover_session',None)
             drafts.put(draft)
             worker.wake.set()
-            return draft
+            return public(draft)
 
     def statement_get(identity, **kwargs):
         try:
@@ -660,8 +755,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None):
             d=get(identity)
             if d.get('handover_session'):
                 return statement_get(d['handover_session'])
-            if d['state']=='working':
-                raise HTTPException(409,'Wait for the draft to finish reading.')
+            if d['state']=='working' or d.get('claim'):
+                raise HTTPException(409,'Release the hand form or wait for the draft to finish reading.')
             file=next((f for f in d['files'] if f['id']==d.get('statement_file')),None)
             if not file:
                 raise HTTPException(409,'This draft has no recognised statement.')

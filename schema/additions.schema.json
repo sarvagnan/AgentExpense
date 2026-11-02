@@ -186,6 +186,31 @@
             "items": {
               "type": "string"
             }
+          },
+          "failure_kind": {
+            "enum": [
+              "usage_limit",
+              "auth",
+              "transient",
+              "bad_answer"
+            ]
+          },
+          "reset_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "stderr_tail": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "normalisations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false
@@ -403,6 +428,50 @@
             "type": "object",
             "description": "Original version-2 export identity before the first decision, retained for portable exports and changed-entry detection."
           }
+        }
+      }
+    },
+    "finished_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "reason"
+      ],
+      "properties": {
+        "actor": {
+          "const": "user"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "account_consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposal_hash",
+        "accounts",
+        "method"
+      ],
+      "properties": {
+        "proposal_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "method": {
+          "enum": [
+            "create-and-add",
+            "hand-ticks"
+          ]
         }
       }
     }

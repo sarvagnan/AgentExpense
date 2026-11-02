@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from jsonschema import ValidationError
@@ -71,15 +72,31 @@ class AdapterTests(unittest.TestCase):
                     adapter=self.adapter(name,steps=[step])
                     with self.assertRaises((ValueError,ValidationError)) as error:adapter.run(self.task(adapter))
                     self.assertNotIn('PRIVATE',str(error.exception))
+                    if step.get('kind') in ('invalid','noanswer','exit'):self.assertIn('bad-answer stderr',getattr(error.exception,'stderr_tail',''))
+                    if step.get('kind')=='error':self.assertTrue(getattr(error.exception,'lookups',[]),'Retain successful/failed lookups before the provider error')
                 adapter=self.adapter(name,extra_tool=True)
                 with self.assertRaisesRegex(ValueError,'extra tools|outside the lookup'):adapter.run(self.task(adapter))
 
     def test_cli_deadline_and_cancellation_cleanup_and_pi_abort(self):
+        from adapters.process import kill
+        child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],cwd=self.work,start_new_session=True)
+        try:
+            with patch('adapters.process.os.killpg',side_effect=PermissionError('group teardown race')):
+                kill(child)
+            self.assertIsNotNone(child.wait(timeout=3))
+        finally:
+            if child.poll() is None:child.kill()
+            child.wait()
         for name in ('claude','pi','opencode'):
             for cancellation in (False,True):
                 with self.subTest(adapter=name,cancel=cancellation):
                     self.config.with_suffix('.started').unlink(missing_ok=True)
-                    adapter=self.adapter(name,steps=[{'kind':'timeout'}]);stop=threading.Event();task=self.task(adapter,cancel=stop,seconds=1)
+                    adapter=self.adapter(name,steps=[{'kind':'timeout'}]);stop=threading.Event()
+                    # Start the tested one-second deadline only after the fake
+                    # protocol is ready. Process startup has its separate bound;
+                    # host contention must not turn this into a pre-launch test.
+                    task=SimpleNamespace(**vars(self.task(adapter,cancel=stop,seconds=self.settings.timeout)))
+                    task.remaining=lambda:Task.remaining(task)
                     errors=[];spawned=[];original_popen=subprocess.Popen
                     def spawn(*args,**kwargs):
                         process=original_popen(*args,**kwargs);spawned.append(process);return process
@@ -91,8 +108,13 @@ class AdapterTests(unittest.TestCase):
                     # Wait on an explicit process-start marker, not a startup delay.
                     deadline=time.monotonic()+3
                     while not self.config.with_suffix('.started').exists() and time.monotonic()<deadline:threading.Event().wait(.005)
-                    self.assertTrue(self.config.with_suffix('.started').exists())
-                    pid=int(self.config.with_suffix('.started').read_text())
+                    try:
+                        self.assertTrue(self.config.with_suffix('.started').exists())
+                        pid=int(self.config.with_suffix('.started').read_text())
+                    except BaseException:
+                        stop.set();thread.join(4)
+                        raise
+                    task.deadline=time.monotonic()+1
                     if cancellation:stop.set()
                     thread.join(4);self.assertFalse(thread.is_alive());self.assertTrue(errors)
                     self.assertEqual(len(spawned),1);self.assertEqual(spawned[0].pid,pid)
@@ -231,7 +253,7 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue(self.config.with_suffix('.started').exists())
         draft=app.state.drafts.get(identity)
         self.assertEqual(draft['state'],'queued');self.assertIsNone(draft['error'])
-        self.assertEqual(len(draft['runs']),1);self.assertEqual(draft['runs'][0]['outcome'],'interrupted')
+        self.assertEqual(len(draft['runs']),1);self.assertEqual(draft['runs'][0]['outcome'],'interrupted');self.assertEqual(draft.get('answer_failures',0),0)
         self.assertFalse(draft.get('audit_pending'))
         self.assertFalse(app.state.worker.thread.is_alive())
 
@@ -278,7 +300,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_direct_api_tool_loops_schemas_images_usage_retry_and_secret_redaction(self):
         for name in ('openai','anthropic'):
-            for mode in ('normal','rate'):
+            for mode in ('normal',):
                 with self.subTest(adapter=name,mode=mode),self.http_server(name,mode=mode) as (url,received,_,_):
                     adapter=self.api_adapter(name,url);image=self.work/'test.png';image.write_bytes(b'fictional')
                     adapter.offline_check(self.work);self.assertEqual(received,[])
@@ -288,7 +310,7 @@ class AdapterTests(unittest.TestCase):
                     first=received[0][1];self.assertEqual(len(first['tools']),4)
                     self.assertIn('output_config' if name=='anthropic' else 'response_format',first)
                     self.assertIn('image',json.dumps(first));self.assertNotIn('fictional-secret-token',json.dumps(result.metadata()))
-            for mode,reason in (('unknown','allow-list'),('auth','authentication')):
+            for mode,reason in (('unknown','allow-list'),('auth','authentication'),('rate','usage limit')):
                 with self.http_server(name,mode=mode) as (url,_,_,_):
                     adapter=self.api_adapter(name,url)
                     with self.assertRaisesRegex(AdapterError,reason) as raised:adapter.run(self.task(adapter))
@@ -300,17 +322,17 @@ class AdapterTests(unittest.TestCase):
 
     def test_direct_api_transport_exhaustion_tool_token_refusal_and_malformed_bounds(self):
         for name in ('openai','anthropic'):
-            for mode,options,reason in [('rate_always',{'retries':1},'retry limit'),
+            for mode,options,reason in [('rate_always',{'retries':1},'usage limit'),
                     ('loop',{'maxTools':1},'tool-call limit'),('tokens',{},'token limit'),
                     ('refusal',{},'refused'),('malformed',{},'contents withheld')]:
                 with self.subTest(adapter=name,mode=mode),self.http_server(name,mode=mode) as (url,received,_,_):
                     adapter=self.api_adapter(name,url,**options)
                     with self.assertRaises(AdapterError) as raised:adapter.run(self.task(adapter))
                     self.assertIn(reason,str(raised.exception));self.assertNotIn('fictional-secret-token',str(raised.exception))
-                    if mode=='rate_always':self.assertEqual(len(received),2)
+                    if mode=='rate_always':self.assertEqual(len(received),1);self.assertEqual(raised.exception.kind,'usage_limit')
             with self.http_server(name,mode='transport') as (url,received,_,_):
-                result=self.api_adapter(name,url).run(self.task(self.api_adapter(name,url)))
-                self.assertEqual(result.answer,{'value':'ok'});self.assertEqual(len(received),3)
+                with self.assertRaises(AdapterError) as raised:self.api_adapter(name,url).run(self.task(self.api_adapter(name,url)))
+                self.assertEqual(raised.exception.kind,'transient');self.assertEqual(len(received),1)
         key=self.work/'api-key.txt';key.write_text('fictional-file-key')
         adapter=self.api_adapter('openai','https://example.invalid/v1',keyEnv='MISSING_OFFLINE_KEY',keyFile=str(key))
         self.assertEqual(adapter.key(),'fictional-file-key');self.assertTrue(adapter.signed_in(self.work))

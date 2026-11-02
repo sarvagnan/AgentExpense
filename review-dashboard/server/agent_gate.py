@@ -99,9 +99,9 @@ class AgentGate:
         # also covers a login expiring after a cached pass, not just startup.
         # Unavailable checks still retry only on the next draft.
         while not self.stop.wait(self.login_poll_seconds):
-            if self.status()['state'] == 'signed out':
+            if self.status()['state'] in ('signed out','paused'):
                 try:
-                    self.require_ready()
+                    self.require_ready(force=True)
                 except ValueError:
                     pass
 
@@ -132,7 +132,7 @@ class AgentGate:
             finally:
                 path.unlink(missing_ok=True)
 
-    def require_ready(self):
+    def require_ready(self, *, force=False):
         # The FIFO worker joins a startup check here. Version is read before each
         # run, even after a cached pass, so replacing the binary needs no restart.
         with self.status_lock:
@@ -151,7 +151,7 @@ class AgentGate:
                 raise ValueError(status['reason'])
             self.set_state('checking')
             try:
-                self._check()
+                self._check(force=force)
             except check.OfflineFailure as exc:
                 if exc.signed_out:
                     reason = SIGNED_OUT + ('' if self.settings.adapter == 'codex' else ' ADAPTER=' + self.settings.adapter)
@@ -174,7 +174,7 @@ class AgentGate:
                 with self.status_lock:
                     self.generation += 1
 
-    def _check(self):
+    def _check(self, *, force=False):
         settings = self.settings
         from adapters import get_adapter, require_isolation, adapter_version
         adapter = get_adapter(settings)
@@ -185,7 +185,7 @@ class AgentGate:
             values = fingerprint(settings, version)
             key = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
             cached = self.read_cache()
-            if cached.get('key') == key and cached.get('state') in ('ready', 'paused'):
+            if cached.get('key') == key and cached.get('state') in ('ready', 'paused') and not (force and cached.get('state')=='paused'):
                 if cached['state'] == 'ready' and not adapter.signed_in(work, stop=self.stop):
                     raise check.OfflineFailure([], signed_out=True)
                 self.set_state(cached['state'], cached.get('reason'))

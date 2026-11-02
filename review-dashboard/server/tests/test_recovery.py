@@ -21,7 +21,7 @@ class RecoveryTests(Fixture):
             self.assertEqual(client.get('/api/drafts?include_added=true').json(), [])
             self.assertTrue(path.exists())
             restored = client.post(f'/api/drafts/{identity}/restore').json()
-            self.assertEqual(restored, before)
+            self.assertEqual(restored, {**before, 'agent_pause': None})
             self.assertEqual(restored['unsent_answer']['answer'], 'Savings Account still typing')
             self.assertEqual(client.get(f'/api/drafts/{identity}/files/{file["id"]}').content, png())
             client.delete(f'/api/drafts/{identity}')

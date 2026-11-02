@@ -1,6 +1,8 @@
 """Checked, locked ledger additions with a durable rollback journal."""
 from __future__ import annotations
 
+from copy import deepcopy
+from jsonschema import validate, ValidationError
 import base64
 from datetime import date
 from decimal import Decimal
@@ -25,6 +27,10 @@ from account_metadata import infer_kind, is_balance_sheet
 from ledger_lock import ledger_lock, LOCK_FD_ENV
 sys.path.insert(0, str(APPLICATION / 'scripts/receipts'))
 from compress_images import compress
+
+
+class AccountError(ValueError):
+    """An account decision requires a person rather than a repair retry."""
 
 
 class ProposalError(ValueError):
@@ -57,6 +63,7 @@ def amount(text):
 
 
 def to_store(answer, root, file_count):
+    answer = deepcopy(answer)
     reject_invisible(answer)
     if len(answer['attachment_names']) != file_count:
         raise ProposalError('attachment_names must have one name per attachment')
@@ -87,29 +94,41 @@ def to_store(answer, root, file_count):
     paths = {':'.join(a.split(':')[:n]) for a in existing for n in range(1, len(a.split(':')) + 1)}
     new = sorted(set(answer['new_accounts']) - existing)
     for account in new:
-        if not all(part.strip() == part and part for part in account.split(':')) or ':' not in account:
-            raise ProposalError(f'Invalid new account: {account}')
-        if not any(account.startswith(parent + ':') for parent in paths):
-            raise ProposalError(f'New account has no existing parent: {account}')
+        if not all(part.strip() == part and part for part in account.split(':')):
+            raise AccountError(f'Invalid new account: {account}')
     accounts = dict(declared['accounts'])
     for account in new:
         metadata = {}
         if is_balance_sheet(account):
-            kind = infer_kind(account)
+            explicit = answer.get('account_metadata', {}).get(account)
+            kind = explicit.get('kind') if explicit else infer_kind(account)
             if kind is None:
-                raise ProposalError(f'Cannot infer kind for new account: {account}')
-            metadata = {'kind': kind, 'currency': read_manifest(root)['defaultCurrency']}
+                raise AccountError(f'Cannot infer kind for new account: {account}; choose a conventional account or declare its metadata in Accounts')
+            currencies = {p['commodity'] for p in entry['postings'] if p['account']==account}
+            metadata = explicit if explicit else {'kind': kind, 'currency': next(iter(currencies)) if len(currencies)==1 else read_manifest(root)['defaultCurrency']}
         accounts[account] = metadata
     payments = [p for p in entry['postings'] if accounts.get(p['account'], {}).get('currency') and Decimal(p['amount']) < 0]
     funding = next((p for p in payments if accounts[p['account']].get('kind') not in ('investment', 'person')), payments[0] if payments else None)
     if funding:
         currency = accounts[funding['account']]['currency']
         if entry.get('original-amount', {}).get('commodity') == currency:
-            raise ProposalError(f'original-amount must differ from the paying account currency {currency}')
+            if Decimal(entry['original-amount']['amount']) == abs(Decimal(funding['amount'])):
+                entry.pop('original-amount')
+            else:
+                raise ProposalError(f'original-amount must differ from the paying account currency {currency}')
         for p in entry['postings']:
             if p['account'].startswith('Expenses:') and p['commodity'] != currency:
                 if not p.get('cost') or p['cost']['commodity'] != currency or Decimal(p['cost']['amount']) <= 0:
                     raise ProposalError(f'Expense in {p["commodity"]} on {funding["account"]} ({currency}) needs the amount charged or a rate as a cost in {currency}; ask the user when neither is known')
+    unknown = sorted({p['account'] for p in entry['postings']} - set(accounts))
+    if unknown:
+        raise AccountError('Declare the proposed accounts: ' + ', '.join(unknown))
+    supported = json.loads((APPLICATION / 'schema/currencies.json').read_text())
+    for p in entry['postings']:
+        unit_holding=accounts[p['account']].get('kind')=='investment' and p['commodity'] not in supported
+        expected = accounts[p['account']].get('currency')
+        if expected and expected != p['commodity'] and not unit_holding:
+            raise AccountError('The posting must use its account currency '+expected+': ' + p['account'])
     commodities = list(declared['commodities'])
     supported = json.loads((APPLICATION / 'schema/currencies.json').read_text())
     registered = {directive.split()[0].strip(chr(34)) for directive in commodities}
@@ -181,7 +200,7 @@ def message_for(settings, draft, entry, new, answer):
     one_line = lambda text: text.replace('\n', '\\n').replace('\r', '\\r')
     lines += ['Agent doubts: ' + (one_line('; '.join(answer['doubts'])) or 'none'),
               'New accounts: ' + (', '.join(new) or 'none'), f"Draft: {draft['id']}",
-              f'Added-by: dashboard agent ({settings.model}, {settings.effort})']
+              ('Added-by: user (finished by hand: ' + one_line(draft['finished_by']['reason']) + ')' if draft.get('finished_by') else f'Added-by: dashboard agent ({settings.model}, {settings.effort})')]
     return '\n'.join(lines)
 
 
@@ -259,9 +278,51 @@ class Transaction:
         self.rollback(journal)
         return None
 
-    def apply(self, answer, lock_fd):
+    def verified_commit(self, lock_fd, message):
+        """Caller owns lock and rollback snapshot; strict verification is mandatory."""
+        env = {**os.environ, 'LEDGER_DIR': str(self.root), LOCK_FD_ENV: str(lock_fd),
+               'EXPENSES_COMMIT_MESSAGE': message}
+        completed = subprocess.run(['make', 'commit'], cwd=self.settings.application, env=env,
+                                   pass_fds=(lock_fd,), text=True, capture_output=True)
+        if completed.returncode:
+            raise RuntimeError('Ledger commit failed verification: ' + (completed.stdout+completed.stderr)[-5000:])
+        return jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+
+    def prepare(self, answer):
+        """Pure preview: schema, conversion, declarations, strict hledger in scratch.
+
+        Caller holds the draft mutex when retaining the result. Apply repeats this
+        under the ledger lock; consent binds the complete wire proposal.
+        """
+        from agent import schema_for
+        from proposal_consent import proposal_hash
+        wire = {key:value for key,value in answer.items() if key!='account_metadata'} if self.draft.get('hand_form') or self.draft.get('finished_by') else answer
+        try: validate(wire, schema_for(self.settings))
+        except ValidationError as exc:
+            raise ProposalError('Please check '+'.'.join(str(p) for p in exc.path)+': '+exc.message) from None
+        if 'account_metadata' in answer and (not isinstance(answer['account_metadata'],dict) or any(not isinstance(v,dict) for v in answer['account_metadata'].values())):
+            raise AccountError('New account metadata must map account names to kind and currency')
+        if answer['status'] != 'ready' or not answer['entry']:
+            raise ProposalError('A complete ready entry is required')
         entry, declarations, new = to_store(answer, self.root, len(self.draft['files']))
         check(entry, declarations, self.root)
+        existing = load(self.root)[self.root/'data/accounts.json']['accounts']
+        roots = {a.split(':')[0] for a in existing}
+        return dict(entry=entry, declarations=declarations, new_accounts=new,
+                    new_roots=[a for a in new if a.split(':')[0] not in roots],
+                    proposal_hash=proposal_hash(answer))
+
+    def apply(self, answer, lock_fd):
+        prepared = self.prepare(answer)
+        entry, declarations, new = prepared['entry'], prepared['declarations'], prepared['new_accounts']
+        required = new if self.draft.get('finished_by') else prepared['new_roots']
+        consent = self.draft.get('account_consent')
+        if required and (not consent or consent['proposal_hash'] != prepared['proposal_hash'] or set(required)-set(consent['accounts'])):
+            raise AccountError('Approve the exact proposal before creating these accounts')
+        if answer['entry'].get('original_amount') and not entry.get('original-amount'):
+            notes = self.draft['runs'][-1].setdefault('normalisations', []) if self.draft['runs'] else self.draft.setdefault('normalisations', [])
+            note = 'Dropped original_amount equal to the payment in the paying account currency'
+            if note not in notes: notes.append(note)
         targets = evidence_paths(answer, self.draft, self.root)
         if targets:
             entry['sources'] = [str(p.relative_to(self.root)) for p in targets]
@@ -284,13 +345,7 @@ class Transaction:
             append(self.root, audit_record)
             journal['result'] = result
             self.save_journal(journal)
-            env = {**os.environ, 'LEDGER_DIR': str(self.root), LOCK_FD_ENV: str(lock_fd),
-                   'EXPENSES_COMMIT_MESSAGE': message_for(self.settings, self.draft, entry, new, answer)}
-            completed = subprocess.run(['make', 'commit'], cwd=self.settings.application, env=env,
-                                       pass_fds=(lock_fd,), text=True, capture_output=True)
-            if completed.returncode:
-                raise RuntimeError('Ledger commit failed: ' + (completed.stdout + completed.stderr)[-5000:])
-            result['commit_id'] = jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+            result['commit_id'] = self.verified_commit(lock_fd, message_for(self.settings, self.draft, entry, new, answer))
             # Persist the receipt before the journal is removed.
             self.draft['committed_result'] = result
             self.drafts.put(self.draft)

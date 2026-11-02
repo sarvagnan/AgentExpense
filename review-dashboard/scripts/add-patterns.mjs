@@ -1,5 +1,7 @@
 import { moduleSettings } from './ledger-modules.mjs';
 import { accountLabel, expenseCategory, hasSegment, paymentAccounts } from './account-metadata.mjs';
+// Category/pattern words describe an expense, not the merchant that chose a payment.
+const GENERIC_NAMES = new Set(['fuel','fuels','petrol','diesel','bunk','taxi','cab','auto','ride','transport','subscriptions','subscription','renewal','dining','restaurants','eating out','dinner','lunch','breakfast','snacks','coffee','food','groceries','rent','home','housing','utilities','bills']);
 /** Historical suggestions use account meanings and generic category segments. */
 export function patternOf(entry, metadata = {}) {
   const posts = entry.postings;
@@ -14,7 +16,7 @@ export function patternOf(entry, metadata = {}) {
   if (segment(['Dining', 'Restaurants', 'Eating Out'])) return 'dining';
   return null;
 }
-export function buildPatterns(transactions, metadata = {}, manifest = {}) {
+export function buildPatterns(transactions, metadata = {}, manifest = {}, forecasts = []) {
   const patterns = {}, accounts = Object.keys(metadata);
   const people = Object.entries(metadata).filter(([, m]) => m.kind === 'person').map(([a]) => accountLabel(a, metadata));
   const payments = paymentAccounts(metadata);
@@ -38,5 +40,19 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}) {
     st.last = st.last.sort((a,b) => b.date.localeCompare(a.date)).slice(0,3);
     delete st.pays; delete st.expenses; delete st.names;
   }
-  return {patterns, people, accounts, payments};
+  // Actual history always wins over forecasts, even when a forecast is newer.
+  const merchants = {};
+  const candidates = transactions.map((entry,index)=>({entry,index})).sort((a,b)=>b.entry.date.localeCompare(a.entry.date) || b.index-a.index).map(item=>item.entry);
+  for (const [source, entries] of [['history', candidates], ['forecast', forecasts]]) for (const entry of entries) {
+    const expense = entry.postings.find(p=>p.account.startsWith('Expenses:') && p.amount>0);
+    const pay = entry.postings.find(p=>payments[p.account] && p.amount<0 && metadata[p.account].kind!=='person');
+    if (!expense || !pay) continue;
+    const aliases = [entry.description, entry.description.split(/\s+[—–·]\s+/)[0], expense.account.split(':').at(-1)].filter(Boolean);
+    for (const alias of aliases) {
+      const key = alias.toLocaleLowerCase();
+      if (GENERIC_NAMES.has(key)) continue;
+      if (!merchants[key]) merchants[key] = {name:alias, source, date:entry.date, expense:expense.account, category:expenseCategory(expense.account,metadata), pay:pay.account, amount:String(Math.abs(pay.amount)), currency:pay.currency || metadata[pay.account].currency, pattern:patternOf(entry,metadata)};
+    }
+  }
+  return {patterns, people, accounts, payments, merchants};
 }

@@ -7,7 +7,7 @@ export const statementNeedsAttention = (s: StatementSession) => ['account_needed
 export const needsAttention = (d: Draft) => d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
 export const isRunning = (d: Draft) => d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
-export const pollDelay = (drafts: Draft[], statements: StatementSession[] = []) => drafts.some(isRunning) || statements.some(s=>['reading','applying'].includes(s.state)) ? 3000 : 30000;
+export const pollDelay = (drafts: Draft[], statements: StatementSession[] = []) => drafts.some(isRunning) || statements.some(s=>['reading','applying','agent_waiting'].includes(s.state)) ? 3000 : 30000;
 export function useDrafts() {
   const [agent,setAgent] = useState<AgentStatus>({state:'checking',reason:null});
   const [statements,setStatements] = useState<StatementSession[]>([]);
@@ -43,7 +43,7 @@ export function useDrafts() {
     return busy.current;
   }, []);
   useEffect(() => { mounted.current = true; leaving.current=false; return () => { mounted.current = false; leaving.current=true; controller.current?.abort(); }; }, [refresh]);
-  const running=drafts.some(isRunning)||statements.some(s=>['reading','applying'].includes(s.state));
+  const running=drafts.some(isRunning)||statements.some(s=>['reading','applying','agent_waiting'].includes(s.state));
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     let active=true, generation=0;

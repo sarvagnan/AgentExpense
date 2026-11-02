@@ -41,7 +41,7 @@ candidate override for the other CLIs. Do not use those overrides in deployment.
 | Claude Code | `@anthropic-ai/claude-code` **2.1.316** | Dedicated HOME/CLAUDE_CONFIG_DIR; `--safe-mode --restricted`; empty `--setting-sources`; `--tools ""`; exact lookup `--allowedTools`; strict MCP file; disabled slash commands/Chrome; no session persistence; noninteractive permission prompts denied. | Installed `--help` confirms every isolation flag. Generated MCP configuration, offered tool names and home configuration names are inspected. Managed settings at standard locations cause refusal. No no-model prompt renderer is exposed by this package. |
 | Pi | `@earendil-works/pi-coding-agent` **1.4.0** | No built-in tools, extension discovery, skills, prompt templates, themes, context-file discovery, project trust or built-in MCP; only the application's `pi-lookup.mjs` extension and explicit lookup tools. Dedicated HOME/PI_CODING_AGENT_DIR. | Packaged argument/resource-loader/RPC/auth source and docs; actual resource-loader render registers the application extension without authentication or a model. Generated extension config and home names are checked; the sole allowed application hook is session-shutdown cleanup and no extension commands are allowed. |
 | OpenCode | `@opencode/cli` **2.2.5** (v2) | Private `run --standalone`; dedicated XDG/HOME; no project/Claude discovery; ordered deny-all permissions followed by exact `ledger_<tool>` exceptions; skills/plugins denied; no warming/snapshots/updates; server validates final text JSON. | Installed run/debug/auth help and matching v2.2.5 source tag: config schema, MCP namespace/permissions, JSON events and standalone server. Generated policy/configuration and home names checked; actual no-model `debug config --standalone` must match the sole generated document/directory. |
-| OpenAI-compatible / Anthropic API | Python lockfile's `httpx` **0.28.1** | Server-owned in-process lookup loop; no agent CLI, shell/file tools, hooks, skills or instruction discovery. | Both HTTP shapes exercised against local fake servers, including tool results, structured output, retries, cancellation, limits and secret redaction. Offline check makes no HTTP request. |
+| OpenAI-compatible / Anthropic API | Python lockfile's `httpx` **0.28.1** | Server-owned in-process lookup loop; no agent CLI, shell/file tools, hooks, skills or instruction discovery. | Both HTTP shapes exercised against local fake servers, including tool results, structured output, typed outages, cancellation, limits and secret redaction. Offline check makes no HTTP request. |
 
 **OpenCode does not declare full isolation.** Its permissions deny execution, but
 the CLI retains built-in shell/file tool definitions and can load managed
@@ -126,9 +126,9 @@ endpoint lacks schema output; the prompt still requests the schema and the serve
 always validates. Set `sendEffort:false` for endpoints without the effort field.
 Effort maps to OpenAI `reasoning_effort` or Anthropic `output_config.effort`.
 Unknown tools and invalid arguments are refused before invocation. The optional
-old-ledger lookup is offered only when configured/readable. Retryable transport,
-429 and 5xx failures have bounded backoff within the same overall deadline;
-authentication, validation and policy failures are not transport retries.
+old-ledger lookup is offered only when configured/readable. Transport, 429 and 5xx failures return typed errors immediately to the shared
+ledger pause. Authentication is rechecked through the gate. Validation and policy
+failures are never hidden by local transport retries.
 
 ## Gate, owner login and upgrades
 
@@ -225,3 +225,25 @@ and are never rewritten. A custom non-isolating adapter needs the same explicit
 
 Add offline doubles/tests before registration. All tests, fake credentials and
 homes must remain under `/tmp`; no test may run a real model or sign in.
+
+### Failure contract
+
+`AdapterError` carries `kind` (`usage_limit`, `auth`, `transient`, `bad_answer`),
+optional ISO `reset_at`, bounded provider `errors`, `stderr_tail`, usage and lookup
+metadata. CLI error events fail a run even with exit status zero. Adapters classify
+provider events and HTTP statuses; the worker never classifies diagnostic text.
+Credentials are redacted from retained diagnostics. Custom adapters should use
+these fields; an omitted kind means `bad_answer` for compatibility.
+
+The ledger's ignored `drafts/agent-pause.json` retains one outage episode across
+restarts. Usage limits retry after 15, 30 and 60 minutes (or the supplied reset
+instant); transient episodes use 5, 15, 45 seconds then 15 minutes. Authentication
+and isolation-check pauses recheck every 30 seconds. A successful answer resets
+the episode. Outages retain the original queue position, run record and repair
+allowance. Health/status and draft reads expose `agent_pause` separately from the
+isolation gate. Parser-only statements and human proposals remain available.
+
+API 429, authentication, server and transport failures now return immediately to
+the shared pause; adapters do not perform rapid local outage retries. The legacy
+`agent.api.retries` option remains accepted for configuration compatibility. Turn,
+tool, token, output and deadline bounds remain enforced.

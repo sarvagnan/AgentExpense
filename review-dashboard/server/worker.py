@@ -6,7 +6,7 @@ import threading
 import agent
 from outcomes import queue_outcome, OutcomeTransaction
 from agent import now
-from transactions import Transaction, ProposalError, clean, ledger_lock, refresh
+from transactions import Transaction, AccountError, ProposalError, clean, ledger_lock, refresh
 
 
 class Worker:
@@ -14,7 +14,26 @@ class Worker:
         self.settings, self.drafts = settings, drafts
         self.stop_event, self.wake = threading.Event(), threading.Event()
         self.thread = None
+        self.calls = []
         self.retry_interval = 30
+        from agent_pause import AgentPause
+        self.pause = AgentPause(settings.ledger)
+
+    def call(self, operation):
+        """Run a checked human operation on this ledger's FIFO worker.
+
+        The service owns locking/recovery/audit. An unsent or interrupted HTTP
+        request can retry its durable idempotency key. Offline hosts without a
+        worker execute synchronously through the same service.
+        """
+        if not self.thread: return operation()
+        job=dict(queued_at=now(), operation=operation, done=threading.Event())
+        with self.drafts.mutex:
+            if self.stop_event.is_set(): raise ValueError('The server is stopping; retry this action')
+            self.calls.append(job)
+        self.wake.set();job['done'].wait()
+        if 'error' in job: raise job['error']
+        return job['result']
 
     def start(self):
         self.lease = (self.drafts.root / '.worker.lock').open('a+b')
@@ -39,23 +58,42 @@ class Worker:
     def close(self):
         self.stop_event.set()
         self.wake.set()
+        with self.drafts.mutex:
+            for job in self.calls:
+                job['error']=ValueError('The server stopped before this action; retry it')
+                job['done'].set()
+            self.calls.clear()
         if self.thread:
             # Keep the worker lease until the thread exits. No detached second
             # worker may start while an agent or ledger transaction is still running.
             self.thread.join()
+        if self.pause.check_thread: self.pause.check_thread.join()
         self.lease.close()
 
     def loop(self):
         while not self.stop_event.is_set():
             self.drafts.purge()
+            from agent_gate import get_gate
+            self.pause.tick(get_gate(self.settings))
             self.flush_audits()
             with self.drafts.mutex:
-                queued = sorted((d for d in self.drafts.all() if d['state'] == 'queued'),
+                queued = sorted((d for d in self.drafts.all() if d['state'] == 'queued' and not d.get('claim') and (d.get('finished_by') or d.get('proposal') or not self.pause.blocked())),
                                 key=lambda d: (d['queued_at'], d['id']))
                 draft = queued[0] if queued else None
+                job = self.calls[0] if self.calls else None
+                if job and draft and draft['queued_at'] <= job['queued_at']: job=None
+                before=job['queued_at'] if job else draft['queued_at'] if draft else None
             # Statement extraction/apply can take time. Keep draft reads and
             # handover Undo available while this single worker performs it.
-            if getattr(self, 'statements', None) and self.statements.work(self.stop_event, before=draft['queued_at'] if draft else None):
+            if getattr(self, 'statements', None) and self.statements.work(self.stop_event, before=before):
+                continue
+            if job:
+                with self.drafts.mutex:
+                    if job not in self.calls: continue
+                    self.calls.remove(job)
+                try: job['result']=job['operation']()
+                except Exception as exc: job['error']=exc
+                finally: job['done'].set()
                 continue
             if draft:
                 with self.drafts.mutex:
@@ -63,7 +101,7 @@ class Worker:
                         draft = self.drafts.get(draft['id'])
                     except FileNotFoundError:
                         continue
-                    if draft['state'] != 'queued':
+                    if draft['state'] != 'queued' or draft.get('claim'):
                         continue
                     draft.update(state='working', waiting=None)
                     self.drafts.put(draft)
@@ -80,6 +118,11 @@ class Worker:
                     draft.update(state='queued', error=None, waiting=None)
                     if draft['runs']:
                         draft['runs'][-1].update(outcome='interrupted', error='Server stopped during agent run')
+                    self.drafts.put(draft)
+                    continue
+                if isinstance(exc, agent.AgentFailure) and exc.kind != 'bad_answer':
+                    self.pause.fail(exc.kind, exc.reset_at)
+                    draft.update(state='queued', error=None, waiting=None)
                     self.drafts.put(draft)
                     continue
                 draft.update(state='failed', error=str(exc), waiting=None)
@@ -159,10 +202,13 @@ class Worker:
                         answer, record = agent.run(self.settings, draft, self.drafts.folder(draft['id']), cancel=self.stop_event)
                     except agent.AgentFailure as exc:
                         draft['runs'][-1] = exc.record
+                        if exc.kind=='bad_answer' and not self.stop_event.is_set(): draft['answer_failures']=draft.get('answer_failures',0)+1
                         self.drafts.put(draft)
-                        if self.stop_event.is_set() or attempt or not exc.retryable:
+                        if exc.kind != 'bad_answer' or self.stop_event.is_set() or draft.get('answer_failures',0)>=2 or not exc.retryable:
                             raise
                     else:
+                        self.pause.success()
+                        draft['answer_failures']=0
                         draft['runs'][-1] = record
                         draft['proposal'] = answer
                         self.drafts.put(draft)
@@ -175,7 +221,7 @@ class Worker:
                 request = currency_request(answer, self.settings.ledger)
                 if request:
                     draft.update(currency_request=request, currency_proposal=answer)
-                draft.update(state='question', proposal=None)
+                draft.update(state='question', last_proposal=answer, proposal=None)
                 self.drafts.put(draft)
                 return
             if answer['status'] == 'not_expense':
@@ -188,6 +234,12 @@ class Worker:
             try:
                 with ledger_lock(self.settings.ledger) as fd:
                     if clean(self.settings.ledger):
+                        prepared = transaction.prepare(answer)
+                        if prepared['new_roots'] and not draft.get('account_consent'):
+                            draft.update(state='question', account_proposal=answer,
+                                         account_question=dict(proposal_hash=prepared['proposal_hash'], accounts=prepared['new_roots'], postings=answer['entry']['postings']), proposal=None)
+                            draft['questions'].append(dict(question='Create these new top-level accounts and add this entry?', answer=None, asked_at=now()))
+                            self.drafts.put(draft);return
                         draft['waiting'] = None
                         self.drafts.put(draft)
                         result = transaction.apply(answer, fd)
@@ -198,9 +250,21 @@ class Worker:
                 if draft['waiting']:
                     self.stop_event.wait(self.retry_interval)
                     continue
+            except AccountError as exc:
+                draft.update(state='question', last_proposal=answer, proposal=None)
+                from store import load
+                from proposal_consent import proposal_hash
+                roots={a.split(':')[0] for a in load(self.settings.ledger)[self.settings.ledger/'data/accounts.json']['accounts']}
+                new_roots=[a for a in answer['new_accounts'] if a.split(':')[0] not in roots]
+                if new_roots:
+                    draft.update(account_proposal=answer,account_question=dict(proposal_hash=proposal_hash(answer),accounts=new_roots,postings=answer['entry']['postings']))
+                draft['questions'].append(dict(question=str(exc), answer=None, asked_at=now()))
+                self.drafts.put(draft);return
             except ProposalError as exc:
                 draft['check_errors'].append(str(exc))
-                draft['runs'][-1].update(outcome='check_failed', error=str(exc))
+                if draft['runs']: draft['runs'][-1].update(outcome='check_failed', error=str(exc))
+                if draft.get('finished_by'): raise
+                draft['last_proposal'] = answer
                 draft['proposal'] = None
                 self.drafts.put(draft)
                 if len(draft['check_errors']) > 1:

@@ -7,7 +7,7 @@ import { accountLabel, paymentAccounts } from '../../scripts/account-metadata.mj
 export type Source = 'typed' | 'usual' | 'agent' | 'missing';
 export type Piece = { value: string; source: Source; shown: string };
 export type PatternStats = { count: number; last: { date: string; description: string; amount: string; currency?: string | null; litres?: string }[]; usualPay: string | null; usualShare: number; usualExpense: string | null; usualCategory?: string | null; known?: string[] };
-export type PatternData = { modules?: Record<string, unknown>; patterns: Record<string, PatternStats>; people: string[]; accounts: string[]; payments?: Accounts };
+export type PatternData = { modules?: Record<string, unknown>; patterns: Record<string, PatternStats>; people: string[]; accounts: string[]; payments?: Accounts; merchants?: Record<string,{name:string;expense:string;category:string;pay:string;amount:string;currency:string;pattern:string|null}> };
 export const LABELS: Record<string, string> = { amount: 'Amount', currency: 'Currency', litres: 'Litres', km: 'Trip', outlet: 'Outlet', pay: 'Paid with', date: 'Date', vehicle: 'Vehicle', service: 'Service', route: 'Route', plan: 'Plan', charged: 'Charged amount', items: 'Items', place: 'Place', person: 'From', purpose: 'For', what: 'What', category: 'Category' };
 export const SOURCES: Record<Source, string> = { typed: 'You typed it', usual: 'Usual for this', agent: 'The agent reads it', missing: 'Missing' };
 export const payLabel = (value: string, accounts: Accounts = {}) => accountLabel(value, accounts);
@@ -17,7 +17,7 @@ export const PATTERN_DEFS: Pattern[] = [
   {id:'ride', name:'Auto or cab', keys:['auto','cab','taxi','ride'], pieces:['amount','service','route','pay','date'], sentence:'{service} {route} for {amount}, paid with {pay}, {date}.'},
   {id:'sub', name:'Subscription renewal', keys:['renewed','renewal','subscription'], pieces:['service','amount','plan','pay','charged','date'], sentence:'{service} renewed for {amount}, plan {plan}, on {pay}, {charged} charged to the account, {date}.'},
   {id:'dining', name:'Eating out', keys:['dinner','lunch','breakfast','snacks','coffee'], pieces:['amount','place','pay','date'], sentence:'Eating out at {place} for {amount}, paid with {pay}, {date}.'},
-  {id:'payback', name:'Paid back', keys:['paid back','paid me back','repaid','sent me','returned'], pieces:['person','amount','purpose','pay','date'], sentence:'{person} paid you back {amount} for {purpose}, into {pay}, {date}.'},
+  {id:'payback', name:'Paid back', keys:['payment from','repayment','paid me','my share','paid back','paid me back','repaid','sent me','returned'], pieces:['person','amount','purpose','pay','date'], sentence:'{person} paid you back {amount} for {purpose}, into {pay}, {date}.'},
   {id:'cardbill', name:'Card bill payment', keys:['card bill','bill payment','paid my card','credit card bill'], pieces:['amount','pay','date'], sentence:'Card bill of {amount} paid from {pay}, {date}.'},
   {id:'rewards', name:'Card rewards', keys:['cashback','rewards','reward'], pieces:['amount','pay','date'], sentence:'Card rewards of {amount} credited to {pay}, {date}.'},
 ];
@@ -37,9 +37,10 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   for (const [account, meta] of Object.entries(payments)) for (const word of [accountLabel(account, payments), ...(meta.aliases || [])]) {
     if (!['bank','card','cash','wallet','loan','person'].includes(word.toLowerCase())) patternText = patternText.replace(words(word), ' ');
   }
-  const pattern = priority.find(p => p.keys?.some(k => words(k).test(patternText)) || data.patterns[p.id]?.known?.some(k => words(k).test(patternText))) || NEW;
+  const merchant = Object.entries(data.merchants || {}).sort(([a],[b])=>b.length-a.length).find(([name])=>words(name).test(patternText))?.[1];
+  const pattern = priority.find(p => p.keys?.some(k => words(k).test(patternText)) || merchant?.pattern===p.id) || NEW;
   const stats = data.patterns[pattern.id];
-  const known = stats?.known?.find(k => words(k).test(patternText));
+  const known = merchant?.name;
   let rest = low;
   const typed: Record<string, string> = {};
   const take = (re: RegExp, key: string, value: (m: RegExpMatchArray) => string = m => m[1]) => { const m = rest.match(re); if (!m) return false; typed[key] = value(m); rest = rest.replace(m[0], ' '); return true; };
@@ -94,9 +95,10 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   for (const key of [...pattern.pieces, 'currency', 'category']) {
     if (typed[key]) set(key, typed[key], 'typed');
     else if (key === 'date') set(key, today, 'usual', 'today');
-    else if (key === 'currency') set(key, payments[edits.pay || typed.pay || stats?.usualPay || '']?.currency || moneySettings().defaultCurrency || Object.values(payments)[0]?.currency || '', 'usual');
-    else if (key === 'pay' && !ambiguousPay && stats?.usualPay && payments[stats.usualPay]) set(key, stats.usualPay, 'usual');
-    else if (key === 'category' && stats?.usualExpense) set(key, stats.usualExpense, 'usual');
+    else if (key === 'currency') set(key, payments[edits.pay || typed.pay || merchant?.pay || '']?.currency || moneySettings().defaultCurrency || Object.values(payments)[0]?.currency || '', 'usual');
+    else if (key === 'pay' && !ambiguousPay && merchant?.pay && payments[merchant.pay]) set(key, merchant.pay, 'usual');
+    else if (key === 'category' && merchant?.expense) set(key, merchant.expense, 'usual')
+    else if (key === 'amount' && merchant?.amount) set(key, merchant.amount, 'usual');
     else if (key === 'category') set(key, '', 'agent', 'the agent works it out');
     else if (key === 'outlet' || key === 'place') vary(key, known || rest);
     else if (key === 'service') vary(key, known || (pattern.id === 'ride' ? hit : rest));
@@ -108,7 +110,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   for (const [key, piece] of Object.entries(fields)) if (piece.value) {
     piece.shown = key === 'amount' ? fields.currency.value ? money(Number(piece.value), fields.currency.value) : piece.value
       : key === 'charged' && payments[fields.pay?.value]?.currency ? money(Number(piece.value), payments[fields.pay.value].currency) : key === 'litres' ? `${piece.value} L` : key === 'km' ? `${piece.value} km` : key === 'pay' ? payLabel(piece.value, payments) : piece.value;
-    if (key === 'category' && piece.source === 'usual') piece.shown = stats?.usualCategory || piece.value;
+    if (key === 'category' && piece.source === 'usual') piece.shown = merchant?.category || piece.value;
     if (key === 'date' && piece.source === 'usual' && piece.value === today) piece.shown = 'today';
   }
   return { pattern: pattern.id, name: pattern.name, sentence: pattern.sentence, fields, stats, empty: !text.trim() && !hasFiles };

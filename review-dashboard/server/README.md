@@ -321,8 +321,9 @@ Signed-out and paused states disable agent submission, answer and retry controls
 editing and uploads remain available. An unavailable check retries on the next
 draft. While signed out, a separate server watcher checks for login every 30
 seconds, including after a previously ready login expires. Both check threads
-stop with the application. Paused and unavailable states are not retried by that
-watcher.
+stop with the application. Isolation pauses are rechecked every 30 seconds as well; unchanged failed
+checks are rerun so corrected configuration can recover. Unavailable checks retry
+with the next draft.
 
 `POST /api/settings/name` accepts `{"name":"River Ledger"}`. Names are trimmed,
 nonblank, single-line and at most 200 characters. It shares the clean-copy guard,
@@ -423,3 +424,45 @@ A changed preview requires another preview. Legacy derived IDs require a unique
 match on date, description, amount, source, reference, account and currency when
 present. Browser storage contains only unsent work, failed requests and legacy work
 awaiting migration. Retry and discard are explicit; Export retains version 2.
+
+### Shared pauses and finishing by hand
+
+Agent failures have typed kinds; see [failure contract](../../docs/ADAPTERS.md#failure-contract).
+Health, agent status and draft responses include `agent_pause`. A statement needing
+a second reading waits as `agent_waiting` and resumes automatically. Built-in
+readers and checked human proposals continue during agent outages.
+
+A queued, failed or question draft can be claimed for 30 minutes. Claim renewal,
+expiry, selection and transitions use the draft mutex. The page stores its token
+in session storage; ordinary reads expose only the expiry. Activity renews the
+claim. Release/expiry retain the form and FIFO position and revoke consent.
+
+| Method/path | Body/effect |
+| --- | --- |
+| POST `api/drafts/{id}/claim` | Optional `claim_token`; acquire/renew, return token and prefilled form |
+| POST `api/drafts/{id}/hand-form` | `claim_token`, `proposal`; persist even invalid work, return checks/new accounts/hash |
+| POST `api/drafts/{id}/hand-add` | `claim_token`, `proposal_hash`, `approved_accounts`; queue checked human proposal |
+| POST `api/drafts/{id}/release` | `claim_token`, optional `proposal`; retain form and release |
+| POST `api/drafts/{id}/approve-accounts` | `proposal_hash`; approve exact retained agent proposal and queue without an agent call |
+
+Uploads use the existing files endpoint and checks with multipart `claim_token`.
+Removal accepts that token as a query parameter. A hand proposal uses the ordinary
+answer shape, with optional `account_metadata` for new balance-sheet accounts;
+metadata must pass the store schema. The server discovers new accounts from its
+postings and every new account requires a separate tick. Agent proposals creating
+a new root become a question; an account-check failure also asks a person.
+Free-text answers clear retained consent. Consent hashes the complete proposal,
+including metadata and attachment names; the audit reader recomputes it.
+
+`Transaction.prepare(answer)` is the shared side-effect-free interface for 6c/6d:
+it returns the converted `entry`, `declarations`, `new_accounts`, `new_roots` and
+`proposal_hash`, after schema and strict hledger validation in scratch files.
+`Transaction.apply(answer, lock_fd)` repeats preparation under the ledger lock,
+checks exact consent, files/compresses evidence, appends audit, journals rollback,
+verifies/commits and durably saves its receipt. Callers own FIFO selection and the
+clean-ledger wait. `Worker.call(operation)` schedules checked human services on the
+same FIFO independently of agent readiness; Review actions use it. Offline hosts
+without a worker invoke the identical service synchronously. `verified_commit(lock_fd, message)` is shared with Review (including
+merge); snapshot/recover/rollback remain the common mutation foundation. Human
+proposals follow the same worker and apply method. `finished_by` retains actor and
+reason; the commit trailer identifies the human. No agent runs for a human save.

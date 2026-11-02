@@ -12,6 +12,10 @@ def kill(process):
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # A concurrent deadline watcher can race group teardown on the host.
+        # The exact Popen child is still ours; terminate it and let the caller reap.
+        process.kill()
 
 
 def communicate(process, task, *, data=None, legacy=None):

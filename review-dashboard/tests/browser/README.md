@@ -94,3 +94,14 @@ reload, actual version-2 export download/import preview/apply and legacy saved-w
 migration. The fixture host injects 2026-11-01 for review age calculations and resets
 only its disposable ledger between cases. Group-5 captures are review-asha,
 review-jordan, review-empty, review-separate, review-confirm and review-merged.
+
+Step 6a adds `finish.mjs`: the complete matrix includes the durable pause notice,
+claim-protected hand form, retained edits after release, arbitrary posting controls,
+receipt upload, strict checks, human commit/audit and the exact new-root account
+question. Captures are `pause-add`, `pause-usage-limit`, `finish-by-hand` and
+`new-account-question`; form overflow also runs at 320px. A development-only
+`BROWSER_FOCUS=finish` selects just these workflows; the required default matrix
+runs every existing suite as well. No copy filter excludes an unanchored `ledger`
+name: the application `scripts/ledger` is always staged. Source dashboard builds
+and server suites must run sequentially because the byte guard protects `dist/`
+and generated app data.

@@ -21,7 +21,7 @@ assert settings.ledger.resolve().is_relative_to(Path('/tmp').resolve())
 assert settings.state_dir.is_relative_to(Path('/tmp').resolve())
 assert settings.codex_home.is_relative_to(Path('/tmp').resolve())
 assert Path(settings.codex).name == 'fake-agent'
-app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc))
+app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime(2026,11,2,12,tzinfo=timezone.utc))
 config = Path(os.environ['EXPENSES_FAKE_CONFIG'])
 original_audit = {path:path.read_bytes() for path in (settings.ledger/'data/additions').glob('*.jsonl')}
 original = {path: read_json(path) for path in [settings.ledger/'data/accounts.json',settings.ledger/'data/card-statements.json',settings.ledger/'ledger.json', *sorted((settings.ledger/'data/expenses').glob('*.json'))]}
@@ -134,6 +134,9 @@ def scenario(body: dict):
     if module_settings(read_manifest(settings.ledger))['fuel']:
         answer['entry'].update(fuel_filled_litres=None,trip_km=None)
     mode=body['mode']
+    if mode=='new-root':
+        answer['entry']['postings'][0]['account']='Shared:Accounts Receivable:Finch'
+        answer['new_accounts']=['Shared:Accounts Receivable:Finch']
     if mode=='question':
         answer.update(status='question',question='Which account did you pay from?',entry=None)
     elif mode=='conversion':
@@ -260,5 +263,19 @@ def reader_file(extension: str):
         book.save(output)
     return Response(output.getvalue(),media_type='application/octet-stream')
 
+
+
+
+@app.post('/__test/finish')
+def finish_controls(body: dict):
+    worker=app.state.worker
+    if body.get('clear'):
+        worker.pause.success();worker.wake.set();return dict(ok=True)
+    worker.pause.fail('usage_limit')
+    draft=app.state.drafts.create('Copper Finch Café, finish by hand')
+    form=json.loads(config.read_text())['steps'][0]['answer']
+    draft.update(state='failed',queued_at=now(),saved_at=now(),last_proposal=form,error='Usage limit',failure_kind='usage_limit')
+    app.state.drafts.put(draft)
+    return dict(id=draft['id'])
 
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

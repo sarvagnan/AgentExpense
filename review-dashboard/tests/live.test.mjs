@@ -31,7 +31,7 @@ test('prototype examples identify all seven familiar patterns and something new'
 });
 test('fuel quantities, history, edits and source provenance survive structured serialization',()=>{
  const b=build('petrol 875.25 8.5l 190km');
- assert.equal(b.fields.amount.value,'875.25');assert.equal(b.fields.litres.value,'8.5');assert.equal(b.fields.km.value,'190');assert.equal(b.fields.pay.value,PAYS.savings);
+ assert.equal(b.fields.amount.value,'875.25');assert.equal(b.fields.litres.value,'8.5');assert.equal(b.fields.km.value,'190');assert.equal(b.fields.pay.source,'missing');assert.equal(b.fields.pay.value,'');
  assert.equal(b.fields.outlet.source,'missing');assert.equal(build('petrol',{},true).fields.outlet.source,'agent');assert.equal(b.fields.date.value,'2026-10-30');
  const edited=build('petrol 875.25 8.5l 190km',{outlet:'Fable Fuels',pay:PAYS.cash});
  assert.equal(edited.fields.outlet.source,'typed');assert.equal(edited.fields.pay.source,'typed');assert.equal(draftPieces(edited).fields.outlet.value,'Fable Fuels');assert.ok(!('shown' in draftPieces(edited).fields.outlet));
@@ -42,12 +42,12 @@ test('Add shows the inherited display category while retaining the suggested pos
  const account = 'Expenses:Market:Dining:Corner Store';
  const accounts = {...metadata, 'Expenses:Market':{category:'Groceries'}, 'Expenses:Market:Dining':{category:'Meals'}, [account]:{}};
  const patterns = buildPatterns([{date:'2026-01-02', description:'Corner Store meal', postings:[{account,amount:20},{account:bank,amount:-20}]}], accounts);
- const built = buildSentence('dinner 20', patterns, {}, false, '2026-01-02');
+ const built = buildSentence('Corner Store dinner 20', patterns, {}, false, '2026-01-02');
  assert.equal(patterns.patterns.dining.usualCategory, 'Meals');
  assert.equal(built.fields.category.shown, 'Meals');
  assert.equal(built.fields.category.value, account);
  assert.equal(draftPieces(built).fields.category.value, account);
- assert.equal(buildSentence('dinner 20', patterns, {category:'manual'}, false, '2026-01-02').fields.category.shown, 'manual');
+ assert.equal(buildSentence('Corner Store dinner 20', patterns, {category:'manual'}, false, '2026-01-02').fields.category.shown, 'manual');
 });
 test('dates, payment hints, merchant text and word boundaries handle edge cases',()=>{
  for(const text of ['petrol ₹875.25 8.5 litres 251 km','petrol rs. 875.25 8.5ltr 190km']) assert.equal(build(text).fields.amount.value,'875.25');
@@ -61,7 +61,7 @@ test('dates, payment hints, merchant text and word boundaries handle edge cases'
 test('pattern statistics use the selected store and are deterministic for fixtures',async()=>{
  const tx=(id,date,amount,pay=bank)=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});
  const items=[tx('a','2026-01-02',20),tx('b','2026-01-03',25),tx('c','2026-01-04',30),tx('d','2026-01-05',35,'Pocket')];
- const b=buildPatterns(items,metadata,{modules:{fuel:true}});assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{}});
+ const b=buildPatterns(items,metadata,{modules:{fuel:true}});assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{},merchants:{}});
  const {transactions,accounts}=await loadExpenseStore();const actual=buildPatterns(transactions,accounts,{modules:{fuel:true}});for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x,accounts)===id).length);
 });
 test('API URLs, action errors, timeouts and atomic concurrent data reload',async()=>{
@@ -96,6 +96,7 @@ test('each draft state renders its content and permitted actions',async()=>{
  assert.match(render({}),/The agent is reading it/);assert.doesNotMatch(render({}),/Discard/);assert.match(render({state:'queued'}),/In the queue/);assert.match(render({waiting:'Waiting for a clean ledger'}),/Waiting for a clean ledger/);
  assert.match(render({state:'question',questions:[{question:'Which bank?',answer:null}]}),/Which bank\?/);assert.match(render({state:'question'}),/Send answer/);
  assert.match(render({state:'question',questions:[{question:'Which account did you pay from?',answer:null}]}),/<select/);
+ const consent=render({state:'question',account_question:{proposal_hash:'a'.repeat(64),accounts:['Shared:Accounts Receivable:Finch'],postings:[{account:'Shared:Accounts Receivable:Finch',amount:'46.80',commodity:'EUR',cost:{amount:'51.48',commodity:'USD'}}]}});assert.match(consent,/total cost/);assert.match(consent,/51.48/);
  const categoryQuestion=render({state:'question',questions:[{question:'Which expense account should I use for this payment?',answer:null}]});assert.match(categoryQuestion,/<textarea/);assert.doesNotMatch(categoryQuestion,/<select/);
  assert.match(render({state:'failed',error:'Upload unreadable'}),/Upload unreadable/);assert.match(render({state:'failed'}),/Retry/);assert.match(render({state:'failed'}),/Discard/);
  const result={outcome:'ready',description:'Fuel',entry_id:'abc',total:'100 INR',payment_account:'Assets:Cash',new_accounts:['Expenses:New'],sources:['Bills/2026-10-30/fuel.png']};
@@ -125,4 +126,17 @@ test('metadata labels, history names and ambiguity determine composer suggestion
  const result = buildSentence('Fern Station 100',{...history,modules:{fuel:true}});
  assert.equal(result.pattern,'fuel'); assert.equal(result.fields.outlet.value,'Fern Station');
  assert.equal(patternOf({description:'Rewards', postings:[{account:'Income:Cashback', amount:-10}, {account:card, amount:10}]},metadata), 'rewards');
+});
+
+test('merchant defaults use latest actual entry, forecast fallback and no pattern-wide account',()=>{
+ const expense='Expenses:Subscriptions:Paper Lantern',other='Expenses:Subscriptions:Cloud Nest';
+ const tx=(date,description,amount,pay,category=expense)=>({date,description,postings:[{account:category,amount},{account:pay,amount:-amount,currency:metadata[pay].currency}]});
+ const actual=[tx('2026-01-01','Paper Lantern',10,bank),tx('2026-05-01','Paper Lantern',12,card)];
+ const forecasts=[tx('2027-01-01','Paper Lantern',99,bank),tx('2026-06-01','Cloud Nest',8,bank,other)];
+ const data=buildPatterns(actual,{...metadata,[expense]:{},[other]:{}},{},forecasts);
+ const latest=buildSentence('Paper Lantern renewed',data,{},false,'2026-11-02');assert.equal(latest.fields.pay.value,card);assert.equal(latest.fields.amount.value,'12');assert.equal(latest.fields.currency.value,metadata[card].currency);assert.equal(latest.fields.category.value,expense);
+ const fallback=buildSentence('Cloud Nest subscription',data,{},false,'2026-11-02');assert.equal(fallback.fields.pay.value,bank);assert.equal(fallback.fields.amount.value,'8');assert.equal(fallback.fields.category.value,other);
+ const unknown=buildSentence('Unknown Workshop subscription',data,{},false,'2026-11-02');assert.equal(unknown.fields.pay.value,'');assert.equal(unknown.fields.category.value,'');
+ const fuel=buildPatterns([tx('2026-01-01','Fable Fuels',20,bank,'Expenses:Transport:Fuel')],metadata,{modules:{fuel:true}});const unknownFuel=buildSentence('Fuel at Unknown Workshop', {...fuel,modules:{fuel:true}}, {}, false, '2026-11-02');assert.equal(unknownFuel.fields.pay.value,'');assert.equal(unknownFuel.fields.category.value,'');assert.equal(buildSentence('Fable Fuels', {...fuel,modules:{fuel:true}}, {}, false, '2026-11-02').fields.pay.value,bank);
+ for(const phrase of ['payment from','repayment','paid me','my share'])assert.equal(buildSentence(`${phrase} Casey coffee 20`,data,{},false,'2026-11-02').pattern,'payback');
 });

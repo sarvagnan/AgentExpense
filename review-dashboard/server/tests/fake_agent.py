@@ -120,6 +120,12 @@ print(json.dumps({'type': 'item.completed', 'item': {'type': 'mcp_tool_call', 's
       'tool': 'entries_near', 'arguments': {'day': '2026-10-29'}, 'status': 'completed'}}), flush=True)
 print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 123, 'output_tokens': 45}}), flush=True)
 kind = step.get('kind', 'answer')
+if kind == 'provider_error':
+    print(json.dumps({'type':'error','error':step['error']}),flush=True)
+    print('bounded fixture stderr',file=sys.stderr,flush=True)
+    sys.exit(step.get('exit_code',0))
+if kind in ('invalid','noanswer','exit'):
+    print('bounded bad-answer stderr',file=sys.stderr,flush=True)
 if kind == 'exit':
     sys.exit(7)
 if kind == 'timeout':

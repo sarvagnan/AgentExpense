@@ -56,3 +56,12 @@ Format 1 also accepts balance-style statements in the existing
 `data/card-statements.json` file and `statement.options` account configuration.
 Legacy card summaries and membership survive the 0 → 1 migration unchanged; no
 file rename is necessary. See [the reader/store contract](../docs/READERS.md).
+
+Step 6a extends unreleased format 1 without changing its number. Existing financial
+store files are unchanged. Version-1 draft audit records optionally carry
+`finished_by: {actor:"user", reason}` and `account_consent: {proposal_hash, accounts,
+method}` (`create-and-add` or `hand-ticks`). The canonical SHA-256 covers the exact
+retained `proposal`; audit validation recomputes it. Run records additionally accept
+`failure_kind`, optional `reset_at`, bounded `stderr_tail` and `normalisations`.
+Historical lines remain valid and are never rewritten. Ignored claim/form/pause
+state belongs under `drafts/`, outside the financial store.

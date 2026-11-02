@@ -427,12 +427,7 @@ def apply(settings, body, *, clock=None):
             result = dict(audit_id=record['id'], action=action, changes=changes)
             journal['result'] = result
             transaction.save_journal(journal)
-            completed = subprocess.run(['make', 'commit'], cwd=settings.application,
-                                       env={**os.environ, 'LEDGER_DIR': str(root), LOCK_FD_ENV: str(fd), 'EXPENSES_COMMIT_MESSAGE': f'Review: {action}\n\n{transaction.marker}\nAudit: {record["id"]}\nDecisions: {len(changes)}'},
-                                       pass_fds=(fd,), capture_output=True, text=True)
-            if completed.returncode:
-                raise RuntimeError('Review failed verification; nothing was applied. ' + (completed.stdout + completed.stderr)[-4000:])
-            result['commit_id'] = jj(root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+            result['commit_id'] = transaction.verified_commit(fd, f'Review: {action}\n\n{transaction.marker}\nAudit: {record["id"]}\nDecisions: {len(changes)}')
             draft['committed_result'] = result
             store.put(draft)
             transaction.journal.unlink()

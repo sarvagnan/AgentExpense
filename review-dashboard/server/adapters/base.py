@@ -55,7 +55,7 @@ class Task:
             raise AdapterError('Agent cancelled')
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            raise AdapterError('Agent deadline exceeded')
+            raise AdapterError('Agent deadline exceeded', kind='transient')
         return remaining
 
 
@@ -66,13 +66,19 @@ class Result:
     lookups: list = field(default_factory=list)
     errors: list = field(default_factory=list)
     duration: float = 0
+    stderr_tail: str = ''
 
     def metadata(self):
-        return dict(usage=self.usage, lookups=self.lookups, errors=self.errors, duration=self.duration)
+        return dict(usage=self.usage, lookups=self.lookups, errors=self.errors, duration=self.duration, stderr_tail=self.stderr_tail)
 
 
 class AdapterError(ValueError):
-    def __init__(self, message, *, usage=None, lookups=None):
+    def __init__(self, message, *, usage=None, lookups=None, kind="bad_answer", reset_at=None, errors=None, stderr_tail=""):
+        from .failures import KINDS, diagnostic
+        if kind not in KINDS: raise ValueError("Unknown adapter failure kind")
+        self.kind, self.reset_at = kind, reset_at
+        self.errors = errors or []
+        self.stderr_tail = diagnostic(stderr_tail)
         super().__init__(message)
         self.usage, self.lookups = usage or {}, lookups or []
 

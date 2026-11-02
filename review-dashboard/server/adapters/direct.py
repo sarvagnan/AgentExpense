@@ -9,6 +9,7 @@ import time
 from urllib.parse import urlparse
 import httpx
 from jsonschema import validate
+from .failures import http_reset, diagnostic
 from .base import AdapterError, AdapterPolicyError, Description, LookupTools, Result, Task, image_content, strict_json
 
 
@@ -74,35 +75,42 @@ class DirectAPI:
         inspect_inventory(self.inventory(lookups),expected)
         print('PASS '+self.id+' offline: in-process lookup allow-list, limits, endpoint; no HTTP request')
 
+    def response_errors(self, response, headers):
+        # Keep structured provider diagnostics, never echoed credential values.
+        try:
+            body=response.json()
+            error=body.get('error') if isinstance(body,dict) else None
+        except ValueError: error=None
+        message=diagnostic(error) if error else 'HTTP '+str(response.status_code)
+        for value in headers.values():
+            if value and value not in ('2023-06-01',):
+                message=message.replace(value, '[redacted]')
+                if value.startswith('Bearer '):message=message.replace(value[7:], '[redacted]')
+        return [message]
+
     async def request(self,client,task,payload,headers):
         endpoint='/messages' if self.id=='anthropic' else '/chat/completions'
-        for attempt in range(self.limits['retries']+1):
-            task.remaining()
-            request=asyncio.create_task(client.post(self.url.rstrip('/')+endpoint,json=payload,headers=headers))
-            try:
-                while not request.done():
-                    task.remaining()
-                    await asyncio.wait({request},timeout=min(.05,task.remaining()))
-                response=await request
-                if response.status_code==429 or 500<=response.status_code<=599:
-                    if attempt==self.limits['retries']:raise AdapterError('API retry limit reached')
-                    await self.pause(task,min(.1*2**attempt,1))
-                    continue
-                if response.status_code in (401,403):raise AdapterError('API authentication was refused')
-                if response.status_code>=400:raise AdapterError('API request refused (HTTP '+str(response.status_code)+'); response withheld')
-                return response.json()
-            except httpx.TransportError:
-                if attempt==self.limits['retries']:raise AdapterError('API transport retry limit reached') from None
-                await self.pause(task,min(.1*2**attempt,1))
-            finally:
-                if not request.done():request.cancel()
-                await asyncio.gather(request,return_exceptions=True)
-        raise AdapterError('API retry limit reached')
-
-    async def pause(self,task,delay):
-        until=time.monotonic()+delay
-        while time.monotonic()<until:
-            task.remaining();await asyncio.sleep(min(.05,max(0,until-time.monotonic())))
+        task.remaining()
+        request=asyncio.create_task(client.post(self.url.rstrip('/')+endpoint,json=payload,headers=headers))
+        try:
+            while not request.done():
+                task.remaining()
+                await asyncio.wait({request},timeout=min(.05,task.remaining()))
+            response=await request
+            if response.status_code==429:
+                raise AdapterError('API usage limit (HTTP 429)',kind='usage_limit',reset_at=http_reset(response.headers),errors=self.response_errors(response,headers))
+            if response.status_code in (401,403):
+                raise AdapterError('API authentication was refused',kind='auth',errors=self.response_errors(response,headers))
+            if 500<=response.status_code<=599:
+                raise AdapterError('API server unavailable',kind='transient',errors=self.response_errors(response,headers))
+            if response.status_code>=400:
+                raise AdapterError('API request refused (HTTP '+str(response.status_code)+'); response withheld',errors=self.response_errors(response,headers))
+            return response.json()
+        except httpx.TransportError:
+            raise AdapterError('API transport unavailable',kind='transient') from None
+        finally:
+            if not request.done():request.cancel()
+            await asyncio.gather(request,return_exceptions=True)
 
     def run(self,task):
         return asyncio.run(self._run(task))
@@ -110,7 +118,7 @@ class DirectAPI:
     async def _run(self,task):
         started=time.monotonic();usage={};lookups=[]
         key=self.key()
-        if not key:raise AdapterError('API key is not configured')
+        if not key:raise AdapterError('API key is not configured', kind='auth')
         headers={'x-api-key':key,'anthropic-version':'2023-06-01'} if self.id=='anthropic' else {'Authorization':'Bearer '+key}
         system='Use only the provided read-only ledger lookups. Return one JSON object matching the output schema.\n'+json.dumps(task.schema)
         images=[image_content(path) for path in task.images]

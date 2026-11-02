@@ -13,7 +13,8 @@ from draft_time import client_context, ensure_context
 
 
 class Drafts:
-    def __init__(self, root):
+    def __init__(self, root, clock=None):
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.root = root / 'drafts'
         self.root.mkdir(exist_ok=True, parents=True)
         self.mutex = threading.RLock()
@@ -32,6 +33,9 @@ class Drafts:
             draft = json.loads((self.folder(identity) / 'draft.json').read_text())
             if draft.get('discarded_until') and not include_discarded:
                 raise FileNotFoundError('Discarded draft')
+            if draft.get('claim') and datetime.fromisoformat(draft['claim']['expires_at']) <= self.clock():
+                self.release_claim(draft)
+                self.put(draft)
             return ensure_context(draft)
 
     def put(self, draft):
@@ -98,3 +102,25 @@ class Drafts:
             self.put(draft)  # durable result before removing uploads
             if not draft.get('statement_file'):
                 shutil.rmtree(self.folder(draft['id']) / 'files', ignore_errors=True)
+
+    def release_claim(self, draft):
+        draft.pop('claim', None)
+        draft.pop('account_consent', None)
+        draft.pop('hand_checks', None)
+
+    def claim(self, draft, token=None):
+        with self.mutex:
+            if draft['state'] not in ('queued','failed','question'):
+                raise ValueError('Only queued, failed or question drafts can be finished by hand')
+            previous = draft.get('claim')
+            if previous and previous['token'] != token:
+                raise ValueError('Another page is finishing this draft')
+            draft['claim'] = dict(token=previous['token'] if previous else secrets.token_hex(32),
+                                  expires_at=(self.clock()+timedelta(minutes=30)).isoformat())
+            self.put(draft)
+            return draft['claim']['token']
+
+    def require_claim(self, draft, token):
+        if not draft.get('claim') or not secrets.compare_digest(draft['claim']['token'], token):
+            raise ValueError('This page no longer owns the draft; reopen Finish it yourself')
+        self.claim(draft, token)

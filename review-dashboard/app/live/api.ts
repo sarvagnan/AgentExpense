@@ -1,7 +1,12 @@
 import type { Piece } from './builder';
 import {clientTime} from '../date-time';
 export type Attachment = { id: string; original_name: string; media_type: string; size: number };
+export type Proposal = {account_metadata?:Record<string,{kind:string;currency:string}>;status:string;question:string|null;explanation:string|null;entry:{date:string;status:string;description:string;notes:string[];postings:{account:string;amount:string;commodity:string;cost:{amount:string;commodity:string}|null}[];[key:string]:unknown};new_accounts:string[];doubts:string[];attachment_names:string[]};
+export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;resumes_at:string;attempt:number};
+export type HandChecks = {ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
 export type Draft = {
+  claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
+  account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
   id: string; description?:string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
   pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
   currency_request?: {kind:'expense'|'transfer';amount:string;sourceCurrency:string;currency:string;sourceAccount:string;account:string;sourceLabel:string;accountLabel:string};
@@ -77,16 +82,21 @@ export const api = {
   save: (id: string) => request<Draft>(`drafts/${id}/save`, json('POST', clientTime())),
   answer: (id: string, answer: string) => request<Draft>(`drafts/${id}/answer`, json('POST', {answer})),
   currency: (id:string, body:{amount?:string;rate?:string;estimate:boolean}) => request<Draft>(`drafts/${id}/currency`,json('POST',body)),
+  claim: (id:string,claim_token?:string)=>request<{draft:Draft;claim_token:string;form:Proposal}>(`drafts/${id}/claim`,json('POST',{claim_token})),
+  handForm:(id:string,claim_token:string,proposal:Proposal)=>request<HandChecks>(`drafts/${id}/hand-form`,json('POST',{claim_token,proposal})),
+  handAdd:(id:string,claim_token:string,proposal_hash:string,approved_accounts:string[])=>request<Draft>(`drafts/${id}/hand-add`,json('POST',{claim_token,proposal_hash,approved_accounts})),
+  release:(id:string,claim_token:string,proposal?:Proposal)=>request<Draft>(`drafts/${id}/release`,json('POST',{claim_token,proposal})),
+  approveAccounts:(id:string,proposal_hash:string)=>request<Draft>(`drafts/${id}/approve-accounts`,json('POST',{proposal_hash})),
   retry: (id: string) => request<Draft>(`drafts/${id}/retry`, json('POST')),
   keepAnswer: (id: string, question_index: number, answer: string, updated_at=0) => request<Draft>(`drafts/${id}/unsent-answer`, json('PATCH', {question_index, answer, updated_at})),
   restore: (id: string) => request<Draft>(`drafts/${id}/restore`, json('POST')),
   cancelUpload: (id: string, token: string) => request<Draft>(`drafts/${id}/uploads/${token}`, json('DELETE')),
   discard: (id: string) => request<void>(`drafts/${id}`, json('DELETE')),
-  remove: (id: string, file: string) => request<Draft>(`drafts/${id}/files/${file}`, json('DELETE')),
+  remove: (id: string, file: string, claimToken?:string) => request<Draft>(`drafts/${id}/files/${file}${claimToken?'?claim_token='+encodeURIComponent(claimToken):''}`, json('DELETE')),
 };
 export const fileUrl = (id: string, file: string) => apiUrl(`drafts/${encodeURIComponent(id)}/files/${encodeURIComponent(file)}`);
 /** XHR exposes upload progress; the browser supplies the multipart boundary. */
-export function upload(id: string, file: File, progress: (value: number) => void, signal?: AbortSignal, token?: string): Promise<Draft> {
+export function upload(id: string, file: File, progress: (value: number) => void, signal?: AbortSignal, token?: string, claimToken?:string): Promise<Draft> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest(); xhr.open('POST', apiUrl(`drafts/${id}/files`)); xhr.timeout = 120000;
     xhr.upload.onprogress = e => { if (e.lengthComputable) progress(Math.round(e.loaded / e.total * 100)); };
@@ -98,6 +108,6 @@ export function upload(id: string, file: File, progress: (value: number) => void
     xhr.onerror = () => reject(new Error('Upload interrupted. Check your connection and retry.'));
     xhr.ontimeout = () => reject(new Error('Upload took too long. Retry this file.'));
     xhr.onload = () => { let body; try { body = JSON.parse(xhr.responseText); } catch { reject(new Error('The server returned an unreadable upload response. Retry.')); return; } if (xhr.status >= 200 && xhr.status < 300) resolve(body); else reject(new Error(errorMessage(xhr.status, body))); };
-    const data = new FormData(); data.append('files', file); if(token)data.append('upload_id',token); xhr.send(data);
+    const data = new FormData(); data.append('files', file); if(token)data.append('upload_id',token);if(claimToken)data.append('claim_token',claimToken); xhr.send(data);
   });
 }

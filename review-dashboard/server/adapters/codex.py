@@ -7,6 +7,7 @@ import signal
 import subprocess
 import time
 from .base import AdapterError, Description, Result
+from .failures import event_failure, diagnostic
 
 
 class Codex:
@@ -52,12 +53,25 @@ class Codex:
             out, err = communicate(process, task, legacy=agent.communicate)
             log = out + '\n' + err
             usage, calls = agent.parse_events(log)
+            events = []
+            for line in out.splitlines():
+                try: event = json.loads(line)
+                except ValueError: continue
+                if event.get('type') in ('error', 'turn.failed'):
+                    events.append(event)
+            if events:
+                raise event_failure(events, usage=usage, lookups=calls)
             if process.returncode:
                 raise AdapterError(f'Agent exited {process.returncode}; output withheld', usage=usage, lookups=calls)
             return Result(json.loads((task.work / 'answer.json').read_text()), usage, calls,
-                          duration=time.monotonic() - started)
-        except subprocess.TimeoutExpired:
-            raise AdapterError(f'Agent timed out after {self.settings.timeout}s') from None
+                          duration=time.monotonic() - started, stderr_tail=diagnostic(err))
+        except subprocess.TimeoutExpired as exc:
+            raise AdapterError(f'Agent timed out after {self.settings.timeout}s', kind='transient',stderr_tail=diagnostic(exc.stderr or '')) from None
+        except AdapterError as exc:
+            exc.stderr_tail = diagnostic(locals().get('err', ''))
+            raise
+        except (ValueError, TypeError, KeyError, OSError):
+            raise AdapterError('Agent answer or protocol validation failed',usage=locals().get('usage',{}),lookups=locals().get('calls',[]),stderr_tail=diagnostic(locals().get('err',''))) from None
         finally:
             if process.poll() is None:
                 try:

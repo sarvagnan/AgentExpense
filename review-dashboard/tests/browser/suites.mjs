@@ -1,3 +1,4 @@
+import {runFinish} from './finish.mjs';
 import {runReaderWorkflows} from './readers.mjs';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -57,6 +58,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
+      if(process.env.BROWSER_FOCUS==='finish') {
+        await runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();continue;
+      }
       await control('gate',{state:'ready'});
       const seeded=await resetDrafts({persona,empty:persona==='empty'});
       await go('add/');await expect(page.locator('#expense-words')).toBeEnabled();
@@ -329,6 +335,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
       }
       await runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce});
       await runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+      await runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
       await runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce});
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');

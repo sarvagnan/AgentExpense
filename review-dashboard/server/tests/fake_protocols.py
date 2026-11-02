@@ -41,13 +41,20 @@ def run(settings,config):
         path=config.with_suffix('.count');count=int(path.read_text()) if path.exists() else 0;path.write_text(str(count+1))
         step=settings['steps'][min(count,len(settings['steps'])-1)];answer=step.get('answer',{})
         record('.calls',dict(argv=args,home=os.environ['HOME'],cwd=os.getcwd(),input=message,schema=schema))
-    kind=step.get('kind');config.with_suffix('.started').write_text(str(os.getpid()))
+    kind=step.get('kind')
+    marker=config.with_suffix('.started');temporary=marker.with_name(marker.name+'.'+str(os.getpid()))
+    temporary.write_text(str(os.getpid()));temporary.replace(marker)
     if kind=='timeout':
         # Abort is observable in RPC mode; other adapters are killed as groups.
         if adapter=='pi':
             abort=json.loads(sys.stdin.readline());record('.abort',abort);emit({'type':'response','id':'cancel','command':'abort','success':True})
             while True:time.sleep(1)
         else:time.sleep(30)
+    if kind=='provider_error':
+        emit({'type':'message_end','message':{'role':'assistant','stopReason':'error','errorMessage':step['error']['message']}} if adapter=='pi' and step.get('pi_message_error') else {'type':'error','error':step['error']});print('bounded fixture stderr',file=sys.stderr,flush=True)
+        if adapter=='pi': emit({'type':'agent_settled','aborted':bool(step.get('pi_message_error'))});assert sys.stdin.read()==''
+        sys.exit(step.get('exit_code',0))
+    if kind in ('invalid','noanswer','exit'):print('bounded bad-answer stderr',file=sys.stderr,flush=True)
     if kind=='exit':sys.exit(7)
     if kind=='noanswer':return
     tool='shell' if settings.get('extra_tool') else 'list_accounts'
