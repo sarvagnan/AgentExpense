@@ -1,4 +1,5 @@
 import { paymentPosting as selectPayment, transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions } from './currency.mjs';
+import { today } from './date-time.mjs';
 import { auditProvenance } from './audit-provenance.mjs';
 import { accountLabel, accountKind, expenseCategory, hasSegment } from './account-metadata.mjs';
 import { sourceKind } from './source-labels.mjs';
@@ -13,6 +14,8 @@ const outputPath = path.join(projectDir, 'app', 'data', 'dashboard.json');
 import { moduleSettings } from './ledger-manifest.mjs';
 const { transactions, rules, prices, manifest, accounts } = await loadExpenseStore();
 const provenance = await auditProvenance();
+const buildToday = today();
+const currentMonth = buildToday.slice(0, 7);
 
 
 const shortAccount = account => accounts[account]?.kind ? accountLabel(account, accounts) : account.replaceAll(':', ' · ');
@@ -114,16 +117,13 @@ const reimbursementGroups = [...new Set(records.filter(record => record.reimburs
   return { id, currency, label: rows[0].reimbursementLabel, purchases: Number(purchases.toFixed(2)), received: Number(received.toFixed(2)), outstanding: Number((purchases - received).toFixed(2)), paymentDate: rows.filter(row => row.reimbursementAmount < 0).at(-1)?.date || '' };
 });
 
-// Forecast: the store's periodic rules from the day after the latest actual entry to the end
-// of the twelfth following month. Only occurrences inside this window are kept.
+// Forecast the current month and twelve following months. A stale ledger still
+// starts at this month's first day; only recorded days can shorten its estimate.
 const isoDay = (date) => date.toISOString().slice(0, 10);
-const asOf = records.reduce((latest, record) => record.date > latest ? record.date : latest, '')
-  || manifest.startDate || '1970-01-01';
-const forecastStart = new Date(`${asOf}T00:00:00Z`);
-forecastStart.setUTCDate(forecastStart.getUTCDate() + 1);
-const forecastEnd = new Date(Date.UTC(Number(asOf.slice(0, 4)), Number(asOf.slice(5, 7)) + 12, 1));
+const forecastStart = `${currentMonth}-01`;
+const forecastEnd = new Date(Date.UTC(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)) + 12, 1));
 const transactionsRule = new WeakMap();
-const forecastRecords = expandForecast(rules, isoDay(forecastStart), isoDay(forecastEnd))
+const forecastRecords = expandForecast(rules, forecastStart, isoDay(forecastEnd))
   .flatMap(transaction => fundedTransactions(transaction, accounts))
   .map((transaction, index) => { const record = toRecord(transaction, records.length + index); transactionsRule.set(record, transaction.rule); return record; });
 const recurringAccounts = new Set(forecastRecords.flatMap((record) => expenseValues.get(record).map((posting) => posting.account)));
@@ -161,9 +161,6 @@ const months = monthKeys.flatMap(month => currencies.filter(currency => records.
   };
 }));
 
-const forecastMonthKeys = [...new Set(forecastRecords.map((record) => record.month))].sort();
-const firstDate = records.reduce((earliest, record) => record.date < earliest ? record.date : earliest, asOf);
-const firstFullMonth = firstDate.endsWith('-01') ? firstDate.slice(0, 7) : (monthKeys[1] || asOf.slice(0, 7));
 
 // Variable spending by portion of the month: expenses outside the recurring rule accounts,
 // averaged over every full recorded month. Card instalment plans (statement rows such as
@@ -174,8 +171,16 @@ const portions = [[1, 7], [8, 14], [15, 21], [22, 31]];
 const isInstalment = (record) => /Amortization - <\d+\/\d+>/.test(record.description);
 function forecastFor(currency) {
 const expenseRecords = records.filter(record => record.currency === currency && ['Expense', 'Refund'].includes(record.kind));
-const currencyForecastRecords = forecastRecords.filter(record => record.currency === currency);
-const variableMonths = monthKeys.filter((month) => month >= firstFullMonth && month < asOf.slice(0, 7));
+const currencyRecords = records.filter(record => record.currency === currency);
+const currencyAsOf = currencyRecords.reduce((latest, record) => record.date > latest ? record.date : latest, '');
+const daysPassed = currencyAsOf.slice(0, 7) === currentMonth ? Number(currencyAsOf.slice(8, 10)) : 0;
+const start = new Date(`${currencyAsOf.slice(0, 7) === currentMonth ? currencyAsOf : forecastStart}T00:00:00Z`);
+if (currencyAsOf.slice(0, 7) === currentMonth) start.setUTCDate(start.getUTCDate() + 1);
+const currencyForecastRecords = forecastRecords.filter(record => record.currency === currency && record.date >= isoDay(start));
+const currencyMonths = [...new Set(currencyRecords.map(record => record.month))].sort();
+const currencyFirstDate = currencyRecords.reduce((earliest, record) => record.date < earliest ? record.date : earliest, currencyAsOf);
+const firstFullMonth = currencyFirstDate.endsWith('-01') ? currencyFirstDate.slice(0, 7) : (currencyMonths[1] || currentMonth);
+const variableMonths = currencyMonths.filter((month) => month >= firstFullMonth && month < currentMonth);
 const variableGrid = variableMonths.map(() => portions.map(() => 0));
 const exclusions = new Map();
 for (const record of expenseRecords) {
@@ -216,14 +221,16 @@ const variable = {
 };
 const forecast = {
   currency,
-  asOf,
-  start: isoDay(forecastStart),
+  asOf: currencyAsOf,
+  currentMonth,
+  daysPassed,
+  start: isoDay(start),
   end: isoDay(forecastEnd),
   // Months before this one are partial and excluded from comparison averages.
   firstFullMonth,
   recurringAccounts: [...recurringAccounts].sort(),
   variable,
-  months: forecastMonthKeys.map((month) => {
+  months: [...new Set([currentMonth, ...currencyForecastRecords.map(record => record.month)])].sort().map((month) => {
     const rows = currencyForecastRecords.filter((record) => record.month === month);
     const expenses = rows.filter((record) => record.kind === 'Expense' || record.kind === 'Refund');
     return {
@@ -254,17 +261,21 @@ const forecasts = currencies.map(forecastFor);
 // The compatibility projection is explicitly a single currency, never a mixed sum.
 const forecast = forecasts.find(item => item.currency === manifest.defaultCurrency);
 
-const now = new Date();
-const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-const defaultMonth = monthKeys.includes(currentMonth) ? currentMonth : (monthKeys.at(-1) || '');
+// An empty calendar month has no currency: never invent one zero per account currency.
+if (!monthKeys.includes(currentMonth)) {
+  months.push({ month: currentMonth, currency: '', total: 0, income: 0, investments: 0, recurring: 0, count: 0, pending: 0, categories: [], daily: [] });
+  months.sort((a, b) => a.month.localeCompare(b.month));
+}
+const calendarKeys = [...new Set([...monthKeys, currentMonth])].sort();
 const payload = {
   meta: {
     ledger: manifest,
     accounts,
     generatedAt: new Date().toISOString(),
-    defaultMonth,
-    firstMonth: monthKeys[0] || '',
-    lastMonth: monthKeys.at(-1) || '',
+    today: buildToday,
+    defaultMonth: currentMonth,
+    firstMonth: calendarKeys[0],
+    lastMonth: calendarKeys.at(-1),
     transactionCount: records.length,
   },
   months,

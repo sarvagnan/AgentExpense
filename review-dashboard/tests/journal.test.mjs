@@ -24,7 +24,7 @@ const server = await createServer({ server: { middlewareMode: true, hmr: false, 
 try {
   (await server.ssrLoadModule('/app/data.ts')).setData({ dashboard: data, review: persona.review, fuel: persona.fuel });
   const { Journal } = await server.ssrLoadModule('/app/dashboard.tsx');
-  for (const month of data.months) {
+  for (const month of data.months.filter(row=>row.currency)) {
     const html = renderToStaticMarkup(createElement(Journal, { month: month.month, setMonth: () => {} }));
     const book = html.split('class="panel journal-book"')[1].split('<aside')[0];
     assert.equal((book.match(/class="row-open"/g) || []).length, data.transactions.filter(row => row.month === month.month).length, 'Journal must not truncate days');

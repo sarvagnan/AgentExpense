@@ -42,6 +42,7 @@ function evidence(): Plugin {
 }
 
 export default defineConfig(({ command, isPreview }) => ({
+  define: { 'import.meta.env.DASHBOARD_TODAY': JSON.stringify(process.env.DASHBOARD_TODAY || '') },
   base: command === 'build' || isPreview ? '/expenses/' : '/',
   server: {
     host: '127.0.0.1',

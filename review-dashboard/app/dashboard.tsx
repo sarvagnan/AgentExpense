@@ -1,7 +1,7 @@
 import { SettingsDialog } from './settings-dialog';
 import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { money as amountMoney, axisMoney } from './formatting';
-import {formatTimestamp} from './date-time';
+import {today, calendarMonths, formatTimestamp} from './date-time';
 import { reviewKeys } from '../scripts/account-metadata.mjs';
 import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, Fragment } from 'react';
 import { createPortal } from 'react-dom';
@@ -47,9 +47,10 @@ export function signedAmount(transaction: Pick<Transaction, 'kind' | 'amount'> &
   return `${MONEY_IN.has(transaction.kind) ? '+' : ''}${money(transaction.amount, transaction.currency)}`;
 }
 const amountClass = (transaction: Pick<Transaction, 'kind'>) => MONEY_IN.has(transaction.kind) ? 'credit' : transaction.kind === 'Transfer' || transaction.kind === 'Reimbursable purchase' ? 'neutral-amount' : '';
-const monthKeys = () => [...new Set(data.months.map((month) => month.month))];
+const defaultMonth = () => today().slice(0, 7);
+const monthKeys = () => calendarMonths(data.months.map((month) => month.month));
 // An opening-only foreign account affects balances, not spending charts.
-const spendingMonths = () => data.months.filter(item => item.count > 0 || (!data.months.some(row => row.month === item.month && row.count > 0)
+const spendingMonths = () => data.months.filter(item => item.currency).filter(item => item.count > 0 || (!data.months.some(row => row.month === item.month && row.count > 0)
   && item === (data.months.find(row => row.month === item.month && row.currency === data.meta.ledger.defaultCurrency) || data.months.find(row => row.month === item.month))));
 const describe = (item: { description: string }) => item.description;
 const fullEntryText = (item: Transaction) => `${item.description}. ${item.category}. ${item.displayType}. ${signedAmount(item)}. Payment account: ${paymentSide(item).full}. From ${routeSide(item, -1).full}. To ${routeSide(item, 1).full}. ${item.status === 'Pending' ? 'Unclassified' : 'Cleared'}`;
@@ -80,7 +81,7 @@ export function entryMenu(item: Transaction, showDetails: () => void, other: 'ex
   ];
 }
 const latestEntryDate = () => data.transactions.reduce((latest, item) => item.date > latest ? item.date : latest, '');
-const isMonth = (value: string) => data.months.some((month) => month.month === value);
+const isMonth = (value: string) => monthKeys().includes(value);
 
 const SHORTCUTS: [string, [string, string][]][] = [
   ['Everywhere', [['⌥⌘F', 'Search this view'], ['Esc', 'Close details, a menu or a dialog; clear a search field'], ['Tab', 'Move between controls (turn on Keyboard navigation in System Settings to reach every control)']]],
@@ -134,11 +135,20 @@ export function EmptyView({title,expenses=false}: {title:string;expenses?:boolea
   return <section className="page"><PageHeader title={title}/><div className="panel empty viewing-empty"><strong>{expenses?'No expenses yet.':'No entries yet.'}</strong><p>Your {title.toLowerCase()} will appear as you add expenses.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></div></section>;
 }
 
+function EmptyMonth({title, month, setMonth}: {title:string; month:string; setMonth:(month:string)=>void}) {
+  const fresh = !data.months.some(row => row.count > 0);
+  return <section className={`page ${title.toLowerCase()}`}><PageHeader title={title} subtitle={monthLong(month)}>
+    <MonthStepper months={monthKeys()} value={month} onChange={setMonth}/>
+  </PageHeader><div className="panel empty viewing-empty"><Icon name="explorer"/><strong>Nothing recorded in {monthLong(month)} yet</strong>
+    {fresh ? <><p>Your spending starts here. Once you add an expense, you’ll see totals, categories and transactions here. Your opening balances are in Accounts.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a><a className="button plain" href={`${import.meta.env.BASE_URL}account-summary/`}>See opening balances</a></> : <><p>Add an expense, or go back a month to see earlier entries.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add an expense</a></>}
+  </div></section>;
+}
+
 function Sidebar({ active, month, attention, status, unreviewed, important, onHelp, onSettings }: { active: View; month: string; attention: number; status: string; unreviewed: number; important: boolean; onHelp: () => void; onSettings: () => void }) {
   const [appearance, setAppearance] = useAppearance();
   const nextAppearance = appearance === 'light' ? 'dark' : 'light';
   const appearanceLabel = `Switch to ${nextAppearance === 'light' ? 'Light' : 'Dark'} appearance`;
-  const query = month !== data.meta.defaultMonth ? `?month=${month}` : '';
+  const query = month !== defaultMonth() ? `?month=${month}` : '';
   return <aside className="sidebar">
     <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">A</span><span className="sidebar-label">AgentExpense</span></a>
     <Identity onSettings={onSettings}/><nav aria-label="Views">{VIEWS.map((view, index) => <Fragment key={view.id}>{index===3 && <hr/>}<a key={view.id} href={`${import.meta.env.BASE_URL}${view.href}${view.carriesMonth ? query : ''}`} aria-current={view.id === active ? 'page' : undefined} title={view.label}>
@@ -361,7 +371,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   function sortBy(key: SortKey) {
     setSort(`${key}-${key === sortKey ? (sortDirection === 'asc' ? 'desc' : 'asc') : key === 'amount' || key === 'date' ? 'desc' : 'asc'}`);
   }
-  if (!current || !data.months.some(row=>row.count>0)) return <section className="page explorer"><PageHeader title="Explorer" subtitle="Spending across your accounts, all in one place."/><div className="panel empty viewing-empty"><Icon name="explorer"/><strong>Your spending starts here.</strong><p>Once you add an expense, you’ll see totals, categories and transactions here. Your opening balances are in Accounts.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a><a className="button plain" href={`${import.meta.env.BASE_URL}account-summary/`}>See opening balances</a></div></section>;
+  if (!current || !data.months.some(row=>row.count>0)) return <EmptyMonth title="Explorer" month={month} setMonth={changeMonth}/>;
   const columns: { key: SortKey; label: string; numeric?: boolean; className?: string; width?: string }[] = [
     { key: 'date', label: 'Date', width: 'date' }, { key: 'description', label: 'Description' }, { key: 'category', label: 'Category', className: 'col-category', width: 'category' },
     { key: 'paymentLabel', label: 'Payment account', className: 'col-payment', width: 'payment' }, { key: 'amount', label: 'Amount', numeric: true, width: 'amount' },
@@ -371,7 +381,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   return <div className="split">
     {textTooltip.element}
     <section className="page explorer">
-      <PageHeader title="Explorer" subtitle={`${monthLong(month)} · ${month === data.meta.defaultMonth ? `recorded through ${dayShort(latestEntryDate())}` : 'complete month'}`}>
+      <PageHeader title="Explorer" subtitle={`${monthLong(month)} · ${month === defaultMonth() ? `recorded through ${dayShort(latestEntryDate())}` : 'complete month'}`}>
         <MonthStepper months={monthKeys()} value={month} onChange={changeMonth}/>
         <SearchField id="explorer-search" value={query} onChange={setQuery} label="Search this month's entries" placeholder="Search entries" scope={monthShort(month)}/>
       </PageHeader>
@@ -442,8 +452,9 @@ function SpendingTrend() {
   })}</div><p className="panel-note">{currencies.length>1 ? 'Each currency has its own total and chart. Amounts are never converted.' : 'Months without recorded spending have no point.'}</p></section>;
 }
 
-function Atlas(props: {month: string; setMonth: (month: string, mode?: 'push'|'replace') => void}) {
+export function Atlas(props: {month: string; setMonth: (month: string, mode?: 'push'|'replace') => void}) {
   const currencies = currencyOrder(spendingMonths().map(item => item.currency));
+  if (!data.months.some(row => row.month === props.month && row.currency)) return <EmptyMonth title="Atlas" {...props}/>;
   return <>{currencies.map(currency => <CurrencyAtlas mixed={currencies.length > 1} key={currency} {...props} month={data.months.some(item => item.currency === currency && item.month === props.month) ? props.month : data.months.filter(item => item.currency === currency).at(-1)!.month} currency={currency}/>)}</>;
 }
 
@@ -518,7 +529,7 @@ function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; c
           <span><span className="row-title" title={item.description}>{item.description}</span><span className="row-sub">{item.category}</span></span>
           <span className={`num ${amountClass(item)}`}>{signedAmount(item)}</span>
         </a></li>)}</ol>
-          <a className="more-link" href={`${import.meta.env.BASE_URL}explorer/${month !== data.meta.defaultMonth ? `?month=${month}` : ''}`}>All {plural(monthEntries.length, 'entry', 'entries')} in Explorer</a></section>
+          <a className="more-link" href={`${import.meta.env.BASE_URL}explorer/${month !== defaultMonth() ? `?month=${month}` : ''}`}>All {plural(monthEntries.length, 'entry', 'entries')} in Explorer</a></section>
       </div>
     </section>
   </section>;
@@ -629,7 +640,7 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
 const TITLES: Record<View, string> = { explorer: 'Explorer', atlas: 'Atlas', journal: 'Journal', forecast: 'Forecast', accounts: 'Accounts', review: 'Review', add: 'Add', drafts: 'Drafts' };
 
 export default function Dashboard({ view }: { view: View }) {
-  const [month, setMonth] = useQueryState('month', data.meta.defaultMonth, isMonth);
+  const [month, setMonth] = useQueryState('month', defaultMonth(), isMonth);
   const version = useSyncExternalStore(subscribeData, dataVersion, dataVersion);
   const live = useDrafts();
   const composer = useComposer(view==='add');
@@ -684,7 +695,7 @@ export default function Dashboard({ view }: { view: View }) {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onStep); document.removeEventListener('copy', onCopy); };
   }, []);
   return <main className={`app ${view === 'add' || view === 'drafts' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} important={important} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)}/><p className="sr-only navigation-status" role="status">{status}</p>
-    <div className="content" id="main-content" tabIndex={-1}><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'drafts' ? <Drafts live={live}/> : <div key={view==='review'?'review':version}>{((view==='atlas' || (view==='forecast' && !data.forecasts.some(item=>item.items.length))) && !data.months.some(row=>row.count>0)) ? <EmptyView title={TITLES[view]} expenses/> : !data.transactions.length && ['journal','forecast'].includes(view) ? <EmptyView title={TITLES[view]}/> : view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? <Journal month={month} setMonth={setMonth}/> : view === 'forecast' ? <Forecast/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
+    <div className="content" id="main-content" tabIndex={-1}><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'drafts' ? <Drafts live={live}/> : <div key={view==='review'?'review':version}>{((view==='forecast' && !data.forecasts.some(item=>item.items.length)) && !data.months.some(row=>row.count>0)) ? <EmptyView title={TITLES[view]} expenses/> : !data.transactions.length && view==='forecast' ? <EmptyView title={TITLES[view]}/> : view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? (data.transactions.some(row=>row.month===month) ? <Journal month={month} setMonth={setMonth}/> : <EmptyMonth title="Journal" month={month} setMonth={setMonth}/>) : view === 'forecast' ? <Forecast/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
     {!!live.undo.length && <div className="draft-undo panel" role="status">{live.undo.map(item=><div key={item.id}>Draft discarded. <button className="button" onClick={()=>void live.restore(item.id)}>Undo</button></div>)}{live.undoError && <p role="alert" className="live-error">{live.undoError}</p>}</div>}
     <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='drafts'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className={`nav-count ${v.id==='review'&&important?'important':''}`} aria-label={v.id==='drafts'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='drafts'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
     {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><button className="button" onClick={closeViews}>Close views</button></div>}

@@ -65,3 +65,20 @@ retained `proposal`; audit validation recomputes it. Run records additionally ac
 `failure_kind`, optional `reset_at`, bounded `stderr_tail` and `normalisations`.
 Historical lines remain valid and are never rewritten. Ignored claim/form/pause
 state belongs under `drafts/`, outside the financial store.
+
+Step 6b changes generated dashboard data only; it adds no store or audit fields
+and needs no migration. `meta.today` records the build's local calendar date,
+`meta.defaultMonth` selects its month, and the month bounds include it. An empty
+current month has one calendar placeholder with `currency: ""`, zero counters and
+empty daily/category arrays. It is navigation data, excluded from monetary
+figures and recorded-month averages. Each currency's forecast carries
+`currentMonth` and `daysPassed` (zero when its latest entry is in another month),
+retains its own latest actual date as `asOf` (empty without entries), and starts
+at the current month's first unrecorded day. Its horizon ends after twelve
+following months. Profiles include only completed recorded months in that
+currency. The Forecast page sums the remaining weekly portions into one final
+variable-spending row; weekly source profiles remain available for explanation.
+`DASHBOARD_TODAY=YYYY-MM-DD` pins the shared Node/browser helper for tests. The
+worker checks at startup and every 30 seconds, rebuilding stale daily data only
+under a nonblocking ledger lock with a clean working copy; failures are logged
+and delayed ten minutes before another attempt.

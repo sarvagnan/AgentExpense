@@ -105,3 +105,14 @@ runs every existing suite as well. No copy filter excludes an unanchored `ledger
 name: the application `scripts/ledger` is always staged. Source dashboard builds
 and server suites must run sequentially because the byte guard protects `dist/`
 and generated app data.
+
+The harness pins `DASHBOARD_TODAY=2026-11-01` by default (override explicitly to
+exercise a different date). Source personas end in October. Every engine, theme
+and viewport verifies Explorer's empty current month, no invented currency
+figures, one-step navigation back to October, and one final Forecast variable row
+per active currency. Captures include `explorer-current-empty` and
+`forecast-variable-whole-month` and `forecast-variable-days-left`. The latter
+follows a real checked current-month hand addition. The empty-month check also
+serves a deliberately stale data snapshot to prove the browser chooses today.
+Node tests also pin mid-month dates and verify
+remaining-day labels; worker tests inject time for the daily rebuild/backoff.

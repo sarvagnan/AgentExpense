@@ -20,6 +20,7 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  await page.getByRole('button',{name:'Finish it yourself',exact:true}).click();
  const form=page.getByRole('article',{name:'Finish it yourself',exact:true});
  await expect(form.getByLabel('Description',{exact:true})).toHaveValue('Copper Finch Café');
+ await form.getByLabel('Date',{exact:true}).fill(stage.env.DASHBOARD_TODAY);
  await form.getByLabel('Description',{exact:true}).fill(`Copper Finch hand entry ${engine} ${theme} ${width}`);
  await form.getByRole('button',{name:'Add posting',exact:true}).click();await form.getByRole('button',{name:'Remove posting 3',exact:true}).click();
  await form.getByLabel('Notes',{exact:true}).fill('Finished from a fictional receipt');
@@ -38,6 +39,13 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  const years=await auditFiles(join(stage.ledger,'data/additions'));
  const audit=(await Promise.all(years.map(y=>readFile(join(stage.ledger,'data/additions',y),'utf8')))).join('\n').split('\n').filter(Boolean).map(JSON.parse);
  assert.ok(audit.some(r=>r.draft_id===seeded.id&&r.finished_by?.actor==='user'&&r.account_consent?.method==='hand-ticks'));
+ await go('forecast/');
+ const forecasts=page.locator('.forecast');
+ const remaining=new Date(Number(stage.env.DASHBOARD_TODAY.slice(0,4)),Number(stage.env.DASHBOARD_TODAY.slice(5,7)),0).getDate()-Number(stage.env.DASHBOARD_TODAY.slice(8,10));
+ await expect(forecasts.locator('.estimate .row-sub').filter({hasText:`The ${remaining} days left`})).toHaveCount(1);
+ for(const list of await page.locator('.forecast-items').all()) {await expect(list.locator('.estimate')).toHaveCount(1);await expect(list.locator('li').last()).toHaveClass('estimate');assert.equal(await list.locator('.estimate .row-sub').evaluate(node=>getComputedStyle(node).whiteSpace),'normal','The full average label wraps');}
+ await overflow('single variable row after current-month entry');await snap('forecast-variable-days-left');
+ record('6b Forecast shows one final variable row with remaining days after a checked current-month addition');
  await quiesce();await control('reset-workflows',{});await control('finish',{clear:true});
  record('6a outage notice and hand form preserve claim work, upload evidence and commit without agent');
  await control('scenario',{mode:'new-root'});

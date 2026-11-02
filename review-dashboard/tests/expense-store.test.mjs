@@ -185,11 +185,15 @@ test('empty ledger builds and checks without expenses, fuel or prices files', as
   }
   const data = JSON.parse(await readFile(path.join(copy.dash, 'app/data/dashboard.json'), 'utf8'));
   assert.deepEqual(data.transactions, []);
-  assert.deepEqual(data.months, []);
+  assert.equal(data.months.length, 1);
+  assert.equal(data.months[0].month, data.meta.defaultMonth);
+  assert.equal(data.months[0].currency, '');
+  assert.deepEqual(data.months[0].daily, []);
   assert.deepEqual(data.prices, []);
   assert.deepEqual(data.forecast.items, []);
-  assert.equal(data.forecast.asOf, '1970-01-01');
-  assert.equal(data.forecast.start, '1970-01-02');
+  assert.equal(data.forecast.asOf, '');
+  assert.equal(data.forecast.daysPassed, 0);
+  assert.equal(data.forecast.start, `${data.meta.defaultMonth}-01`);
 });
 
 test('possible duplicate links preserve metadata and reject dangling, reversed and invalid edges',async t=>{

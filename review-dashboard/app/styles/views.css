@@ -261,6 +261,7 @@
 .forecast-items li:first-child { padding-top: 7px; border-top: 1px solid var(--separator); }
 .forecast-items .excluded .row-title, .forecast-items .excluded .num { color: var(--text-secondary); text-decoration: line-through; text-decoration-color: var(--text-tertiary); }
 .forecast-items .estimate .row-title { font-weight: 400; font-style: italic; }
+.forecast-items .estimate .row-sub { overflow: visible; text-overflow: clip; white-space: normal; }
 .forecast-table { table-layout: fixed; }
 .forecast-table tbody tr.forecast td, .forecast-table tbody tr.current td { color: var(--text-secondary); }
 .forecast-table tbody tr td:first-child .row-title { color: var(--text); }

@@ -466,3 +466,11 @@ without a worker invoke the identical service synchronously. `verified_commit(lo
 merge); snapshot/recover/rollback remain the common mutation foundation. Human
 proposals follow the same worker and apply method. `finished_by` retains actor and
 reason; the commit trailer identifies the human. No agent runs for a human save.
+
+The FIFO worker also checks the dashboard's `meta.today` at startup and every
+30 seconds. A stale or missing date triggers the existing data-refresh path only
+when a nonblocking ledger lock is available and the ledger is clean. The worker
+cannot run this maintenance during one of its transactions; external writers
+share the same lock. Build/read failures are logged, leave the worker running,
+and defer the next attempt for ten minutes. Production dates use the server's
+local calendar; tests may set `DASHBOARD_TODAY=YYYY-MM-DD`.

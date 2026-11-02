@@ -4,6 +4,7 @@ from pathlib import Path
 import threading
 
 import agent
+from daily_refresh import DailyRefresh
 from outcomes import queue_outcome, OutcomeTransaction
 from agent import now
 from transactions import Transaction, AccountError, ProposalError, clean, ledger_lock, refresh
@@ -16,6 +17,7 @@ class Worker:
         self.thread = None
         self.calls = []
         self.retry_interval = 30
+        self.daily_refresh = DailyRefresh(settings)
         from agent_pause import AgentPause
         self.pause = AgentPause(settings.ledger)
 
@@ -72,6 +74,7 @@ class Worker:
 
     def loop(self):
         while not self.stop_event.is_set():
+            self.daily_refresh.tick()
             self.drafts.purge()
             from agent_gate import get_gate
             self.pause.tick(get_gate(self.settings))

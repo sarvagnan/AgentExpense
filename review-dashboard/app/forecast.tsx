@@ -28,8 +28,8 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
   const moneyWhole = (value: number) => formatWhole(value, forecast.currency);
   const axisMoney = (value: number, max: number) => formatAxis(value, max, forecast.currency);
   const months = data.months.filter(item => item.currency === forecast.currency);
-  const currentMonth = forecast.asOf.slice(0, 7);
-  const asOfDay = Number(forecast.asOf.slice(8, 10));
+  const currentMonth = forecast.currentMonth;
+  const asOfDay = forecast.daysPassed;
   const complete = months.filter((item) => item.month >= forecast.firstFullMonth && item.month < currentMonth);
   const earlier = complete.slice(-12).reverse();
   const forecastMonths = forecast.months.map((item) => item.month);
@@ -90,17 +90,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
   const focusRecordedTotal = focusRecorded.at(-1)?.value || 0;
   const focusCommitted = focusItems.filter((item) => item.kind !== 'Investment').reduce((sum, item) => sum + item.signedExpense, 0);
   const focusVariable = includeVariable ? variableAfter(focus, isCurrent ? asOfDay : 0) : 0;
-  // The focus month's estimate, portion by portion, listed among its dated commitments.
-  const focusEstimates = includeVariable ? variable.portions.map((portion) => {
-    const from = Math.max(portion.from, isCurrent ? asOfDay + 1 : 1);
-    const to = Math.min(portion.to, focusDays);
-    const days = Math.min(portion.to, focusDays) - portion.from + 1;
-    return { portion, from, to, days, amount: from > to ? 0 : variableOn(from, focusDays) * (to - from + 1) };
-  }).filter((estimate) => estimate.amount !== 0) : [];
-  const focusRows = [
-    ...focusItems.map((item, index) => ({ day: Number(item.date.slice(8, 10)), order: index, item, estimate: undefined })),
-    ...focusEstimates.map((estimate, index) => ({ day: estimate.from, order: -1 - index, item: undefined, estimate })),
-  ].sort((a, b) => a.day - b.day || a.order - b.order);
+  const focusRows = focusItems.slice().sort((a, b) => a.date.localeCompare(b.date));
   const stripTop = Math.max(0, ...variable.portions.map((portion) => portion.max));
   const stripLow = Math.min(0, ...variable.portions.map((portion) => portion.min));
   const stripPosition = (value: number) => `${(value - stripLow) / (stripTop - stripLow || 1) * 100}%`;
@@ -199,7 +189,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
 
 
   return <section className="page forecast">
-    <PageHeader title={`Forecast${mixed ? ` · ${forecast.currency}` : ''}`} subtitle="Cumulative expenses by day · amounts rounded to the rupee.">
+    <PageHeader title={`Forecast${mixed ? ` · ${forecast.currency}` : ''}`} subtitle="Cumulative expenses by day · amounts rounded to whole currency units.">
       <label className="compact-field"><span>Month</span><select className="field" value={focus} onChange={(event) => setFocus(event.target.value)}>{forecastMonths.map((month) => <option key={month} value={month}>{monthLong(month)}{month === currentMonth ? ' (current)' : ''}</option>)}</select></label>
       <label className="compact-field"><span>Comparison average</span><select className="field" value={compare} onChange={(event) => setCompare(Number(event.target.value))}>{[3, 6, 12].filter((n) => n <= complete.length).map((n) => <option key={n} value={n}>Last {n} full months</option>)}</select></label>
       <label className="checkbox"><input type="checkbox" checked={includeVariable} onChange={(event) => setIncludeVariable(event.target.checked)}/>Include estimated variable spending</label>
@@ -207,7 +197,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
 
     <section className="metrics" aria-label="Forecast summary">
       <div className="metric"><p className="metric-label">{monthLong(focus)} {isCurrent ? 'projected' : 'forecast'}</p><p className="metric-value">{moneyWhole(focusTotal)}</p><p className="metric-note"><Delta value={focusTotal} base={average} suffix={`vs ${compare}-month average`}/></p></div>
-      {isCurrent ? <div className="metric"><p className="metric-label">Recorded through {dayShort(forecast.asOf)}</p><p className="metric-value">{moneyWhole(focusRecordedTotal)}</p><p className="metric-note">{previousMonth ? <Delta value={focusRecordedTotal} base={previousAtDay} suffix={`vs ${monthAbbr(previousMonth.month)} by day ${asOfDay}`}/> : 'No earlier month'}</p></div>
+      {isCurrent ? <div className="metric"><p className="metric-label">{forecast.asOf ? `Recorded through ${dayShort(forecast.asOf)}` : 'Nothing recorded yet'}</p><p className="metric-value">{moneyWhole(focusRecordedTotal)}</p><p className="metric-note">{previousMonth ? <Delta value={focusRecordedTotal} base={previousAtDay} suffix={`vs ${monthAbbr(previousMonth.month)} by day ${asOfDay}`}/> : 'No earlier month'}</p></div>
         : <div className="metric"><p className="metric-label">Committed in {monthShort(focus)}</p><p className="metric-value">{moneyWhole(focusCommitted)}</p><p className="metric-note">{plural(focusItems.length, 'forecast entry', 'forecast entries')}</p></div>}
       <div className="metric"><p className="metric-label">{compare}-month average</p><p className="metric-value">{moneyWhole(average)}</p><p className="metric-note">{window.length ? `${monthShort(window[0].month)} – ${monthShort(window.at(-1)!.month)}, recorded` : 'No full months yet'}</p></div>
       <div className="metric"><p className="metric-label">Variable spending still to come</p><p className="metric-value">{includeVariable ? moneyWhole(focusVariable) : 'Not included'}</p><p className="metric-note">Based on {variable.months.length} full months · {moneyWhole(averageVariable)} in a typical month</p></div>
@@ -267,9 +257,9 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
           {includeVariable && <><dt>Estimated variable</dt><dd className="num">{moneyWhole(focusVariable)}</dd></>}
           <dt>Against the {compare}-month average</dt><dd className="num"><Delta value={focusTotal} base={average}/></dd>
         </dl>
-        <ol className="ranked-list forecast-items">{focusRows.map(({ item, estimate }, index) => item
-          ? <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{moneyWhole(item.amount)}</span></li>
-          : <li key={`estimate-${estimate!.portion.from}`} className="estimate"><span className="date">{estimate!.from === estimate!.to ? estimate!.from : `${estimate!.from}–${estimate!.to}`} {monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">Days {portionLabel(estimate!.portion, focusDays)}{estimate!.to - estimate!.from + 1 < estimate!.days ? `, ${estimate!.to - estimate!.from + 1} of ${estimate!.days} days left` : ''} · {variable.months.length}-month average {moneyWhole(estimate!.portion.average)}</span></span><span className="num">{moneyWhole(estimate!.amount)}</span></li>)}
+        <ol className="ranked-list forecast-items">{focusRows.map((item, index) =>
+          <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{moneyWhole(item.amount)}</span></li>)}
+          {includeVariable && <li className="estimate"><span className="date">{monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">{!isCurrent || !asOfDay ? 'The whole month' : `The ${focusDays - asOfDay} days left`} · {variable.months.length}-month average {moneyWhole(averageVariable)} a month</span></span><span className="num">{moneyWhole(focusVariable)}</span></li>}
         </ol>
         {!focusItems.length && <p className="panel-note">No recurring commitments fall in this month.</p>}
       </section>

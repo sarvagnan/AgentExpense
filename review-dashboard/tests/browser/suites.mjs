@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {runReview} from './review.mjs';
 import {runWorkflows} from './workflows.mjs';
 import {execFileSync} from 'node:child_process';
+import {gzipSync} from 'node:zlib';
 
 const routes=['add','drafts','review','explorer','atlas','journal','forecast','account-summary','statements'];
 const labels=['Add','Drafts','Review','Explorer','Atlas','Journal','Forecast','Accounts'];
@@ -164,6 +165,36 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         if(width<760)for(const action of await page.locator('.empty .button.primary').all())assert.ok((await action.boundingBox()).height>=44,'Empty-view primary actions have a 44px phone touch target');
       }
       record('all nine routes render at 320px and target viewport without overflow or console errors');
+      // November is empty in every source persona, even though data ends in October.
+      const stale=JSON.parse(await readFile(join(stage.dash,'app/data/dashboard.json'),'utf8'));
+      const currentMonth=stage.env.DASHBOARD_TODAY.slice(0,7);
+      stale.meta.defaultMonth='2026-10';stale.meta.today='2026-10-31';
+      stale.months=stale.months.filter(row=>row.month!==currentMonth);
+      const oldData=route=>route.fulfill({status:200,contentType:'application/gzip',body:gzipSync(JSON.stringify(stale))});
+      await page.route('**/data/dashboard.json.gz',oldData);
+      await go('explorer/');
+      const currentLabel=new Date(currentMonth+'-01T12:00:00').toLocaleDateString(locale[persona],{month:'long',year:'numeric'});
+      await expect(page.getByText('Nothing recorded in '+currentLabel+' yet',{exact:true})).toBeVisible();
+      await expect(page.locator('.metrics,.calendar,.currency-series')).toHaveCount(0);
+      await snap('explorer-current-empty');
+      await page.unroute('**/data/dashboard.json.gz',oldData);
+      await page.getByRole('button',{name:'Previous month',exact:true}).click();
+      await expect(page).toHaveURL(/month=2026-10/);
+      if(persona!=='empty')await expect(page.locator('.entries-table tbody tr').first()).toBeVisible();
+      await page.getByRole('button',{name:'Next month',exact:true}).click();
+      await expect(page.getByText('Nothing recorded in '+currentLabel+' yet',{exact:true})).toBeVisible();
+      await go('forecast/');
+      if(persona!=='empty') {
+        for(const list of await page.locator('.forecast-items').all()) {
+          await expect(list.locator('.estimate')).toHaveCount(1);
+          await expect(list.locator('li').last()).toHaveClass('estimate');
+          await expect(list.locator('.estimate .row-sub')).toContainText('The whole month');
+          await expect(list.locator('.estimate .row-sub')).toContainText('a month');
+          assert.equal(await list.locator('.estimate .row-sub').evaluate(node=>getComputedStyle(node).whiteSpace),'normal','The complete average label wraps without ellipsis');
+        }
+        await snap('forecast-variable-whole-month');
+      }
+      record('empty current month opens by default, previous month is one step back, Forecast has one final variable row per currency');
       // Real gate checks run against the fake CLI; GET status never triggers them.
       for(const state of ['signed out','paused','unavailable']) {
         const status=await control('gate',{state});assert.equal(status.state,state);
@@ -311,8 +342,8 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         if(width<760)assert.ok((await page.locator('.opening-invitation .button.primary').boundingBox()).height>=44,'Opening-account invitation has a 44px phone touch target');
         await snap('accounts-empty');
         await page.getByRole('button',{name:'Meadow Savings',exact:true}).click();await expect(page.getByLabel('Currency',{exact:true})).toHaveValue('USD');await page.getByLabel('Currency',{exact:true}).selectOption('EUR');await expect(page.getByRole('dialog')).toContainText('€4,650.00');await snap('account-opening-changeable');await closeDialog();
-        await go('explorer/');await expect(page.getByText('Your spending starts here.',{exact:true})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);
-        for(const view of ['atlas','forecast']){await go(view+'/');await expect(page.getByText('No expenses yet.',{exact:true})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);}
+        await go('explorer/');await expect(page.getByText('Your spending starts here.',{exact:false})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);
+        for(const view of ['atlas','forecast']){await go(view+'/');await expect(page.getByText(view==='atlas'?'Nothing recorded in':'No expenses yet.',{exact:view!=='atlas'})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);}
         await control('openings',{enabled:false});record('opening-only Accounts subtracts debt with no invented history; Explorer invites the first expense');
       }
       if(persona==='asha') {

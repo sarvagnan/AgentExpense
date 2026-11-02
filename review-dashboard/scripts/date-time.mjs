@@ -33,3 +33,22 @@ export function formatCalendarDate(value, options = {
   date.setHours(12, 0, 0, 0);
   return date.toLocaleDateString(locale, options);
 }
+
+/** Today's local calendar date, shared by the builder and the page. */
+export function today(now = new Date()) {
+  const pinned = (typeof process !== 'undefined' ? process.env.DASHBOARD_TODAY : '')
+    || import.meta.env?.DASHBOARD_TODAY;
+  if (!pinned) return localDate(now);
+  const date = new Date(`${pinned}T12:00:00`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pinned) || Number.isNaN(date.getTime()) || localDate(date) !== pinned) {
+    throw new Error('DASHBOARD_TODAY must be a calendar date (YYYY-MM-DD)');
+  }
+  return pinned;
+}
+
+/** Month navigation includes today's month and its immediate predecessor. */
+export function calendarMonths(months, current = today().slice(0, 7)) {
+  const date = new Date(`${current}-01T12:00:00`);
+  date.setMonth(date.getMonth() - 1);
+  return [...new Set([...months, current, localDate(date).slice(0, 7)])].sort();
+}

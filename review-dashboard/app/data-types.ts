@@ -17,14 +17,14 @@ export type DashboardTransaction = {
   postings: { account: string; amount: number; currency: string; label: string; cost?: number; costCurrency?: string }[];
 };
 export type DashboardData = {
-  meta: { ledger: LedgerManifest; accounts: Accounts; generatedAt: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
+  meta: { ledger: LedgerManifest; accounts: Accounts; generatedAt: string; today: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
   months: {
     month: string; currency: string; total: number; income: number; investments: number; recurring: number; count: number; pending: number;
     categories: { category: string; amount: number }[]; daily: { day: number; amount: number }[];
   }[];
   forecasts: DashboardData['forecast'][];
   forecast: {
-    currency: string; asOf: string; start: string; end: string; firstFullMonth: string; recurringAccounts: string[];
+    currency: string; asOf: string; currentMonth: string; daysPassed: number; start: string; end: string; firstFullMonth: string; recurringAccounts: string[];
     variable: {
       months: string[];
       portions: { from: number; to: number; average: number; median: number; min: number; max: number; byMonth: number[] }[];

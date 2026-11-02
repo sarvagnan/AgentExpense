@@ -61,7 +61,10 @@ test('Sam spends in GBP before July, both in July and EUR afterward with separat
    walk(item,own);
   }
  };
- for(const month of sam.dashboard.months)walk(month);
+ for(const month of sam.dashboard.months) {
+  if(month.currency)walk(month);
+  else {assert.equal(month.month,sam.dashboard.meta.defaultMonth);assert.equal(month.total,0);assert.equal(month.count,0);assert.deepEqual(month.daily,[]);}
+ }
  for(const forecast of sam.dashboard.forecasts)walk(forecast);
  for(const group of sam.dashboard.reimbursementGroups)walk(group);
  assert.deepEqual(sam.review.meta.pendingNetAmount,{});
@@ -83,7 +86,7 @@ test('Jordan keeps the original EUR dinner and exactly the USD card cost, with a
 
 test('Explorer, Accounts, Journal, Atlas and Forecast render Sam without converting currencies', async () => {
  (await server.ssrLoadModule('/app/data.ts')).setData(sam);
- const {Explorer,Journal,default:Dashboard}=await server.ssrLoadModule('/app/dashboard.tsx');
+ const {Explorer,Journal,Atlas}=await server.ssrLoadModule('/app/dashboard.tsx');
  const {default:Accounts}=await server.ssrLoadModule('/app/account-summary.tsx');
  const {default:Forecast}=await server.ssrLoadModule('/app/forecast.tsx');
  const render=(component,props={})=>renderToStaticMarkup(createElement(component,props));
@@ -97,7 +100,7 @@ test('Explorer, Accounts, Journal, Atlas and Forecast render Sam without convert
  const forecast=render(Forecast);
  assert.equal((forecast.match(/Cumulative expenses by day for/g)||[]).length,2);
  assert.match(forecast,/Forecast · EUR/);assert.match(forecast,/Forecast · GBP/);
- const atlas=render(Dashboard,{view:'atlas'});
+ const atlas=render(Atlas,{month:'2026-07',setMonth:()=>{}});
  assert.match(atlas,/Atlas · EUR/);assert.match(atlas,/Atlas · GBP/);
  (await server.ssrLoadModule('/app/data.ts')).setData(jordan);
  const dollarMonth=render(Explorer,{month:'2026-10',setMonth:()=>{}});
