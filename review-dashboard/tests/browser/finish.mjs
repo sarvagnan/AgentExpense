@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {runMonthCutoff} from './month-cutoff.mjs';
 
 export async function runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}) {
  const json=async(path,body)=>{const response=await fetch(base+'api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});assert.ok(response.ok,await response.clone().text());return response.json();};
@@ -43,9 +44,10 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  const forecasts=page.locator('.forecast');
  const remaining=new Date(Number(stage.env.DASHBOARD_TODAY.slice(0,4)),Number(stage.env.DASHBOARD_TODAY.slice(5,7)),0).getDate()-Number(stage.env.DASHBOARD_TODAY.slice(8,10));
  await expect(forecasts.locator('.estimate .row-sub').filter({hasText:`The ${remaining} days left`})).toHaveCount(1);
- for(const list of await page.locator('.forecast-items').all()) {await expect(list.locator('.estimate')).toHaveCount(1);await expect(list.locator('li').last()).toHaveClass('estimate');assert.equal(await list.locator('.estimate .row-sub').evaluate(node=>getComputedStyle(node).whiteSpace),'normal','The full average label wraps');}
+ for(const list of await page.locator('.forecast-items').all()) {await expect(list.locator('.estimate')).toHaveCount(1);await expect(list.locator('li').last()).toHaveClass('estimate');await expect(list.locator('.estimate .row-sub')).toHaveCSS('white-space','normal');}
  await overflow('single variable row after current-month entry');await snap('forecast-variable-days-left');
  record('6b Forecast shows one final variable row with remaining days after a checked current-month addition');
+ await runMonthCutoff({page,stage,expect,go,overflow,snap,record});
  await quiesce();await control('reset-workflows',{});await control('finish',{clear:true});
  record('6a outage notice and hand form preserve claim work, upload evidence and commit without agent');
  await control('scenario',{mode:'new-root'});

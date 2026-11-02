@@ -40,6 +40,9 @@ Profiles, downloads, build logs, server logs, traces, failure images, fake CLI a
 agent state all stay under `/tmp`. Each server uses a free loopback port and is
 terminated in `finally`; browsers and contexts are also closed on failure. Artifacts
 are retained for diagnosis, including a `results.json` assertion matrix.
+After each complete case, the harness atomically checkpoints that matrix and
+its capture metadata. A hard interruption therefore preserves completed cases;
+the final gallery is still produced during normal cleanup.
 
 Screenshots and their contact sheet are written to
 `/tmp/agentexpense-5-shots/index.html`. `manifest.json` records engine, persona,
@@ -116,3 +119,19 @@ follows a real checked current-month hand addition. The empty-month check also
 serves a deliberately stale data snapshot to prove the browser chooses today.
 Node tests also pin mid-month dates and verify
 remaining-day labels; worker tests inject time for the daily rebuild/backoff.
+
+Step 6b2 adds `month-cutoff.mjs` to every hand-finish workflow. Captures include
+`explorer-current-recorded`, `explorer-same-day` and `forecast-overdue-at-today`,
+in every engine, theme, persona and viewport. The first uses the real checked
+hand addition; the others advance the published date to mid-month and include
+an explicitly fictional overdue payment in a routed data snapshot. Assertions
+check the Explorer/category comparison cut-off, retained expected payment,
+remaining variable days, chart date and matching projected/table totals. Node
+regressions independently build real fixture data for the full financial
+arithmetic, refunds, shorter preceding months and separate currencies.
+
+Each disposable persona also gets its own `/tmp` hledger oracle cache for nested
+ledger tests. It reuses successful CLI results only for identical input journals,
+arguments and executable bytes; every verification retains every assertion.
+This avoids re-running the same large external calendar forecast for each
+unrelated checked browser addition. No real financial verification is bypassed.

@@ -80,7 +80,6 @@ export function entryMenu(item: Transaction, showDetails: () => void, other: 'ex
     { label: 'Copy Evidence Path', action: () => copyAndAnnounce(evidence || '', 'evidence path'), disabled: !evidence },
   ];
 }
-const latestEntryDate = () => data.transactions.reduce((latest, item) => item.date > latest ? item.date : latest, '');
 const isMonth = (value: string) => monthKeys().includes(value);
 
 const SHORTCUTS: [string, [string, string][]][] = [
@@ -139,7 +138,7 @@ function EmptyMonth({title, month, setMonth}: {title:string; month:string; setMo
   const fresh = !data.months.some(row => row.count > 0);
   return <section className={`page ${title.toLowerCase()}`}><PageHeader title={title} subtitle={monthLong(month)}>
     <MonthStepper months={monthKeys()} value={month} onChange={setMonth}/>
-  </PageHeader><div className="panel empty viewing-empty"><Icon name="explorer"/><strong>Nothing recorded in {monthLong(month)} yet</strong>
+  </PageHeader><div className="panel empty viewing-empty"><Icon name="explorer"/><strong>{month === defaultMonth() ? 'Nothing recorded this month yet' : `Nothing recorded in ${monthLong(month)} yet`}</strong>
     {fresh ? <><p>Your spending starts here. Once you add an expense, you’ll see totals, categories and transactions here. Your opening balances are in Accounts.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a><a className="button plain" href={`${import.meta.env.BASE_URL}account-summary/`}>See opening balances</a></> : <><p>Add an expense, or go back a month to see earlier entries.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add an expense</a></>}
   </div></section>;
 }
@@ -301,7 +300,7 @@ function SpendingCalendar({ month, current, day, onDay }: { month: string; curre
   </div>;
 }
 
-function CategoryComparison({ current, previous }: { current: Month; previous?: Month }) {
+function CategoryComparison({ current, previous }: { current: Month; previous?: Month['comparison'] }) {
   const money = (value: number) => amountMoney(value, current.currency);
   const before = new Map(previous?.categories.map((item) => [item.category, item.amount]) || []);
   const rows = current.categories.slice(0, 8);
@@ -319,10 +318,11 @@ function CategoryComparison({ current, previous }: { current: Month; previous?: 
 /** Compare categories within each native currency; never rank amounts across currencies. */
 function MixedCategories({currents}: {currents:Month[]}) {
   const categories=[...new Set(currents.flatMap(month=>month.categories.map(row=>row.category)))].sort();
-  const maxima=new Map(currents.map(month=>[month.currency,Math.max(1,...month.categories.map(row=>Math.abs(row.amount)))]));
+  const maxima=new Map(currents.map(month=>[month.currency,Math.max(1,...month.categories.map(row=>Math.abs(row.amount)),...(month.comparison?.categories.map(row=>Math.abs(row.amount)) || []))]));
   return <div className="mixed-categories">{categories.map(category=><section className="mixed-category" key={category}><h4>{category}</h4>{currents.map(month=>{
     const row=month.categories.find(row=>row.category===category);
-    return row && <div className="category-currency currency-series" data-currency={month.currency} key={month.currency}><span>{month.currency}</span><i aria-hidden="true" style={{'--bar':`${Math.max(1,Math.abs(row.amount)/maxima.get(month.currency)!*100)}%`} as CSSProperties}/><span>{money(row.amount,month.currency)}</span></div>;
+    const old=month.comparison?.categories.find(row=>row.category===category)?.amount || 0;
+    return row && <div className="category-currency currency-series" data-currency={month.currency} key={month.currency}><span>{month.currency}</span><span className="category-bars" aria-hidden="true"><i className="bar-current" style={{width:`${row.amount ? Math.max(1,Math.abs(row.amount)/maxima.get(month.currency)!*100) : 0}%`}}/>{month.comparison && <i className="bar-previous" style={{width:`${old ? Math.max(1,Math.abs(old)/maxima.get(month.currency)!*100) : 0}%`}}/>}</span><span>{money(row.amount,month.currency)}</span>{month.comparison && <span className="category-change">{old ? <Delta value={row.amount} base={old}/> : 'New'}</span>}</div>;
   })}</section>)}</div>;
 }
 
@@ -343,8 +343,9 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   const textTooltip = useEntryTextTooltip();
   const currents = spendingMonths().filter(item => item.month === month);
   const current = currents[0];
-  const previousKey = monthKeys()[monthKeys().indexOf(month) - 1];
-  const previous = data.months.find(item => item.month === previousKey && item.currency === current?.currency);
+  const previous = current?.comparison;
+  const inProgress = month === data.meta.today.slice(0, 7);
+  const comparisonPeriod = inProgress ? `by day ${Number(data.meta.today.slice(8, 10))}` : 'whole month';
   const totals = Object.fromEntries(currents.map(item => [item.currency, item.total]));
   const count = currents.reduce((sum, item) => sum + item.count, 0);
   const pending = currents.reduce((sum, item) => sum + item.pending, 0);
@@ -381,12 +382,12 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   return <div className="split">
     {textTooltip.element}
     <section className="page explorer">
-      <PageHeader title="Explorer" subtitle={`${monthLong(month)} · ${month === defaultMonth() ? `recorded through ${dayShort(latestEntryDate())}` : 'complete month'}`}>
+      <PageHeader title="Explorer" subtitle={`${monthLong(month)} · ${inProgress ? `recorded through ${dayShort(data.meta.today)}` : 'complete month'}`}>
         <MonthStepper months={monthKeys()} value={month} onChange={changeMonth}/>
         <SearchField id="explorer-search" value={query} onChange={setQuery} label="Search this month's entries" placeholder="Search entries" scope={monthShort(month)}/>
       </PageHeader>
       <section className="metrics" data-expanded={summaryExpanded} aria-label={filtersActive ? 'Whole month summary' : 'Month summary'}>
-        <div className="metric"><p className="metric-label">{filtersActive ? 'Spent · whole month' : 'Spent'}</p><p className="metric-value">{moneyTotal(totals)}</p><p className="metric-note">{currents.length > 1 ? 'Totals stay in each currency' : previous ? <Delta value={current.total} base={previous.total} suffix={`vs ${monthName(previous.month)}`}/> : 'First recorded month'}</p></div>
+        <div className="metric"><p className="metric-label">{filtersActive ? 'Spent · whole month' : 'Spent'}</p><p className="metric-value">{moneyTotal(totals)}</p><p className="metric-note">{currents.map(item => <span className="currency-comparison" key={item.currency}>{currents.length > 1 && `${item.currency}: `}{item.comparison ? <Delta value={item.total} base={item.comparison.total} suffix={`vs ${monthName(item.comparison.month)}${inProgress ? ' ' : ' · '}${comparisonPeriod}`}/> : 'No previous month in this currency'}</span>)}</p></div>
         <div className="metric" id="explorer-summary-average"><p className="metric-label">Average per calendar day</p><p className="metric-value">{moneyTotal(Object.fromEntries(currents.map(item => [item.currency, item.total / days])))}</p><p className="metric-note">Total ÷ {days} days</p></div>
         <div className="metric" id="explorer-summary-count"><p className="metric-label">Expenses</p><p className="metric-value">{count}</p><p className="metric-note">{pending ? <a href={`${import.meta.env.BASE_URL}review/`}>{pending} unclassified</a> : 'All classified'} · {plural(monthTransactions.length, 'ledger entry', 'ledger entries')}</p></div>
         <div className="metric" id="explorer-summary-largest"><p className="metric-label">Largest expense{currents.length > 1 ? ' · per currency' : ''}</p><p className="metric-value">{largest ? moneyTotal(Object.fromEntries(largestRows.map(item => [item.currency, item.amount]))) : '—'}</p><p className="metric-note" title={largest?.description}>{largestRows.map(item => item.description).join(' + ') || 'No expenses'}</p></div>
@@ -421,7 +422,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
       </section>
       <aside className="explorer-aside panel" aria-label="The month at a glance">
         <div className="explorer-day-filters">{currents.map(item => <ExplorerDayFilter key={item.currency} mixed={currents.length>1} month={month} current={item} day={day} onDay={setDay}/>)}</div>
-        <section className="aside-section"><div className="aside-section-head"><h3>Categories</h3><p>{currents.length>1 ? `${currents.map(item=>item.currency).join(' and ')} shown separately.` : previous ? <><span className="key key-current"/>{monthName(month)} <span className="key key-previous"/>{monthName(previous.month)}</> : monthLong(month)}</p></div>{currents.length>1 ? <MixedCategories currents={currents}/> : <CategoryComparison current={current} previous={previous}/>}</section>
+        <section className="aside-section"><div className="aside-section-head"><h3>Categories</h3><p><span className="key key-current"/>{monthName(month)}{(previous || currents.some(item=>item.comparison)) && <> <span className="key key-previous"/>{monthName(currents.find(item=>item.comparison)!.comparison!.month)}</>} · {comparisonPeriod}{currents.length>1 && ` · ${currents.map(item=>item.currency).join(' and ')} shown separately.`}</p></div>{currents.length>1 ? <MixedCategories currents={currents}/> : <CategoryComparison current={current} previous={previous}/>}</section>
       </aside>
       </div>
       <SpendingTrend/>
@@ -542,8 +543,7 @@ function CurrencyJournalSummary({ month, rows, current, mixed }: { mixed:boolean
   for (let day = 1; day <= days; day += 1) cumulative.push((cumulative.at(-1) || 0) + (current.daily.find((item) => item.day === day)?.amount || 0));
   const lineMax = Math.max(1, ...cumulative);
   const lineMin = Math.min(0, ...cumulative);
-  const latest = latestEntryDate();
-  const recordedDays = latest.startsWith(month) ? Number(latest.slice(8, 10)) : days;
+  const recordedDays = data.meta.today.startsWith(month) ? Number(data.meta.today.slice(8, 10)) : days;
   const points = cumulative.slice(0, recordedDays).map((value, index) => `${index / (days - 1) * 300},${96 - (value - lineMin) / (lineMax - lineMin) * 88}`).join(' ');
   const maxCategory = Math.max(1, ...current.categories.map((item) => Math.abs(item.amount)));
   const all = data.transactions.filter((item) => item.month === month && item.currency === current.currency);

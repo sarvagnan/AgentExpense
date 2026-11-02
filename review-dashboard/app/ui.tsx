@@ -11,7 +11,7 @@ const change = (value: number, base: number) => base ? (value - base) / base * 1
 /** Change against a comparison, with an arrow and words. More spending reads as negative. */
 export function Delta({ value, base, suffix }: { value: number; base: number; suffix?: string }) {
   const pct = change(value, base);
-  if (pct === null) return <span className="delta flat">No comparison</span>;
+  if (pct === null) return <span className="delta flat">No comparison{suffix && <span className="delta-suffix"> {suffix}</span>}</span>;
   const direction = Math.abs(pct) < 0.05 ? 'flat' : pct > 0 ? 'up' : 'down';
   return <span className={`delta ${direction}`}>{direction === 'up' ? '↑ ' : direction === 'down' ? '↓ ' : ''}{direction === 'flat' ? 'No change' : percent(pct)}{suffix && <span className="delta-suffix"> {suffix}</span>}</span>;
 }

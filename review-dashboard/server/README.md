@@ -193,6 +193,13 @@ needs pre-filled caches or a venv resync.
 The suite uses unittest, TestClient, temporary fixture ledgers with their own jj
 repositories and `tests/fake_agent.py`. It never runs a model or contacts an external network. Direct API protocols use
 local loopback fake HTTP servers.
+Complete discovery runs in three isolated worker processes. Whole test classes
+stay together; modules with module fixtures stay together as well. Each worker
+uses normal unittest fixture/error/subtest handling, and the runner checks the
+executed test inventory against discovery before reporting success. No writable
+repository or process environment is shared between workers. Set
+`EXPENSES_TEST_WORKERS=1` for serial diagnosis or another positive value to tune
+the worker count. Builds still wait until every worker has finished.
 Each fixture checks the source dashboard data, build and expense JSON at cleanup,
 and fails with the changed paths. As in the Node guard, a changed regular expense
 file is accepted only when its new bytes equal that file at the ledger repository's
@@ -206,6 +213,21 @@ application copies for data refresh and serving; production settings are unchang
 Commit verification skips only the server suite to avoid recursive integration
 tests; `make verify` runs only the ledger suite. `EXPENSES_FAKE_CONFIG` belongs to tests
 only and has no effect on the production agent runner.
+
+Nested verification in the offline server suite shares a temporary, immutable
+hledger calendar oracle. `EXPENSES_TEST_ORACLE_CACHE` selects its `/tmp` directory;
+the fixture helper creates and cleans it for the test process. The key includes
+the exact journal, CLI arguments, executable path and executable bytes. Only a
+successful hledger result is cached: every verification still renders all 3,534
+schedules, recomputes expected dates and runs every header/date assertion. Every
+test retains its own writable application and ledger repository, real checked
+commits, rollback and data refresh. Standalone ledger tests, without this explicit
+test variable, always run hledger afresh. No production verification is skipped.
+For per-test wall timings, run
+`EXPENSES_TEST_TIMINGS='/tmp/server-{persona}.json' make personas` (or set an
+explicit `/tmp` JSON path with `make test-server`). The runner still discovers
+the complete unittest suite and preserves its normal failure/skip reporting;
+`{persona}` is replaced with the selected ledger directory's name.
 
 The daily price job also holds the shared lock through its update, build and
 partial jj commit. Schedule it externally when desired. Other

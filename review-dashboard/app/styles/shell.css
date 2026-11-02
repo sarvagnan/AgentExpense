@@ -400,8 +400,12 @@ input.field:disabled, textarea.field:disabled, select.field:disabled {
 .mixed-categories { display:grid; gap:14px; padding:16px; }
 .mixed-category h4 { margin-bottom:6px; font:var(--text-body-strong); }
 .category-currency { display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:8px; margin-top:4px; font:var(--text-caption); }
-.category-currency > i { height:4px; width:var(--bar); background:var(--currency-color,var(--accent)); }
-.category-currency > span:last-child { font:var(--text-body); white-space:nowrap; }
+.category-currency .category-bars .bar-current, .category-currency .category-bars .bar-previous { background:var(--currency-color,var(--accent)); }
+.category-currency .bar-previous { opacity:.35; }
+.category-currency > span:nth-child(3) { font:var(--text-body); white-space:nowrap; }
+.explorer-aside .category-currency > .category-bars { grid-area:auto; }
+.explorer-aside .category-currency > .category-change { grid-area:2 / 2 / 3 / 4; text-align:right; }
+.currency-comparison { display:block; }
 .trend-currency summary { color:var(--text-secondary); cursor:pointer; padding:8px 0; }
 .trend-currency dl > div { display:flex; justify-content:space-between; gap:12px; padding:4px 0; }
 @media (min-width:761px) and (max-width:1000px) { .sidebar .identity { justify-content:center; padding:4px 0; } .sidebar .identity-text,.sidebar .identity > .icon { display:none; } }

@@ -73,10 +73,17 @@ def snapshot(root, *, format_zero_settings=None):
             shutil.copyfile(APPLICATION_ROOT / relative, target)
         scripts = application / 'review-dashboard/scripts'
         shutil.copytree(APPLICATION_ROOT / 'review-dashboard/scripts', scripts)
-        for name in ['copy-fuel-log', 'build-dashboard-data', 'build-review-data', 'build-add-patterns']:
-            run = subprocess.run(['node', str(scripts / (name + '.mjs'))], env={**os.environ, 'LEDGER_DIR': str(ledger)}, capture_output=True)
-            if run.returncode:
-                raise ValueError(f'Unable to generate dashboard output ({name}).')
+        # These builders read one immutable snapshot. Share a Node process and
+        # its imported modules instead of starting it four times per comparison.
+        builders = ['copy-fuel-log', 'build-dashboard-data', 'build-review-data', 'build-add-patterns']
+        urls = {name: (scripts / (name + '.mjs')).as_uri() for name in builders}
+        code = "for (const [name, url] of Object.entries(JSON.parse(process.argv[1]))) { try { await import(url); } catch { process.stderr.write(name); process.exit(1); } }"
+        run = subprocess.run(['node', '--input-type=module', '-e', code, json.dumps(urls)],
+                             env={**os.environ, 'LEDGER_DIR': str(ledger)}, capture_output=True)
+        if run.returncode:
+            failed = run.stderr.decode(errors='replace')
+            name = failed if failed in builders else 'builders'
+            raise ValueError(f'Unable to generate dashboard output ({name}).')
         for file in sorted((application / 'review-dashboard/app/data').glob('*.json')):
             result['dashboard/' + file.name] = json.loads(file.read_text())
         return result

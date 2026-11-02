@@ -21,10 +21,11 @@ export type DashboardData = {
   months: {
     month: string; currency: string; total: number; income: number; investments: number; recurring: number; count: number; pending: number;
     categories: { category: string; amount: number }[]; daily: { day: number; amount: number }[];
+    comparison: {month: string; total: number; count: number; pending: number; categories: {category: string; amount: number}[]; daily: {day: number; amount: number}[]} | null;
   }[];
   forecasts: DashboardData['forecast'][];
   forecast: {
-    currency: string; asOf: string; currentMonth: string; daysPassed: number; start: string; end: string; firstFullMonth: string; recurringAccounts: string[];
+    currency: string; asOf: string; currentMonth: string; daysPassed: number; variableAfterDay: number; start: string; end: string; firstFullMonth: string; recurringAccounts: string[];
     variable: {
       months: string[];
       portions: { from: number; to: number; average: number; median: number; min: number; max: number; byMonth: number[] }[];

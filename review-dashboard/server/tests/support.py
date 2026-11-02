@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import atexit
 from dataclasses import replace
 import io
 import json
@@ -21,6 +22,19 @@ sys.path.insert(0, str(SERVER))
 from app import create_app
 from settings import Settings, APPLICATION
 from store import dump
+
+
+# Every test retains its own writable repository. Only exact hledger oracle
+# results are shared across the many nested make verify calls in this process.
+_oracle_cache = None
+
+
+def oracle_cache():
+    global _oracle_cache
+    if _oracle_cache is None:
+        _oracle_cache = tempfile.TemporaryDirectory(prefix='expense-hledger-oracles-', dir='/tmp')
+        atexit.register(_oracle_cache.cleanup)
+    return _oracle_cache.name
 
 
 def ready(*, new=True):
@@ -87,7 +101,7 @@ class Fixture(unittest.TestCase):
         self.fake.chmod(0o755)
         self.settings = Settings(application=self.application, ledger=self.ledger, codex=str(self.fake),
                                  state_dir=self.base / 'state', dev=True, timeout=2, old_ledger=self.old)
-        self.environment = patch.dict(os.environ, {'EXPENSES_FAKE_CONFIG': str(self.config), 'npm_config_cache': str(self.base / '.npm-cache'), 'TMPDIR': str(artifacts), 'PYTHONDONTWRITEBYTECODE': '1'})
+        self.environment = patch.dict(os.environ, {'EXPENSES_FAKE_CONFIG': str(self.config), 'npm_config_cache': str(self.base / '.npm-cache'), 'TMPDIR': str(artifacts), 'PYTHONDONTWRITEBYTECODE': '1', 'EXPENSES_TEST_ORACLE_CACHE': oracle_cache()})
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.set_answers(ready())

@@ -14,14 +14,14 @@ try {
   const html = renderToStaticMarkup(createElement(Dashboard, { view: 'explorer' }));
   const body = html.match(/<tbody[^>]*>(.*?)<\/tbody>/s)?.[1] || '';
   const hasExpenses=data.months.some(month=>month.count>0);
-  if (!hasExpenses) {assert.match(html,/Nothing recorded in/);assert.match(html,/Your spending starts here\./);assert.match(html,/Add your first expense/);assert.match(html,/See opening balances/);assert.doesNotMatch(html,/class="metrics"|class="spending-trend"/);}
+  if (!hasExpenses) {assert.match(html,/Nothing recorded this month yet/);assert.match(html,/Your spending starts here\./);assert.match(html,/Add your first expense/);assert.match(html,/See opening balances/);assert.doesNotMatch(html,/class="metrics"|class="spending-trend"/);}
   const count = (body.match(/<tr\b/g) || []).length;
   const expected = hasExpenses ? data.transactions.filter(t => t.month === data.meta.defaultMonth && !t.postings.some(posting=>posting.account==='Equity:Opening Balances')).length : 0;
   assert.equal(count, expected, 'Explorer must render month activity without opening balances');
   for (const month of data.months) {
     const markup = renderToStaticMarkup(createElement(Explorer, { month: month.month, setMonth: () => {} }));
     if(!hasExpenses){assert.match(markup,/Your spending starts here\./);assert.doesNotMatch(markup,/<tbody>|class="metrics"|class="spending-trend"/);continue;}
-    if (!month.currency) {assert.match(markup,/Nothing recorded in/);assert.doesNotMatch(markup,/class="metrics"/);continue;}
+    if (!month.currency) {assert.match(markup,/Nothing recorded this month yet/);assert.doesNotMatch(markup,/class="metrics"/);continue;}
     const rows = markup.match(/<tbody>(.*?)<\/tbody>/s)[1];
     assert.equal((rows.match(/<tr\b/g) || []).length, data.transactions.filter(t => t.month === month.month && !t.postings.some(posting=>posting.account==='Equity:Opening Balances')).length, month.month);
     assert.equal((markup.match(/class="sort-button"/g) || []).length, 5);

@@ -39,6 +39,7 @@ for(const persona of ['asha','jordan','sam','empty'])test(`${persona}: first and
       const latest=actual.map(row=>row.date).sort().at(-1);
       assert.equal(forecast.asOf,latest || '');
       assert.equal(forecast.daysPassed,latest?.startsWith(current)?Number(latest.slice(8,10)):0);
+      assert.equal(forecast.variableAfterDay,Number(date.slice(8,10))-(actual.some(row=>row.date===date)?0:1));
       assert.equal(forecast.start,latest?.startsWith(current)?new Date(Date.parse(latest)+86400000).toISOString().slice(0,10):current+'-01');
       const expected=[...new Set(actual.map(row=>row.month))].filter(month=>month>=forecast.firstFullMonth && month<current).sort();
       assert.deepEqual(forecast.variable.months,expected,'An absent currency/month never contributes a zero observation');
@@ -46,7 +47,10 @@ for(const persona of ['asha','jordan','sam','empty'])test(`${persona}: first and
       for(const portion of forecast.variable.portions)assert.equal(portion.byMonth.length,expected.length);
     }
     if(date==='2026-11-01')first=data;
-    if(date==='2026-11-15')assert.deepEqual(data.forecasts,first.forecasts,'An empty month consumes no recorded days even mid-month');
+    if(date==='2026-11-15')for(const forecast of data.forecasts){
+      const earlier=first.forecasts.find(row=>row.currency===forecast.currency);
+      assert.deepEqual({...forecast,variableAfterDay:0},earlier,'An empty month changes only the remaining variable-estimate days');
+    }
   }
   if(persona!=='empty') {
     const currency=first.meta.ledger.defaultCurrency;
@@ -73,19 +77,20 @@ test('Forecast renders one final variable row per currency with whole-month and 
     const runtime=await server.ssrLoadModule('/app/data.ts');
     const {default:Forecast}=await server.ssrLoadModule('/app/forecast.tsx');
     const render=()=>{runtime.setData({dashboard:data,review:{},fuel:{}});return renderToStaticMarkup(createElement(Forecast));};
-    for(const recorded of [false,true]) {
-      for(const forecast of data.forecasts)if(recorded){forecast.asOf='2026-11-05';forecast.daysPassed=5;}
+    for(const day of [1,15])for(const recorded of [false,true]) {
+      data.meta.today=`2026-11-${String(day).padStart(2,'0')}`;
+      for(const forecast of data.forecasts)forecast.variableAfterDay=day-(recorded?0:1);
       const html=render(),lists=[...html.matchAll(/<ol class="ranked-list forecast-items">(.*?)<\/ol>/gs)].map(row=>row[1]);
       assert.equal(lists.length,2,'GBP and EUR have independent rows');
       for(const list of lists) {
         assert.equal((list.match(/class="estimate"/g)||[]).length,1);
         assert.match(list,/<li class="estimate">.*<\/li>$/s);
-        assert.match(list,recorded?/The 25 days left/:/The whole month/);
+        assert.match(list,new RegExp(!recorded&&day===1?'The whole month':`The ${30-day+(recorded?0:1)} days left`));
         assert.match(list,/\d+-month average .* a month/);
         assert.match(list,/Estimated variable spending/);
       }
       assert.match(html,/Recorded through/);
-      assert.match(html,recorded?/recorded through day 5/:/recorded through day 0/);
+      assert.match(html,new RegExp(`recorded through day ${day}`));
     }
   } finally {await server.close();await rm(copy.application,{recursive:true,force:true});}
 });

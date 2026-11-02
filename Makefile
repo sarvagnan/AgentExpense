@@ -20,7 +20,7 @@ review-dashboard/node_modules/.package-lock.json: review-dashboard/package-lock.
 	npm --prefix review-dashboard ci
 
 test-server: review-dashboard/node_modules/.package-lock.json
-	HLEDGER_BIN="$(HLEDGER)" uv run --locked --directory review-dashboard/server python -m unittest discover -s tests -v
+	HLEDGER_BIN="$(HLEDGER)" uv run --locked --directory review-dashboard/server python tests/run_tests.py
 
 agent-check: review-dashboard/node_modules/.package-lock.json
 	@PYTHONDONTWRITEBYTECODE=1 LIVE="$(LIVE)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_check.py

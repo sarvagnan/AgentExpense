@@ -1,8 +1,6 @@
 """Exact calendar and conservative whole-payment tests, independent of source ledgers."""
 from copy import deepcopy
 from datetime import date, timedelta
-import csv
-import io
 import json
 from calendar import monthrange
 from math import gcd
@@ -17,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from recurring import (active, advance, candidate, detect, identity, match_text,
                        occurrence, periodic_schedules, same_payment, text_amounts)
 from generate_ledger import render_entry
+from hledger_oracle import calendar_dates
 
 ACCOUNTS={'Assets:Purse':dict(kind='cash',currency='EUR',label='Fern purse',aliases=['fern']),
           'Assets:Other':dict(kind='bank',currency='USD',label='River bank',aliases=['river'])}
@@ -119,12 +118,9 @@ class RecurringTests(unittest.TestCase):
                             else:
                                 current = advance(current, current['date'])
                         expected[account] = (start, dates)
-            run = subprocess.run([binary, '-f', '-', 'print', f'--forecast={year}-01-01..{end}', '-O', 'csv'],
-                                 input='\n'.join(journal), text=True, capture_output=True, check=True)
-            actual = {account: [] for account in expected}
-            for row in csv.DictReader(io.StringIO(run.stdout)):
-                if row['account'] in expected and row['date'] >= expected[row['account']][0]:
-                    actual[row['account']].append(row['date'])
+            observed = calendar_dates(binary, '\n'.join(journal), f'{year}-01-01', end)
+            actual = {account: [day for day in observed.get(account, []) if day >= start]
+                      for account, (start, dates) in expected.items()}
             for account, (start, dates) in expected.items():
                 with self.subTest(year=year, account=account, start=start):
                     self.assertEqual(sorted(actual[account]), dates)

@@ -14,7 +14,7 @@ const sizes=[{width:1440,height:900},{width:412,height:915}];
 const locale={asha:'en-IN',jordan:'en-US',sam:'en-GB',empty:'en-US'};
 const zone={asha:'Asia/Kolkata',jordan:'America/Chicago',sam:'Europe/Berlin',empty:'America/Chicago'};
 
-export async function runSuite({browser,engine,stage,expect,results,capture}) {
+export async function runSuite({browser,engine,stage,expect,results,capture,checkpoint=async()=>{}}) {
   const {base,persona,ledger}=stage;
   // macOS WebKit follows the system keyboard-access preference. Option-Tab
   // includes links and buttons even when full keyboard access is off.
@@ -62,7 +62,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
       if(process.env.BROWSER_FOCUS==='finish') {
         await runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
-        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();continue;
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       await control('gate',{state:'ready'});
       const seeded=await resetDrafts({persona,empty:persona==='empty'});
@@ -173,8 +173,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
       const oldData=route=>route.fulfill({status:200,contentType:'application/gzip',body:gzipSync(JSON.stringify(stale))});
       await page.route('**/data/dashboard.json.gz',oldData);
       await go('explorer/');
-      const currentLabel=new Date(currentMonth+'-01T12:00:00').toLocaleDateString(locale[persona],{month:'long',year:'numeric'});
-      await expect(page.getByText('Nothing recorded in '+currentLabel+' yet',{exact:true})).toBeVisible();
+      await expect(page.getByText('Nothing recorded this month yet',{exact:true})).toBeVisible();
       await expect(page.locator('.metrics,.calendar,.currency-series')).toHaveCount(0);
       await snap('explorer-current-empty');
       await page.unroute('**/data/dashboard.json.gz',oldData);
@@ -182,7 +181,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
       await expect(page).toHaveURL(/month=2026-10/);
       if(persona!=='empty')await expect(page.locator('.entries-table tbody tr').first()).toBeVisible();
       await page.getByRole('button',{name:'Next month',exact:true}).click();
-      await expect(page.getByText('Nothing recorded in '+currentLabel+' yet',{exact:true})).toBeVisible();
+      await expect(page.getByText('Nothing recorded this month yet',{exact:true})).toBeVisible();
       await go('forecast/');
       if(persona!=='empty') {
         for(const list of await page.locator('.forecast-items').all()) {
@@ -190,7 +189,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
           await expect(list.locator('li').last()).toHaveClass('estimate');
           await expect(list.locator('.estimate .row-sub')).toContainText('The whole month');
           await expect(list.locator('.estimate .row-sub')).toContainText('a month');
-          assert.equal(await list.locator('.estimate .row-sub').evaluate(node=>getComputedStyle(node).whiteSpace),'normal','The complete average label wraps without ellipsis');
+          await expect(list.locator('.estimate .row-sub')).toHaveCSS('white-space','normal');
         }
         await snap('forecast-variable-whole-month');
       }
@@ -292,7 +291,14 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
           if(month==='07') {
             await expect(page.locator('.mixed-category').filter({hasText:'Food'})).toContainText('GBP');
             await expect(page.locator('.mixed-category').filter({hasText:'Food'})).toContainText('EUR');
-            await expect(page.locator('.mixed-categories .delta')).toHaveCount(0);
+            const built=JSON.parse(await readFile(join(stage.dash,'app/data/dashboard.json'),'utf8'));
+            for(const currency of ['GBP','EUR']) {
+              const row=built.months.find(row=>row.month==='2026-'+month&&row.currency===currency);
+              const bars=page.locator(`.category-currency[data-currency="${currency}"] .bar-previous`);
+              await expect(bars).toHaveCount(row.comparison?row.categories.length:0);
+              if(!row.comparison)await expect(page.locator(`.category-currency[data-currency="${currency}"] .delta`)).toHaveCount(0);
+            }
+            await expect(page.locator('.aside-section-head').filter({hasText:'Categories'})).toContainText('whole month');
             const colours=await page.locator('.trend-currency .trend-line').evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).stroke));
             assert.equal(new Set(colours).size,2);
             for(const currency of ['GBP','EUR'])assert.equal(await page.locator(`.category-currency[data-currency="${currency}"] i`).first().evaluate(node=>getComputedStyle(node).backgroundColor),await page.locator(`.trend-currency[data-currency="${currency}"] .trend-line`).first().evaluate(node=>getComputedStyle(node).stroke));
@@ -343,7 +349,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
         await snap('accounts-empty');
         await page.getByRole('button',{name:'Meadow Savings',exact:true}).click();await expect(page.getByLabel('Currency',{exact:true})).toHaveValue('USD');await page.getByLabel('Currency',{exact:true}).selectOption('EUR');await expect(page.getByRole('dialog')).toContainText('€4,650.00');await snap('account-opening-changeable');await closeDialog();
         await go('explorer/');await expect(page.getByText('Your spending starts here.',{exact:false})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);
-        for(const view of ['atlas','forecast']){await go(view+'/');await expect(page.getByText(view==='atlas'?'Nothing recorded in':'No expenses yet.',{exact:view!=='atlas'})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);}
+        for(const view of ['atlas','forecast']){await go(view+'/');await expect(page.getByText(view==='atlas'?'Nothing recorded this month yet':'No expenses yet.',{exact:true})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);}
         await control('openings',{enabled:false});record('opening-only Accounts subtracts debt with no invented history; Explorer invites the first expense');
       }
       if(persona==='asha') {
@@ -372,6 +378,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture}) {
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});
       await context.close();
+      await checkpoint();
     } catch(error) {
       await page.screenshot({path:join(stage.root,`failure-${engine}-${theme}-${width}.png`),fullPage:true}).catch(()=>{});
       await context.tracing.stop({path:join(stage.root,`failure-${engine}-${theme}-${width}.zip`)}).catch(()=>{});

@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 import {homedir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {cp,mkdir,mkdtemp,readFile,writeFile,rm,open} from 'node:fs/promises';
+import {cp,mkdir,mkdtemp,readFile,writeFile,rename,rm,open} from 'node:fs/promises';
 import {spawn,execFileSync} from 'node:child_process';
 import {createServer} from 'node:net';
 import {capture,contactSheet,shots} from './capture.mjs';
@@ -24,6 +24,11 @@ process.env.TMPDIR=join(artifacts,'tmp');await mkdir(process.env.TMPDIR);
 const venv=join(source,'review-dashboard/server/.venv'),python=join(venv,'bin/python');
 if(process.env.CAPTURE!=='0' && !process.env.ENGINES && !process.env.PERSONA)await rm(shots,{recursive:true,force:true});
 const manifest=[],results=[];let activeServer,activeBrowser,stage;
+async function checkpoint() {
+  const destination=join(artifacts,'results.json');
+  await writeFile(destination+'.next',JSON.stringify({engines,personas,results,captures:manifest.length,manifest},null,2)+'\n');
+  await rename(destination+'.next',destination);
+}
 const filter=path=>!['.git','.jj','.venv','node_modules','dist','__pycache__'].includes(path.split('/').at(-1));
 async function run(command,args,options) {
   const child=spawn(command,args,{...options,stdio:['ignore','pipe','pipe']});
@@ -57,7 +62,7 @@ async function staging(persona) {
   const jjConfig=join(root,'jj.toml');await writeFile(jjConfig,'[user]\nname = "Browser Fixture"\nemail = "browser@example.invalid"\n');
   const fake=join(root,'fake-agent');await writeFile(fake,`#!${python}\n`+(await readFile(join(source,'review-dashboard/server/tests/fake_agent.py'),'utf8')).split('\n').slice(1).join('\n'),{mode:0o755});
   const config=join(root,'fake.json');await writeFile(config,JSON.stringify({steps:[]}));
-  const env={...process.env,DASHBOARD_TODAY:process.env.DASHBOARD_TODAY || '2026-11-01',PYTHONDONTWRITEBYTECODE:'1',VIRTUAL_ENV:venv,PATH:join(venv,'bin')+':'+process.env.PATH,UV_OFFLINE:'1',UV_NO_SYNC:'1',UV_CACHE_DIR:join(root,'uv-cache'),npm_config_cache:join(root,'npm-cache'),NODE_COMPILE_CACHE:join(root,'node-cache'),JJ_CONFIG:jjConfig,LEDGER_DIR:ledger,EXPENSES_STATE_DIR:join(root,'state'),EXPENSES_CODEX_HOME:join(root,'agent-home'),EXPENSES_CODEX:fake,EXPENSES_FAKE_CONFIG:config,EXPENSES_DEV:'1',EXPENSES_BASE_PATH:'/expenses/',EXPENSES_AGENT_TIMEOUT:'10',BROWSER_PERSONA:persona};
+  const env={...process.env,DASHBOARD_TODAY:process.env.DASHBOARD_TODAY || '2026-11-01',PYTHONDONTWRITEBYTECODE:'1',VIRTUAL_ENV:venv,PATH:join(venv,'bin')+':'+process.env.PATH,UV_OFFLINE:'1',UV_NO_SYNC:'1',UV_CACHE_DIR:join(root,'uv-cache'),npm_config_cache:join(root,'npm-cache'),NODE_COMPILE_CACHE:join(root,'node-cache'),EXPENSES_TEST_ORACLE_CACHE:join(root,'hledger-oracles'),JJ_CONFIG:jjConfig,LEDGER_DIR:ledger,EXPENSES_STATE_DIR:join(root,'state'),EXPENSES_CODEX_HOME:join(root,'agent-home'),EXPENSES_CODEX:fake,EXPENSES_FAKE_CONFIG:config,EXPENSES_DEV:'1',EXPENSES_BASE_PATH:'/expenses/',EXPENSES_AGENT_TIMEOUT:'10',BROWSER_PERSONA:persona};
   await run('jj',['git','init','--colocate',ledger],{cwd:app,env});
   await run('jj',['-R',ledger,'commit','-m','Fictional browser baseline'],{cwd:app,env});
   await run('jj',['-R',ledger,'bookmark','set','main','-r','@-'],{cwd:app,env});
@@ -104,7 +109,7 @@ try {
         assert.ok((await page.title()).includes('mockup'));
         await context.close();
       }
-      await runSuite({browser:activeBrowser,engine,stage,expect,results,capture:process.env.CAPTURE==='0'?async()=>{}:async(page,info)=>capture(page,manifest,{...info,engine,persona})});
+      await runSuite({browser:activeBrowser,engine,stage,expect,results,checkpoint,capture:process.env.CAPTURE==='0'?async()=>{}:async(page,info)=>capture(page,manifest,{...info,engine,persona})});
       await activeBrowser.close();activeBrowser=null;
       console.log(`PASS ${persona} ${engine}`);
     }
@@ -116,7 +121,7 @@ try {
 } finally {
   await activeBrowser?.close();await stop(activeServer);
   if(process.env.CAPTURE!=='0')await contactSheet(manifest);
-  await writeFile(join(artifacts,'results.json'),JSON.stringify({engines,personas,results,captures:manifest.length},null,2)+'\n');
+  await checkpoint();
   console.log(`Browser results: ${join(artifacts,'results.json')}`);
   console.log(`Screenshot contact sheet: ${shots}/index.html`);
 }

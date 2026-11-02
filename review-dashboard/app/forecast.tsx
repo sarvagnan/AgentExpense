@@ -2,6 +2,8 @@ import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { dashboard as data, type DashboardData } from './data';
 import { moneyWhole as formatWhole, axisMoney as formatAxis } from './formatting';
+import {cumulative, forecastProjection, variableAfter as estimateAfter, type Point} from './forecast-projection';
+import {previousMonth as calendarPreviousMonth} from '../scripts/month-summary.mjs';
 import { Delta, Icon, PageHeader, useColumnWidths, useQueryState, useRowNavigation, PanelHeader, dayShort, daysInMonth, monthAbbr, monthLong, monthShort, plural } from './ui';
 
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
@@ -10,15 +12,8 @@ const SLOTS = ['var(--compare-1)', 'var(--compare-2)', 'var(--compare-3)', 'var(
 const slotName = (slot: number) => String.fromCharCode(65 + slot);
 const FOCUS = 'var(--series-focus)';
 
-type Point = { day: number; value: number };
 type Portion = DashboardData['forecast']['variable']['portions'][number];
 const portionLabel = (portion: Portion, days = 31) => `${portion.from}–${Math.min(portion.to, days)}`;
-// Cumulative spend at the end of each day, starting from zero before day 1.
-function cumulative(increments: Map<number, number>, from: number, to: number, start = 0): Point[] {
-  const points = [{ day: from, value: start }];
-  for (let day = from + 1; day <= to; day += 1) points.push({ day, value: points.at(-1)!.value + (increments.get(day) || 0) });
-  return points;
-}
 
 export default function Forecast() {
   const active = data.forecasts.filter(forecast => forecast.items.length || data.months.some(month => month.currency === forecast.currency && month.count));
@@ -29,7 +24,8 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
   const axisMoney = (value: number, max: number) => formatAxis(value, max, forecast.currency);
   const months = data.months.filter(item => item.currency === forecast.currency);
   const currentMonth = forecast.currentMonth;
-  const asOfDay = forecast.daysPassed;
+  const asOfDay = Number(data.meta.today.slice(8, 10));
+  const hasCurrentRecords = data.transactions.some(row => row.currency === forecast.currency && row.month === currentMonth && row.date <= data.meta.today);
   const complete = months.filter((item) => item.month >= forecast.firstFullMonth && item.month < currentMonth);
   const earlier = complete.slice(-12).reverse();
   const forecastMonths = forecast.months.map((item) => item.month);
@@ -71,25 +67,11 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
   // evenly over that portion's days in the month being forecast (so a 30-day month keeps the full last portion).
   const { variable } = forecast;
   const averageVariable = variable.portions.reduce((sum, portion) => sum + portion.average, 0);
-  const portionOf = (day: number) => variable.portions.find((portion) => day >= portion.from && day <= portion.to)!;
-  const variableOn = (day: number, days: number) => { const portion = portionOf(day); return portion.average / (Math.min(portion.to, days) - portion.from + 1); };
-  const variableAfter = (month: string, afterDay: number) => { let sum = 0; for (let day = afterDay + 1; day <= daysInMonth(month); day += 1) sum += variableOn(day, daysInMonth(month)); return sum; };
-  const focusDays = daysInMonth(focus);
-  const isCurrent = focus === currentMonth;
-  const focusItems = forecast.items.filter((item) => item.month === focus && (item.kind !== 'Investment' || moduleSettings(data.meta.ledger).investments !== false));
-  const forecastIncrements = new Map<number, number>();
-  for (const item of focusItems) {
-    const day = Number(item.date.slice(8, 10));
-    forecastIncrements.set(day, (forecastIncrements.get(day) || 0) + item.signedExpense);
-  }
-  if (includeVariable) for (let day = isCurrent ? asOfDay + 1 : 1; day <= focusDays; day += 1) forecastIncrements.set(day, (forecastIncrements.get(day) || 0) + variableOn(day, focusDays));
+  const projection = forecastProjection(forecast, months, data.meta.today, focus, includeVariable);
+  const {focusDays, isCurrent, remainingDays} = projection;
+  const focusItems = projection.items.filter(item => item.kind !== 'Investment' || moduleSettings(data.meta.ledger).investments !== false);
   const recordedDaily = (month: string) => new Map((months.find((item) => item.month === month)?.daily || []).map((item) => [item.day, item.amount]));
-  const focusRecorded = isCurrent ? cumulative(recordedDaily(currentMonth), 0, asOfDay) : [];
-  const focusForecast = cumulative(forecastIncrements, isCurrent ? asOfDay : 0, focusDays, focusRecorded.at(-1)?.value || 0);
-  const focusTotal = focusForecast.at(-1)!.value;
-  const focusRecordedTotal = focusRecorded.at(-1)?.value || 0;
-  const focusCommitted = focusItems.filter((item) => item.kind !== 'Investment').reduce((sum, item) => sum + item.signedExpense, 0);
-  const focusVariable = includeVariable ? variableAfter(focus, isCurrent ? asOfDay : 0) : 0;
+  const {recorded: focusRecorded, expected: focusForecast, total: focusTotal, recordedTotal: focusRecordedTotal, committed: focusCommitted, variable: focusVariable} = projection;
   const focusRows = focusItems.slice().sort((a, b) => a.date.localeCompare(b.date));
   const stripTop = Math.max(0, ...variable.portions.map((portion) => portion.max));
   const stripLow = Math.min(0, ...variable.portions.map((portion) => portion.min));
@@ -104,7 +86,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
   }));
   const visibleLines = lines.filter((line) => line.month in assigned) as (typeof lines[number] & { color: string })[];
   const full = Object.keys(assigned).length >= SLOTS.length;
-  const previousMonth = lines[0];
+  const previousMonth = lines.find(line => line.month === calendarPreviousMonth(currentMonth));
   const previousAtDay = previousMonth?.points[Math.min(asOfDay, previousMonth.points.length - 1)]?.value || 0;
 
   const allValues = [...visibleLines.flatMap((line) => line.points.map((point) => point.value)), ...focusRecorded.map((point) => point.value), ...focusForecast.map((point) => point.value)];
@@ -172,7 +154,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
     ...earlier.slice().reverse().map((item) => ({ month: item.month, phase: 'actual' as const, recorded: item.total, committed: 0, variable: 0 })),
     ...forecast.months.slice(0, Math.max(7, forecastMonths.indexOf(focus) + 1)).map((item) => {
       const current = item.month === currentMonth;
-      return { month: item.month, phase: current ? 'current' as const : 'forecast' as const, recorded: current ? months.find((row) => row.month === currentMonth)?.total || 0 : 0, committed: item.committed, variable: includeVariable ? variableAfter(item.month, current ? asOfDay : 0) : 0 };
+      return { month: item.month, phase: current ? 'current' as const : 'forecast' as const, recorded: current ? months.find((row) => row.month === currentMonth)?.total || 0 : 0, committed: item.committed, variable: includeVariable ? estimateAfter(forecast, item.month, current ? forecast.variableAfterDay : 0) : 0 };
     }),
   ].map((row) => ({ ...row, total: row.recorded + row.committed + row.variable }))
     .map((row, index, all) => ({ ...row, previousTotal: index ? all[index - 1].total : null }));
@@ -197,7 +179,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
 
     <section className="metrics" aria-label="Forecast summary">
       <div className="metric"><p className="metric-label">{monthLong(focus)} {isCurrent ? 'projected' : 'forecast'}</p><p className="metric-value">{moneyWhole(focusTotal)}</p><p className="metric-note"><Delta value={focusTotal} base={average} suffix={`vs ${compare}-month average`}/></p></div>
-      {isCurrent ? <div className="metric"><p className="metric-label">{forecast.asOf ? `Recorded through ${dayShort(forecast.asOf)}` : 'Nothing recorded yet'}</p><p className="metric-value">{moneyWhole(focusRecordedTotal)}</p><p className="metric-note">{previousMonth ? <Delta value={focusRecordedTotal} base={previousAtDay} suffix={`vs ${monthAbbr(previousMonth.month)} by day ${asOfDay}`}/> : 'No earlier month'}</p></div>
+      {isCurrent ? <div className="metric"><p className="metric-label">Recorded through {dayShort(data.meta.today)}</p><p className="metric-value">{moneyWhole(focusRecordedTotal)}</p><p className="metric-note">{!hasCurrentRecords ? 'Nothing recorded this month yet' : previousMonth ? <Delta value={focusRecordedTotal} base={previousAtDay} suffix={`vs ${monthAbbr(previousMonth.month)} by day ${asOfDay}`}/> : 'No earlier month'}</p></div>
         : <div className="metric"><p className="metric-label">Committed in {monthShort(focus)}</p><p className="metric-value">{moneyWhole(focusCommitted)}</p><p className="metric-note">{plural(focusItems.length, 'forecast entry', 'forecast entries')}</p></div>}
       <div className="metric"><p className="metric-label">{compare}-month average</p><p className="metric-value">{moneyWhole(average)}</p><p className="metric-note">{window.length ? `${monthShort(window[0].month)} – ${monthShort(window.at(-1)!.month)}, recorded` : 'No full months yet'}</p></div>
       <div className="metric"><p className="metric-label">Variable spending still to come</p><p className="metric-value">{includeVariable ? moneyWhole(focusVariable) : 'Not included'}</p><p className="metric-note">Based on {variable.months.length} full months · {moneyWhole(averageVariable)} in a typical month</p></div>
@@ -242,10 +224,11 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
         {hoverDay !== null && <div className="chart-tooltip" style={{ left: Math.max(0, Math.min(x(hoverDay) + 12, W - tooltipWidth)), width: tooltipWidth }} role="status">
           <p className="chart-tooltip-title">Day {hoverDay}, cumulative</p>
           {hoverFocus !== undefined && <p><svg width="14" height="4" aria-hidden="true"><path d="M1 2H13" style={{ stroke: FOCUS }} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={isCurrent && hoverDay <= asOfDay ? undefined : '0.1 4'}/></svg><strong>{moneyWhole(hoverFocus)}</strong><span>{monthShort(focus)} {isCurrent && hoverDay <= asOfDay ? 'recorded' : 'forecast'}{endNote(focusForecast, hoverDay)}</span></p>}
+          {isCurrent && hoverDay === asOfDay && focusForecast[0].value !== focusRecordedTotal && <p><svg width="14" height="4" aria-hidden="true"><path d="M1 2H13" style={{stroke: FOCUS}} strokeWidth="2.5" strokeDasharray="0.1 4"/></svg><strong>{moneyWhole(focusForecast[0].value)}</strong><span>Expected at today</span></p>}
           {visibleLines.map((line) => { const value = valueAt(line.points, hoverDay); return value === undefined ? null : <p key={line.month}><svg className="compare-key" data-compare-slot={line.slot} width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: line.color }} strokeWidth="2" strokeLinecap="round"/></svg><strong>{moneyWhole(value)}</strong><span>{slotName(line.slot)} · {monthShort(line.month)}{endNote(line.points, hoverDay)}</span></p>; })}
         </div>}
       </div></div>
-      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with foreign-currency commitments at their recorded planning cost{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({moneyWhole(averageVariable)} a month on average across {variable.months.length} full months)</> : '. Variable spending is not included, so the line rises only on commitment dates'}. {moduleSettings(data.meta.ledger).investments !== false && 'Investments are left out.'}</p>
+      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with foreign-currency commitments at their recorded planning cost{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({moneyWhole(averageVariable)} a month on average across {variable.months.length} full months)</> : '. Variable spending is not included, so the line rises only on commitment dates'}. Overdue expected payments are added at today. {includeVariable && 'Today’s variable estimate remains until an entry dated today is recorded. '}{moduleSettings(data.meta.ledger).investments !== false && 'Investments are left out.'}</p>
     </section>
 
     <div className="forecast-detail-grid">
@@ -259,7 +242,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
         </dl>
         <ol className="ranked-list forecast-items">{focusRows.map((item, index) =>
           <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{moneyWhole(item.amount)}</span></li>)}
-          {includeVariable && <li className="estimate"><span className="date">{monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">{!isCurrent || !asOfDay ? 'The whole month' : `The ${focusDays - asOfDay} days left`} · {variable.months.length}-month average {moneyWhole(averageVariable)} a month</span></span><span className="num">{moneyWhole(focusVariable)}</span></li>}
+          {includeVariable && <li className="estimate"><span className="date">{monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">{!isCurrent || remainingDays === focusDays ? 'The whole month' : `The ${remainingDays} days left`} · {variable.months.length}-month average {moneyWhole(averageVariable)} a month</span></span><span className="num">{moneyWhole(focusVariable)}</span></li>}
         </ol>
         {!focusItems.length && <p className="panel-note">No recurring commitments fall in this month.</p>}
       </section>

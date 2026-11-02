@@ -83,6 +83,24 @@ worker checks at startup and every 30 seconds, rebuilding stale daily data only
 under a nonblocking ledger lock with a clean working copy; failures are logged
 and delayed ten minutes before another attempt.
 
+Step 6b2 also changes generated data only. `meta.today` is the shared recording
+cut-off for the current month's summaries and charts, independently of the latest
+actual entry. Current-month aggregates include entries through that date. Each
+month/currency adds `comparison`: the previous calendar month's signed expense
+summary (`month`, `total`, `count`, `pending`, `categories`, `daily`), or `null`
+when that currency was absent. In the current month the comparison includes only
+days up to today's day number; older months compare complete months. The same
+expense/refund aggregation builds both summaries. An empty calendar placeholder
+has `comparison: null`.
+
+Each forecast adds `variableAfterDay`: the last day excluded from the remaining
+variable estimate. It is yesterday's day number until an actual in that currency
+is dated today, then today's day number. `asOf` and the legacy `daysPassed` retain
+their latest-entry meanings; `start` is the later of the day after that entry and
+the first of the current month. Scheduled payments between `start` and today
+remain expected, appearing at today on the forecast line. No store, audit,
+financial posting or ledger format changes are required.
+
 ### Unreleased format 1: recurring rules (6c1)
 
 Forecast rules optionally add `lifecycle` (active/paused/ended/removed; omitted
