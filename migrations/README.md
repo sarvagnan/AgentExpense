@@ -82,3 +82,25 @@ variable-spending row; weekly source profiles remain available for explanation.
 worker checks at startup and every 30 seconds, rebuilding stale daily data only
 under a nonblocking ledger lock with a clean working copy; failures are logged
 and delayed ten minutes before another attempt.
+
+### Unreleased format 1: recurring rules (6c1)
+
+Forecast rules optionally add `lifecycle` (active/paused/ended/removed; omitted
+means active), `origin` (`kind`: owner/subscription-words/monthly-history/history-pass,
+optional words/evidence/came_back), `created` date, `removal` (date/evidence), and
+`schedule.anchor-day` (1–31). Actual entries optionally add `rule: {id, occurrence}`.
+Rule references and origin/removal evidence must exist. Only active rules forecast
+or match. `data/recurring-settings.json` optionally stores the schema-checked
+`never-automatic` account prefixes. Preferences remain ledger data.
+
+Version-1 draft audit lines optionally add `usual_payment` and `rule_changes`
+(before/after rule snapshots). New `rule` events record made, edited, paused,
+resumed, ended, restored, removed, kept, undone, catch-up and backfill, with durable
+request IDs/hashes and changes; undo retains its original audit ID and reversing
+entry ID. `rule-review` events record confirm/propose-removal plus reason/reviewer;
+the owner's removal/keep answer is a separate line. Existing lines are unchanged.
+See [Recurring rules](../docs/RULES.md) for exact fields, API and CLI contracts.
+
+The 0 → 1 migration reports the number of already-paid stale rules and prints
+`make rules-catch-up`. It does not advance or otherwise modify a rule. Journals
+retain existing schedules unless the operator explicitly catches them up.

@@ -2291,6 +2291,32 @@
     ]
   },
   {
+    "id": "00000000000000de",
+    "date": "2026-09-01",
+    "status": "confirmed",
+    "description": "Maple Workshop",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-12.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000df",
+    "date": "2026-09-01",
+    "status": "confirmed",
+    "description": "Fictional learning allowance",
+    "notes": [
+      "Funds the fictional recurring history examples; preserves approved account balances"
+    ],
+    "postings": [
+      {"account": "Assets:Bank:Birken Current", "amount": "64.00", "commodity": "EUR"},
+      {"account": "Income:Learning Allowance", "amount": "-64.00", "commodity": "EUR"}
+    ]
+  },
+  {
     "id": "00000000000000b4",
     "date": "2026-09-03",
     "status": "confirmed",
@@ -2548,6 +2574,19 @@
     "postings": [
       {"account": "Expenses:Food:Groceries", "amount": "59.16", "commodity": "EUR"},
       {"account": "Assets:Bank:Birken Current", "amount": "-59.16", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000e0",
+    "date": "2026-09-15",
+    "status": "confirmed",
+    "description": "Cedar Studio membership",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-20.00", "commodity": "EUR"}
     ]
   },
   {
@@ -2818,6 +2857,32 @@
     "postings": [
       {"account": "Expenses:Food:Groceries", "amount": "68.34", "commodity": "EUR"},
       {"account": "Assets:Bank:Birken Current", "amount": "-68.34", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000e1",
+    "date": "2026-10-15",
+    "status": "confirmed",
+    "description": "Cedar Studio membership",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-20.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000e2",
+    "date": "2026-10-20",
+    "status": "confirmed",
+    "description": "Maple Workshop",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-12.00", "commodity": "EUR"}
     ]
   },
   {

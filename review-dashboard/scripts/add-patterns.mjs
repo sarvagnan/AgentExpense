@@ -17,6 +17,7 @@ export function patternOf(entry, metadata = {}) {
   return null;
 }
 export function buildPatterns(transactions, metadata = {}, manifest = {}, forecasts = []) {
+  forecasts = forecasts.filter(rule => (rule.lifecycle ?? 'active') === 'active');
   const patterns = {}, accounts = Object.keys(metadata);
   const people = Object.entries(metadata).filter(([, m]) => m.kind === 'person').map(([a]) => accountLabel(a, metadata));
   const payments = paymentAccounts(metadata);

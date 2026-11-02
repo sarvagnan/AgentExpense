@@ -5,3 +5,12 @@ All people, products, dates and values are invented. This USD fixture has openin
 From the application root run `LEDGER_DIR="$PWD/fixtures/ledgers/jordan" make dashboard`.
 
 Willow Travel has an EUR 650 opening balance and no later activity. The fictional Juniper Table dinner keeps EUR 46.80 and USD 51.48 charged to Lumen Card. Spending remains in USD; account totals also retain EUR separately.
+
+Recurring examples include Cedar Studio's September/October whole payments,
+Maple Workshop's weaker irregular pattern, a paused Cedar Archive rule, an
+already-paid rent rule and Lantern Notes' EUR expense with a planned USD charge.
+The fixture's `never-automatic` preferences are ledger data. The four added
+fictional history payments total USD 64; backfill makes one Cedar Studio rule.
+The recurring-history example extends the opening date to September 1. All five
+opening amounts, accounts, assertions and IDs are retained; only their date and
+the manifest startDate move together so September payments follow the openings.

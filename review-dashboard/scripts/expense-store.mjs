@@ -80,8 +80,9 @@ export function scheduleText({ every, interval = 1, from }) {
 }
 
 // Always offset from the original anchor: Jan 30 -> Feb 28 -> Mar 30, without drift.
-function occurrenceDate(from, months) {
-  const [year, month, day] = from.split('-').map(Number);
+export function occurrenceDate(from, months, anchorDay) {
+  const [year, month, fromDay] = from.split('-').map(Number);
+  const day = anchorDay ?? fromDay;
   const target = new Date(`${from}T00:00:00Z`);
   target.setUTCDate(1);
   target.setUTCFullYear(year, month - 1 + months, 1);
@@ -97,6 +98,7 @@ export function expandForecast(rules, start, end) {
   checkDate(end);
   if (end <= start) throw new Error(`Invalid forecast window: ${start}..${end}`);
   const occurrences = rules.flatMap((rule) => {
+    if ((rule.lifecycle ?? 'active') !== 'active') return [];
     const text = scheduleText(rule.schedule);
     const { every, interval = 1, from } = rule.schedule;
     const step = interval * (every === 'year' ? 12 : 1);
@@ -104,7 +106,7 @@ export function expandForecast(rules, start, end) {
       + Number(start.slice(5, 7)) - Number(from.slice(5, 7));
     const result = [];
     for (let index = Math.max(0, Math.floor(monthDifference / step)); ; index++) {
-      const date = occurrenceDate(from, index * step);
+      const date = occurrenceDate(from, index * step, rule.schedule['anchor-day']);
       if (date >= end) break;
       if (date >= start) result.push({ ...rule, date, rule: text });
     }
@@ -126,20 +128,32 @@ export async function loadExpenseStore(root = storeRoot) {
     readJson(path.join(root, 'data', 'accounts.json')),
   ]);
   const schema = await readJson(path.join(applicationRoot, 'schema/store.schema.json'));
+  const recurringSettings = await readJson(path.join(root, 'data/recurring-settings.json')).catch(error => { if (error.code === 'ENOENT') return {'never-automatic': []}; throw error; });
+  validate(recurringSettings, schema.$defs['recurring-settings'], 'data/recurring-settings.json', schema);
   validate(declarations, schema.$defs.accounts, 'data/accounts.json', schema);
   for (const metadata of Object.values(declarations.accounts)) {
     if (metadata.aliases?.some(alias => alias !== alias.toLowerCase())) throw new Error('Account aliases must be lowercase.');
   }
   if (years.some((year) => !Array.isArray(year)) || !Array.isArray(rawRules)) throw new Error('Store entries must be arrays');
+  if (rawRules.some(rule => Object.hasOwn(rule, 'possible-duplicate-of'))) throw new Error('Forecasts cannot contain possible duplicate links');
+  for (const rule of rawRules) {
+    for (const field of ['lifecycle', 'origin', 'created', 'removal', 'schedule']) {
+      if (Object.hasOwn(rule, field)) validate(rule[field], schema.$defs.rule.properties[field], `rule.${field}`, schema);
+    }
+    if (Object.hasOwn(rule, 'rule')) throw new Error('Forecasts cannot link rule occurrences');
+  }
   const actuals = years.flat();
   const ids = new Set();
   for (const entry of [...actuals, ...rawRules]) {
     if (typeof entry.id !== 'string' || !/^[0-9a-f]{16}$/.test(entry.id) || ids.has(entry.id)) throw new Error(`Invalid or duplicate store ID: ${entry.id}`);
     ids.add(entry.id);
   }
-  if (rawRules.some(rule => Object.hasOwn(rule, 'possible-duplicate-of'))) throw new Error('Forecasts cannot contain possible duplicate links');
   const actualIds = new Set(actuals.map(entry => entry.id));
   for (const entry of actuals) {
+    if (entry.rule) {
+      validate(entry.rule, schema.$defs.entry.properties.rule, 'entry.rule', schema);
+      if (!rawRules.some(rule => rule.id === entry.rule.id)) throw new Error('Unknown rule link');
+    }
     if (!entry['possible-duplicate-of']) continue;
     validate(entry['possible-duplicate-of'], schema.$defs.entry.properties['possible-duplicate-of'], 'possible-duplicate-of', schema);
     const targets = entry['possible-duplicate-of'].map(link => link.id);
@@ -151,7 +165,10 @@ export async function loadExpenseStore(root = storeRoot) {
   const transactions = actuals.map(entry => toTransaction(entry, declarations.accounts)).filter((_, index) => !isAssertionOnly(actuals[index]));
   const rules = rawRules.map((rule) => {
     scheduleText(rule.schedule);
+    if (occurrenceDate(rule.schedule.from, 0, rule.schedule['anchor-day']) !== rule.date) throw new Error('Rule anchor and date disagree');
+    if (rule.lifecycle === 'removed' && !rule.removal) throw new Error('Removed rule needs removal evidence');
+    if ([...(rule.origin?.evidence ?? []), ...(rule.removal?.evidence ?? [])].some(id => !actualIds.has(id))) throw new Error('Unknown rule evidence');
     return toTransaction(rule, declarations.accounts);
   });
-  return { transactions, rules, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
+  return { transactions, rules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
 }

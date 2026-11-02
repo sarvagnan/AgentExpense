@@ -1,0 +1,7 @@
+{
+  "never-automatic": [
+    "Expenses:Groceries",
+    "Expenses:Food:Dining & Delivery",
+    "Expenses:Transport:Fuel"
+  ]
+}

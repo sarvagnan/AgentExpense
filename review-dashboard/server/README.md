@@ -474,3 +474,12 @@ cannot run this maintenance during one of its transactions; external writers
 share the same lock. Build/read failures are logged, leave the worker running,
 and defer the next attempt for ten minutes. Production dates use the server's
 local calendar; tests may set `DASHBOARD_TODAY=YYYY-MM-DD`.
+
+### Recurring rule services
+
+The [recurring API and CLI reference](../../docs/RULES.md) documents read routes,
+`POST api/drafts/{id}/usual`, idempotent `POST api/rules/operations/{op-id}`, rule
+lifecycles, detection, suppression, history backfill, catch-up and checked Undo.
+These services use the shared transaction/FIFO without an agent call. Additions
+link/advance or create rules in their existing verified addition commit. UI for
+these services is implemented separately; no due-payment list is added to Add.

@@ -200,7 +200,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             raise HTTPException(409, f"Draft is {draft['state']}; expected {', '.join(states)}")
 
     def queue(draft, proposal=None):
-        draft.update(state='queued', queued_at=now(), error=None, waiting=None, proposal=proposal, answer_failures=0)
+        draft.update(state='queued', queued_at=(draft.get('queued_at') or now()) if draft.get('usual_payment') else now(), error=None, waiting=None, proposal=proposal, answer_failures=0)
         drafts.put(draft)
         worker.wake.set()
         return public(draft)
@@ -210,7 +210,57 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         if result.get('claim'):
             result['claim'] = {'expires_at': result['claim']['expires_at']}
         result['agent_pause'] = worker.pause.status()
+        if isinstance(result.get('result'), dict) and result['result'].get('audit_id'):
+            from rules_service import undo_eligibility
+            from audit import records
+            line = next((r for r in records(settings.ledger) if r['id'] == result['result']['audit_id']), None)
+            result['result'] = {**result['result'], 'can_undo': bool(line and undo_eligibility(settings, line, agent_clock))}
         return result
+
+    @app.get('/api/rules')
+    def list_rules():
+        from rules_service import snapshot
+        from ledger_lock import ledger_lock
+        with ledger_lock(settings.ledger):
+            return snapshot(settings, clock=agent_clock)
+
+    @app.get('/api/rules/match')
+    def match_rules(text: str = '', today: str | None = None, currency: str | None = None):
+        from rules_service import match
+        from ledger_lock import ledger_lock
+        try:
+            with ledger_lock(settings.ledger):
+                return match(settings, text, today, currency)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get('/api/rules/from-entry/{identity}')
+    def rule_from_entry(identity: str):
+        from rules_service import from_entry
+        from ledger_lock import ledger_lock
+        try:
+            with ledger_lock(settings.ledger):
+                return from_entry(settings, identity)
+        except ValueError as exc: raise HTTPException(404, str(exc)) from exc
+
+    @app.post('/api/rules/operations/{identity}')
+    def rule_operation(identity: str, body: dict):
+        from rules_service import operate
+        try: return worker.call(lambda: operate(settings, identity, body, clock=agent_clock))
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/drafts/{identity}/usual')
+    def usual_payment(identity: str, body: dict):
+        from rules_service import queue_usual
+        from ledger_lock import ledger_lock
+        with ledger_lock(settings.ledger), drafts.mutex:
+            draft = get(identity)
+            try: queue_usual(settings, drafts, draft, body)
+            except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+                raise HTTPException(409, str(exc)) from exc
+            worker.wake.set()
+            return public(draft)
 
     @app.get('/api/health')
     def health():
@@ -512,6 +562,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             if not isinstance(accounts,list) or set(accounts)!=set(checked['new_accounts']):
                 raise HTTPException(409,'Tick every new account before adding')
             drafts.release_claim(draft)
+            draft.pop('usual_payment', None)
+            draft.pop('usual_rule_hash', None)
             draft['finished_by']=dict(actor='user',reason=draft['hand_reason'].replace('_',' '))
             draft['account_consent']=dict(proposal_hash=checked['proposal_hash'],accounts=accounts,method='hand-ticks')
             draft.pop('account_question', None)
@@ -537,7 +589,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             draft = get(identity)
             require(draft, 'failed')
             draft['check_errors'] = []
-            return queue(draft, draft.get('hand_form') if draft.get('finished_by') else None)
+            return queue(draft, draft.get('proposal') if draft.get('usual_payment') else draft.get('hand_form') if draft.get('finished_by') else None)
 
     @app.delete('/api/drafts/{identity}', status_code=204)
     def discard(identity: str):

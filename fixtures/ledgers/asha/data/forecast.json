@@ -1,12 +1,12 @@
 [
   {
     "id": "f000000000000001",
-    "date": "2026-10-03",
+    "date": "2026-09-03",
     "status": "confirmed",
     "description": "Fern Court rent",
     "schedule": {
       "every": "month",
-      "from": "2026-10-03"
+      "from": "2026-09-03"
     },
     "postings": [
       {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
@@ -25,6 +25,24 @@
     "postings": [
       {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
       {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "f000000000000003",
+    "date": "2026-11-20",
+    "status": "confirmed",
+    "description": "Cedar Archive membership",
+    "schedule": {
+      "every": "month",
+      "from": "2026-11-20"
+    },
+    "lifecycle": "paused",
+    "origin": {
+      "kind": "owner"
+    },
+    "postings": [
+      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-8.00", "commodity": "INR"}
     ]
   }
 ]

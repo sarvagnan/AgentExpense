@@ -50,6 +50,10 @@
     "Expenses:Food:Groceries": {},
     "Expenses:Travel:Transit": {},
     "Expenses:Other:Books": {},
-    "Expenses:Uncategorized": {}
+    "Expenses:Uncategorized": {},
+    "Expenses:Subscriptions:Cedar Studio": {},
+    "Expenses:Learning:Maple Workshop": {},
+    "Expenses:Memberships:Cedar Archive": {},
+    "Income:Learning Allowance": {}
   }
 }

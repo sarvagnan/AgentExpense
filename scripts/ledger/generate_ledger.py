@@ -36,7 +36,12 @@ def amount(value: dict) -> str:
 
 def period(schedule: dict) -> str:
     unit, interval = schedule["every"], schedule.get("interval", 1)
-    cadence = ("monthly" if unit == "month" else "yearly") if interval == 1 else f"every {interval} {unit}s"
+    cadence = {"week": "weekly", "month": "monthly", "year": "yearly"}[unit] if interval == 1 else f"every {interval} {unit}s"
+    anchor = schedule.get('anchor-day')
+    if unit == 'month' and interval == 1 and anchor and anchor != int(schedule['from'][-2:]):
+        # Explicit day-of-month syntax keeps an advanced February occurrence's
+        # boundary and restores its 29th–31st anchor in following months.
+        cadence = f'every {anchor}th day of month'
     return f"{cadence} from {schedule['from']}"
 
 
@@ -94,7 +99,10 @@ def render(documents: dict, root: Path = ROOT) -> str:
         "; These are forecast-only commitments, not historical transactions.", "",
     ])
     for rule in documents[root / "data/forecast.json"]:
-        lines.extend(render_entry(rule))
+        from recurring import active, periodic_schedules
+        if active(rule):
+            for schedule in periodic_schedules(rule):
+                lines.extend(render_entry({**rule, 'schedule': schedule}))
     return "\n".join(lines).rstrip() + "\n"
 
 

@@ -1,7 +1,7 @@
 [
   {
     "id": "0000000000000001",
-    "date": "2026-10-01",
+    "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
     "postings": [
@@ -11,7 +11,7 @@
   },
   {
     "id": "0000000000000002",
-    "date": "2026-10-01",
+    "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
     "postings": [
@@ -21,7 +21,7 @@
   },
   {
     "id": "0000000000000003",
-    "date": "2026-10-01",
+    "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
     "postings": [
@@ -31,7 +31,7 @@
   },
   {
     "id": "0000000000000004",
-    "date": "2026-10-01",
+    "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
     "postings": [
@@ -41,12 +41,38 @@
   },
   {
     "id": "0000000000000100",
-    "date": "2026-10-01",
+    "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance — Willow Travel",
     "postings": [
       {"account": "Assets:Bank:Willow Travel", "amount": "650.00", "commodity": "EUR", "assert": {"amount": "650.00", "commodity": "EUR"}},
       {"account": "Equity:Opening Balances", "amount": "-650.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "0000000000000104",
+    "date": "2026-09-01",
+    "status": "confirmed",
+    "description": "Maple Workshop",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-12.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000105",
+    "date": "2026-09-15",
+    "status": "confirmed",
+    "description": "Cedar Studio membership",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-20.00", "commodity": "USD"}
     ]
   },
   {
@@ -180,6 +206,19 @@
     ]
   },
   {
+    "id": "0000000000000106",
+    "date": "2026-10-15",
+    "status": "confirmed",
+    "description": "Cedar Studio membership",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-20.00", "commodity": "USD"}
+    ]
+  },
+  {
     "id": "000000000000000f",
     "date": "2026-10-17",
     "status": "confirmed",
@@ -203,6 +242,19 @@
     "postings": [
       {"account": "Expenses:Food:Dining", "amount": "15.00", "commodity": "USD"},
       {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-15.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "0000000000000107",
+    "date": "2026-10-20",
+    "status": "confirmed",
+    "description": "Maple Workshop",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-12.00", "commodity": "USD"}
     ]
   },
   {

@@ -15,6 +15,9 @@
     },
     {
       "$ref": "#/$defs/card-statements"
+    },
+    {
+      "$ref": "#/$defs/recurring-settings"
     }
   ],
   "$defs": {
@@ -355,6 +358,25 @@
             "$ref": "#/$defs/duplicate-link"
           },
           "description": "Unsettled pairs, stored only on the lexicographically smaller actual entry ID; sorted by target ID. Review removes settled links. Reserved reasons support later reader/history imports."
+        },
+        "rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "occurrence"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "occurrence": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
         }
       },
       "description": "One actual entry. Year files are chronological; same-date array order is the posting sequence."
@@ -600,6 +622,11 @@
               "minimum": 1,
               "description": "Calendar-unit multiplier, default 1 and canonically omitted when 1. Emits every N months/years. The two migrated quarterly rules use 3.",
               "default": 1
+            },
+            "anchor-day": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 31
             }
           }
         },
@@ -608,6 +635,73 @@
           "minimum": 1,
           "description": "Positive page number of the row in the billing statement PDF.",
           "x-ledger-label": "statement-page"
+        },
+        "lifecycle": {
+          "enum": [
+            "active",
+            "paused",
+            "ended",
+            "removed"
+          ]
+        },
+        "created": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "owner",
+                "subscription-words",
+                "monthly-history",
+                "history-pass"
+              ]
+            },
+            "words": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              }
+            },
+            "came_back": {
+              "type": "boolean"
+            }
+          }
+        },
+        "removal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "date",
+            "evidence"
+          ],
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "evidence": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              }
+            }
+          }
         }
       },
       "description": "Forecast-only periodic rule; array order preserves original rule order."
@@ -1066,6 +1160,24 @@
         "reader": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "recurring-settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "never-automatic"
+      ],
+      "properties": {
+        "never-automatic": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$"
+          }
         }
       }
     }

@@ -1,1 +1,37 @@
-[]
+[
+  {
+    "id": "f000000000000001",
+    "date": "2026-10-03",
+    "status": "confirmed",
+    "description": "Birch Courtyard Rent",
+    "schedule": {
+      "every": "month",
+      "from": "2026-10-03"
+    },
+    "origin": {
+      "kind": "owner"
+    },
+    "postings": [
+      {"account": "Expenses:Home:Rent", "amount": "1320.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-1320.00", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "f000000000000002",
+    "date": "2026-11-20",
+    "status": "confirmed",
+    "description": "Cedar Archive membership",
+    "schedule": {
+      "every": "month",
+      "from": "2026-11-20"
+    },
+    "lifecycle": "paused",
+    "origin": {
+      "kind": "owner"
+    },
+    "postings": [
+      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "EUR"},
+      {"account": "Assets:Bank:Birken Current", "amount": "-8.00", "commodity": "EUR"}
+    ]
+  }
+]

@@ -200,7 +200,7 @@ def message_for(settings, draft, entry, new, answer):
     one_line = lambda text: text.replace('\n', '\\n').replace('\r', '\\r')
     lines += ['Agent doubts: ' + (one_line('; '.join(answer['doubts'])) or 'none'),
               'New accounts: ' + (', '.join(new) or 'none'), f"Draft: {draft['id']}",
-              ('Added-by: user (finished by hand: ' + one_line(draft['finished_by']['reason']) + ')' if draft.get('finished_by') else f'Added-by: dashboard agent ({settings.model}, {settings.effort})')]
+              ('Added-by: user (usual payment, rule ' + draft['usual_payment']['rule_id'] + ')' if draft.get('usual_payment') else 'Added-by: user (finished by hand: ' + one_line(draft['finished_by']['reason']) + ')' if draft.get('finished_by') else f'Added-by: dashboard agent ({settings.model}, {settings.effort})')]
     return '\n'.join(lines)
 
 
@@ -313,6 +313,8 @@ class Transaction:
                     proposal_hash=proposal_hash(answer))
 
     def apply(self, answer, lock_fd):
+        from rules_service import policy
+        policy(self.settings)
         prepared = self.prepare(answer)
         entry, declarations, new = prepared['entry'], prepared['declarations'], prepared['new_accounts']
         required = new if self.draft.get('finished_by') else prepared['new_roots']
@@ -338,8 +340,18 @@ class Transaction:
                 compress(target)
             dump(self.root / 'data/accounts.json', declarations)
             identity = add_entry(entry, root=self.root)
+            from rules_service import addition_effects
+            recurring = addition_effects(self.root, identity, self.draft)
             result = dict(outcome='ready', entry_id=identity, description=entry['description'],
                           new_accounts=new, sources=entry.get('sources', []), **payment(entry))
+            if recurring['rule'] or recurring['resume_rules']:
+                result.update(recurring, weekly_review_note='The weekly review will look at this payment.')
+                result['audit_id'] = audit_record['id']
+            if recurring['rule'] or recurring['resume_rules']:
+                audit_record['rule_changes'] = recurring['rule_changes']
+            if self.draft.get('usual_payment'):
+                audit_record['usual_payment'] = deepcopy(self.draft['usual_payment'])
+                result['usual_payment'] = deepcopy(self.draft['usual_payment'])
             audit_record['entry_id'] = identity
             audit_record['files'] = [dict(original_name=f['original_name'], **({'filed_path': result['sources'][i]} if i < len(result['sources']) else {})) for i, f in enumerate(self.draft['files'])]
             append(self.root, audit_record)

@@ -269,6 +269,7 @@ def apply(settings, body, *, clock=None):
             raise ValueError('The ledger has uncommitted changes; finish them before reviewing')
         state = snapshot(root, clock=clock)
         documents = load(root)
+        rules_before = deepcopy(documents[root / 'data/forecast.json'])
         actual = {e['id']: e for e in entries(documents)}
         action = body.get('action')
         changes = []
@@ -379,6 +380,14 @@ def apply(settings, body, *, clock=None):
                     bank_members = statement_members(documents, root)
                     if (kept.get('statement-end') or kept['id'] in bank_members) and (removed.get('statement-end') or removed['id'] in bank_members):
                         raise ValueError('Both entries belong to filed statements. Reconcile their membership before merging.')
+                    if kept.get('rule') and removed.get('rule') and kept['rule'] != removed['rule']:
+                        raise ValueError('These entries link different rule occurrences. Reconcile their rules before merging.')
+                    if removed.get('rule') and not kept.get('rule'):
+                        kept['rule'] = deepcopy(removed['rule'])
+                    for rule in documents[root / 'data/forecast.json']:
+                        for field in ('origin', 'removal'):
+                            if rule.get(field, {}).get('evidence'):
+                                rule[field]['evidence'] = list(dict.fromkeys(kept['id'] if identity == removed['id'] else identity for identity in rule[field]['evidence']))
                     sources = list(dict.fromkeys(kept.get('sources', []) + removed.get('sources', [])))
                     notes = list(dict.fromkeys(kept.get('notes', []) + removed.get('notes', [])))
                     if sources:
@@ -403,6 +412,10 @@ def apply(settings, body, *, clock=None):
             raise ValueError('Unknown review action')
         validate(documents, root)
         record = event('review-action', action=action, request_id=identity, request_hash=request_hash, changes=changes)
+        from rules_service import rule_changes
+        recurring_changes = rule_changes(rules_before, documents[root / 'data/forecast.json'])
+        if recurring_changes:
+            record['rule_changes'] = recurring_changes
         _, touched = decision_state(records(root))
         for change in changes:
             touched[change['entry_id']] = record['id']

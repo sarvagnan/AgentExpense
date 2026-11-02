@@ -19,7 +19,7 @@ def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
     if 'schedule' in entry:
         raise ValueError('This helper adds actual entries, not forecast rules')
     documents = load(root)
-    used = {e['id'] for path, items in documents.items() if path.name != 'accounts.json' for e in items}
+    used = {e['id'] for items in documents.values() if isinstance(items, list) for e in items}
     entry = {**entry, 'id': new_id(used)}
     day = entry.get('date')
     if not isinstance(day, str):

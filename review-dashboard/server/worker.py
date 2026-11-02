@@ -266,7 +266,7 @@ class Worker:
             except ProposalError as exc:
                 draft['check_errors'].append(str(exc))
                 if draft['runs']: draft['runs'][-1].update(outcome='check_failed', error=str(exc))
-                if draft.get('finished_by'): raise
+                if draft.get('finished_by') or draft.get('usual_payment'): raise
                 draft['last_proposal'] = answer
                 draft['proposal'] = None
                 self.drafts.put(draft)

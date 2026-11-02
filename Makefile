@@ -95,3 +95,13 @@ browser-tests:
 
 browser-capture:
 	CAPTURE=1 node review-dashboard/tests/browser/run.mjs
+
+.PHONY: rules rules-backfill rules-catch-up
+rules:
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/rules.py $(ARGS)
+
+rules-backfill:
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/rules.py backfill $(ARGS)
+
+rules-catch-up:
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/rules.py catch-up $(ARGS)

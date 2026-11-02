@@ -15,7 +15,7 @@ def draft_event(draft, outcome, result=None):
     sources = result.get('sources', [])
     return event('draft', draft_id=draft['id'], outcome=outcome, text=draft['text'], saved_at=draft['saved_at'],
                  client_time=draft['client_time'], client_zone=draft['client_zone'],
-                 **{key:deepcopy(draft[key]) for key in ('finished_by','account_consent') if key in draft},
+                 **{key:deepcopy(draft[key]) for key in ('finished_by','account_consent','usual_payment') if key in draft},
                  pieces=deepcopy(draft.get('pieces')), files=[dict(original_name=f['original_name'], **({'filed_path': sources[i]} if i < len(sources) else {})) for i, f in enumerate(draft['files'])],
                  questions=deepcopy(draft['questions']), runs=deepcopy(draft['runs']), proposal=deepcopy(draft.get('proposal')),
                  doubts=list(dict.fromkeys(x for r in draft['runs'] for x in r.get('doubts', []))),

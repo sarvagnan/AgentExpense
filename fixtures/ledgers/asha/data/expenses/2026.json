@@ -444,6 +444,19 @@
     ]
   },
   {
+    "id": "0000000000000045",
+    "date": "2026-09-01",
+    "status": "confirmed",
+    "description": "Maple Workshop",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "INR"}
+    ]
+  },
+  {
     "id": "000000000000001d",
     "date": "2026-09-02",
     "status": "confirmed",
@@ -529,6 +542,19 @@
     "postings": [
       {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
       {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000046",
+    "date": "2026-09-15",
+    "status": "confirmed",
+    "description": "Cedar Studio membership",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR"}
     ]
   },
   {
@@ -811,6 +837,19 @@
     ]
   },
   {
+    "id": "0000000000000047",
+    "date": "2026-10-15",
+    "status": "confirmed",
+    "description": "Cedar Studio membership",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR"}
+    ]
+  },
+  {
     "id": "000000000000003f",
     "date": "2026-10-16",
     "status": "pending",
@@ -873,6 +912,19 @@
     "postings": [
       {"account": "Expenses:Uncategorized", "amount": "878.00", "commodity": "INR"},
       {"account": "Assets:Bank:Nila Current", "amount": "-878.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "0000000000000048",
+    "date": "2026-10-20",
+    "status": "confirmed",
+    "description": "Maple Workshop",
+    "notes": [
+      "Fictional recurring detection example"
+    ],
+    "postings": [
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "INR"}
     ]
   },
   {

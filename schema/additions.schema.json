@@ -23,7 +23,9 @@
         "draft",
         "statement",
         "review",
-        "review-action"
+        "review-action",
+        "rule",
+        "rule-review"
       ]
     },
     "time": {
@@ -474,6 +476,113 @@
           ]
         }
       }
+    },
+    "usual_payment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "occurrence",
+        "request_hash",
+        "estimated",
+        "update_rule",
+        "another_anyway",
+        "remember_account"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "occurrence": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "request_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "estimated": {
+          "type": "boolean"
+        },
+        "update_rule": {
+          "type": "boolean"
+        },
+        "another_anyway": {
+          "type": "boolean"
+        },
+        "remember_account": {
+          "type": "boolean"
+        }
+      }
+    },
+    "rule_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "before",
+          "after"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "before": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "after": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "rule_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "rule_action": {
+      "enum": [
+        "made",
+        "edited",
+        "paused",
+        "resumed",
+        "ended",
+        "restored",
+        "removed",
+        "kept",
+        "undone",
+        "catch-up",
+        "backfill"
+      ]
+    },
+    "undoes": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "reversal_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "rule_verdict": {
+      "enum": [
+        "confirm",
+        "propose-removal"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "allOf": [
@@ -552,6 +661,40 @@
           "request_id",
           "request_hash",
           "changes"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "rule"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "rule_action",
+          "request_id",
+          "request_hash",
+          "rule_changes"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "rule-review"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "rule_id",
+          "rule_verdict",
+          "reason",
+          "reviewer"
         ]
       }
     }

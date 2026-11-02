@@ -1,1 +1,54 @@
-[]
+[
+  {
+    "id": "f000000000000001",
+    "date": "2026-10-05",
+    "status": "confirmed",
+    "description": "October rent",
+    "schedule": {
+      "every": "month",
+      "from": "2026-10-05"
+    },
+    "origin": {
+      "kind": "owner"
+    },
+    "postings": [
+      {"account": "Expenses:Housing:Rent", "amount": "800.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-800.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "f000000000000002",
+    "date": "2026-11-20",
+    "status": "confirmed",
+    "description": "Cedar Archive membership",
+    "schedule": {
+      "every": "month",
+      "from": "2026-11-20"
+    },
+    "lifecycle": "paused",
+    "origin": {
+      "kind": "owner"
+    },
+    "postings": [
+      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "USD"},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-8.00", "commodity": "USD"}
+    ]
+  },
+  {
+    "id": "f000000000000003",
+    "date": "2026-11-18",
+    "status": "confirmed",
+    "description": "Lantern Notes subscription",
+    "schedule": {
+      "every": "month",
+      "from": "2026-11-18"
+    },
+    "origin": {
+      "kind": "owner"
+    },
+    "postings": [
+      {"account": "Expenses:Subscriptions:Lantern Notes", "amount": "10.00", "commodity": "EUR", "cost": {"amount": "11.00", "commodity": "USD", "per": "total"}},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-11.00", "commodity": "USD"}
+    ]
+  }
+]

@@ -38,7 +38,7 @@ FIELD_LABELS = {
     "variable-estimate": "variable-estimate",
     "policy-term": "policy-term",
 }
-ENTRY_KEYS = ("id", "date", "status", "description", "schedule", "sources", *FIELD_LABELS, "possible-duplicate-of", "notes", "postings")
+ENTRY_KEYS = ("id", "date", "status", "description", "schedule", "lifecycle", "origin", "created", "removal", "rule", "sources", *FIELD_LABELS, "possible-duplicate-of", "notes", "postings")
 STATEMENT_KEYS = ("id", "account", "start", "end", "source", "previous-balance", "purchases", "cash-advances", "credits", "total-due", "rows")
 KEY_ORDER = {name: index for index, name in enumerate((
     *ENTRY_KEYS, "account", "amount", "commodity", "cost", "assert", "every", "from", "interval", "per",
@@ -122,7 +122,8 @@ def dump(path: Path, value: Any) -> None:
 
 
 def store_paths(root: Path = ROOT) -> list[Path]:
-    return [root / "data/accounts.json", *sorted((root / "data/expenses").glob("*.json")), root / "data/forecast.json", root / "data/card-statements.json"]
+    return [root / "data/accounts.json", *sorted((root / "data/expenses").glob("*.json")), root / "data/forecast.json", root / "data/card-statements.json",
+            *([root / 'data/recurring-settings.json'] if (root / 'data/recurring-settings.json').exists() else [])]
 
 
 @lru_cache(maxsize=1)
@@ -131,7 +132,7 @@ def validators():
     schema = read_json(SCHEMA_PATH)
     Draft202012Validator.check_schema(schema)
     result = {}
-    for kind in ('accounts', 'expenses', 'forecast', 'card-statements'):
+    for kind in ('accounts', 'expenses', 'forecast', 'card-statements', 'recurring-settings'):
         result[kind] = Draft202012Validator(
             {**{k: v for k, v in schema.items() if k != 'oneOf'}, '$ref': f'#/$defs/{kind}'},
             format_checker=FormatChecker())
@@ -147,12 +148,14 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
     checks['manifest'].validate(read_json(root / 'ledger.json'))
     ids: dict[str, Path] = {}
     for path, document in documents.items():
-        kind = {"accounts.json": "accounts", "forecast.json": "forecast", "card-statements.json": "card-statements"}.get(path.name, "expenses")
+        kind = {"accounts.json": "accounts", "forecast.json": "forecast", "card-statements.json": "card-statements", "recurring-settings.json": "recurring-settings"}.get(path.name, "expenses")
         # The file chooses its root type. The generic oneOf is ambiguous for empty arrays.
         errors = sorted(checks[kind].iter_errors(document), key=lambda e: str(list(e.absolute_path)))
         if errors:
             error = errors[0]
             raise ValueError(f"{path.relative_to(root)}:{list(error.absolute_path)}: {error.message}")
+        if kind == 'recurring-settings':
+            continue
         if kind == "accounts":
             import shlex
             commodities = set()
@@ -206,9 +209,18 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
                 previous = entry["date"]
             elif entry["date"] != entry["schedule"]["from"]:
                 raise ValueError(f"{identity}: forecast date must equal schedule.from")
+            elif kind == 'forecast':
+                from recurring import occurrence
+                if occurrence(entry) != entry['date']:
+                    raise ValueError(f'{identity}: schedule.from must agree with anchor-day')
+                if entry.get('lifecycle') == 'removed' and not entry.get('removal'):
+                    raise ValueError(f'{identity}: removed rule needs removal evidence')
 
     actual = {e['id']: e for e in entries(documents)}
+    rules = {r['id']: r for r in documents.get(root / 'data/forecast.json', [])}
     for identity, entry in actual.items():
+        if entry.get('rule') and entry['rule']['id'] not in rules:
+            raise ValueError(f'{identity}: rule link must name an existing rule')
         links = entry.get('possible-duplicate-of', [])
         targets = [link['id'] for link in links]
         if targets != sorted(set(targets)):
@@ -216,6 +228,10 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
         for target in targets:
             if target not in actual or identity >= target:
                 raise ValueError(f'{identity}: duplicate link must name an existing, greater actual entry ID')
+    for rule in rules.values():
+        evidence = [*rule.get('origin', {}).get('evidence', []), *rule.get('removal', {}).get('evidence', [])]
+        if any(identity not in actual for identity in evidence):
+            raise ValueError(f"{rule['id']}: rule evidence must name existing actual entries")
 
 
 def load(root: Path = ROOT) -> dict[Path, Any]:

@@ -96,6 +96,13 @@ def validate_plan(result):
         validate({root / 'data/accounts.json': result[1]}, root)
 
 
+def report_stale_rules(root, declarations):
+    from recurring import stale_rules
+    actual = [entry for path in sorted((root / 'data/expenses').glob('*.json')) for entry in read_json(path)]
+    count = len(stale_rules(actual, read_json(root / 'data/forecast.json'), declarations['accounts']))
+    print(f'Recurring rules already paid: {count}. Run make rules-catch-up with this LEDGER_DIR to move past last payment.')
+
+
 def upgrade(root, options):
     root = root.resolve()
     manifest = read_manifest(root, check_format=False)
@@ -114,6 +121,7 @@ def upgrade(root, options):
         validate_plan(result)
         print(f'Plan: format {version} -> {step.TARGET_FORMAT} (app v{APP_VERSION})')
         print(json.dumps(ordered_manifest(result[0]), indent=2, ensure_ascii=False))
+        report_stale_rules(root, result[1])
         return
     with ledger_lock(root):
         # Re-read after waiting for another cooperating writer.
@@ -131,6 +139,8 @@ def upgrade(root, options):
         try:
             initial_plan = steps[version].plan(root, options)
             validate_plan(initial_plan)
+            if version == 0:
+                report_stale_rules(root, initial_plan[1])
             baseline = snapshot(root, format_zero_settings=initial_plan if version == 0 else None)
             while version < CURRENT_FORMAT:
                 step = steps[version]

@@ -187,7 +187,7 @@ def check(root: Path = ROOT) -> None:
     for path, document in documents.items():
         if path.read_bytes() != canonical_text(document).encode("utf-8"):
             raise ValueError(f"{path.relative_to(root)} is not canonical; run make format")
-        if path.name == "accounts.json":
+        if path.name in ("accounts.json", "recurring-settings.json"):
             continue
         for entry in document:
             sources = [entry["source"]] if path.name == "card-statements.json" else entry.get("sources", [])

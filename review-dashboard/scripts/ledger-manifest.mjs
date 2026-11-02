@@ -17,6 +17,7 @@ export function validate(value, schema, field = 'ledger.json', rootSchema = sche
   if (schema.type && !types.includes(type)) throw new Error(`Invalid ${field}: expected ${types.join(' or ')}.`);
   if ('const' in schema && value !== schema.const) throw new Error(`Invalid ${field}.`);
   if (schema.enum && !schema.enum.includes(value)) throw new Error(`Invalid ${field}.`);
+  if (typeof value === 'number' && (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum)) throw new Error(`Invalid ${field}.`);
   if (schema.not?.pattern && typeof value === 'string' && new RegExp(schema.not.pattern).test(value)) throw new Error(`Invalid ${field}.`);
   if (typeof value === 'string') {
     if (schema.minLength && value.length < schema.minLength || schema.pattern && !new RegExp(schema.pattern).test(value)) throw new Error(`Invalid ${field}.`);
