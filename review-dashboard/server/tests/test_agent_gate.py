@@ -517,7 +517,7 @@ class GateTests(unittest.TestCase):
                        'p=Path("review-dashboard/node_modules/.package-lock.json"); p.parent.mkdir(exist_ok=True); p.touch()\n')
         npm.chmod(0o755)
         env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'])
-        command = ['make', '-f', str(APPLICATION / 'Makefile'), 'review-dashboard/node_modules/.package-lock.json']
+        command = ['make', '-f', str(APPLICATION / 'Makefile'), 'NODE_BIN=' + str(binary), 'review-dashboard/node_modules/.package-lock.json']
         for _ in range(2):
             subprocess.run(command, cwd=work, env=env, check=True, capture_output=True)
         self.assertEqual((work / 'ci-calls').read_text(), 'ci\n')
@@ -574,6 +574,7 @@ class GateTests(unittest.TestCase):
         for name in ('package.json', 'package-lock.json'):
             (dashboard / name).write_text('original ' + name)
         settings = replace(self.settings, application=application)
+        self.enterContext(patch('agent_tools.node_environment', return_value={**os.environ,'npm_config_update_notifier':'false'}))
         for error, succeeds in [(OfflineFailure([], signed_out=True), True),
                                 (OfflineFailure(['tools: future_tool'], signed_out=True), False)]:
             with patch('agent_tools.subprocess.run') as npm, patch('agent_tools.check_offline', side_effect=error), \
@@ -584,6 +585,7 @@ class GateTests(unittest.TestCase):
                     with self.assertRaisesRegex(OfflineFailure, 'future_tool'):
                         upgrade(settings, '0.166.0')
             self.assertEqual(npm.call_count, 1)
+            self.assertEqual(npm.call_args.kwargs['env']['npm_config_update_notifier'],'false')
             self.assertTrue(npm.call_args.args[0][3].startswith('/tmp/expense-agent-upgrade-'))
             self.assertEqual((dashboard / 'package.json').read_text(), 'original package.json')
             self.assertEqual((dashboard / 'package-lock.json').read_text(), 'original package-lock.json')
@@ -603,10 +605,12 @@ class GateTests(unittest.TestCase):
                 module.install()
         self.assertFalse(config.exists())
         with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(config)}), patch.object(module.shutil, 'which', return_value='/fake/systemctl'), \
-                patch.object(module.subprocess, 'run') as systemctl:
+                patch.object(module.subprocess, 'run') as systemctl, patch.object(module, 'node_environment', return_value={'PATH':'/fixture/node/bin:/fixture/tools'}):
             systemctl.return_value.returncode = 0
             module.install()
             unit = config / 'systemd/user/expense-dashboard.service'
+            self.assertIn('Environment="PATH=/fixture/node/bin:/fixture/tools"', unit.read_text())
+            self.assertIn('Environment=npm_config_update_notifier=false',unit.read_text())
             modified = unit.stat().st_mtime_ns
             module.install()
             self.assertEqual(unit.stat().st_mtime_ns, modified)

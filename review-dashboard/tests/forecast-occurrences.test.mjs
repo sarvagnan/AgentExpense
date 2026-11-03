@@ -1,3 +1,4 @@
+import {dashboardDataPath} from '../../scripts/dashboard-data.mjs';
 import './test-isolation.mjs';
 import path from 'node:path';
 import { ledgerRoot } from '../../scripts/project-paths.mjs';
@@ -13,7 +14,7 @@ const quantity = amount => Number(amount.aquantity.decimalMantissa) / 10 ** amou
 const sort = rows => rows.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
 test('every forecast occurrence matches hledger in date, description, posting accounts, currencies and amounts', async () => {
-  const data = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
+  const data = JSON.parse(await readFile(dashboardDataPath('app/data/dashboard.json')));
   const { start, end } = data.forecast;
   const actual = JSON.parse(execFileSync(process.env.HLEDGER_BIN || 'hledger',
     ['-f', ledger, 'print', `--forecast=${start}..${end}`, `date:${start}..${end}`, '-O', 'json'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }))

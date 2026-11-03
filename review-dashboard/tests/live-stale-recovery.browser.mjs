@@ -1,3 +1,5 @@
+import {useProjectNode} from '../../scripts/node-toolchain.mjs';
+useProjectNode();
 import { temporaryDirectory, disposableDashboard, stopChildren } from './test-isolation.mjs';
 // A denied write can leave a readable ID for an older, already submitted draft.
 import assert from 'node:assert/strict';

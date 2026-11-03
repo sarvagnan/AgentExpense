@@ -1,3 +1,5 @@
+import {useProjectNode} from '../../scripts/node-toolchain.mjs';
+useProjectNode();
 import { temporaryDirectory } from './test-isolation.mjs';
 // Built /expenses/ directory indexes and static-host recovery, without an API or SPA fallback.
 import assert from 'node:assert/strict';

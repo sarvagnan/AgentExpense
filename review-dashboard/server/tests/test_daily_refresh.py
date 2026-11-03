@@ -17,7 +17,7 @@ class DailyRefreshTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='daily-refresh-', dir='/tmp')
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
-        self.settings = SimpleNamespace(application=root, ledger=root)
+        self.settings = SimpleNamespace(application=root, ledger=root, dashboard_data=root / 'review-dashboard')
         self.path = root / 'review-dashboard/public/data/dashboard.json.gz'
         self.path.parent.mkdir(parents=True)
         self.write({'meta': {'today': '2026-10-31'}})
@@ -96,6 +96,35 @@ class DailyRefreshTests(unittest.TestCase):
         self.time = 600; self.refresh.side_effect = self.rebuild; self.job.tick()
         self.assertEqual(self.refresh.call_count, 2)
         self.assertFalse(self.job.retry_failed)
+
+    def test_freshness_uses_redirected_output_instead_of_the_application_copy(self):
+        self.settings.dashboard_data=self.settings.application/'redirected'
+        self.path=self.settings.dashboard_data/'public/data/dashboard.json.gz'
+        self.path.parent.mkdir(parents=True)
+        self.write({'meta':{'today':self.today}})
+        self.job.tick();self.refresh.assert_not_called()
+
+    def test_fresh_data_from_another_ledger_still_refuses(self):
+        stamp=self.settings.dashboard_data/'app/data/.source-ledger.json'
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text(json.dumps({'format':1,'ledger':str(self.settings.ledger/'another')}))
+        self.write({'meta':{'today':self.today}})
+        with self.assertLogs('daily_refresh',level='ERROR'):self.job.tick()
+        self.refresh.assert_not_called();self.assertTrue(self.job.retry_failed)
+        self.assertEqual(self.job.next_check,600)
+
+    def test_explicit_source_replacement_rebuilds_even_when_the_other_data_is_fresh(self):
+        stamp=self.settings.dashboard_data/'app/data/.source-ledger.json'
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text(json.dumps({'format':1,'ledger':str(self.settings.ledger/'another')}))
+        self.write({'meta':{'today':self.today}})
+        def replace_source(settings,result):
+            stamp.write_text(json.dumps({'format':1,'ledger':str(settings.ledger.resolve())}))
+            return self.rebuild(settings,result)
+        self.refresh.side_effect=replace_source
+        with patch.dict(os.environ,{'DASHBOARD_DATA_REPLACE':'1'}):
+            self.job.tick();self.refresh.assert_called_once()
+            self.time=30;self.job.tick();self.refresh.assert_called_once()
 
     def test_server_local_date_and_test_pin(self):
         from datetime import date

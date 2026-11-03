@@ -1,7 +1,13 @@
 import currencyCodes from '../../schema/currencies.json' with {type: 'json'};
+import currencyMinorUnits from '../../schema/currency-minor-units.json' with {type: 'json'};
+let minorUnitTable = currencyMinorUnits;
+export const minorUnits = currency => minorUnitTable[currency] ?? 2;
+export const currencyNumberFormat = (currency, digits = minorUnits(currency), options = {}) => new Intl.NumberFormat(locale, {style:'currency', currency, minimumFractionDigits:digits, maximumFractionDigits:digits, ...options});
 let locale;
 let defaultCurrency;
-export function setMoneySettings(settings = {}) {
+/** @param {Record<string, number>} [minorUnits] */
+export function setMoneySettings(settings = {}, minorUnits = currencyMinorUnits) {
+  minorUnitTable = minorUnits;
   locale = settings.locale || undefined;
   defaultCurrency = settings.defaultCurrency;
 }
@@ -13,12 +19,12 @@ export const count = value => new Intl.NumberFormat(locale).format(value);
 export const units = value => minus(new Intl.NumberFormat(locale, {minimumFractionDigits: 3, maximumFractionDigits: 3}).format(Math.abs(value) < 0.0005 ? 0 : value));
 export function currencySymbol(currency = defaultCurrency) {
   if (!currency || !isCurrency(currency)) return '';
-  return new Intl.NumberFormat(locale, {style: 'currency', currency}).formatToParts(0).find(part => part.type === 'currency')?.value || currency;
+  return currencyNumberFormat(currency).formatToParts(0).find(part => part.type === 'currency')?.value || currency;
 }
-export function money(value, currency = defaultCurrency, digits = 2) {
+export function money(value, currency = defaultCurrency, digits = minorUnits(currency)) {
   if (!currency) throw new Error('A monetary amount needs a currency');
   if (!isCurrency(currency)) return `${units(value)} units`;
-  return minus(new Intl.NumberFormat(locale, {style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits})
+  return minus(currencyNumberFormat(currency, digits)
     .format(Math.abs(value) < 0.5 * 10 ** -digits ? 0 : value));
 }
 export const moneyWhole = (value, currency) => money(value, currency, 0);
@@ -34,7 +40,7 @@ export function compactMoney(value, currency = defaultCurrency) {
     if (size >= 999.5) return `${prefix}${Math.round(size / 1000)}K`;
     return `${prefix}${Math.round(size)}`;
   }
-  return minus(new Intl.NumberFormat(locale, {style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1})
+  return minus(currencyNumberFormat(currency, 1, {notation:'compact', minimumFractionDigits:0})
     .format(Math.abs(value) < 0.5 ? 0 : value));
 }
 export function axisMoney(value, max, currency = defaultCurrency) {
@@ -53,7 +59,7 @@ export function axisMoney(value, max, currency = defaultCurrency) {
 export function currencyOrder(codes, preferred = defaultCurrency) {
   return [...new Set(codes)].sort((a, b) => a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b));
 }
-export function moneyTotal(totals, digits = 2) {
+export function moneyTotal(totals, digits) {
   const codes = currencyOrder(Object.keys(totals));
   return codes.length ? codes.map(code => money(totals[code], code, digits)).join(' + ') : money(0);
 }

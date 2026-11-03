@@ -17,7 +17,7 @@ export type DashboardTransaction = {
   postings: { account: string; amount: number; currency: string; label: string; cost?: number; costCurrency?: string }[];
 };
 export type DashboardData = {
-  meta: { ledger: LedgerManifest; accounts: Accounts; generatedAt: string; today: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
+  meta: { currencyMinorUnits?: Record<string, number>; ledger: LedgerManifest; accounts: Accounts; generatedAt: string; today: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
   months: {
     month: string; currency: string; total: number; income: number; investments: number; recurring: number; count: number; pending: number;
     categories: { category: string; amount: number }[]; daily: { day: number; amount: number }[];

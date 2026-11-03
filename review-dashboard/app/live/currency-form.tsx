@@ -1,4 +1,5 @@
 import {useState,type ReactNode} from 'react';
+import {minorUnits} from '../formatting';
 import {money} from '../ui';
 import {api,type Draft} from './api';
 import {currenciesLinked,positiveDecimal} from './currency-math';
@@ -7,7 +8,7 @@ export default function CurrencyForm({draft,onSaved,blocked,discard}:{draft:Draf
  const r=draft.currency_request!;
  const [charged,setCharged]=useState(''),[rate,setRate]=useState(''),[input,setInput]=useState<{amount?:string;rate?:string}>({}),[estimate,setEstimate]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const transfer=r.kind==='transfer';
- const digits=new Intl.NumberFormat('en',{style:'currency',currency:r.currency}).resolvedOptions().maximumFractionDigits ?? 2;
+ const digits=minorUnits(r.currency);
  function change(value:string,from:'amount'|'rate'){
   const result=currenciesLinked(r.amount,value,from,digits);
   setInput({[from]:value});setCharged(from==='amount'?value:result.amount);setRate(from==='rate'?value:result.rate);setError('');

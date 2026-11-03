@@ -1,3 +1,5 @@
+import {useProjectNode} from '../../scripts/node-toolchain.mjs';
+useProjectNode();
 import { temporaryDirectory, disposableDashboard, stopChildren } from './test-isolation.mjs';
 // Inline action errors and recovery through the real React/API-client boundary.
 import assert from 'node:assert/strict';

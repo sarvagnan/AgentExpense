@@ -1,3 +1,4 @@
+import {dashboardDataPath} from '../../scripts/dashboard-data.mjs';
 import { temporaryDirectory } from './test-isolation.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -107,8 +108,8 @@ test('prices preserve raw NAV precision and reject invalid lines, duplicates and
 
 test('published dashboard/review IDs are unique store IDs; review IDs are a subset', async () => {
   const { transactions } = await loadExpenseStore();
-  const dashboard = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
-  const review = JSON.parse(await readFile(new URL('../app/data/pending-transactions.json', import.meta.url)));
+  const dashboard = JSON.parse(await readFile(dashboardDataPath('app/data/dashboard.json')));
+  const review = JSON.parse(await readFile(dashboardDataPath('app/data/pending-transactions.json')));
   const ids = new Set(transactions.map(entry => entry.id));
   assert.deepEqual(dashboard.transactions.map(entry => entry.id), transactions.map(entry => entry.id));
   assert.equal(ids.size, dashboard.transactions.length);

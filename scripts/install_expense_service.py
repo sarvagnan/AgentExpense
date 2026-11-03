@@ -4,6 +4,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from node_toolchain import node_environment
+
 APPLICATION = Path(__file__).resolve().parents[1]
 
 
@@ -15,7 +17,8 @@ def install():
     source = APPLICATION / 'review-dashboard/server/expense-dashboard.service'
     config = Path(os.getenv('XDG_CONFIG_HOME', '~/.config')).expanduser()
     target = config / 'systemd/user/expense-dashboard.service'
-    content = source.read_bytes()
+    env = node_environment(APPLICATION)
+    content = source.read_text().replace('[Service]', '[Service]\nEnvironment="PATH=' + env['PATH'] + '"\nEnvironment=npm_config_update_notifier=false').encode()
     if not target.exists() or target.read_bytes() != content:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)

@@ -30,6 +30,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
   };
   for(const theme of ['light','dark'])for(const size of sizes) {
     const {width,height}=size;
+    if(process.env.BROWSER_CASE && process.env.BROWSER_CASE!==`${theme}-${width}`)continue;
     const context=await browser.newContext({viewport:size,colorScheme:theme,locale:locale[persona],timezoneId:zone[persona],reducedMotion:'reduce',acceptDownloads:true});
     await context.addInitScript(value=>{if(location.protocol==='http:'||location.protocol==='https:')localStorage.setItem('ledger-appearance',value);},theme);
     await context.tracing.start({screenshots:true,snapshots:true});
@@ -38,6 +39,12 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
     await page.route('**/*',route=>{const url=route.request().url();return url.startsWith(base) || url.startsWith('blob:') || url.startsWith('data:')?route.continue():route.abort('blockedbyclient');});
     const record=(name)=>{results.push({persona,engine,theme,width,test:name,pass:true});console.log(`  PASS ${persona} ${engine} ${theme} ${width}: ${name}`);};
+    const commits=()=>execFileSync('jj',['-R',ledger,'log','-r','ancestors(@)','--no-graph','-T','commit_id'],{env:stage.env,encoding:'utf8'}).trim().length/40;
+    const timed=async(name,run)=>{
+      if(process.env.BROWSER_PROFILE!=='1')return run();
+      const before=commits(),started=performance.now();
+      try{return await run();}finally{console.log('SUITE_TIMING '+JSON.stringify({persona,engine,theme,width,name,seconds:(performance.now()-started)/1000,commits:commits()-before}));}
+    };
     const snap=(state)=>capture(page,{state,theme,width,height});
     const go=async(route)=>{await page.waitForLoadState('networkidle');await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);await page.waitForLoadState('networkidle');};
     const overflow=async(label)=>{
@@ -60,13 +67,27 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
+      const table = JSON.parse(await readFile(join(stage.env.DASHBOARD_DATA_DIR,'app/data/dashboard.json'),'utf8')).meta.currencyMinorUnits;
+      assert.deepEqual(table,JSON.parse(await readFile(join(stage.app,'schema/currency-minor-units.json'),'utf8')),'The page data ships the versioned minor-unit table');
+      await page.goto(base+'add/');
+      const formatterChecks = await page.evaluate(async ({base,table})=>{
+        const source=await (await fetch(base+'__test/formatting',{method:'POST'})).text();
+        const {currencyNumberFormat,money,minorUnits,setMoneySettings}=await import('data:text/javascript,'+encodeURIComponent(source));
+        setMoneySettings({locale:'en'},table);
+        return Object.entries(table).every(([currency,digits])=>{
+          const formatter=currencyNumberFormat(currency), options=formatter.resolvedOptions();
+          return minorUnits(currency)===digits && options.minimumFractionDigits===digits && options.maximumFractionDigits===digits && money(1.23456,currency)===formatter.format(1.23456);
+        });
+      },{base,table});
+      assert.equal(formatterChecks,true,'All currency codes use the app minor-unit table in this engine');
+      record('all currency minor units are explicit in the page formatter');
       if(process.env.BROWSER_FOCUS==='rules') {
-        await runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='finish') {
-        await runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
@@ -145,6 +166,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       }
       record('Settings controls, keyboard order, focus return and 320px fit');
       if(theme==='light' && width===1440) {
+        const settingsStarted=performance.now(), settingsBefore=commits();
         const changedName=initialManifest.name+' Test';
         const nextCurrency=initialManifest.defaultCurrency==='GBP'?'USD':'GBP';
         await openSettings();await page.getByLabel('Name',{exact:true}).fill(changedName);await page.getByLabel('Main currency',{exact:true}).selectOption(nextCurrency);
@@ -156,6 +178,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         assert.match(execFileSync('jj',['-R',ledger,'log','-r','@-','--no-graph','-T','description'],{env:stage.env,encoding:'utf8'}),/Change default currency/);
         assert.equal(execFileSync('jj',['-R',ledger,'diff','--summary'],{env:stage.env,encoding:'utf8'}).trim(),'');
         await openSettings();await page.getByLabel('Name',{exact:true}).fill(initialManifest.name);await page.getByLabel('Main currency',{exact:true}).selectOption(initialManifest.defaultCurrency);await page.getByRole('button',{name:'Save changes',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0,{timeout:120000});
+        console.log('SUITE_TIMING '+JSON.stringify({persona,engine,theme,width,name:'settings',seconds:(performance.now()-settingsStarted)/1000,commits:commits()-settingsBefore}));
         record('Settings name and main currency commit, preserve existing accounts and entries, and restore');
       }
       // All routes render with no console/page errors, no document overflow, both themes and widths.
@@ -267,6 +290,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await page.setViewportSize({width:320,height});await overflow('fixed currency at 320');await page.setViewportSize(size);await closeDialog();
       }
       if(persona==='jordan') {
+        const accountStarted=performance.now(),accountBefore=commits();
         await go('account-summary/?account='+encodeURIComponent('Assets:Bank:Meadow Savings')+'|USD');
         await page.getByRole('button',{name:'Account details',exact:true}).click();
         await expect(page.getByLabel('Currency',{exact:true})).toHaveValue('USD');
@@ -283,6 +307,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
           const response=await fetch(base+'api/accounts/currency',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});assert.ok(response.ok,await response.text());
           await page.reload();
         } else await closeDialog();
+        console.log('SUITE_TIMING '+JSON.stringify({persona,engine,theme,width,name:'account-currency',seconds:(performance.now()-accountStarted)/1000,commits:commits()-accountBefore}));
       }
       record('fixed currency is plain text with cause; opening-only currency relabels and commits without conversion');
       if(persona==='sam') {
@@ -344,6 +369,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await snap('accounts-populated');record('Sam June/July/August native amounts, separate chart axes and native net worth minus debt');
       }
       if(persona==='empty') {
+        const openingStarted=performance.now(),openingBefore=commits();
         await control('openings',{enabled:true});await go('account-summary/');
         await expect(page.getByText('Only opening balances so far.',{exact:true})).toBeVisible();await expect(page.locator('.single-currency')).toContainText('$6,152.75');
         await expect(page.locator('.single-currency > .panel')).toHaveCount(1);await expect(page.locator('.net-worth')).toHaveCount(0);
@@ -356,7 +382,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await page.getByRole('button',{name:'Meadow Savings',exact:true}).click();await expect(page.getByLabel('Currency',{exact:true})).toHaveValue('USD');await page.getByLabel('Currency',{exact:true}).selectOption('EUR');await expect(page.getByRole('dialog')).toContainText('€4,650.00');await snap('account-opening-changeable');await closeDialog();
         await go('explorer/');await expect(page.getByText('Your spending starts here.',{exact:false})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);
         for(const view of ['atlas','forecast']){await go(view+'/');await expect(page.getByText(view==='atlas'?'Nothing recorded this month yet':'No expenses yet.',{exact:true})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);}
-        await control('openings',{enabled:false});record('opening-only Accounts subtracts debt with no invented history; Explorer invites the first expense');
+        await control('openings',{enabled:false});console.log('SUITE_TIMING '+JSON.stringify({persona,engine,theme,width,name:'opening-balances',seconds:(performance.now()-openingStarted)/1000,commits:commits()-openingBefore}));record('opening-only Accounts subtracts debt with no invented history; Explorer invites the first expense');
       }
       if(persona==='asha') {
         await go('account-summary/?account=Investments');
@@ -376,11 +402,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await page.goBack();await expect(page.locator('.holdings-table')).toBeVisible();
         await overflow('Asha investments');record('Asha holdings, cost/value/gain, chart keyboard inspection, account drill-down and history return');
       }
-      await runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce});
-      await runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
-      await runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
-      await runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce});
-      await runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+      await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
+      await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runReaderWorkflows',()=>runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce}));
+      await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

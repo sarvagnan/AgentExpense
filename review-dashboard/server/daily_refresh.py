@@ -7,6 +7,7 @@ import os
 import time
 
 from transactions import clean, ledger_lock, refresh
+from dashboard_data import check_source, public_data
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,10 @@ class DailyRefresh:
         self.next_check = now + self.interval
         try:
             today = self.today()
-            path = self.settings.application / 'review-dashboard/public/data/dashboard.json.gz'
+            source_matches = check_source(self.settings.dashboard_data, self.settings.ledger)
+            path = public_data(self.settings.dashboard_data) / 'dashboard.json.gz'
             built_today = json.loads(gzip.decompress(path.read_bytes()))['meta'].get('today') if path.exists() else None
-            if built_today == today and not self.retry_failed:
+            if source_matches and built_today == today and not self.retry_failed:
                 return
             try:
                 with ledger_lock(self.settings.ledger, blocking=False):

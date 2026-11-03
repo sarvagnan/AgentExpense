@@ -31,21 +31,23 @@ return read.call(this,file,...args); }; syncBuiltinESMExports();`);
     // Present but invalid inputs must also be ignored, never used to infer a flag.
     await mkdir(join(root,'data/prices'),{recursive:true});
     for (const file of ['fuel-log.json','prices/mutual-funds.prices','prices/fund-sources.json']) await writeFile(join(root,'data',file),'invalid disabled input');
-    for (const file of ['app/data/fuel-log.json','public/data/fuel-log.json.gz']) await writeFile(join(copy.dash,file),'stale');
-    const env = {...copy.env,LEDGER_DIR:root};
+    const output=join(copy.application,'output',name);
+    for(const folder of ['app/data','public/data'])await mkdir(join(output,folder),{recursive:true});
+    for (const file of ['app/data/fuel-log.json','public/data/fuel-log.json.gz']) await writeFile(join(output,file),'stale');
+    const env = {...copy.env,LEDGER_DIR:root,DASHBOARD_DATA_DIR:output};
     for (const script of ['copy-fuel-log','build-dashboard-data','build-review-data','build-add-patterns','check-dashboard-data','compress-dashboard-data']) {
       execFileSync(process.execPath,['--import',guard,join(copy.dash,'scripts',script+'.mjs')],{env,stdio:'pipe'});
     }
-    for (const file of ['app/data/fuel-log.json','public/data/fuel-log.json.gz']) await assert.rejects(readFile(join(copy.dash,file)),{code:'ENOENT'});
-    const data = JSON.parse(await readFile(join(copy.dash,'app/data/dashboard.json'),'utf8'));
+    for (const file of ['app/data/fuel-log.json','public/data/fuel-log.json.gz']) await assert.rejects(readFile(join(output,file)),{code:'ENOENT'});
+    const data = JSON.parse(await readFile(join(output,'app/data/dashboard.json'),'utf8'));
     assert.equal(data.prices.length,0); assert.ok(data.transactions.every(row => row.fuelLog === null));
     assert.equal(data.meta.ledger.modules.investments,false);
-    assert.ok(!JSON.parse(await readFile(join(copy.dash,'app/data/add-patterns.json'),'utf8')).patterns.fuel);
+    assert.ok(!JSON.parse(await readFile(join(output,'app/data/add-patterns.json'),'utf8')).patterns.fuel);
     manifest.modules.investments={prices:null};
     await writeFile(join(root,'ledger.json'),JSON.stringify(manifest));
     await rm(join(root,'data/prices/mutual-funds.prices'));
     execFileSync(process.execPath,[join(copy.dash,'scripts/build-dashboard-data.mjs')],{env,stdio:'pipe'});
-    assert.deepEqual(JSON.parse(await readFile(join(copy.dash,'app/data/dashboard.json'),'utf8')).prices,[]);
+    assert.deepEqual(JSON.parse(await readFile(join(output,'app/data/dashboard.json'),'utf8')).prices,[]);
   }
 });
 

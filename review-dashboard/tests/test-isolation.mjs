@@ -36,6 +36,7 @@ for (const name of ['STAGE', 'ADD_SHOTS', 'STATEMENTS_FINISH_FIXTURE']) {
 Object.assign(process.env, {
   EXPENSES_TEST_TMP: testArtifacts,
   TMPDIR: testArtifacts,
+  npm_config_update_notifier: 'false',
   npm_config_cache: cachePath('npm_config_cache', 'npm-cache'),
   UV_CACHE_DIR: cachePath('UV_CACHE_DIR', 'uv-cache'),
   NODE_COMPILE_CACHE: cachePath('NODE_COMPILE_CACHE', 'node-compile-cache'),
@@ -100,9 +101,9 @@ process.once('exit', () => {
 export async function disposableDashboard(work = undefined) {
   work = work ? temporaryPath(work) : await temporaryDirectory('dashboard-');
   const application = join(work, 'application'), dash = join(application, 'review-dashboard');
-  const filter = path => !['node_modules', 'dist', '.venv', '__pycache__', '.git', '.jj'].includes(path.split(sep).at(-1));
+  const filter = path => !['node_modules', 'dist', '.venv', '__pycache__', '.git', '.jj', '.source-ledger.json'].includes(path.split(sep).at(-1));
   await mkdir(application, { recursive: true });
-  for (const name of ['scripts', 'schema', 'migrations', 'Makefile']) await cp(join(sourceApplication, name), join(application, name), { recursive: true, filter });
+  for (const name of ['scripts', 'schema', 'migrations', 'Makefile', '.node-version']) await cp(join(sourceApplication, name), join(application, name), { recursive: true, filter });
   // Copy the source and published data; a fixture refresh/build overwrites only this copy.
   for (const name of ['app', 'public', 'scripts', 'tests', 'server', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'index.html']) {
     await cp(join(sourceDashboard, name), join(dash, name), { recursive: true, filter });
@@ -120,7 +121,7 @@ export async function disposableDashboard(work = undefined) {
   const venv = join(sourceDashboard, 'server/.venv');
   return { application, dash, env: { ...process.env, VIRTUAL_ENV: venv,
     PATH: `${join(venv, 'bin')}${delimiter}${process.env.PATH || ''}`,
-    EXPENSES_TEST_APPLICATION: application,
+    EXPENSES_TEST_APPLICATION: application, DASHBOARD_DATA_DIR: dash, npm_config_update_notifier: 'false',
     LEDGER_DIR: resolve(process.env.LEDGER_DIR || join(sourceApplication, 'ledger')) } };
 }
 

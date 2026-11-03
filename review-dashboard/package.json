@@ -12,7 +12,7 @@
     "data": "node scripts/copy-fuel-log.mjs && node scripts/build-dashboard-data.mjs && node scripts/build-review-data.mjs && node scripts/build-add-patterns.mjs && node scripts/check-dashboard-data.mjs && node scripts/compress-dashboard-data.mjs",
     "start": "vite preview --host 127.0.0.1",
     "lint": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node scripts/test-dashboard.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.316",

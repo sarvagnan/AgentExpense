@@ -1,3 +1,4 @@
+import {dashboardDataPath} from '../../scripts/dashboard-data.mjs';
 import './test-isolation.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -10,7 +11,7 @@ const server = await createServer({ server: { middlewareMode: true, hmr: false, 
 try {
   await loadPublishedData(server);
   const { default: Dashboard, Explorer } = await server.ssrLoadModule('/app/dashboard.tsx');
-  const data = JSON.parse(await readFile(new URL('../app/data/dashboard.json', import.meta.url)));
+  const data = JSON.parse(await readFile(dashboardDataPath('app/data/dashboard.json')));
   const html = renderToStaticMarkup(createElement(Dashboard, { view: 'explorer' }));
   const body = html.match(/<tbody[^>]*>(.*?)<\/tbody>/s)?.[1] || '';
   const hasExpenses=data.months.some(month=>month.count>0);

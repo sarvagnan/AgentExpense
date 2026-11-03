@@ -1,3 +1,5 @@
+import {useProjectNode} from '../../scripts/node-toolchain.mjs';
+useProjectNode();
 import { temporaryDirectory } from './test-isolation.mjs';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';

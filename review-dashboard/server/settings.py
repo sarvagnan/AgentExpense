@@ -9,6 +9,7 @@ import sys
 APPLICATION = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(APPLICATION / 'scripts'))
 from project_paths import ledger_root
+from dashboard_data import dashboard_data_root
 
 
 def state_directory():
@@ -21,6 +22,7 @@ def state_directory():
 class Settings:
     application: Path = APPLICATION
     ledger: Path = field(default_factory=ledger_root)
+    dashboard_data: Path | None = None
     port: int = 8701
     base_path: str = '/'
     allowed_hosts: tuple[str, ...] = ()
@@ -49,6 +51,7 @@ class Settings:
 
 
     def __post_init__(self):
+        object.__setattr__(self, 'dashboard_data', (self.dashboard_data or dashboard_data_root(self.application)).expanduser().resolve())
         object.__setattr__(self, 'state_dir', self.state_dir.expanduser().resolve())
         object.__setattr__(self, 'codex_home', (self.codex_home or self.state_dir / 'codex-home').expanduser().resolve())
         object.__setattr__(self, 'codex', self.codex or str(self.application / 'review-dashboard/node_modules/.bin/codex'))

@@ -1,13 +1,12 @@
+import {dashboardDataPath, guardDashboardData} from '../../scripts/dashboard-data.mjs';
+guardDashboardData();
 import { transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions } from './currency.mjs';
 import { sourceType } from './source-labels.mjs';
 import { compact, loadExpenseStore } from './expense-store.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const projectDir = path.resolve(scriptDir, '..');
-const outputPath = path.join(projectDir, 'app', 'data', 'pending-transactions.json');
+const outputPath = dashboardDataPath('app/data/pending-transactions.json');
 
 const { transactions, accounts, manifest } = await loadExpenseStore();
 

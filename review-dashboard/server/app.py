@@ -23,6 +23,7 @@ from draft_time import client_context
 from agent_gate import get_gate
 from drafts import Drafts
 from settings import Settings
+from dashboard_data import public_data
 from ledger_manifest import read_manifest
 from worker import Worker
 from statements import Statements
@@ -870,7 +871,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         if any(part.startswith('.') for part in parts):
             raise HTTPException(404)
         if path.startswith('data/'):
-            base = dash / 'public/data'
+            base = public_data(settings.dashboard_data)
             target = base / path.removeprefix('data/')
             allowed = target.resolve().is_relative_to(base.resolve())
         else:

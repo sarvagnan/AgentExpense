@@ -1,3 +1,5 @@
+import {useProjectNode} from '../../scripts/node-toolchain.mjs';
+useProjectNode();
 import { temporaryDirectory, disposableDashboard, stopChildren } from './test-isolation.mjs';
 // Tight regression for a slow live-health request during whole-document navigation.
 import assert from 'node:assert/strict';

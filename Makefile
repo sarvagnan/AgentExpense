@@ -1,5 +1,12 @@
-.PHONY: scan test-scanner ledger test test-ledger test-server agent-check agent-login agent-upgrade service check dashboard verify format commit
+.PHONY: scan test-scanner ledger test test-ledger test-server agent-check agent-login agent-upgrade service check dashboard verify verify-data format commit
 export PYTHONDONTWRITEBYTECODE = 1
+export npm_config_update_notifier = false
+# Resolve the installed project Node once; helpers never install or download it.
+NODE_BIN := $(shell python3 "$(dir $(abspath $(firstword $(MAKEFILE_LIST))))scripts/node_toolchain.py")
+ifeq ($(strip $(NODE_BIN)),)
+$(error Cannot resolve .node-version; install its version with fnm install $$(cat .node-version))
+endif
+export PATH := $(NODE_BIN):$(PATH)
 ifneq ($(origin m),undefined)
 export EXPENSES_COMMIT_MESSAGE = $(m)
 endif
@@ -10,6 +17,10 @@ LEDGER_DIR ?= $(LEDGER)
 # Normalize before npm changes directory into review-dashboard.
 override LEDGER_DIR := $(abspath $(LEDGER_DIR))
 export LEDGER_DIR
+ifneq ($(strip $(DASHBOARD_DATA_DIR)),)
+override DASHBOARD_DATA_DIR := $(abspath $(DASHBOARD_DATA_DIR))
+export DASHBOARD_DATA_DIR
+endif
 
 ledger:
 	uv run --with jsonschema python scripts/ledger/generate_ledger.py
@@ -41,8 +52,8 @@ test-ledger:
 test-migrations:
 	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python -m unittest discover -s scripts/ledger/migration_tests -v
 
-# Ledger checks run only the ledger tests, so verify, commit and dashboard stay fast.
-check: test-ledger
+# Saves validate data only; development verify and dashboard also test the code.
+check:
 	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/ledger/check_store.py
 	"$(HLEDGER)" -f "$(LEDGER_DIR)/expense_ledger.ledger" check -s ordereddates
 
@@ -53,8 +64,10 @@ dashboard: review-dashboard/node_modules/.package-lock.json verify test-migratio
 	npm --prefix review-dashboard run data
 	npm --prefix review-dashboard run build
 
-verify: ledger
+verify-data: ledger
 	$(MAKE) check
+
+verify: test-ledger verify-data
 
 commit:
 	uv run --with jsonschema python scripts/ledger/commit.py
@@ -71,10 +84,11 @@ upgrade-ledger:
 	uv run --with jsonschema python scripts/ledger/upgrade_ledger.py $(ARGS)
 
 personas:
-	@set -e; for persona in fixtures/ledgers/*; do \
-	  LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) dashboard test-server; \
-	  LEDGER_DIR="$(CURDIR)/$$persona" npm --prefix review-dashboard test; \
-	  LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) test-scanner; \
+	@node --version
+	@set -e; output=$$(mktemp -d /tmp/expense-personas-data-XXXXXX); for persona in fixtures/ledgers/*; do \
+	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) dashboard test-server; \
+	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" npm --prefix review-dashboard test; \
+	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) test-scanner; \
 	  printf 'PASS %s\n' "$${persona##*/}"; \
 	done
 
@@ -91,6 +105,7 @@ weekly-review:
 
 .PHONY: browser-tests browser-capture
 browser-tests:
+	@node --version
 	node review-dashboard/tests/browser/run.mjs
 
 browser-capture:

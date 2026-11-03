@@ -51,11 +51,11 @@ class SeparateLedgerTests(Fixture):
         with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-app-fixture-') as temp:
             application = Path(temp)
             (application / 'scripts').mkdir()
-            shutil.copyfile(APPLICATION_ROOT / 'scripts/project-paths.mjs', application / 'scripts/project-paths.mjs')
+            shutil.copytree(APPLICATION_ROOT / 'scripts', application / 'scripts', dirs_exist_ok=True)
             shutil.copytree(APPLICATION_ROOT / 'schema', application / 'schema')
             scripts = application / 'review-dashboard/scripts'
             shutil.copytree(APPLICATION_ROOT / 'review-dashboard/scripts', scripts)
-            env = {**os.environ, 'LEDGER_DIR': str(self.root)}
+            env = {**os.environ, 'LEDGER_DIR': str(self.root), 'DASHBOARD_DATA_DIR': str(application / 'review-dashboard')}
             for name in ['copy-fuel-log', 'build-dashboard-data', 'build-review-data', 'build-add-patterns', 'compress-dashboard-data']:
                 subprocess.run(['node', str(scripts / (name + '.mjs'))], cwd=self.root, env=env,
                                check=True, capture_output=True, text=True)

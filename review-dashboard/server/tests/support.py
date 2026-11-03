@@ -73,6 +73,7 @@ class Fixture(unittest.TestCase):
         shutil.copytree(APPLICATION / 'schema', self.application / 'schema')
         shutil.copytree(APPLICATION / 'migrations', self.application / 'migrations')
         shutil.copyfile(APPLICATION / 'Makefile', self.application / 'Makefile')
+        shutil.copyfile(APPLICATION / '.node-version', self.application / '.node-version')
         dash = self.application / 'review-dashboard'
         shutil.copytree(APPLICATION / 'review-dashboard/scripts', dash / 'scripts')
         package = json.loads((APPLICATION / 'review-dashboard/package.json').read_text())
@@ -100,8 +101,8 @@ class Fixture(unittest.TestCase):
         self.fake.write_text(f'#!{sys.executable}\n' + (SERVER / 'tests/fake_agent.py').read_text().split('\n', 1)[1])
         self.fake.chmod(0o755)
         self.settings = Settings(application=self.application, ledger=self.ledger, codex=str(self.fake),
-                                 state_dir=self.base / 'state', dev=True, timeout=2, old_ledger=self.old)
-        self.environment = patch.dict(os.environ, {'EXPENSES_FAKE_CONFIG': str(self.config), 'npm_config_cache': str(self.base / '.npm-cache'), 'TMPDIR': str(artifacts), 'PYTHONDONTWRITEBYTECODE': '1', 'EXPENSES_TEST_ORACLE_CACHE': oracle_cache()})
+                                 dashboard_data=dash, state_dir=self.base / 'state', dev=True, timeout=2, old_ledger=self.old)
+        self.environment = patch.dict(os.environ, {'EXPENSES_FAKE_CONFIG': str(self.config), 'npm_config_cache': str(self.base / '.npm-cache'), 'npm_config_update_notifier': 'false', 'DASHBOARD_DATA_DIR': str(dash), 'TMPDIR': str(artifacts), 'PYTHONDONTWRITEBYTECODE': '1', 'EXPENSES_TEST_ORACLE_CACHE': oracle_cache()})
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.set_answers(ready())

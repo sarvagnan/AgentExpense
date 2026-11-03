@@ -113,6 +113,30 @@ class RuleTests(Fixture):
         self.assertEqual(removed['removal']['evidence'],[entry['id']]);self.assertEqual(removed['lifecycle'],'removed')
         self.assertEqual(self.op('backfill')['changed'],0)
 
+    def test_backdated_addition_then_undo_does_not_block_later_saves(self):
+        self.seed(False)
+        drafts=Drafts(self.ledger)
+        def add(day, text):
+            draft=drafts.create(text);drafts.save_time(draft)
+            proposal=ready(new=False);proposal['attachment_names']=[]
+            proposal['entry'].update(date=day,description='Willow club')
+            draft.update(proposal=proposal,finished_by=dict(actor='user',reason='agent unavailable'))
+            drafts.put(draft)
+            with ledger_lock(self.ledger) as fd:
+                result=Transaction(self.settings,drafts,draft).apply(proposal,fd)
+            drafts.completed(draft,result)
+            return records(self.ledger)[-1]
+        add('2026-09-15','Willow club monthly membership')
+        latest=records(self.ledger)[-1]
+        self.assertTrue(latest['rule_changes'])
+        self.op('undone',undoes=latest['id'])
+        # The detector may reconsider history after this perfectly valid Undo.
+        # Later data saves must not depend on code-test invariants about history.
+        add('2026-10-15','Willow club later payment')
+        self.op('kept',rule_id=read_json(self.ledger/'data/forecast.json')[0]['id'])
+        self.assertTrue(clean(self.ledger))
+        self.assertEqual(len(records(self.ledger)),4)
+
     def test_agent_and_hand_additions_link_and_advance_and_paused_offer(self):
         r=payment_rule(day='2026-10-01');r['description']='Cafe';self.seed(r)
         with self.client() as client:

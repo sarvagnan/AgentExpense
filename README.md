@@ -12,11 +12,12 @@ Keep the application and personal ledger in two separate repositories. The defau
 
 ## Fictional example and checks
 
-Install Python 3.11+, uv, Node.js 22.13+ and hledger on PATH. Every value in `fixtures/ledgers/asha/` is invented. From the application root:
+Install Python 3.11+, uv, fnm and hledger on PATH. The project selects the installed Node version in `.node-version` (supported versions remain in `review-dashboard/package.json`). Run `fnm install $(cat .node-version)` once. Without fnm, launchers warn and use Node on PATH. To update Node, run `fnm install <v>`, change `.node-version`, and run `make personas` while nothing else is running. Every value in `fixtures/ledgers/asha/` is invented. From the application root:
 
 ```sh
 export PYTHONDONTWRITEBYTECODE=1
 export LEDGER_DIR="$PWD/fixtures/ledgers/asha"
+export DASHBOARD_DATA_DIR="$(mktemp -d /tmp/expense-example-data-XXXXXX)"
 make verify
 make dashboard
 make test-server
@@ -26,6 +27,10 @@ python3 -m unittest discover -s scripts/tests -v
 ```
 
 `fixtures/ledgers/jordan/` demonstrates USD spending, an opening-only EUR travel account and an EUR dinner charged in USD. `fixtures/ledgers/sam/` demonstrates a move from GBP to EUR in July; `fixtures/ledgers/empty/` is a fresh ledger. Run `make personas` to verify, build and test every fixture. See [Account currencies](docs/CURRENCIES.md) for formatting, separate totals and currency-change commands.
+
+`make commit m="…"` holds the ledger lock while running `make verify-data`: journal generation, schema/store/audit/evidence/statement checks and strict hledger validation. `make verify` also runs ledger code tests; `make dashboard` retains them.
+
+`DASHBOARD_DATA_DIR` selects a generated-output root containing `app/data/` and `public/data/` (default `review-dashboard/`). Relative paths resolve from the invoking directory. A private source stamp follows the ledger’s real path; builds refuse another ledger before changing any output. Choose another root or set `DASHBOARD_DATA_REPLACE=1` to replace it. The stamp is neither published nor served. Tests and persona runs always use temporary output roots; npm update notifications are disabled.
 
 `make dashboard` installs the pinned npm dependencies when needed, generates dashboard data and builds static views. Server tests use disposable repositories and a fake agent; they run no model. Browser suites are separate and are not part of the commands above. See [dashboard documentation](review-dashboard/README.md) and [server documentation](review-dashboard/server/README.md).
 

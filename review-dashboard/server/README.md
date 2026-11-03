@@ -185,7 +185,7 @@ For a run that writes no bytecode or environment updates in the application,
 use `PYTHONDONTWRITEBYTECODE=1 UV_NO_SYNC=1 make test-server` after dependencies are
 installed. `EXPENSES_TEST_TMP=/tmp/expense-checks` groups fixture applications and
 ledgers. `make test-server` activates the installed server venv through `uv`, so
-nested `make commit`/`make verify` subprocesses reuse its `jsonschema` even with
+nested `make commit`/`make verify-data` subprocesses reuse its `jsonschema` even with
 `UV_OFFLINE=1` and an empty `/tmp` `UV_CACHE_DIR`. Browser fixture APIs activate
 the same environment explicitly while using its Python directly; neither path
 needs pre-filled caches or a venv resync.
@@ -211,7 +211,7 @@ files. `tests/test_isolation.py` tests these cases with git fixtures under `/tmp
 Browser fixture APIs likewise receive disposable
 application copies for data refresh and serving; production settings are unchanged.
 Commit verification skips only the server suite to avoid recursive integration
-tests; `make verify` runs only the ledger suite. `EXPENSES_FAKE_CONFIG` belongs to tests
+tests; `make verify` runs the ledger suite plus data verification. Saves run `make verify-data` under the lock without code tests. `EXPENSES_FAKE_CONFIG` belongs to tests
 only and has no effect on the production agent runner.
 
 Nested verification in the offline server suite shares a temporary, immutable
@@ -524,3 +524,5 @@ GET rules also returns
 compact payments for the page's chosen-period disclosure. Suggestion dismissal
 uses a removed-rule suppression record, recomputed from current evidence under
 the normal checked operation; no caller-supplied postings are trusted.
+
+Data refresh and `/data/` use the `DASHBOARD_DATA_DIR` captured at server startup (default `review-dashboard/`). Refresh selects the installed `.node-version` through fnm, disables npm update notifications, and reports provenance refusal as a refresh failure. It preserves the existing output. The private source stamp is never served. The daily check uses this same output root and provenance. The service installer writes the resolved Node binary directory into its PATH.

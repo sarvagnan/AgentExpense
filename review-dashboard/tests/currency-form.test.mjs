@@ -11,7 +11,9 @@ test('linked amount and rate use decimal half-up minor units in both directions'
  assert.equal(currenciesLinked('1','1.2345','rate',3).amount,'1.235');
  for(const value of ['','0','-1','Infinity','NaN','bad','1e2']){assert.equal(positiveDecimal(value),false);assert.deepEqual(currenciesLinked('46.80',value,'rate',2),{amount:'',rate:''});}
 });
-test('server currency minor-unit table matches the browser formatter for all supported codes',async()=>{
+test('the app formatter explicitly uses its minor-unit table for every supported code',async()=>{
  const table=JSON.parse(await readFile(new URL('../../schema/currency-minor-units.json',import.meta.url)));
- for(const [currency,digits] of Object.entries(table))assert.equal(digits,new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits,currency);
+ const {currencyNumberFormat,minorUnits,money,setMoneySettings}=await import('../scripts/formatting.mjs');
+ setMoneySettings({locale:'en'},table);
+ for(const [currency,digits] of Object.entries(table)){assert.equal(minorUnits(currency),digits);const formatter=currencyNumberFormat(currency);assert.equal(formatter.resolvedOptions().minimumFractionDigits,digits,currency);assert.equal(formatter.resolvedOptions().maximumFractionDigits,digits,currency);assert.equal(money(1.23456,currency),formatter.format(1.23456),currency);}
 });

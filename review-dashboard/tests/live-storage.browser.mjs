@@ -1,3 +1,5 @@
+import {useProjectNode} from '../../scripts/node-toolchain.mjs';
+useProjectNode();
 import { temporaryDirectory, disposableDashboard, stopChildren } from './test-isolation.mjs';
 // Denied local and server persistence must be honest and protect departure.
 import assert from 'node:assert/strict';

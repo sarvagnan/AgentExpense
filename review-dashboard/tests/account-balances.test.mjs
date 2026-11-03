@@ -1,3 +1,4 @@
+import {dashboardDataPath} from '../../scripts/dashboard-data.mjs';
 import './test-isolation.mjs';
 import path from 'node:path';
 import { ledgerRoot } from '../../scripts/project-paths.mjs';
@@ -37,7 +38,7 @@ test('position values use the entry date', () => {
  ]);
 });
 test('every selected account balance reconciles to hledger at historical and current cutoffs', () => {
- const data = JSON.parse(readFileSync(new URL('../app/data/dashboard.json', import.meta.url), 'utf8'));
+ const data = JSON.parse(readFileSync(dashboardDataPath('app/data/dashboard.json'), 'utf8'));
  const ledger = path.join(ledgerRoot(), 'expense_ledger.ledger');
  for (const asOf of [...new Set(data.transactions.map(row => row.date))]) {
   const end = new Date(Date.parse(asOf) + 86400000).toISOString().slice(0,10);

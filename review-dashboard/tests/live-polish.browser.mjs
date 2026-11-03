@@ -1,3 +1,5 @@
+import {useProjectNode} from '../../scripts/node-toolchain.mjs';
+useProjectNode();
 import { temporaryDirectory } from './test-isolation.mjs';
 // Capture transient pressed and tooltip states without mutating generated data.
 import assert from 'node:assert/strict';

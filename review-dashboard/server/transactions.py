@@ -25,6 +25,8 @@ from store import dump, load, store_paths
 from ledger_manifest import read_manifest, module_settings
 from account_metadata import infer_kind, is_balance_sheet
 from ledger_lock import ledger_lock, LOCK_FD_ENV
+from node_toolchain import node_environment
+from dashboard_data import check_source
 sys.path.insert(0, str(APPLICATION / 'scripts/receipts'))
 from compress_images import compress
 
@@ -370,8 +372,11 @@ class Transaction:
 
 def refresh(settings, result):
     try:
+        check_source(settings.dashboard_data, settings.ledger)
+        env = node_environment(settings.application)
+        env.update(LEDGER_DIR=str(settings.ledger.resolve()), DASHBOARD_DATA_DIR=str(settings.dashboard_data))
         run = subprocess.run(['npm', '--prefix', 'review-dashboard', 'run', 'data'],
-                             cwd=settings.application, env={**os.environ, 'LEDGER_DIR': str(settings.ledger)},
+                             cwd=settings.application, env=env,
                              text=True, capture_output=True, timeout=120)
         if run.returncode:
             raise RuntimeError((run.stdout + run.stderr)[-3000:])

@@ -22,6 +22,15 @@ assert settings.state_dir.is_relative_to(Path('/tmp').resolve())
 assert settings.codex_home.is_relative_to(Path('/tmp').resolve())
 assert Path(settings.codex).name == 'fake-agent'
 app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime.now(timezone.utc))
+from fastapi.responses import Response
+
+@app.post('/__test/formatting')
+def formatting_module():
+    source = (settings.application / 'review-dashboard/scripts/formatting.mjs').read_text()
+    for name, file in [('currencyCodes', 'currencies.json'), ('currencyMinorUnits', 'currency-minor-units.json')]:
+        source = source.replace(f"import {name} from '../../schema/{file}' with {{type: 'json'}};", f'const {name} = ' + (settings.application / 'schema' / file).read_text() + ';')
+    return Response(source, media_type='text/javascript')
+
 config = Path(os.environ['EXPENSES_FAKE_CONFIG'])
 original_audit = {path:path.read_bytes() for path in (settings.ledger/'data/additions').glob('*.jsonl')}
 original = {path: read_json(path) for path in [settings.ledger/'data/accounts.json',settings.ledger/'data/card-statements.json',settings.ledger/'data/forecast.json',settings.ledger/'ledger.json', *sorted((settings.ledger/'data/expenses').glob('*.json'))]}

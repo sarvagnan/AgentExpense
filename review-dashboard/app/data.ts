@@ -18,7 +18,7 @@ export function setData(next: { dashboard: DashboardData; review: ReviewData; fu
   ({ dashboard, review, fuel } = next);
   setCurrentAccounts(dashboard.meta?.accounts);
   setDateLocale(dashboard.meta?.ledger?.locale);
-  setMoneySettings(dashboard.meta?.ledger);
+  setMoneySettings(dashboard.meta?.ledger, dashboard.meta?.currencyMinorUnits);
   version++;
   listeners.forEach(listener => listener());
 }

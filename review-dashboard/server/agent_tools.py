@@ -10,6 +10,7 @@ import tempfile
 from agent import codex_environment
 from agent_check import OfflineFailure, check_offline, fixture, require_codex
 from settings import Settings
+from node_toolchain import node_environment
 from adapters import get_adapter, PACKAGES, login_environment
 
 
@@ -26,14 +27,15 @@ def upgrade(settings, version='', *, dry_run=False):
     if settings.adapter not in PACKAGES:
         raise ValueError('Only pinned CLI adapters have an npm upgrade')
     package, binary = PACKAGES[settings.adapter]
+    base_env = node_environment(settings.application)
     if not version:
-        version = subprocess.check_output(['npm', 'view', package, 'version'], text=True).strip()
+        version = subprocess.check_output(['npm', 'view', package, 'version'], env=base_env, text=True).strip()
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', version):
         raise ValueError('VERSION must be an exact npm version')
     print('Checking ' + settings.adapter + ' ' + version, flush=True)
     with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-upgrade-') as folder:
         work = Path(folder)
-        npm_env = dict(os.environ, HOME=str(work / 'npm-home'), npm_config_cache=str(work / 'npm-cache'))
+        npm_env = dict(base_env, HOME=str(work / 'npm-home'), npm_config_cache=str(work / 'npm-cache'))
         (work / 'npm-home').mkdir()
         subprocess.run(['npm', 'install', '--prefix', str(work), '--save-exact', package + '@' + version], check=True, env=npm_env)
         ledger, old, _ = fixture(work)

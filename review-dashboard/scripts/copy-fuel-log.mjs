@@ -1,3 +1,5 @@
+import {dashboardDataPath, guardDashboardData} from '../../scripts/dashboard-data.mjs';
+guardDashboardData();
 // The hand-kept source belongs to the ledger; this app copy is generated.
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -5,8 +7,8 @@ import { ledgerRoot } from '../../scripts/project-paths.mjs';
 
 import { moduleSettings, readManifest } from './ledger-manifest.mjs';
 const manifest = await readManifest();
-const destination = new URL('../app/data/fuel-log.json', import.meta.url);
-await mkdir(new URL('./', destination), { recursive: true });
+const destination = dashboardDataPath('app/data/fuel-log.json');
+await mkdir(path.dirname(destination), { recursive: true });
 if (!moduleSettings(manifest).fuel) {
   await rm(destination, {force: true});
 } else {

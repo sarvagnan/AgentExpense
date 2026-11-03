@@ -1,3 +1,6 @@
+import currencyMinorUnits from '../../schema/currency-minor-units.json' with {type:'json'};
+import {dashboardDataPath, guardDashboardData} from '../../scripts/dashboard-data.mjs';
+guardDashboardData();
 import { paymentPosting as selectPayment, transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions } from './currency.mjs';
 import { today } from './date-time.mjs';
 import { expenseSummary, previousMonth } from './month-summary.mjs';
@@ -7,11 +10,8 @@ import { sourceKind } from './source-labels.mjs';
 import { compact, expandForecast, loadExpenseStore } from './expense-store.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const projectDir = path.resolve(scriptDir, '..');
-const outputPath = path.join(projectDir, 'app', 'data', 'dashboard.json');
+const outputPath = dashboardDataPath('app/data/dashboard.json');
 import { moduleSettings } from './ledger-manifest.mjs';
 const { transactions, rules, prices, manifest, accounts } = await loadExpenseStore();
 const provenance = await auditProvenance();
@@ -265,6 +265,7 @@ if (!months.some(row => row.month === currentMonth)) {
 const calendarKeys = [...new Set([...monthKeys, currentMonth])].sort();
 const payload = {
   meta: {
+    currencyMinorUnits,
     ledger: manifest,
     accounts,
     generatedAt: new Date().toISOString(),

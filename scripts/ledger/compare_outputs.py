@@ -12,6 +12,7 @@ import tempfile
 from store import read_json, store_paths, load
 from generate_ledger import render
 from project_paths import APPLICATION_ROOT
+from node_toolchain import node_environment
 
 BASELINE_FILE = 'outputs.json'
 
@@ -67,7 +68,7 @@ def snapshot(root, *, format_zero_settings=None):
                 raise ValueError(f'Unable to generate {name} output.')
             result[name] = run.stdout
         application = scratch / 'application'
-        for relative in ['scripts/project-paths.mjs', 'schema/ledger.schema.json', 'schema/store.schema.json', 'schema/currencies.json', 'schema/recurring-locales.json']:
+        for relative in ['scripts/project-paths.mjs', 'scripts/dashboard-data.mjs', 'schema/currency-minor-units.json', 'schema/ledger.schema.json', 'schema/store.schema.json', 'schema/currencies.json', 'schema/recurring-locales.json']:
             target = application / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(APPLICATION_ROOT / relative, target)
@@ -79,12 +80,14 @@ def snapshot(root, *, format_zero_settings=None):
         urls = {name: (scripts / (name + '.mjs')).as_uri() for name in builders}
         code = "for (const [name, url] of Object.entries(JSON.parse(process.argv[1]))) { try { await import(url); } catch { process.stderr.write(name); process.exit(1); } }"
         run = subprocess.run(['node', '--input-type=module', '-e', code, json.dumps(urls)],
-                             env={**os.environ, 'LEDGER_DIR': str(ledger)}, capture_output=True)
+                             env={**node_environment(), 'LEDGER_DIR': str(ledger), 'DASHBOARD_DATA_DIR': str(application / 'review-dashboard')}, capture_output=True)
         if run.returncode:
             failed = run.stderr.decode(errors='replace')
             name = failed if failed in builders else 'builders'
             raise ValueError(f'Unable to generate dashboard output ({name}).')
         for file in sorted((application / 'review-dashboard/app/data').glob('*.json')):
+            if file.name.startswith('.'):
+                continue  # Private provenance is not a financial/browser output.
             result['dashboard/' + file.name] = json.loads(file.read_text())
         return result
 

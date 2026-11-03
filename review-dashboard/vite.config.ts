@@ -1,5 +1,6 @@
 import { createReadStream, statSync } from 'node:fs';
 import path from 'node:path';
+import {dashboardDataPath} from '../scripts/dashboard-data.mjs';
 import { ledgerRoot } from '../scripts/project-paths.mjs';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
@@ -23,7 +24,11 @@ function evidence(): Plugin {
       server.middlewares.use((request, response, next) => {
         const url = decodeURIComponent((request.url || '').split('?')[0]);
         let file: string | undefined;
-        if (url.startsWith('/bills/')) {
+        if (url.startsWith('/data/')) {
+          const candidate = path.resolve(dashboardDataPath('public/data'), url.slice('/data/'.length));
+          if (candidate.startsWith(dashboardDataPath('public/data') + path.sep) && !url.split('/').some(part=>part.startsWith('.'))) file = candidate;
+        } else if (url === '/favicon.svg') file = path.resolve(import.meta.dirname, 'public/favicon.svg');
+        else if (url.startsWith('/bills/')) {
           const candidate = path.resolve(project, 'Bills', url.slice('/bills/'.length));
           if (candidate.startsWith(path.join(project, 'Bills') + path.sep)) file = candidate;
         } else if (url.startsWith('/statements/')) {
@@ -42,6 +47,7 @@ function evidence(): Plugin {
 }
 
 export default defineConfig(({ command, isPreview }) => ({
+  publicDir: false,
   define: { 'import.meta.env.DASHBOARD_TODAY': JSON.stringify(process.env.DASHBOARD_TODAY || '') },
   base: command === 'build' || isPreview ? '/expenses/' : '/',
   server: {

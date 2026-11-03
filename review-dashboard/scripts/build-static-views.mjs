@@ -1,10 +1,19 @@
-import { copyFile, mkdir, readdir, symlink } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readdir, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {dashboardDataPath, guardDashboardData} from '../../scripts/dashboard-data.mjs';
 import { ledgerRoot } from '../../scripts/project-paths.mjs';
 
+guardDashboardData();
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const ledger = ledgerRoot();
+// Vite does not copy the checkout's generated public data. Publish only the selected output.
+const assets = fileURLToPath(new URL('../public/', import.meta.url));
+for (const name of await readdir(assets)) if (name !== 'data') await cp(path.join(assets,name),path.join(dist,name),{recursive:true});
+await mkdir(path.join(dist,'data'),{recursive:true});
+for (const name of await readdir(dashboardDataPath('public/data'))) {
+  if (/^[a-z-]+\.json\.gz$/.test(name)) await copyFile(dashboardDataPath('public/data',name),path.join(dist,'data',name));
+}
 const views = ['explorer', 'atlas', 'journal', 'forecast', 'review', 'account-summary', 'add', 'drafts', 'statements'];
 
 // Static file servers use directory indexes and follow the relative evidence links.

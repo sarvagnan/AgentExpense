@@ -20,8 +20,8 @@ def commit(root, message):
     from ledger_manifest import read_manifest
     read_manifest(root)
     with ledger_lock(root) as lock_fd:
-        subprocess.run(['make', 'verify'], cwd=APPLICATION_ROOT, check=True,
-                       env={**os.environ, LOCK_FD_ENV: str(lock_fd)}, pass_fds=(lock_fd,))
+        subprocess.run(['make', 'verify-data', 'LEDGER_DIR=' + str(root.resolve())], cwd=APPLICATION_ROOT, check=True,
+                       env={**os.environ, 'LEDGER_DIR': str(root.resolve()), LOCK_FD_ENV: str(lock_fd)}, pass_fds=(lock_fd,))
         jj(root, 'status')  # snapshot before recording the operation to restore
         operation = jj(root, 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id')
         try:

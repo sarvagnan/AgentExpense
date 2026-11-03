@@ -108,15 +108,25 @@ def main():
         target = Path(destination.replace('{persona}', ledger.name)).resolve()
         if not target.is_relative_to(Path('/tmp').resolve()):
             raise ValueError('Test timing artifacts must stay under /tmp')
-    workers = int(os.environ.get('EXPENSES_TEST_WORKERS', '3'))
+    workers = int(os.environ.get('EXPENSES_TEST_WORKERS', '2'))
     if workers < 1:
         raise ValueError('EXPENSES_TEST_WORKERS must be positive')
     started = time.perf_counter()
     suite = unittest.defaultTestLoader.discover(str(SERVER / 'tests'))
     groups = batches(suite)
+    # Scheduler contracts create their own two-worker pools. Run them in the
+    # parent after the ordinary pool closes, keeping total worker load bounded.
+    contracts = [group for group in groups if group[0].startswith('test_runner.')]
+    groups = [group for group in groups if group not in contracts]
     workers = min(workers, max(1, len(groups)))
     print(f'Running complete offline discovery in {workers} isolated worker processes', flush=True)
     result = run_batches(groups, workers)
+    if contracts:
+        contract_result = run_batches(contracts, 1)
+        for key in ('tests', 'failures', 'errors', 'skipped', 'expectedFailures', 'unexpectedSuccesses'):
+            result[key] += contract_result[key]
+        result['successful'] &= contract_result['successful']
+        result['timings'].extend(contract_result['timings'])
     result.update(persona=ledger.name, seconds=time.perf_counter() - started, workers=workers)
     print(f"\nRan {result['tests']} tests in {result['seconds']:.3f}s\n")
     details = ', '.join(f'{name}={result[name]}' for name in ('failures', 'errors', 'skipped', 'expectedFailures', 'unexpectedSuccesses') if result[name])
