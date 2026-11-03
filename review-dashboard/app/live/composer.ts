@@ -1,18 +1,19 @@
+import {clientTime} from '../date-time';
 import { dashboard } from '../data';
 import { paymentAccounts } from '../../scripts/account-metadata.mjs';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {fetchGzipJson} from '../data';
 import {announce} from '../ui';
-import {api, ApiError, upload, type Attachment, type Draft} from './api';
+import {api, ApiError, request, upload, type Attachment, type Draft} from './api';
 import {buildSentence, draftPieces, type PatternData} from './builder';
 import {readStored, writeStored, findRecoveryDraft, restorePieceEdits} from './persistence';
 import {draftsChanged} from './use-drafts';
 const KEY='ledger-add-v1';
-type Recovery={updatedAt?:number;id:string|null;text:string;edits:Record<string,string>;uploads?:{key:string;name:string;error:string;cancelled?:boolean}[]};
+type Recovery={updatedAt?:number;id:string|null;text:string;edits:Record<string,string>;declined_rules?:string[];uploads?:{key:string;name:string;error:string;cancelled?:boolean}[]};
 export type Pending={key:string;name:string;file?:File;progress:number;error:string;busy:boolean;cancelled?:boolean;controller?:AbortController};
-const blank=():Recovery=>({id:null,text:'',edits:{}});
-function recover():Recovery {const x=readStored<Recovery>(KEY);return x && typeof x.text==='string' && (!x.id || /^[a-f0-9]{32}$/.test(x.id)) && x.edits && typeof x.edits==='object' && Object.values(x.edits).every(v=>typeof v==='string')?x:blank();}
-const fingerprint=(f:Recovery)=>JSON.stringify([f.text,f.edits]);
+const blank=():Recovery=>({id:null,text:'',edits:{},declined_rules:[]});
+function recover():Recovery {const x=readStored<Recovery>(KEY);return x && typeof x.text==='string' && (!x.id || /^[a-f0-9]{32}$/.test(x.id)) && (!x.declined_rules||Array.isArray(x.declined_rules)&&x.declined_rules.every(v=>typeof v==='string'&&/^[a-f0-9]{16}$/.test(v))) && x.edits && typeof x.edits==='object' && Object.values(x.edits).every(v=>typeof v==='string')?x:blank();}
+const fingerprint=(f:Recovery)=>JSON.stringify([f.text,f.edits,f.declined_rules||[]]);
 const EMPTY:PatternData={patterns:{},people:[],accounts:[]};
 /** Owned by Dashboard, so requests, File objects and recovery outlive Add's route. */
 export function useComposer(active:boolean){
@@ -25,13 +26,13 @@ export function useComposer(active:boolean){
   const built=useMemo(()=>buildSentence(form.text,{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},form.edits,!!draft?.files.length),[form,patterns,draft?.files.length,dashboard.meta.accounts]);
   const builtRef=useRef(built);builtRef.current=built;
   function persist(next=current.current,items=uploads.current){setLocalOK(writeStored(KEY,{...next,uploads:items.map(p=>({key:p.key,name:p.name,error:p.error,cancelled:p.cancelled}))}));}
-  function update(next:Recovery){if(next.text!==current.current.text || JSON.stringify(next.edits)!==JSON.stringify(current.current.edits))next={...next,updatedAt:Math.max(Date.now(),(current.current.updatedAt||0)+1)};current.current=next;setForm(next);setSuccess('');persist(next);}
+  function update(next:Recovery){if(next.text!==current.current.text || JSON.stringify(next.edits)!==JSON.stringify(current.current.edits) || JSON.stringify(next.declined_rules)!==JSON.stringify(current.current.declined_rules))next={...next,updatedAt:Math.max(Date.now(),(current.current.updatedAt||0)+1)};current.current=next;setForm(next);setSuccess('');persist(next);}
   function changeUploads(fn:(xs:Pending[])=>Pending[]){const next=fn(uploads.current);uploads.current=next;setPending(next);persist(current.current,next);}
   useEffect(()=>{if(!active)return;let alive=true;void fetchGzipJson<PatternData>('add-patterns').then(x=>{if(alive)setPatterns(x);},()=>{if(alive)setPatternError('History suggestions are unavailable. You can still describe the expense.');});return()=>{alive=false;};},[active]);
   async function ensureDraft():Promise<Draft>{
     await restoration.current;
     if(current.current.id)return api.get(current.current.id);
-    if(!creation.current)creation.current=api.create(current.current.text,draftPieces(builtRef.current,current.current.edits),current.current.updatedAt||0).then(d=>{update({...current.current,id:d.id});setDraft(d);draftsChanged();return d;}).finally(()=>{creation.current=null;});
+    if(!creation.current)creation.current=api.create(current.current.text,draftPieces(builtRef.current,current.current.edits),current.current.updatedAt||0,current.current.declined_rules).then(d=>{update({...current.current,id:d.id});setDraft(d);draftsChanged();return d;}).finally(()=>{creation.current=null;});
     return creation.current;
   }
   async function sync(){
@@ -42,11 +43,11 @@ export function useComposer(active:boolean){
     syncing.current=(async()=>{try{
       const d=await ensureDraft();if(d.state!=='editing')return;
       let copy:Recovery;
-      do{copy=current.current;const saved=await api.edit(d.id,copy.text,draftPieces(buildSentence(copy.text,{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},copy.edits,!!d.files.length),copy.edits),copy.updatedAt||0);setSynced(fingerprint(copy));setSyncError('');setDraft(old=>old?.id===saved.id?{...saved,files:old.files}:saved);}while(fingerprint(copy)!==fingerprint(current.current) && !savingRef.current);
+      do{copy=current.current;const saved=await api.edit(d.id,copy.text,draftPieces(buildSentence(copy.text,{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},copy.edits,!!d.files.length),copy.edits),copy.updatedAt||0,copy.declined_rules);setSynced(fingerprint(copy));setSyncError('');setDraft(old=>old?.id===saved.id?{...saved,files:old.files}:saved);}while(fingerprint(copy)!==fingerprint(current.current) && !savingRef.current);
     }catch(e){setSyncError(`Could not save to Drafts. ${(e as Error).message}`);}finally{syncing.current=null;}})();
     return syncing.current;
   }
-  useEffect(()=>{if(recovering||saving)return;const timer=setTimeout(()=>void sync(),350);return()=>clearTimeout(timer);},[form.text,form.edits,form.id,patterns,recovering,saving]);
+  useEffect(()=>{if(recovering||saving)return;const timer=setTimeout(()=>void sync(),350);return()=>clearTimeout(timer);},[form.text,form.edits,form.id,form.declined_rules,patterns,recovering,saving]);
   function restore(requested?:string|null):Promise<void>{
     if(restoration.current)return restoration.current.then(()=>requested && requested!==current.current.id?restore(requested):undefined);
     const task=restoreSnapshot(requested).finally(()=>{restoration.current=null;});
@@ -62,7 +63,7 @@ export function useComposer(active:boolean){
       if(d.state==='editing'){
         if(ticket===fileRequest.current)setDraft(d);
         if(id!==current.current.id || (d.client_updated_at||0)>(current.current.updatedAt||0) || (!current.current.text && !Object.keys(current.current.edits).length)){
-          const next={id,updatedAt:d.client_updated_at||0,text:d.text,edits:restorePieceEdits(d.pieces)};current.current=next;setForm(next);persist(next);setSynced(fingerprint(next));
+          const next={id,updatedAt:d.client_updated_at||0,text:d.text,edits:restorePieceEdits(d.pieces),declined_rules:d.declined_rules||[]};current.current=next;setForm(next);persist(next);setSynced(fingerprint(next));
         }
         changeUploads(xs=>xs.filter(p=>!d.files.some(f=>f.id===p.key)));
       }else{if(!requested){const latest=findRecoveryDraft(current.current,await api.list());if(latest && latest.id!==id)return restoreSnapshot(latest.id);}update(blank());setDraft(null);setSuccess('Your previous draft is in Drafts.');}
@@ -84,10 +85,12 @@ export function useComposer(active:boolean){
   async function cancel(item:Pending){item.cancelled=true;item.controller?.abort();changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:true,cancelled:true}:p));try{const d=await ensureDraft();await api.cancelUpload(d.id,item.key);await refreshFiles(d.id);changeUploads(xs=>xs.filter(p=>p.key!==item.key));}catch(e){changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:false,error:`Could not confirm cancellation. ${(e as Error).message}`}:p));}}
   function retry(item:Pending){if(item.cancelled){void cancel(item);return;}if(!item.file)return;changeUploads(xs=>xs.filter(p=>p.key!==item.key));pick([item.file]);}
   async function remove(file:Attachment){const id=current.current.id!;await api.remove(id,file.id);await refreshFiles(id);}
-  async function save(){
+  const usualRetry=useRef<{id:string;signature:string;body:object}|null>(null);
+  async function save(usual?:{rule_id:string;date:string;amount?:string;update_rule?:boolean;account?:string;remember_account?:boolean;another_anyway?:boolean}){
     if(savingRef.current||uploads.current.some(p=>p.busy))return;
     savingRef.current=true;setSaving(true);setError('');
-    try{await syncing.current;const d=await ensureDraft();if(d.state==='editing'){await api.edit(d.id,current.current.text,draftPieces(builtRef.current,current.current.edits),current.current.updatedAt||0);await api.save(d.id);}else throw Error('This draft has already been sent. Open Drafts to see it.');update(blank());setDraft(null);changeUploads(()=>[]);setSynced('');setLastSavedId(d.id);setSuccess('Saved. The agent is working on it in Drafts.');draftsChanged();announce('Saved to Drafts. Ready for the next expense.');return true;}
+    try{await syncing.current;const d=await ensureDraft();if(d.state==='editing'){await api.edit(d.id,current.current.text,draftPieces(builtRef.current,current.current.edits),current.current.updatedAt||0,current.current.declined_rules);
+        if(usual){const signature=JSON.stringify(usual);if(usualRetry.current?.id!==d.id||usualRetry.current.signature!==signature)usualRetry.current={id:d.id,signature,body:{...usual,...clientTime()}};await request<Draft>(`drafts/${d.id}/usual`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usualRetry.current.body)});}else await api.save(d.id);}else if(usual && usualRetry.current?.id===d.id){await request<Draft>(`drafts/${d.id}/usual`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usualRetry.current.body)});}else throw Error('This draft has already been sent. Open Drafts to see it.');update(blank());setDraft(null);changeUploads(()=>[]);setSynced('');setLastSavedId(d.id);setSuccess(usual?'Saved. Adding your usual payment.':'Saved. The agent is working on it in Drafts.');draftsChanged();announce('Saved to Drafts. Ready for the next expense.');return true;}
     catch(e){setError(`Could not save. ${(e as Error).message}`);return false;}
     finally{savingRef.current=false;setSaving(false);}
   }

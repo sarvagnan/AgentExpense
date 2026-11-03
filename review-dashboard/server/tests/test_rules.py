@@ -7,6 +7,7 @@ from pathlib import Path
 import secrets
 import shutil
 import subprocess
+import threading
 from unittest.mock import patch
 
 from support import Fixture, ready
@@ -187,6 +188,14 @@ class RuleTests(Fixture):
             self.assertEqual(response.status_code,200,response.text);self.assertEqual(response.json()['queued_at'],'2026-01-01T00:00:00+00:00')
             client.app.state.worker.process(drafts.get(draft_id));added=client.get('/api/drafts/'+draft_id).json()
             self.assertEqual(added['state'],'added');self.assertTrue(added['result']['can_undo']);self.assertEqual(self.calls(),[])
+            # Receipt polling must not snapshot jj while a cooperating writer owns the ledger.
+            with ledger_lock(self.ledger), patch('rules_service.clean',side_effect=AssertionError('Undo read raced a ledger writer')):
+                for path in ('/api/drafts/'+draft_id,'/api/drafts?include_added=true'):
+                    response=client.get(path);self.assertEqual(response.status_code,200,response.text)
+                    receipt=response.json() if isinstance(response.json(),dict) else next(d for d in response.json() if d['id']==draft_id)
+                    self.assertFalse(receipt['result']['can_undo'])
+                    self.assertNotIn('undo_until',receipt['result'])
+            self.assertTrue(client.get('/api/drafts/'+draft_id).json()['result']['can_undo'])
             replay=client.post(f'/api/drafts/{draft_id}/usual',json=dict(rule_id='f000000000000001',date='2026-11-15'));self.assertEqual(replay.status_code,200)
             entry_id=added['result']['entry_id'];self.assertEqual(client.get('/api/rules/from-entry/'+entry_id).status_code,200)
         with self.client(worker=False,dev=False) as client:
@@ -203,6 +212,22 @@ class RuleTests(Fixture):
         self.assertEqual(len(cli('list')['rules']),1);self.assertEqual(cli('match','Willow')['rule_id'],'f000000000000001')
         payload=self.base/'operation.json';payload.write_text(json.dumps(dict(action='paused',rule_id='f000000000000001')))
         self.assertEqual(cli('operations',str(payload))['action'],'paused');self.assertEqual(cli('backfill')['changed'],0);self.assertEqual(cli('catch-up')['changed'],0)
+
+    def test_receipt_read_waits_for_a_brief_competing_reader(self):
+        self.seed();_,draft,_=self.add_direct()
+        with self.client(worker=False) as client:
+            held=threading.Event();release=threading.Event()
+            def competing_read():
+                with ledger_lock(self.ledger):
+                    held.set();release.wait(2)
+            thread=threading.Thread(target=competing_read);thread.start()
+            self.assertTrue(held.wait(2));timer=threading.Timer(.2,release.set);timer.start()
+            try:
+                response=client.get('/api/drafts/'+draft['id'])
+            finally:
+                release.set();thread.join();timer.cancel()
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertTrue(response.json()['result']['can_undo'])
 
     def test_usual_evidence_retry_preserves_fifo_and_undo_window_boundaries(self):
         self.seed()
@@ -260,3 +285,48 @@ class RuleTests(Fixture):
                 caught=operate(self.settings,secrets.token_hex(16),dict(action='catch-up'),clock=clock)
                 self.assertEqual(caught['changed'],count)
                 self.assertEqual(operate(self.settings,secrets.token_hex(16),dict(action='catch-up'),clock=clock)['changed'],0)
+
+    def test_suggestion_dismissal_recomputes_postings_retains_suppression_and_replays(self):
+        from copy import deepcopy
+        rule=payment_rule()
+        rows=[]
+        for i,day in enumerate(('2026-09-03','2026-10-22'),1):
+            entry=deepcopy(rule);entry.pop('schedule');entry.pop('origin');entry.pop('lifecycle');entry.update(id=f'{i:016x}',date=day);rows.append(entry)
+        self.seed(False,rows)
+        clock=lambda:datetime(2026,11,2,tzinfo=timezone.utc)
+        suggestion=snapshot(self.settings,clock)['suggestions'][0]['rule']
+        tampered=deepcopy(suggestion);tampered['description']='Caller cannot change this';tampered['postings'][0]['amount']='9999'
+        operation=secrets.token_hex(16);body=dict(action='removed',rule=tampered)
+        result=operate(self.settings,operation,body,clock=clock)
+        self.assertTrue(operate(self.settings,operation,body,clock=clock)['replayed'])
+        stored=read_json(self.ledger/'data/forecast.json')[0]
+        self.assertEqual(stored['description'],rule['description']);self.assertEqual(stored['postings'],rule['postings']);self.assertEqual(stored['lifecycle'],'removed');self.assertEqual(stored['removal']['evidence'],[e['id'] for e in rows])
+        self.assertEqual(snapshot(self.settings,clock)['suggestions'],[])
+        line=records(self.ledger)[-1];self.assertEqual(line['rule_action'],'removed');self.assertIsNone(line['rule_changes'][0]['before']);self.assertTrue(clean(self.ledger))
+        with self.assertRaisesRegex(ValueError,'different payload'):operate(self.settings,operation,dict(action='removed',rule=suggestion),clock=clock)
+        with self.assertRaisesRegex(ValueError,'suggestion changed'):operate(self.settings,secrets.token_hex(16),dict(action='removed',rule=suggestion),clock=clock)
+        for invalid in ([1],{'origin':[]},{'origin':{'evidence':'invalid'}}):
+            with self.assertRaisesRegex(ValueError,'suggestion'):operate(self.settings,secrets.token_hex(16),dict(action='removed',rule=invalid),clock=clock)
+
+    def test_declined_guess_is_only_an_editing_draft_choice(self):
+        self.seed()
+        with self.client() as client:
+            draft=client.post('/api/drafts',json=dict(text='Willow club',declined_rules=['f000000000000001'])).json()
+            self.assertEqual(draft['declined_rules'],['f000000000000001']);self.assertEqual(draft['state'],'editing')
+            response=client.patch('/api/drafts/'+draft['id'],json=dict(declined_rules=[]))
+            self.assertEqual(response.status_code,200);self.assertEqual(response.json()['declined_rules'],[])
+            for values in (['bad'],['f000000000000001']*2):
+                self.assertEqual(client.patch('/api/drafts/'+draft['id'],json=dict(declined_rules=values)).status_code,422)
+            self.assertEqual(client.get('/api/drafts/'+draft['id']).json()['state'],'editing')
+        self.assertEqual(entries(load(self.ledger)),[]);self.assertEqual(records(self.ledger),[]);self.assertTrue(clean(self.ledger));self.assertEqual(self.calls(),[])
+
+    def test_new_owner_rule_allocates_an_id_and_rejects_only_real_collisions(self):
+        self.seed(False,[])
+        proposed=payment_rule();proposed.pop('id')
+        operation=secrets.token_hex(16);body=dict(action='made',rule=proposed)
+        result=operate(self.settings,operation,body)
+        saved=read_json(self.ledger/'data/forecast.json')[0]
+        self.assertRegex(saved['id'],r'^[0-9a-f]{16}$');self.assertEqual(saved['description'],proposed['description']);self.assertEqual(len(result['changes']),1)
+        self.assertTrue(operate(self.settings,operation,body)['replayed']);self.assertEqual(read_json(self.ledger/'data/forecast.json'),[saved]);self.assertTrue(clean(self.ledger))
+        with self.assertRaisesRegex(ValueError,'already exists'):operate(self.settings,secrets.token_hex(16),dict(action='made',rule=saved))
+        self.assertEqual(len(records(self.ledger)),1)

@@ -185,3 +185,28 @@ class AuditTests(unittest.TestCase):
         data=audit_path(self.root,line).read_text()
         self.assertEqual(len(data.splitlines()),1)
         self.assertEqual(records(self.root),[line])
+
+    def test_mixed_rule_verdicts_are_append_only_locked_and_do_not_mutate_rules(self):
+        from store import dump
+        rule={'id':'f000000000000001','description':'Willow club'}
+        dump(self.root/'data/forecast.json',[rule])
+        one=draft();self.add(one)
+        operation=event('rule',rule_action='made',request_id='1'*32,request_hash='2'*64,rule_changes=[dict(id=rule['id'],before=None,after=rule)])
+        self.add(operation)
+        path=audit_path(self.root,one);before=path.read_bytes();financial=(self.root/'data/forecast.json').read_bytes()
+        def commit(root,message,fd):
+            self.assertEqual((root/'data/forecast.json').read_bytes(),financial)
+            return '3'*40
+        result,ids=review(self.root,[dict(line=one['id'],verdict='ok',note='Checked complete payment'),dict(line=operation['id'],verdict='ok',note='Checked automatic origin'),dict(rule=rule['id'],verdict='propose-removal',reason='Covered by another active rule')],'Offline reviewer','Review rules',clean=lambda root:True,commit=commit)
+        self.assertEqual(len(ids),3);self.assertEqual(result,'3'*40);self.assertTrue(path.read_bytes().startswith(before))
+        lines=records(self.root);self.assertEqual(lines[-1]['kind'],'rule-review');self.assertEqual(lines[-1]['rule_verdict'],'propose-removal')
+        self.assertEqual((self.root/'data/forecast.json').read_bytes(),financial)
+        from audit import unreviewed
+        self.assertEqual(unreviewed(lines),[])
+        committed=path.read_bytes()
+        for batch in ([dict(rule=rule['id'],verdict='remove',reason='Never mutate')],[dict(rule=rule['id'],verdict='confirm',reason=' ')],[dict(rule='f000000000000099',verdict='confirm',reason='Unknown')],[dict(rule=rule['id'],verdict='confirm',reason='First'),dict(rule=rule['id'],verdict='confirm',reason='Twice')]):
+            with self.assertRaises(ValueError):review(self.root,batch,'Offline reviewer','Bad review',clean=lambda root:True,commit=commit)
+            self.assertEqual(path.read_bytes(),committed)
+        def fail(*args):raise RuntimeError('Check failed')
+        with self.assertRaises(RuntimeError):review(self.root,[dict(rule=rule['id'],verdict='confirm',reason='Checked balanced rule')],'Offline reviewer','Review rollback',clean=lambda root:True,commit=fail)
+        self.assertEqual(path.read_bytes(),committed)

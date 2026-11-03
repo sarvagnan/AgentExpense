@@ -135,3 +135,16 @@ ledger tests. It reuses successful CLI results only for identical input journals
 arguments and executable bytes; every verification retains every assertion.
 This avoids re-running the same large external calendar forecast for each
 unrelated checked browser addition. No real financial verification is bypassed.
+
+Step 6c part 2 adds `rules.mjs` to every default matrix case. It creates fictional
+rules/history only in the disposable ledger, drives Add's guessed/pick-list/
+amount/duplicate/missing-payer/conversion states, commits real usual payments,
+checks Undo and automatic/paused follow-ups, and exercises every Rules lifecycle
+operation, simple/complex editing, New rule, suggestion confirmation/dismissal,
+review Keep, and built read-only mode. Every checked write waits for its actual
+HTTP/worker result; the production request deadline stays unchanged. Captures
+include each named `rule-*` and `rules-*` state. `BROWSER_FOCUS=rules` is a focused
+development option; the required default run retains every existing suite.
+The host uses the current UTC instant for agent/Undo expiry while review-age
+checks retain their fixed November 1 clock. Payment dates and built-data windows
+remain explicit fixture dates; the browser records its own local save context.

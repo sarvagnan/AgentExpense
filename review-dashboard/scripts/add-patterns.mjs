@@ -1,3 +1,4 @@
+import {mainPostings,payer as rulePayer} from './recurring-ui.mjs';
 import { moduleSettings } from './ledger-modules.mjs';
 import { accountLabel, expenseCategory, hasSegment, paymentAccounts } from './account-metadata.mjs';
 // Category/pattern words describe an expense, not the merchant that chose a payment.
@@ -16,7 +17,7 @@ export function patternOf(entry, metadata = {}) {
   if (segment(['Dining', 'Restaurants', 'Eating Out'])) return 'dining';
   return null;
 }
-export function buildPatterns(transactions, metadata = {}, manifest = {}, forecasts = []) {
+export function buildPatterns(transactions, metadata = {}, manifest = {}, forecasts = [], rawRules = [], audit = []) {
   forecasts = forecasts.filter(rule => (rule.lifecycle ?? 'active') === 'active');
   const patterns = {}, accounts = Object.keys(metadata);
   const people = Object.entries(metadata).filter(([, m]) => m.kind === 'person').map(([a]) => accountLabel(a, metadata));
@@ -55,5 +56,19 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}, foreca
       if (!merchants[key]) merchants[key] = {name:alias, source, date:entry.date, expense:expense.account, category:expenseCategory(expense.account,metadata), pay:pay.account, amount:String(Math.abs(pay.amount)), currency:pay.currency || metadata[pay.account].currency, pattern:patternOf(entry,metadata)};
     }
   }
-  return {patterns, people, accounts, payments, merchants};
+  const undone = new Set(audit.filter(r=>r.kind==='rule'&&r.rule_action==='undone').map(r=>r.undoes));
+  const ignored = new Set([...audit.filter(r=>undone.has(r.id)).map(r=>r.entry_id),...audit.filter(r=>r.kind==='rule'&&r.rule_action==='undone').map(r=>r.reversal_id)]);
+  const reviews={},reviewStates={};
+  for(const line of audit) {
+    if(line.kind==='rule-review'){reviews[line.rule_id]=line;reviewStates[line.rule_id]=line.rule_verdict;}
+    if(line.kind==='rule'&&['removed','kept'].includes(line.rule_action))for(const id of new Set([line.rule_id,...line.rule_changes.map(c=>c.id)].filter(Boolean))){delete reviews[id];reviewStates[id]=line.rule_action==='kept'?'owner-kept':'owner-removed';}
+  }
+  const rules = rawRules.map(rule => {
+    const main = [...new Set(mainPostings(rule).map(p=>p.account))].sort().join();
+    const payer = rulePayer(rule,metadata);
+    const paid = transactions.filter(e=>!ignored.has(e.id) && (e.rule?.id===rule.id || rulePayer(e,metadata) && [...new Set(mainPostings(e).map(p=>p.account))].sort().join()===main && (!payer || rulePayer(e,metadata).account===payer.account)));
+    const last_payment = [...paid].sort((a,b)=>b.date.localeCompare(a.date))[0] || null;
+    return {...rule, next_due:rule.date, last_payment, review:reviews[rule.id]||null, review_state:reviewStates[rule.id]||'waiting', payments:paid.map(e=>({id:e.id,date:e.date,...(e.rule?{rule:e.rule}:{})}))};
+  });
+  return {patterns, people, accounts, payments, merchants, rules};
 }

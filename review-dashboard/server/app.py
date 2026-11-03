@@ -1,5 +1,5 @@
 """Live expense backend. Run from this directory with uv run app.py."""
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, ExitStack
 from datetime import datetime, timedelta, timezone
 import re
 import io
@@ -7,12 +7,13 @@ import json
 from pathlib import Path
 import secrets
 import shutil
+import time
 from urllib.parse import unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 import pypdfium2 as pdfium
@@ -42,6 +43,14 @@ class Edit(SaveTime):
     text: str = Field(default='', max_length=100_000)
     pieces: dict | None = None
     client_updated_at: int = Field(default=0, ge=0)
+    declined_rules: list[str] = Field(default_factory=list, max_length=1000)
+
+    @field_validator('declined_rules')
+    @classmethod
+    def valid_declines(cls, values):
+        if len(set(values)) != len(values) or any(not re.fullmatch('[0-9a-f]{16}', value) for value in values):
+            raise ValueError('Declined rules must be unique rule IDs')
+        return values
 
 
 class Answer(BaseModel):
@@ -205,17 +214,47 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         worker.wake.set()
         return public(draft)
 
-    def public(draft):
+    def public(draft, receipt_lines=None):
         result = dict(draft)
         if result.get('claim'):
             result['claim'] = {'expires_at': result['claim']['expires_at']}
         result['agent_pause'] = worker.pause.status()
         if isinstance(result.get('result'), dict) and result['result'].get('audit_id'):
+            if receipt_lines is None:
+                return public_many([draft])[0]
             from rules_service import undo_eligibility
-            from audit import records
-            line = next((r for r in records(settings.ledger) if r['id'] == result['result']['audit_id']), None)
-            result['result'] = {**result['result'], 'can_undo': bool(line and undo_eligibility(settings, line, agent_clock))}
+            result['result'] = {**result['result'], 'can_undo': False}
+            if receipt_lines is not False:
+                line = next((r for r in receipt_lines if r['id'] == result['result']['audit_id']), None)
+                result['result'].update(can_undo=bool(line and undo_eligibility(settings, line, agent_clock)),
+                                        undone=any(r.get('rule_action') == 'undone' and r.get('undoes') == result['result']['audit_id'] for r in receipt_lines),
+                                        undo_until=(datetime.fromisoformat(line['time']) + timedelta(minutes=30)).isoformat() if line else None)
+                if line and result['result'].get('resume_rules'):
+                    answered = {r.get('rule_id') for r in receipt_lines if r['kind']=='rule' and r['rule_action'] in ('kept','resumed') and r['time']>=line['time']}
+                    result['result']['resume_rules'] = [r for r in result['result']['resume_rules'] if r['id'] not in answered]
         return result
+
+    def public_many(values):
+        values = list(values)
+        if not any(isinstance(d.get('result'), dict) and d['result'].get('audit_id') for d in values):
+            return [public(d, receipt_lines=False) for d in values]
+        from ledger_lock import ledger_lock
+        from audit import records
+        deadline = time.monotonic() + 1
+        with ExitStack() as stack:
+            while True:
+                try:
+                    # jj snapshots the working copy even for its cleanliness read.
+                    stack.enter_context(ledger_lock(settings.ledger, blocking=False))
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        return [public(d, receipt_lines=False) for d in values]
+                    time.sleep(.01)
+            # One wait budget and one stable audit snapshot for the whole response.
+            # A brief competing reader must not starve receipt eligibility polling.
+            lines = records(settings.ledger)
+            return [public(d, receipt_lines=lines) for d in values]
 
     @app.get('/api/rules')
     def list_rules():
@@ -346,13 +385,14 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         except ValueError as exc:
             raise HTTPException(422, str(exc))
         draft['client_updated_at'] = body.client_updated_at
+        draft['declined_rules'] = body.declined_rules
         drafts.put(draft)
         return public(draft)
 
     @app.get('/api/drafts')
     def list_drafts(include_added: bool = False):
         drafts.purge()
-        return sorted((public(d) for d in drafts.all() if include_added or d['state'] != 'added'), key=lambda d: d['created_at'])
+        return sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added'), key=lambda d: d['created_at'])
 
     @app.get('/api/drafts/{identity}')
     def read(identity: str):

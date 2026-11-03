@@ -61,7 +61,7 @@ test('dates, payment hints, merchant text and word boundaries handle edge cases'
 test('pattern statistics use the selected store and are deterministic for fixtures',async()=>{
  const tx=(id,date,amount,pay=bank)=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});
  const items=[tx('a','2026-01-02',20),tx('b','2026-01-03',25),tx('c','2026-01-04',30),tx('d','2026-01-05',35,'Pocket')];
- const b=buildPatterns(items,metadata,{modules:{fuel:true}});assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{},merchants:{}});
+ const b=buildPatterns(items,metadata,{modules:{fuel:true}});assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{},merchants:{},rules:[]});
  const {transactions,accounts}=await loadExpenseStore();const actual=buildPatterns(transactions,accounts,{modules:{fuel:true}});for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x,accounts)===id).length);
 });
 test('API URLs, action errors, timeouts and atomic concurrent data reload',async()=>{
@@ -103,6 +103,8 @@ test('each draft state renders its content and permitted actions',async()=>{
  const added=render({state:'added',result});assert.match(added,/month=2026-09/);for(const text of ['Fuel','100 INR','Assets:Cash','Expenses:New','Open in Explorer','fuel.png','No reference supplied'])assert.ok(added.includes(text),text);
  const not={state:'added',result:{outcome:'not_expense',explanation:'A card statement'}};assert.equal(draftStatus({...base,...not}),'Not an expense');assert.match(render(not),/A card statement/);
  assert.equal(needsAttention({...base,state:'failed'}),true);assert.equal(needsAttention({...base,state:'question'}),true);assert.equal(needsAttention(base),false);assert.equal(pollDelay([base]),3000);assert.equal(pollDelay([]),30000);
+ assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt',can_undo:false}}]),3000);
+ assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt',can_undo:false,undo_until:null}}]),30000);
  const input=[{...base,id:'old',created_at:'2026-01-01'},{...base,id:'new',created_at:'2026-10-30'}];assert.equal(newestFirst(input)[0].id,'new');assert.equal(input[0].id,'old');
  }finally{await server.close();}
 });

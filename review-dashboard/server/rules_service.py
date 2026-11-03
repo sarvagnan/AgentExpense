@@ -202,12 +202,16 @@ def snapshot(settings, clock=None):
     root=settings.ledger; documents=load(root); lines=records(root); accounts=documents[root/'data/accounts.json']['accounts']
     actual=[e for e in entries(documents) if e['id'] not in ignored_entries(lines)]
     rules=documents[root/'data/forecast.json']; stale={r['id'] for r,e in stale_rules(actual,rules,accounts)}
-    proposals={}
+    proposals={}; review_states={}
     for line in lines:
-        if line['kind']=='rule-review': proposals[line['rule_id']]=line
+        if line['kind']=='rule-review':
+            proposals[line['rule_id']]=line
+            review_states[line['rule_id']]=line['rule_verdict']
         if line['kind']=='rule' and line['rule_action'] in ('removed','kept'):
             for change in line['rule_changes']: proposals.pop(change['id'],None)
             proposals.pop(line.get('rule_id'),None)
+            for identity in {line.get('rule_id'),*[c['id'] for c in line['rule_changes']]} - {None}:
+                review_states[identity] = 'owner-kept' if line['rule_action']=='kept' else 'owner-removed'
     _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
     public=[]
     for rule in rules:
@@ -215,7 +219,7 @@ def snapshot(settings, clock=None):
         last=max(paid,key=lambda e:e['date']) if paid else None
         life=rule.get('lifecycle','active')
         status=life if life!='active' else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<today(clock) else 'due' if rule['date']==today(clock) else 'on-track'
-        public.append(dict(rule, lifecycle=life,version=digest(rule),last_payment=last,next_due=rule['date'],rule_status=status,review=proposals.get(rule['id'])))
+        public.append(dict(rule, lifecycle=life,version=digest(rule),last_payment=last,next_due=rule['date'],payments=[dict(id=e['id'],date=e['date'],**({'rule':e['rule']} if e.get('rule') else {})) for e in paid],rule_status=status,review=proposals.get(rule['id']),review_state=review_states.get(rule['id'],'waiting')))
     return dict(rules=public,suggestions=suggestions,history=[line for line in lines if line['kind'] in ('rule','rule-review')],
                 undo=[dict(audit_id=line['id'],entry_id=line['entry_id'],eligible=undo_eligibility(settings,line,clock)) for line in lines if line['kind']=='draft' and line.get('entry_id') and (line.get('usual_payment') or 'rule_changes' in line)])
 
@@ -270,7 +274,7 @@ def operate(settings, op_id, body, *, clock=None):
             if not isinstance(proposed,dict): raise ValueError('Supply a complete rule')
             used={e['id'] for v in documents.values() if isinstance(v,list) for e in v}
             if 'id' not in proposed: proposed['id']=new_id(used)
-            if proposed['id'] in used: raise ValueError('Rule id already exists')
+            elif proposed['id'] in used: raise ValueError('Rule id already exists')
             proposed.setdefault('lifecycle','active');proposed.setdefault('created',action_day);proposed.setdefault('origin',dict(kind='owner'))
             rules.append(proposed)
         elif action in ('backfill','catch-up'):
@@ -307,6 +311,19 @@ def operate(settings, op_id, body, *, clock=None):
                     now_rule.update(lifecycle='removed',removal=dict(date=action_day,evidence=now_rule.get('origin',{}).get('evidence',[])))
                 else: rules[rules.index(now_rule)]=deepcopy(change['before'])
         else:
+            if action=='removed' and not rule and 'rule' in body and not body.get('rule_id'):
+                # Dismiss a suggestion by retaining its evidence as a suppression rule.
+                proposed=body['rule']
+                if not isinstance(proposed,dict) or not isinstance(proposed.get('origin'),dict) or not isinstance(proposed['origin'].get('evidence'),list):
+                    raise ValueError('Supply a current suggestion with its evidence')
+                evidence=proposed['origin']['evidence']
+                if not evidence or not any(e['id']==evidence[-1] for e in actual): raise ValueError('The suggestion evidence changed; reload rules')
+                _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
+                suggestion=next((s['rule'] for s in suggestions if s['rule'].get('origin',{}).get('evidence')==evidence),None)
+                if not suggestion: raise ValueError('The suggestion changed; reload rules')
+                # Trust the current detector, not caller-supplied postings.
+                rule=deepcopy(suggestion)
+                rules.append(rule)
             if not rule: raise ValueError('Unknown rule')
             life=rule.get('lifecycle','active')
             if action=='edited':

@@ -93,7 +93,7 @@ def missing_entries(root, entry_ids):
 
 def unreviewed(lines):
     reviewed = {r['line_id'] for r in lines if r['kind'] == 'review'}
-    return [r for r in lines if r['kind'] != 'review' and r['id'] not in reviewed]
+    return [r for r in lines if r['kind'] not in ('review','rule-review') and r['id'] not in reviewed]
 
 
 def ledger_clean(root):
@@ -122,11 +122,21 @@ def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make
             raise ValueError('The reviewer must be named')
         additions, seen = [], set()
         for item in verdicts:
+            if isinstance(item,dict) and set(item)=={'rule','verdict','reason'}:
+                rule_id=item['rule']
+                if not isinstance(rule_id,str) or not re.fullmatch('[0-9a-f]{16}',rule_id) or not any(r['id']==rule_id for r in read_json(root/'data/forecast.json')):
+                    raise ValueError('A rule verdict must identify an existing rule')
+                if ('rule',rule_id) in seen: raise ValueError('A rule has a verdict more than once: '+rule_id)
+                if item['verdict'] not in ('confirm','propose-removal'): raise ValueError('A rule verdict must be confirm or propose-removal')
+                if not isinstance(item['reason'],str) or not item['reason'].strip(): raise ValueError('A rule verdict needs a concrete reason')
+                seen.add(('rule',rule_id))
+                additions.append(event('rule-review',rule_id=rule_id,rule_verdict=item['verdict'],reason=item['reason'],reviewer=reviewer))
+                continue
             if not isinstance(item, dict) or set(item) != {'line', 'verdict', 'note'}:
-                raise ValueError('Each verdict needs exactly line, verdict and note')
+                raise ValueError('Each outcome verdict needs exactly line, verdict and note; a rule verdict needs rule, verdict and reason')
             line = lines.get(item['line']) if isinstance(item['line'], str) else None
-            if not line or line['kind'] == 'review':
-                raise ValueError('--line must identify a draft or statement audit line: ' + str(item['line']))
+            if not line or line['kind'] in ('review','rule-review'):
+                raise ValueError('--line must identify a draft or statement audit line, or a rule operation: ' + str(item['line']))
             if item['line'] in seen:
                 raise ValueError('A line has a verdict more than once: ' + item['line'])
             if item['verdict'] not in ('ok', 'issue'):
@@ -166,10 +176,10 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     listing = sub.add_parser('list')
     listing.add_argument('--since', help='7d by default, unless --unreviewed')
-    listing.add_argument('--unreviewed', action='store_true', help='draft and statement lines without a verdict, of any age')
+    listing.add_argument('--unreviewed', action='store_true', help='draft, statement and rule-operation lines without a verdict, of any age')
     listing.add_argument('--json', action='store_true')
     reviewing = sub.add_parser('review', help='record every verdict and commit them together, or change nothing')
-    reviewing.add_argument('--verdicts', type=Path, required=True, help='JSON list of {"line", "verdict": "ok" or "issue", "note"}')
+    reviewing.add_argument('--verdicts', type=Path, required=True, help='JSON list of outcome {line,verdict,note} and/or rule {rule,verdict,reason} verdicts')
     reviewing.add_argument('--reviewer', required=True)
     reviewing.add_argument('--message', default='Review the dashboard audit log')
     args = parser.parse_args(argv)

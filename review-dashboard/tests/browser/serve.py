@@ -21,10 +21,10 @@ assert settings.ledger.resolve().is_relative_to(Path('/tmp').resolve())
 assert settings.state_dir.is_relative_to(Path('/tmp').resolve())
 assert settings.codex_home.is_relative_to(Path('/tmp').resolve())
 assert Path(settings.codex).name == 'fake-agent'
-app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime(2026,11,2,12,tzinfo=timezone.utc))
+app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime.now(timezone.utc))
 config = Path(os.environ['EXPENSES_FAKE_CONFIG'])
 original_audit = {path:path.read_bytes() for path in (settings.ledger/'data/additions').glob('*.jsonl')}
-original = {path: read_json(path) for path in [settings.ledger/'data/accounts.json',settings.ledger/'data/card-statements.json',settings.ledger/'ledger.json', *sorted((settings.ledger/'data/expenses').glob('*.json'))]}
+original = {path: read_json(path) for path in [settings.ledger/'data/accounts.json',settings.ledger/'data/card-statements.json',settings.ledger/'data/forecast.json',settings.ledger/'ledger.json', *sorted((settings.ledger/'data/expenses').glob('*.json'))]}
 
 
 @app.post('/__test/gate')
@@ -277,5 +277,83 @@ def finish_controls(body: dict):
     draft.update(state='failed',queued_at=now(),saved_at=now(),last_proposal=form,error='Usage limit',failure_kind='usage_limit')
     app.state.drafts.put(draft)
     return dict(id=draft['id'])
+
+@app.post('/__test/rules')
+def recurring_controls(body: dict):
+    from copy import deepcopy
+    from ledger_manifest import module_settings, read_manifest
+    from decimal import Decimal
+    from audit import append, event, audit_path
+    from store import dump
+    currency=read_manifest(settings.ledger)['defaultCurrency']
+    declarations=read_json(settings.ledger/'data/accounts.json')
+    accounts=declarations['accounts']
+    pay=next(a for a,m in accounts.items() if m.get('kind')=='bank' and m['currency']==currency)
+    foreign='EUR' if currency!='EUR' else 'GBP'
+    if foreign not in declarations['commodities']: declarations['commodities'].append(foreign)
+    accounts['Equity:Rule Unassigned']={}
+    rules=[]
+    labels=['Birch rent','Clover music','Clover lessons','Fable support','Lantern journal','Cedar archive','Fern rent','Hawthorn dues','Iris cover','Juniper ended']
+    for i,label in enumerate(labels,1):
+        category='Expenses:Rule Workflow:'+label
+        accounts[category]={}
+        amount=['100.00','40.00','41.00','15.00','10.00','20.00','60.00','30.00','25.00','18.00'][i-1]
+        day='2026-11-02' if i in (1,8) else '2026-11-01' if i in (7,9) else '2026-11-15'
+        r=dict(id=f'f00000000000a{i:03x}',date=day,status='confirmed',description=label,lifecycle='paused' if i==6 else 'ended' if i==10 else 'active',origin=dict(kind='owner'),schedule=dict(every='month',**{'from':day}),postings=[dict(account=category,amount=amount,commodity=currency),dict(account=pay,amount='-'+amount,commodity=currency)])
+        if i==4:r['postings'][-1]['account']='Equity:Rule Unassigned'
+        if i==5:
+            r['postings'][0].update(commodity=foreign,cost=dict(amount='12.00',commodity=currency,per='total'))
+            r['postings'][-1]['amount']='-12.00'
+        rules.append(r)
+    path=settings.ledger/'data/expenses/2026.json'
+    rows=read_json(path)
+    stale=rules[6]
+    rows.append(dict(id='000000000000a001',date='2026-11-01',status='confirmed',description=stale['description'],postings=deepcopy(stale['postings'])))
+    # Weak history is a proposal; dismissal must survive reload.
+    for tag in ('Mallow workshop','Olive workshop'):
+        category='Expenses:Rule Workflow:'+tag;accounts[category]={}
+        for i,day in enumerate(('2026-09-03','2026-10-22')):
+            rows.append(dict(id=f'000000000000a{(2 if tag.startswith("Mallow") else 4)+i:03x}',date=day,status='confirmed',description=tag,postings=[dict(account=category,amount='12.00',commodity=currency),dict(account=pay,amount='-12.00',commodity=currency)]))
+    rows.sort(key=lambda r:r['date'])
+    # A rule made automatically with an outstanding review proposal.
+    automatic=rules[8];automatic['origin']=dict(kind='subscription-words',words='annual cover subscription')
+    proposal=event('rule-review',rule_id=automatic['id'],rule_verdict='propose-removal',reason='The owner should check whether this cover is still needed.',reviewer='Offline fixture reviewer')
+    changes={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/forecast.json':rules,path:rows}
+    audit=audit_path(settings.ledger,proposal)
+    prior=audit.read_text() if audit.exists() else ''
+    # update_settings writes JSON documents. Append this fixture verdict under its
+    # mutation callback so the same verified test-only commit owns all seed data.
+    def install():
+        append(settings.ledger,proposal)
+        return changes
+    try:update_settings(settings,install,dict(rules=True),'Fictional recurring browser rules')
+    except BaseException:
+        with ledger_lock(settings.ledger):
+            if prior:audit.write_text(prior)
+            else:audit.unlink(missing_ok=True)
+        raise
+    # Configure only the existing offline fake, with a complete balanced payment.
+    mode=body.get('agent','automatic')
+    if mode=='paused':
+        template=rules[5];description=template['description'];postings=deepcopy(template['postings'])
+    else:
+        category='Expenses:Rule Workflow:New membership';declarations['accounts'][category]={}
+        update_settings(settings,lambda:{settings.ledger/'data/accounts.json':declarations},dict(category=True),'Fictional recurring agent category')
+        description='Pine studio';postings=[dict(account=category,amount='22.00',commodity=currency),dict(account=pay,amount='-22.00',commodity=currency)]
+    answer=dict(status='ready',question=None,explanation=None,attachment_names=[],doubts=[],new_accounts=[],entry=dict(date='2026-11-02',status='confirmed',description=description,order_id=None,reference=None,classification=None,original_amount=None,notes=[],postings=[dict(p,cost=None) for p in postings]))
+    if module_settings(read_manifest(settings.ledger))['fuel']:answer['entry'].update(fuel_filled_litres=None,trip_km=None)
+    data=json.loads(config.read_text());data['steps']=[dict(answer=answer)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+    return dict(currency=currency,pay=pay,foreign=foreign,rules=rules)
+
+
+@app.post('/__test/rule-agent')
+def rule_agent(body: dict):
+    from ledger_manifest import module_settings, read_manifest
+    rule=next(r for r in read_json(settings.ledger/'data/forecast.json') if r['description']=='Cedar archive')
+    answer=dict(status='ready',question=None,explanation=None,attachment_names=[],doubts=[],new_accounts=[],entry=dict(date='2026-11-02',status='confirmed',description=rule['description'],order_id=None,reference=None,classification=None,original_amount=None,notes=[],postings=[dict(p,cost=None) for p in rule['postings']]))
+    if module_settings(read_manifest(settings.ledger))['fuel']:answer['entry'].update(fuel_filled_litres=None,trip_km=None)
+    data=json.loads(config.read_text());data['steps']=[dict(answer=answer)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+    return dict(ok=True)
+
 
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

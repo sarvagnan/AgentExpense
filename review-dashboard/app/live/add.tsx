@@ -1,3 +1,5 @@
+import {RuleGuess} from './rule-guess';
+import {RuleSaved} from './rule-saved';
 import { AgentNotice, agentBlocked } from './agent-status';
 import { useEffect, useRef, useState } from 'react';
 import { Icon, PageHeader, PanelHeader, copyAndAnnounce, money } from '../ui';
@@ -22,6 +24,7 @@ export default function Add({live,composer:c}: {live: LiveDrafts;composer:Compos
   const current={current:form};
   const statement=success&&live.drafts.find(d=>d.id===c.lastSavedId&&d.statement_file);
   const input=useRef<HTMLTextAreaElement>(null),picker=useRef<HTMLInputElement>(null),confirmation=useRef<HTMLDivElement>(null);
+  const saved=live.drafts.find(d=>d.id===c.lastSavedId&&d.state==='added');
   const busyFiles=pending.some(p=>p.busy);
   useEffect(()=>{void c.restore(new URLSearchParams(window.location.search).get('draft'));},[]);
   async function remove(file:Attachment){setRemoveErrors(xs=>({...xs,[file.id]:''}));try{await c.remove(file);}catch(e){setRemoveErrors(xs=>({...xs,[file.id]:`Could not remove this file. ${(e as Error).message}`}));}}
@@ -33,9 +36,11 @@ export default function Add({live,composer:c}: {live: LiveDrafts;composer:Compos
     {live.online===null && <p role="status" className="live-hint">Checking the live server…</p>}
     {success && <div ref={confirmation} tabIndex={-1} className="live-notice live-success" role="status"><Icon name="check"/><p>{success} <a href={`${import.meta.env.BASE_URL}drafts/`}>Open Drafts</a></p></div>}
     {statement&&<div className="live-notice"><Icon name="source"/><div><strong>This is a card statement</strong><p>Continue with its rows in Drafts.</p><StatementHandover draftId={statement.id}/></div></div>}
+    {saved&&<RuleSaved key={saved.id} draft={saved} online={live.online}/>}
     <div className="add-layout"><section className="panel composer-panel"><PanelHeader title="An expense" meta="Type what happened, with any photos or files."/><div className="panel-body">
       <label className="field-label" htmlFor="expense-words">What did you spend?</label>
       <textarea ref={input} id="expense-words" className="expense-words" rows={3} value={form.text} maxLength={100000} placeholder={moduleSettings(dashboard.meta.ledger).fuel ? 'e.g. petrol 875.25 8.5l 190km' : 'e.g. lunch 25 paid with cash'} onChange={e=>update({...current.current,text:e.target.value})} disabled={saving || recovering} aria-describedby="upload-hint"/>
+      <RuleGuess composer={c} online={live.online}/>
       <div className="composer-tools"><button type="button" className="button" disabled={live.online!==true || saving || recovering} onClick={()=>{c.retryStorage();picker.current?.click();}}><Icon name="import"/>Photos or files</button><input ref={picker} className="sr-only" tabIndex={-1} aria-label="Upload files" type="file" multiple disabled={live.online!==true || saving || recovering} onChange={e=>{pick(Array.from(e.target.files || []));e.target.value='';}}/><p id="upload-hint" className="live-hint">Files upload as soon as you choose them.<span className="desktop-upload-hint"> You can also drop or paste files.</span></p></div>
       {(!!draft?.files.length || !!pending.length) && <ul className="attachments" aria-label="Uploads">{draft?.files.map(f=><li key={f.id}><FilePreview id={draft.id} file={f}/>{removeErrors[f.id] && <p className="live-error" role="alert">{removeErrors[f.id]}</p>}<span className="file-remove" data-tooltip={`Remove ${f.original_name}`}><button title={`Remove ${f.original_name}`} className="icon-button" disabled={saving} onClick={()=>void remove(f)} aria-label={`Remove ${f.original_name}`}><Icon name="close"/></button></span></li>)}{pending.map(p=><li key={p.key} className="pending-upload"><Icon name="source"/><div className="attachment-name">{p.name}{p.busy ? <><progress max={100} value={p.progress} aria-label={`Uploading ${p.name}`}/><small>Uploading · {p.progress}%</small></> : <><p className="live-error" role="alert">{p.error}</p>{(p.file || p.cancelled) && <button className="button" onClick={()=>c.retry(p)}>{p.cancelled?'Retry cancellation':'Retry upload'}</button>}</>}</div>{p.busy && <button className="button" onClick={()=>void c.cancel(p)} disabled={p.cancelled} aria-label={`Cancel ${p.name}`}>{p.cancelled?'Cancelling…':'Cancel'}</button>}{!p.busy && !p.cancelled && <button title={`Remove ${p.name}`} className="icon-button" aria-label={`Remove ${p.name}`} onClick={()=>c.forgetUpload(p.key)}><Icon name="close"/></button>}</li>)}</ul>}
       {(!c.localOK || c.syncError) && <div className="storage-warning" role="alert"><p>{!c.localOK?'Not saved on this device. ':''}{c.syncError || (c.serverSaved?'A copy is saved to Drafts.':'Keep this page open until a copy is saved to Drafts.')}</p><button className="button" onClick={c.retryStorage}>Retry saving</button> <button className="button" onClick={()=>void copyAndAnnounce(form.text,'words')}>Copy words</button></div>}

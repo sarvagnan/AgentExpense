@@ -1,3 +1,4 @@
+import {runRules} from './rules.mjs';
 import {runFinish} from './finish.mjs';
 import {runReaderWorkflows} from './readers.mjs';
 import assert from 'node:assert/strict';
@@ -38,18 +39,18 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     await page.route('**/*',route=>{const url=route.request().url();return url.startsWith(base) || url.startsWith('blob:') || url.startsWith('data:')?route.continue():route.abort('blockedbyclient');});
     const record=(name)=>{results.push({persona,engine,theme,width,test:name,pass:true});console.log(`  PASS ${persona} ${engine} ${theme} ${width}: ${name}`);};
     const snap=(state)=>capture(page,{state,theme,width,height});
-    const go=async(route)=>{await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);await page.waitForLoadState('networkidle');};
+    const go=async(route)=>{await page.waitForLoadState('networkidle');await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);await page.waitForLoadState('networkidle');};
     const overflow=async(label)=>{
       const value=await page.evaluate(()=>({width:innerWidth,html:document.documentElement.scrollWidth,body:document.body.scrollWidth}));
       assert.ok(value.html<=value.width+1 && value.body<=value.width+1,`${label}: horizontal overflow ${JSON.stringify(value)}`);
     };
     const refresh=async()=>{await page.evaluate(()=>window.dispatchEvent(new Event('drafts-changed')));};
-    const quiesce=async()=>{
+    const quiesce=async({writesSettled=false}={})=>{
       if(page.url().startsWith(base)){
         // Fixture deletion must not manufacture a missing composer recovery ID.
         // Await real network completion, clear only the test composer's recovery
         // copy, then unload the app before deleting ignored server records.
-        await page.waitForLoadState('networkidle');
+        if(!writesSettled)await page.waitForLoadState('networkidle');
         await page.evaluate(()=>localStorage.removeItem('ledger-add-v1'));
         await page.goto('about:blank');
       }
@@ -59,6 +60,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
+      if(process.env.BROWSER_FOCUS==='rules') {
+        await runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
       if(process.env.BROWSER_FOCUS==='finish') {
         await runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
@@ -374,6 +380,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
       await runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
       await runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce});
+      await runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

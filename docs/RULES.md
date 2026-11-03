@@ -138,3 +138,37 @@ ended, restored, removed, kept, undone, catch-up, backfill.
 propose-removal), `reason` and `reviewer`. They never authorize an edit. The owner's
 Remove/Keep is a distinct rule event. Existing audit lines are untouched. Draft
 recovery and operation receipts live under ignored `drafts/`, outside the store.
+
+## Dashboard
+
+Forecast has Overview and Rules views (`forecast/?section=rules`). Rules shows
+native amounts, full payment/category, cadence, next due, last paid, lifecycle and
+weekly-review state. With no live server the built host snapshot is read-only.
+Simple two-posting rules have amount/account/category fields; multi-posting rules
+and conversions retain their full balanced postings as read-only facts. The CLI
+can edit those postings. Lifecycle actions and new rules use the same checked
+operation API. Dismissing a suggestion uses `removed` with its proposed `rule`
+and no `rule_id`; the server recomputes the current suggestion and retains a
+removed rule with suppression evidence, so a reload does not bring it back.
+
+Add guesses a rule under the words; Not this only records `declined_rules` on the
+editing draft and hides that guess. It never submits a payment or invokes an
+agent. Live matching owns the choice; the built snapshot mirrors matching for
+instant display. Add as usual supports a payment date, changed amount with either
+scope, missing payer, remembering that payer, duplicate-period override, receipts
+and planned conversion. Completed draft receipts supply next due, server-checked
+Undo, automatic-rule removal/editing and paused-match choices. These cards are
+independent of Add's current two-panel layout.
+
+`audit.py review --verdicts FILE --reviewer NAME` accepts outcome verdicts
+`{line, verdict: ok|issue, note}` and rule verdicts
+`{rule, verdict: confirm|propose-removal, reason}` in one batch. Every rule verdict
+names an existing rule and needs a concrete reason. The single locked, verified
+commit appends verdicts only. It never changes rules or entries. Owner Remove/Keep
+is a separate rule-operation line. Both review kinds are excluded from
+`list --unreviewed`; rule-operation outcomes remain included until reviewed.
+
+The built snapshot also derives review state and paid periods from the append-only
+audit: undone payments/reversals cannot appear as paid, and an owner's Keep/Remove
+answer survives offline viewing. A completed payment's paused-match prompt is
+settled by its subsequent audited Resume/Keep answer, including after a reload.

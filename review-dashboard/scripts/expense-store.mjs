@@ -170,5 +170,5 @@ export async function loadExpenseStore(root = storeRoot) {
     if ([...(rule.origin?.evidence ?? []), ...(rule.removal?.evidence ?? [])].some(id => !actualIds.has(id))) throw new Error('Unknown rule evidence');
     return toTransaction(rule, declarations.accounts);
   });
-  return { transactions, rules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
+  return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
 }

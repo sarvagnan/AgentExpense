@@ -122,3 +122,11 @@ See [Recurring rules](../docs/RULES.md) for exact fields, API and CLI contracts.
 The 0 → 1 migration reports the number of already-paid stale rules and prints
 `make rules-catch-up`. It does not advance or otherwise modify a rule. Journals
 retain existing schedules unless the operator explicitly catches them up.
+
+Step 6c part 2 adds no financial-store or audit-schema fields. Editing drafts may
+retain ignored `declined_rules` (unique rule IDs) for guess dismissal. Built
+`add-patterns.json` now includes the host's rule snapshot, full planned postings,
+account aliases (existing payments metadata), next due and payment history. Live
+rule reads include compact `payments` for checking a chosen payment period.
+Suggestion dismissal uses the existing removed lifecycle and suppression evidence;
+weekly rule verdicts use the existing version-1 `rule-review` schema.

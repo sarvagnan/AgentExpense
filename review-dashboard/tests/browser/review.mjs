@@ -6,6 +6,7 @@ export async function runReview({browser,context,page,base,persona,engine,theme,
  const get=async()=>{const r=await fetch(base+'api/review');assert.ok(r.ok,await r.clone().text());return r.json();};
  const reset=async()=>{await quiesce();await control('reset-review',{});await go('review/');await expect(page.locator('.server-review-content')).toBeVisible();};
  const waitCount=async count=>{await expect.poll(async()=>(await get()).count,{timeout:180000}).toBe(count);await expect(page.locator('.server-review .page-header')).toContainText(`${count} waiting`);};
+ const act=async button=>{const [response]=await Promise.all([page.waitForResponse(r=>r.url()===base+'api/review/actions'&&r.request().method()==='POST',{timeout:180000}),button.click()]);assert.ok(response.ok(),await response.text());};
  await reset();let state=await get();
  assert.equal(state.count,persona==='asha'?24:persona==='jordan'?2:0);
  assert.equal(state.important,persona==='asha'?3:0);
@@ -24,14 +25,14 @@ export async function runReview({browser,context,page,base,persona,engine,theme,
   const secondErrors=[];second.on('pageerror',e=>secondErrors.push(e.message));second.on('console',m=>{if(m.type()==='error')secondErrors.push(m.text());});
   try{
    await second.goto(base+'review/');await expect(second.locator('.server-review-content')).toBeVisible();
-   await cards.first().getByRole('button',{name:'These are separate',exact:true}).click();await waitCount(23);
+   await act(cards.first().getByRole('button',{name:'These are separate',exact:true}));await waitCount(23);
    await expect(page.getByText('Marked as separate.',{exact:true})).toBeVisible();await snap('review-separate');
    await expect(second.locator('.server-review .page-header')).toContainText('23 waiting');
-   await page.getByRole('button',{name:'Undo',exact:true}).click();await waitCount(24);await expect(cards).toHaveCount(2);
+   await act(page.getByRole('button',{name:'Undo',exact:true}));await waitCount(24);await expect(cards).toHaveCount(2);
    await page.locator('.review-history summary').click();
    await expect(page.locator('.review-history')).toContainText('Separation undone');
-   await cards.first().getByRole('button',{name:'These are separate',exact:true}).click();await waitCount(23);
-   await page.locator('.review-history').getByRole('button',{name:'Undo separation',exact:true}).click();await waitCount(24);
+   await act(cards.first().getByRole('button',{name:'These are separate',exact:true}));await waitCount(23);
+   await act(page.locator('.review-history').getByRole('button',{name:'Undo separation',exact:true}));await waitCount(24);
    record('5 one-click separation, immediate/history undo, and count synchronized across two devices');
    await cards.first().getByRole('button',{name:'Same expense',exact:true}).click();
    let dialog=page.getByRole('dialog',{name:'Same expense?',exact:true});await expect(dialog).toBeVisible();

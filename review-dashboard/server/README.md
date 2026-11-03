@@ -505,3 +505,22 @@ lifecycles, detection, suppression, history backfill, catch-up and checked Undo.
 These services use the shared transaction/FIFO without an agent call. Additions
 link/advance or create rules in their existing verified addition commit. UI for
 these services is implemented separately; no due-payment list is added to Add.
+
+Recurring dashboard UI and weekly review: see `docs/RULES.md` at the application
+root. Editing drafts accept optional `declined_rules`, a unique list of 16-hex
+rule IDs; this is ignored runtime state and never queues a payment. Completed
+recurring receipts expose `can_undo`, `undo_until` (30 minutes from the permanent
+audit timestamp) and `undone`. Eligibility is recomputed server-side on every
+read and checked again under the ledger lock on Undo. Receipt reads acquire the
+ledger lock with one bounded one-second wait for the entire receipt batch. This
+lets brief competing reads finish without starving eligibility checks. While a
+writer stays busy, `can_undo` is false and `undo_until` is omitted, and the page
+keeps polling every three seconds until the check settles.
+This prevents Jujutsu's working-copy snapshot from racing a payment write.
+The built rule snapshot is a fallback: live reads start independently, and a
+late snapshot cannot replace a known live result. Rules keeps its edit state
+across dashboard refreshes; Overview retains its existing data-version reset.
+GET rules also returns
+compact payments for the page's chosen-period disclosure. Suggestion dismissal
+uses a removed-rule suppression record, recomputed from current evidence under
+the normal checked operation; no caller-supplied postings are trusted.
