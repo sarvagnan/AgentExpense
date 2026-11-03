@@ -116,6 +116,16 @@ class ReviewTests(Fixture):
         current=entries(load(self.ledger));self.assertEqual(current[0]['postings'],before)
         self.assertEqual(current[0]['possible-duplicate-of'],[dict(id=third,reason='several-candidates')])
 
+    def test_merge_keeps_evidence_paths_when_the_kept_entry_date_is_unchanged(self):
+        rows=self.seed(pair=True);one,two=[r['id'] for r in rows[:2]]
+        for entry in rows[:2]:
+            old=self.ledger/entry['sources'][0];target=self.ledger/'Bills'/entry['date']/old.name
+            target.parent.mkdir(parents=True,exist_ok=True);old.rename(target);entry['sources']=[str(target.relative_to(self.ledger))]
+        dump(self.ledger/'data/expenses/2026.json',rows);self.jj('commit','-m','Dated duplicate evidence')
+        expected=deepcopy(rows[1]['sources']);apply(self.settings,self.body('merge',one,two))
+        kept=next(e for e in entries(load(self.ledger)) if e['id']==one)
+        self.assertTrue(all(source in kept['sources'] and (self.ledger/source).is_file() for source in expected))
+
     def test_recent_doubt_boundary_reviewed_and_large_backlog(self):
         rows=self.seed();rows[0]['status']='confirmed';rows[0]['postings'][0]['account']='Assets:Wallet'
         declarations=read_json(self.ledger/'data/accounts.json');declarations['accounts']['Assets:Wallet']=dict(kind='wallet',currency='INR');dump(self.ledger/'data/accounts.json',declarations)

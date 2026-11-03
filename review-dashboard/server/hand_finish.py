@@ -35,7 +35,8 @@ def preview(settings, drafts, draft, form):
     drafts.put(draft)
     try:
         prepared = Transaction(settings, drafts, draft).prepare(form)
-        result = dict(ok=True, checks=['The entry balances and its accounts and amounts are valid'], new_accounts=prepared['new_accounts'], proposal_hash=prepared['proposal_hash'])
+        unchanged=draft.get('correction') and form==__import__('corrections').wire_entry(settings,draft['correction']['before']) and draft['correction'].get('sources',[])==draft['correction']['before'].get('sources',[])
+        result = dict(ok=not unchanged, unchanged=bool(unchanged), checks=['No changes yet'] if unchanged else ['The entry balances and its accounts and amounts are valid'], new_accounts=prepared['new_accounts'], proposal_hash=prepared['proposal_hash'])
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
         result = dict(ok=False, checks=[str(exc)], new_accounts=form.get('new_accounts',[]), proposal_hash=proposal_hash(form))
     draft['hand_checks'] = result

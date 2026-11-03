@@ -302,6 +302,25 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             worker.wake.set()
             return public(draft)
 
+    @app.post('/api/entries/{entry_id}/correction-form')
+    def correction_form(entry_id: str):
+        from corrections import open_form
+        try: return public(open_form(settings,drafts,entry_id))
+        except ValueError as exc: raise HTTPException(409,str(exc)) from exc
+
+    @app.post('/api/entries/{entry_id}/corrections/{operation_id}')
+    def correct_entry(entry_id: str, operation_id: str, body: dict):
+        from corrections import apply
+        try: return worker.call(lambda: apply(settings,entry_id,operation_id,body,drafts=drafts))
+        except (ValueError,TypeError,KeyError,ArithmeticError) as exc: raise HTTPException(409,str(exc)) from exc
+
+    @app.post('/api/drafts/{identity}/receipt-choice')
+    def receipt_choice(identity: str, body: dict):
+        from receipts import choose
+        draft=get(identity)
+        try: return public(worker.call(lambda: choose(settings,drafts,draft,body.get('choice'))))
+        except (ValueError,TypeError,KeyError,ArithmeticError,FileNotFoundError) as exc: raise HTTPException(409,str(exc)) from exc
+
     @app.get('/api/health')
     def health():
         return {'ok': True, 'base_path': settings.base_path, 'worker': bool(worker.thread and worker.thread.is_alive()),
@@ -393,7 +412,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.get('/api/drafts')
     def list_drafts(include_added: bool = False):
         drafts.purge()
-        return sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added'), key=lambda d: d['created_at'])
+        return sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added' or d.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question')), key=lambda d: d['created_at'])
 
     @app.get('/api/drafts/{identity}')
     def read(identity: str):
@@ -410,6 +429,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                     values.update(client_context(body.client_time, body.client_zone))
                 except ValueError as exc:
                     raise HTTPException(422, str(exc))
+            if 'declined_rules' in values:
+                values['declined_rules'] = sorted(set(draft.get('declined_rules',[])) | set(values['declined_rules']))
             draft.update(values)
             drafts.put(draft)
             return public(draft)
@@ -584,10 +605,16 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             try: drafts.require_claim(draft,body.get('claim_token',''))
             except ValueError as exc: raise HTTPException(409,str(exc))
             if not isinstance(body.get('proposal'),dict): raise HTTPException(422,'A proposal is required')
+            if draft.get('correction'):
+                if 'sources' in body: draft['correction']['sources']=body['sources']
+                if 'reason' in body:
+                    if not isinstance(body['reason'],str) or len(body['reason'])>10000: raise HTTPException(422,'Enter a short correction reason')
+                    draft['correction']['reason']=body['reason']
             return preview(settings,drafts,draft,body['proposal'])
 
     @app.post('/api/drafts/{identity}/hand-add')
     def add_hand_form(identity: str, body: dict):
+        if get(identity).get('correction'): raise HTTPException(409,'Use Save correction to keep the saved entry identity')
         from hand_finish import preview
         from proposal_consent import proposal_hash
         with drafts.mutex:
@@ -636,8 +663,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def discard(identity: str):
         with drafts.mutex:
             draft = get(identity)
-            if draft['state'] == 'working' or draft.get('claim'):
-                raise HTTPException(409, 'Release the form or wait for the working draft')
+            if draft['state'] == 'working' or draft.get('claim') or draft.get('receipt_reading',{}).get('state') in ('reading','ready'):
+                raise HTTPException(409, 'Release the form or wait for the active reading to finish')
             draft['discarded_until'] = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
             drafts.put(draft)
 

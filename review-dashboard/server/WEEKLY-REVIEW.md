@@ -10,7 +10,7 @@ Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` fr
    uv run --with jsonschema python scripts/ledger/audit.py list --unreviewed --json
    ```
 
-   `--unreviewed` lists every draft, statement and rule-operation line without a verdict, whatever
+   `--unreviewed` lists every draft, statement, correction and rule-operation line without a verdict, whatever
    its age, so a skipped week is covered by the next run. If it lists nothing, say so
    in one line, name the model you are running as, and stop. Otherwise read every
    line, including failed, discarded and not-expense outcomes. Review and rule-review lines record
@@ -70,11 +70,17 @@ Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` fr
    verdicts; `list --unreviewed` excludes verdict lines themselves. Give the
    originating operation/addition its ordinary line verdict as well.
 
-5. Look for recurring failed checks, retries, questions, discards, misleading
+5. Review every correction's before/after entry, changed fields, reason, actor and
+   operation ID. Check retained identity, statement membership and locked postings,
+   rule links/next date, and every added or moved evidence path. For receipt details,
+   read the extracted answer and the owner's Use / Keep choice. Review records
+   verdicts only: never edit an entry, move evidence or apply another correction.
+
+6. Look for recurring failed checks, retries, questions, discards, misleading
    suggestions and missing evidence. Distinguish a discarded draft from removal
    of an expense: discarding a record leaves an added ledger entry in place.
 
-6. Give every listed line one verdict: `ok` when checked, or `issue` with the
+7. Give every listed line one verdict: `ok` when checked, or `issue` with the
    concrete concern and what the user must decide. Write them all to
    `/tmp/expense-weekly-verdicts.json`, using actual 32-hex audit-line IDs and 16-hex rule IDs:
 

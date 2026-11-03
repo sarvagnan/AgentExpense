@@ -36,6 +36,22 @@ Draft: <draft id>
 Added-by: dashboard agent (<model>, <effort>)
 ```
 
+Dashboard corrections keep the entry ID and use this reviewable format. Reasons use JSON quoting:
+
+```text
+Correct <entry description> via dashboard
+
+Entry: <entry id>
+Changed: <field: old → new; …>
+Reason: "<optional reason, JSON-quoted>"
+Rule: <what happened to a linked rule, or none>
+Evidence: <added or moved paths, or none>
+Draft: <operation id>
+Added-by: user (correction)
+```
+
+Receipt readings use the same correction transaction and an `Added-by: <adapter/model> (receipt details for <entry id>)` trailer. Pending receipt readings and questions retain their draft beyond 24 hours.
+
 Read the ledger policy at run time. Commands remain disabled for the agent; only its read-only MCP lookup server reads the store and optional older ledger. Offline tests use fake agents and never models. After agent isolation changes run `make agent-check`; see `review-dashboard/server/README.md` for the automatic gate, allow-lists and maintainer-only Codex upgrades. The operator signs in once with `make agent-login`; the server never copies or links authentication into its dedicated home.
 
 ## Audit, statements and review

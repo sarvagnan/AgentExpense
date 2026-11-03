@@ -26,7 +26,7 @@ export function useComposer(active:boolean){
   const built=useMemo(()=>buildSentence(form.text,{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},form.edits,!!draft?.files.length),[form,patterns,draft?.files.length,dashboard.meta.accounts]);
   const builtRef=useRef(built);builtRef.current=built;
   function persist(next=current.current,items=uploads.current){setLocalOK(writeStored(KEY,{...next,uploads:items.map(p=>({key:p.key,name:p.name,error:p.error,cancelled:p.cancelled}))}));}
-  function update(next:Recovery){if(next.text!==current.current.text || JSON.stringify(next.edits)!==JSON.stringify(current.current.edits) || JSON.stringify(next.declined_rules)!==JSON.stringify(current.current.declined_rules))next={...next,updatedAt:Math.max(Date.now(),(current.current.updatedAt||0)+1)};current.current=next;setForm(next);setSuccess('');persist(next);}
+  function update(next:Recovery){if(next.id&&next.id===current.current.id)next={...next,declined_rules:[...new Set([...(current.current.declined_rules||[]),...(next.declined_rules||[])])]};if(next.text!==current.current.text || JSON.stringify(next.edits)!==JSON.stringify(current.current.edits) || JSON.stringify(next.declined_rules)!==JSON.stringify(current.current.declined_rules))next={...next,updatedAt:Math.max(Date.now(),(current.current.updatedAt||0)+1)};current.current=next;setForm(next);setSuccess('');persist(next);}
   function changeUploads(fn:(xs:Pending[])=>Pending[]){const next=fn(uploads.current);uploads.current=next;setPending(next);persist(current.current,next);}
   useEffect(()=>{if(!active)return;let alive=true;void fetchGzipJson<PatternData>('add-patterns').then(x=>{if(alive)setPatterns(x);},()=>{if(alive)setPatternError('History suggestions are unavailable. You can still describe the expense.');});return()=>{alive=false;};},[active]);
   async function ensureDraft():Promise<Draft>{
@@ -43,7 +43,7 @@ export function useComposer(active:boolean){
     syncing.current=(async()=>{try{
       const d=await ensureDraft();if(d.state!=='editing')return;
       let copy:Recovery;
-      do{copy=current.current;const saved=await api.edit(d.id,copy.text,draftPieces(buildSentence(copy.text,{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},copy.edits,!!d.files.length),copy.edits),copy.updatedAt||0,copy.declined_rules);setSynced(fingerprint(copy));setSyncError('');setDraft(old=>old?.id===saved.id?{...saved,files:old.files}:saved);}while(fingerprint(copy)!==fingerprint(current.current) && !savingRef.current);
+      do{copy=current.current;const saved=await api.edit(d.id,copy.text,draftPieces(buildSentence(copy.text,{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},copy.edits,!!d.files.length),copy.edits),copy.updatedAt||0,copy.declined_rules);if(saved.declined_rules?.some(id=>!current.current.declined_rules?.includes(id)))update({...current.current,declined_rules:saved.declined_rules});setSynced(fingerprint(copy));setSyncError('');setDraft(old=>old?.id===saved.id?{...saved,files:old.files}:saved);}while(fingerprint(copy)!==fingerprint(current.current) && !savingRef.current);
     }catch(e){setSyncError(`Could not save to Drafts. ${(e as Error).message}`);}finally{syncing.current=null;}})();
     return syncing.current;
   }
@@ -65,6 +65,7 @@ export function useComposer(active:boolean){
         if(id!==current.current.id || (d.client_updated_at||0)>(current.current.updatedAt||0) || (!current.current.text && !Object.keys(current.current.edits).length)){
           const next={id,updatedAt:d.client_updated_at||0,text:d.text,edits:restorePieceEdits(d.pieces),declined_rules:d.declined_rules||[]};current.current=next;setForm(next);persist(next);setSynced(fingerprint(next));
         }
+        if(d.declined_rules?.some(id=>!current.current.declined_rules?.includes(id)))update({...current.current,declined_rules:[...new Set([...(current.current.declined_rules||[]),...d.declined_rules])]});
         changeUploads(xs=>xs.filter(p=>!d.files.some(f=>f.id===p.key)));
       }else{if(!requested){const latest=findRecoveryDraft(current.current,await api.list());if(latest && latest.id!==id)return restoreSnapshot(latest.id);}update(blank());setDraft(null);setSuccess('Your previous draft is in Drafts.');}
     }catch(e){if(e instanceof ApiError&&e.status===404){if(!requested){const latest=findRecoveryDraft(current.current,await api.list().catch(()=>[]));if(latest)return restoreSnapshot(latest.id);}update({...current.current,id:null});setDraft(null);setError('Your previous draft is no longer available. Your words are kept; choose any files again.');}else if(id) setSyncError(`Could not restore Drafts. ${(e as Error).message}`);}

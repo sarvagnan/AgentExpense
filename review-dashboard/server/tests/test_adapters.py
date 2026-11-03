@@ -210,6 +210,28 @@ class AdapterTests(unittest.TestCase):
                 gate.return_value.require_ready.assert_called_once()
             self.assertEqual(answer,ANSWER);self.assertEqual(record['adapter'],name);self.assertEqual(record['outcome'],'not_expense')
 
+    def test_receipt_schema_through_every_builtin_protocol(self):
+        from agent import RECEIPT_SCHEMA
+        from PIL import Image
+        evidence=self.settings.ledger/'Bills/receipt.png';evidence.parent.mkdir(exist_ok=True);Image.new('RGB',(8,8),'white').save(evidence)
+        answer=dict(read_ok=True,references=['fictional-reference'],payment_datetime=None,payee=None,date=None,amount=None,currency=None,paying_account=None,notes=None)
+        draft=dict(files=[],text='',questions=[],receipt_task=dict(sources=['Bills/receipt.png']))
+        for name in ('codex','claude','pi','opencode'):
+            if name=='codex':
+                self.config.write_text(json.dumps({'steps':[{'answer':answer}]}))
+                settings=replace(self.settings,adapter=name,codex=str(self.fake))
+            else: settings=self.adapter(name,steps=[{'answer':answer}]).settings
+            with self.subTest(adapter=name),patch('agent_gate.get_gate'):
+                result,record=run(settings,draft,self.work)
+                self.assertEqual(result,answer);self.assertEqual(record['outcome'],'receipt')
+        for name in ('openai','anthropic'):
+            with self.subTest(adapter=name),self.http_server(name,final_answer=answer) as (url,received,_,_),patch('agent_gate.get_gate'):
+                result,record=run(self.api_adapter(name,url).settings,draft,self.work)
+                self.assertEqual(result,answer);self.assertEqual(record['outcome'],'receipt')
+                self.assertIn('read_ok',json.dumps(received[0][1]))
+        with self.assertRaises(ValidationError):
+            __import__('jsonschema').validate({**answer,'invented':True},RECEIPT_SCHEMA)
+
     def test_status_endpoint_reports_each_adapter_without_starting_a_read_check(self):
         from app import create_app
         from fastapi.testclient import TestClient
@@ -261,8 +283,8 @@ class AdapterTests(unittest.TestCase):
         return get_adapter(replace(self.settings,adapter=name,api_options=json.dumps({'baseUrl':url,'keyEnv':'OFFLINE_API_KEY',**options})))
 
     @contextmanager
-    def http_server(self,shape,*,mode='normal'):
-        received=[];started=threading.Event();release=threading.Event()
+    def http_server(self,shape,*,mode='normal',final_answer=None):
+        received=[];started=threading.Event();release=threading.Event();final_answer=final_answer or {'value':'ok'}
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
@@ -279,10 +301,10 @@ class AdapterTests(unittest.TestCase):
                 if mode=='loop':is_tool_result=False
                 tool='shell' if mode=='unknown' else 'list_accounts'
                 if shape=='openai':
-                    message={'role':'assistant','content':json.dumps({'value':'ok'})} if is_tool_result else {'role':'assistant','content':None,'tool_calls':[{'id':'lookup1','type':'function','function':{'name':tool,'arguments':'{}'}}]}
+                    message={'role':'assistant','content':json.dumps(final_answer)} if is_tool_result else {'role':'assistant','content':None,'tool_calls':[{'id':'lookup1','type':'function','function':{'name':tool,'arguments':'{}'}}]}
                     answer={'choices':[{'message':message,'finish_reason':'stop' if is_tool_result else 'tool_calls'}],'usage':{'prompt_tokens':10,'completion_tokens':5}}
                 else:
-                    content=[{'type':'text','text':json.dumps({'value':'ok'})}] if is_tool_result else [{'type':'tool_use','id':'lookup1','name':tool,'input':{}}]
+                    content=[{'type':'text','text':json.dumps(final_answer)}] if is_tool_result else [{'type':'tool_use','id':'lookup1','name':tool,'input':{}}]
                     answer={'content':content,'stop_reason':'end_turn' if is_tool_result else 'tool_use','usage':{'input_tokens':10,'output_tokens':5}}
                 if mode=='tokens':answer['usage']={'input_tokens':1000001}
                 if mode=='refusal':

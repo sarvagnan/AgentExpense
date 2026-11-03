@@ -3,9 +3,9 @@ import {clientTime} from '../date-time';
 export type Attachment = { id: string; original_name: string; media_type: string; size: number };
 export type Proposal = {account_metadata?:Record<string,{kind:string;currency:string}>;status:string;question:string|null;explanation:string|null;entry:{date:string;status:string;description:string;notes:string[];postings:{account:string;amount:string;commodity:string;cost:{amount:string;commodity:string}|null}[];[key:string]:unknown};new_accounts:string[];doubts:string[];attachment_names:string[]};
 export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;resumes_at:string;attempt:number};
-export type HandChecks = {ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
+export type HandChecks = {unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
 export type Draft = {
-  claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
+  correction?:{entry_id:string;version:string;locked:boolean;reason?:string;before:{description:string;postings:Proposal['entry']['postings']};sources:string[]}; receipt_reading?:{state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
   declined_rules?:string[]; id: string; description?:string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
   pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
@@ -15,6 +15,7 @@ export type Draft = {
   questions: { question: string; answer: string | null }[]; unsent_answer?: {question_index: number; answer: string; updated_at?: number}; error: string | null; waiting: string | null;
   result: null | {rule?:{id:string;occurrence:string};next_due?:string;made_rules?:string[];resume_rules?:{id:string;description:string}[];weekly_review_note?:string;can_undo?:boolean;undo_until?:string|null;undone?:boolean;audit_id?:string;usual_payment?:{estimated:boolean}; outcome: string; explanation?: string; entry_id?: string; description?: string; total?: string; payment_account?: string; new_accounts?: string[]; sources?: string[]; data_stale?: boolean; refresh_error?: string };
 };
+export type CorrectionResult={entry_id:string;description:string;changed:string[];rule:{status:string;description:string|null;next_due:string|null};data_stale?:boolean};
 export const apiUrl = (path: string, base = import.meta.env.BASE_URL) => `${base.replace(/\/?$/, '/')}api/${path.replace(/^\//, '')}`;
 export class ApiError extends Error {
   readonly status: number;
@@ -74,6 +75,9 @@ export async function request<T>(path: string, options: RequestInit = {}, timeou
 
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}) });
 export const api = {
+  correctionForm:(id:string)=>request<Draft>(`entries/${id}/correction-form`,json('POST')),
+  correct:(id:string,op:string,body:object)=>request<CorrectionResult>(`entries/${id}/corrections/${op}`,json('POST',body),120000),
+  receiptChoice:(id:string,choice:'use'|'keep')=>request<Draft>(`drafts/${id}/receipt-choice`,json('POST',{choice}),120000),
   health: (signal?: AbortSignal) => request<{ok: boolean}>('health', {signal, keepalive:true}, 5000),
   list: (signal?: AbortSignal) => request<Draft[]>('drafts?include_added=true', {signal}),
   get: (id: string) => request<Draft>(`drafts/${encodeURIComponent(id)}`),
@@ -83,7 +87,7 @@ export const api = {
   answer: (id: string, answer: string) => request<Draft>(`drafts/${id}/answer`, json('POST', {answer})),
   currency: (id:string, body:{amount?:string;rate?:string;estimate:boolean}) => request<Draft>(`drafts/${id}/currency`,json('POST',body)),
   claim: (id:string,claim_token?:string)=>request<{draft:Draft;claim_token:string;form:Proposal}>(`drafts/${id}/claim`,json('POST',{claim_token})),
-  handForm:(id:string,claim_token:string,proposal:Proposal)=>request<HandChecks>(`drafts/${id}/hand-form`,json('POST',{claim_token,proposal})),
+  handForm:(id:string,claim_token:string,proposal:Proposal,sources?:string[],reason?:string)=>request<HandChecks>(`drafts/${id}/hand-form`,json('POST',{claim_token,proposal,...(sources?{sources}:{}),...(reason!==undefined?{reason}:{})})),
   handAdd:(id:string,claim_token:string,proposal_hash:string,approved_accounts:string[])=>request<Draft>(`drafts/${id}/hand-add`,json('POST',{claim_token,proposal_hash,approved_accounts})),
   release:(id:string,claim_token:string,proposal?:Proposal)=>request<Draft>(`drafts/${id}/release`,json('POST',{claim_token,proposal})),
   approveAccounts:(id:string,proposal_hash:string)=>request<Draft>(`drafts/${id}/approve-accounts`,json('POST',{proposal_hash})),

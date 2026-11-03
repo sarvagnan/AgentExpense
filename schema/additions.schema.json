@@ -25,7 +25,8 @@
         "review",
         "review-action",
         "rule",
-        "rule-review"
+        "rule-review",
+        "correction"
       ]
     },
     "time": {
@@ -582,7 +583,34 @@
     },
     "reason": {
       "type": "string",
+      "minLength": 0
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "before": {
+      "type": "object"
+    },
+    "after": {
+      "type": "object"
+    },
+    "changed_fields": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "actor": {
+      "type": "string",
       "minLength": 1
+    },
+    "result": {
+      "type": "object"
+    },
+    "receipt": {
+      "type": "object"
     }
   },
   "allOf": [
@@ -695,6 +723,33 @@
           "rule_verdict",
           "reason",
           "reviewer"
+        ],
+        "properties": {
+          "reason": {
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "correction"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "entry_id",
+          "operation_id",
+          "request_hash",
+          "before",
+          "after",
+          "changed_fields",
+          "reason",
+          "actor",
+          "result"
         ]
       }
     }

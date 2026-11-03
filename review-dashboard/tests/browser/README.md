@@ -150,3 +150,14 @@ checks retain their fixed November 1 clock. Payment dates and built-data windows
 remain explicit fixture dates; the browser records its own local save context.
 
 The runner selects `.node-version` through fnm and prints the Node version. Each staged persona passes its own `DASHBOARD_DATA_DIR` and disables npm update notifications. `BROWSER_CASE=light-1440` selects one theme/size for focused work; leave it unset for the complete matrix. `BROWSER_PROFILE=1` logs suite wall times and ledger commit counts (including fixture setup/reset commits). Currency formatter checks cover every supported code in each engine.
+
+Step 6d adds `corrections.mjs` to every default case, covering typed dates across
+local date boundaries, monotonic declines across changed words/reload/server
+recovery/pick lists, saved-entry corrections from Drafts/Explorer/Journal, Back
+targets, statement locks and receipt disagreement/Keep. Captures include
+`usual-typed-date`, `correction-from-drafts`, `correction-saved`,
+`correction-from-explorer`, `correction-from-journal`,
+`correction-statement-locked`, `correction-explorer-saved`,
+`correction-journal-saved` and `receipt-question`. Saves from Explorer and Journal
+retain the saved result through a data refresh before Back returns to the entry.
+`BROWSER_FOCUS=corrections` runs that focused suite during development.

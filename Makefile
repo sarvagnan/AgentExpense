@@ -120,3 +120,7 @@ rules-backfill:
 
 rules-catch-up:
 	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/rules.py catch-up $(ARGS)
+
+.PHONY: correct
+correct:
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/correct.py $(ARGS)

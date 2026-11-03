@@ -44,7 +44,7 @@ export function periodFor(rule,day) {
   const offset=Math.floor(((year-startYear)*12+month-startMonth)/step)*step;
   const date=new Date(Date.UTC(startYear,startMonth-1+offset,1));const end=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();date.setUTCDate(Math.min(rule.schedule['anchor-day']||startDay,end));return date.toISOString().slice(0,10);
 }
-export const paymentInPeriod = (rule,day) => (rule.payments||[rule.last_payment].filter(Boolean)).find(p=>p.rule?.id===rule.id?p.rule.occurrence===periodFor(rule,day):periodFor(rule,p.date)===periodFor(rule,day));
+export const paymentInPeriod = (rule,day) => !/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day))?undefined:(rule.payments||[rule.last_payment].filter(Boolean)).find(p=>p.rule?.id===rule.id?p.rule.occurrence===periodFor(rule,day):periodFor(rule,p.date)===periodFor(rule,day));
 export const complexRule = rule => rule.postings.length!==2 || rule.postings.some(p=>p.cost) || mainPostings(rule).length!==1;
 export function ruleStatus(rule,today) {
   const paid=(rule.payments||[rule.last_payment].filter(Boolean)).some(p=>(p.rule?.id===rule.id&&p.rule.occurrence>p.date?p.rule.occurrence:p.date)>=rule.date);
@@ -52,3 +52,19 @@ export function ruleStatus(rule,today) {
 }
 export const statusLabel = status => ({'on-track':'On track',due:'Due',overdue:'Overdue',stale:'Stale',paused:'Paused',ended:'Ended',removed:'Removed'}[status]||status);
 export const originReason = origin => ({'subscription-words':'From subscription or membership words.','monthly-history':'Two consecutive monthly payments.','history-pass':'Two consecutive monthly payments found in history.'}[origin?.kind]||'Made by you.');
+
+/** First due date after this chosen payment, using its cadence bucket. */
+export function nextDueForPayment(rule,day) {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day)))return rule.next_due||rule.date;
+  const latest=(rule.payments||[]).reduce((last,p)=>p.date>last?p.date:last,'');
+  if(latest&&day<latest)return rule.next_due||rule.date;
+  const bucket=periodFor(rule,day),through=day>bucket?day:bucket;
+  const start=rule.schedule.from.split('-').map(Number),step=(rule.schedule.interval||1)*(rule.schedule.every==='year'?12:1);
+  let cursor=bucket;
+  do {
+    const [year,month]=cursor.split('-').map(Number),first=new Date(Date.UTC(year,month-1+step,1));
+    const end=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();
+    first.setUTCDate(Math.min(rule.schedule['anchor-day']||start[2],end));cursor=first.toISOString().slice(0,10);
+  } while(cursor<=through);
+  return cursor<rule.date?rule.date:cursor;
+}

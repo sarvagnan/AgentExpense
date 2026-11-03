@@ -84,6 +84,9 @@ await expect(page.locator('.statement-conversion')).toContainText('51.48');await
  }
  await expect(page.getByRole('button',{name:'Review apply',exact:true})).toBeEnabled();await page.getByRole('button',{name:'Review apply',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Apply statement',exact:true}).click();
  await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:180000}).toBe('applied');
+ // The page must observe completion before navigation; its poll also refreshes
+ // dashboard data. Server-only completion can race that refresh during unload.
+ await expect(page.getByRole('heading',{name:'Statement applied',exact:true})).toBeVisible({timeout:180000});
  const posted=JSON.parse(await readFile(join(stage.ledger,'data/expenses/2026.json'))).find(r=>r.id===converted.result.entry_id);
  assert.equal(posted.postings[0].cost.amount,'51.62');assert.equal(posted.postings[1].amount,'-51.62');assert.match(posted.notes.join(' '),/replaces 51.48/);
  record('4B matching-currency statement upload, checklist gating and checked apply replaces the currency estimate');

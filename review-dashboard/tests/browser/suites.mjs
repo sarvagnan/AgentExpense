@@ -1,3 +1,4 @@
+import {runCorrections} from './corrections.mjs';
 import {runRules} from './rules.mjs';
 import {runFinish} from './finish.mjs';
 import {runReaderWorkflows} from './readers.mjs';
@@ -81,6 +82,16 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       },{base,table});
       assert.equal(formatterChecks,true,'All currency codes use the app minor-unit table in this engine');
       record('all currency minor units are explicit in the page formatter');
+      if(process.env.BROWSER_FOCUS==='review') {
+        await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='corrections') {
+        await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
       if(process.env.BROWSER_FOCUS==='rules') {
         await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
@@ -407,6 +418,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runReaderWorkflows',()=>runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce}));
       await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

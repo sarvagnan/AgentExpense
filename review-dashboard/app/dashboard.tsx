@@ -1,3 +1,4 @@
+import {api as liveApi} from './live/api';
 import { SettingsDialog } from './settings-dialog';
 import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { money as amountMoney, axisMoney } from './formatting';
@@ -185,6 +186,8 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
     body.current?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     dialog.current?.querySelector<HTMLElement>('#entry-title')?.focus({ preventScroll: true });
   }, [transaction.id]);
+  const [correctionOnline,setCorrectionOnline]=useState(false);
+  useEffect(()=>{let alive=true;void liveApi.health().then(r=>{if(alive)setCorrectionOnline(r.ok);},()=>{});return()=>{alive=false;};},[]);
   const lastId = useRef(transaction.id);
   lastId.current = transaction.id;
   useEffect(() => {
@@ -221,6 +224,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
       <div className="entry-header-tools"><button type="button" className="button plain" onClick={async () => setLinkCopied(await copyText(entryUrl(transaction.id)))}><Icon name="copy"/>Copy Link</button><span className={`entry-copy-status ${linkCopied === false ? 'error' : ''}`} role="status">{linkCopied === null ? '' : linkCopied ? 'Link copied' : 'Copy blocked'}</span><div className="entry-navigation"><button type="button" className="icon-button" aria-label="Previous entry" title="Previous entry (↑)" disabled={index <= 0} onClick={() => step(-1)}>↑</button><button type="button" className="icon-button" aria-label="Next entry" title="Next entry (↓)" disabled={index < 0 || index >= entries.length - 1} onClick={() => step(1)}>↓</button><button ref={closeRef} type="button" className="icon-button" onClick={onClose} aria-label="Close details" title="Close (Esc)"><Icon name="close"/></button></div></div>
     </div>
     <div className="inspector-body" ref={body}>
+    {correctionOnline?<button className="button" onClick={()=>navigate(`drafts/?correct=${encodeURIComponent(transaction.storeId||transaction.id.split('-')[0])}&back=${encodeURIComponent(location.pathname+location.search)}`)}>Correct this entry</button>:<p className="live-hint">Corrections need the live server.</p>}
     <dl className="facts">
       <dt>Category</dt><dd>{transaction.category}</dd>
       {transaction.kind === 'Transfer' ? <>

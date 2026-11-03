@@ -4,8 +4,8 @@ import { api, type Draft, request } from './api';
 import type { AgentStatus } from './agent-status';
 import { statementsApi, type StatementSession } from './statements-api';
 export const statementNeedsAttention = (s: StatementSession) => ['account_needed', 'currency_mismatch', 'locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
-export const needsAttention = (d: Draft) => d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
-export const isRunning = (d: Draft) => d.state === 'queued' || d.state === 'working';
+export const needsAttention = (d: Draft) => d.receipt_reading?.state==='question' || d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
+export const isRunning = (d: Draft) => ['queued','reading','ready'].includes(d.receipt_reading?.state||'') || d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 export const pollDelay = (drafts: Draft[], statements: StatementSession[] = []) => drafts.some(d=>isRunning(d)||d.state==='added'&&d.result?.audit_id&&d.result.can_undo===false&&d.result.undo_until===undefined) || statements.some(s=>['reading','applying','agent_waiting'].includes(s.state)) ? 3000 : 30000;
 export function useDrafts() {

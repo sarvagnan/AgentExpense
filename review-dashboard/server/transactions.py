@@ -35,6 +35,10 @@ class AccountError(ValueError):
     """An account decision requires a person rather than a repair retry."""
 
 
+class LedgerBusy(ValueError):
+    """A checked operation may retry after unrelated ledger work finishes."""
+
+
 class ProposalError(ValueError):
     """An agent can correct this error; infrastructure errors must not be retried."""
 
@@ -166,7 +170,7 @@ def safe_name(name):
 
 def evidence_paths(answer, draft, root):
     folder = root / 'Bills' / answer['entry']['date']
-    if not folder.resolve().is_relative_to((root / 'Bills').resolve()):
+    if (root/'Bills').is_symlink() or folder.is_symlink() or not folder.resolve().is_relative_to((root / 'Bills').resolve()):
         raise ValueError('Evidence directory escapes Bills')
     paths, used = [], set()
     for base, file in zip(answer['attachment_names'], draft['files']):
@@ -181,18 +185,21 @@ def evidence_paths(answer, draft, root):
     return paths
 
 
-def payment(entry):
-    postings = [p for p in entry['postings'] if is_balance_sheet(p['account'])
-                and Decimal(p['amount']) < 0]
-    if not postings:
-        postings = [p for p in entry['postings'] if Decimal(p['amount']) < 0]
-    return {'total': ', '.join(f"{abs(Decimal(p['amount']))} {p['commodity']}" for p in postings),
-            'payment_account': ', '.join(p['account'] for p in postings)}
+def payment(entry, accounts=None):
+    # Allocation/category credits are never payment legs. Refunds and repayments
+    # with no outflow name the incoming balance-sheet account once.
+    balance = [p for p in entry['postings'] if is_balance_sheet(p['account']) and (accounts.get(p['account'],{}).get('kind') if accounts is not None else infer_kind(p['account'])) in ('bank','card','cash','wallet','loan')]
+    postings = [p for p in balance if Decimal(p['amount']) < 0]
+    if not postings: postings = [p for p in balance if Decimal(p['amount']) > 0]
+    totals = {}
+    for p in postings: totals[p['commodity']] = totals.get(p['commodity'], Decimal(0)) + abs(Decimal(p['amount']))
+    return {'total': ', '.join(f"{value} {code}" for code,value in totals.items()),
+            'payment_account': ', '.join(dict.fromkeys(p['account'] for p in postings))}
 
 
 def message_for(settings, draft, entry, new, answer):
     quote = lambda text: json.dumps(text, ensure_ascii=False)
-    paid = payment(entry)
+    paid = payment(entry,load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'])
     lines = [f"Add {entry['description']} via dashboard", '', f"Typed: {quote(draft['text'])}",
              f'Saved: {saved_local(draft)}',
              f"Total: {paid['total']}, {paid['payment_account']}",
@@ -307,14 +314,45 @@ class Transaction:
         if answer['status'] != 'ready' or not answer['entry']:
             raise ProposalError('A complete ready entry is required')
         entry, declarations, new = to_store(answer, self.root, len(self.draft['files']))
-        check(entry, declarations, self.root)
+        if self.draft.get('correction'):
+            from corrections import prepare_replacement
+            prepare_replacement(self.settings, self.draft, entry, declarations)
+        else:
+            check(entry, declarations, self.root)
         existing = load(self.root)[self.root/'data/accounts.json']['accounts']
         roots = {a.split(':')[0] for a in existing}
         return dict(entry=entry, declarations=declarations, new_accounts=new,
                     new_roots=[a for a in new if a.split(':')[0] not in roots],
                     proposal_hash=proposal_hash(answer))
 
+    def publish(self, documents, record, result, lock_fd, message, *, copies=(), moves=()):
+        """Publish a replacement/merge through the same checked recovery boundary."""
+        from audit import append, audit_path
+        from replacements import check_documents
+        check_documents(documents, self.root)
+        paths=[*store_paths(self.root), *documents, self.root/'expense_ledger.ledger', audit_path(self.root,record)]
+        paths += [p for pair in moves for p in pair] + [target for source,target in copies]
+        journal=self.snapshot(list(dict.fromkeys(paths)))
+        try:
+            for source,target in copies:
+                target.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(source,target);compress(target)
+            for source,target in moves:
+                target.parent.mkdir(parents=True,exist_ok=True)
+                source.rename(target)
+            for path,value in documents.items(): dump(path,value)
+            append(self.root,record)
+            journal['result']=result;self.save_journal(journal)
+            result['commit_id']=self.verified_commit(lock_fd,message)
+            self.draft['committed_result']=result;self.drafts.put(self.draft)
+            self.journal.unlink()
+            return result
+        except BaseException:
+            self.rollback(journal)
+            raise
+
     def apply(self, answer, lock_fd):
+        if self.draft.get('correction'): raise ValueError('Save this form through the correction service to keep the entry identity')
         from rules_service import policy
         policy(self.settings)
         prepared = self.prepare(answer)
@@ -345,7 +383,7 @@ class Transaction:
             from rules_service import addition_effects
             recurring = addition_effects(self.root, identity, self.draft)
             result = dict(outcome='ready', entry_id=identity, description=entry['description'],
-                          new_accounts=new, sources=entry.get('sources', []), **payment(entry))
+                          new_accounts=new, sources=entry.get('sources', []), **payment(entry,declarations['accounts']))
             if recurring['rule'] or recurring['resume_rules']:
                 result.update(recurring, weekly_review_note='The weekly review will look at this payment.')
                 result['audit_id'] = audit_record['id']

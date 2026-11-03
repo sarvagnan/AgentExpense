@@ -526,3 +526,33 @@ uses a removed-rule suppression record, recomputed from current evidence under
 the normal checked operation; no caller-supplied postings are trusted.
 
 Data refresh and `/data/` use the `DASHBOARD_DATA_DIR` captured at server startup (default `review-dashboard/`). Refresh selects the installed `.node-version` through fnm, disables npm update notifications, and reports provenance refusal as a refresh failure. It preserves the existing output. The private source stamp is never served. The daily check uses this same output root and provenance. The service installer writes the resolved Node binary directory into its PATH.
+
+
+### Correcting entries and reading filed receipts
+
+`POST /api/entries/{id}/correction-form` opens a hand form with a saved entry hash.
+`POST /api/entries/{id}/corrections/{32-hex operation}` accepts `version`, a checked
+wire `proposal`, existing `sources`, optional `reason`, `approved_accounts` and an
+optional upload `draft_id`. Corrections and Review merges share the replacement
+service and transaction publication: hash checks, preserved IDs/hidden membership,
+strict checks, evidence move planning, rollback of both file ends, audit and one
+verified commit in the FIFO worker. A changed date moves exclusively cited evidence
+from its old date folder, using a fresh filename on collision. Files are never
+removed without retaining them at their new location. Statement payment fields
+are locked; correcting again provides the way back.
+
+`make correct ARGS='<entry-id>'` prints a prefilled correction JSON. Save the edited
+JSON and run `make correct ARGS='<entry-id> --file /tmp/correction.json --op-id <32-hex-id>'`.
+HTTP and CLI use the identical locked service. Select a ledger with `LEDGER_DIR` or
+CLI `--root`. A repeated ID with the same payload replays the audit result.
+
+Usual payments file their receipt and save without a model call, then queue a
+separate adapter task using a strict receipt schema. Only contained, non-symlink
+files under `Bills/` can be read. The shared agent pause delays readings while human
+work continues. Unknown facts are null. Matching details pass through corrections;
+disagreements retain structured dates/amounts/accounts for page formatting and ask
+Use the receipt / Keep the entry (`POST /api/drafts/{id}/receipt-choice`, `choice` =
+`use` or `keep`). Either choice retains receipt notes. Changed split totals or
+conversions require the correction form; statement locks also apply. Unreadable
+receipts change nothing. Pending readings/questions bypass the completed-draft
+24-hour expiry. Restart retains extraction results and operation identity.

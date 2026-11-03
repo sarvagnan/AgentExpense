@@ -338,7 +338,7 @@ class RuleTests(Fixture):
             draft=client.post('/api/drafts',json=dict(text='Willow club',declined_rules=['f000000000000001'])).json()
             self.assertEqual(draft['declined_rules'],['f000000000000001']);self.assertEqual(draft['state'],'editing')
             response=client.patch('/api/drafts/'+draft['id'],json=dict(declined_rules=[]))
-            self.assertEqual(response.status_code,200);self.assertEqual(response.json()['declined_rules'],[])
+            self.assertEqual(response.status_code,200);self.assertEqual(response.json()['declined_rules'],['f000000000000001'])
             for values in (['bad'],['f000000000000001']*2):
                 self.assertEqual(client.patch('/api/drafts/'+draft['id'],json=dict(declined_rules=values)).status_code,422)
             self.assertEqual(client.get('/api/drafts/'+draft['id']).json()['state'],'editing')

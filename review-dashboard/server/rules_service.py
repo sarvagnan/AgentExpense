@@ -54,9 +54,10 @@ def addition_effects(root, entry_id, draft):
     entry=next(e for e in actual if e['id']==entry_id)
     accounts=documents[root/'data/accounts.json']['accounts']
     link=None; resumed=[]; usual=draft.get('usual_payment')
+    declined=set(draft.get('declined_rules', []))
     if usual:
         rule=next((r for r in rules if r['id']==usual['rule_id']),None)
-        if not rule or not active(rule): raise ValueError('This rule is no longer active')
+        if not rule or not active(rule) or rule['id'] in declined: raise ValueError('This rule is no longer available for this draft')
         # The proposal is frozen at queue time; concurrent edits must be reviewed.
         if digest(rule)!=draft['usual_rule_hash']: raise ValueError('The rule changed; choose Add as usual again')
         period=usual['occurrence']
@@ -80,17 +81,20 @@ def addition_effects(root, entry_id, draft):
             if placeholder['commodity']!=selected['commodity']: raise ValueError('The saved paying account needs a conversion; edit the rule postings first')
             placeholder['account']=selected['account']
     else:
-        matches=[r for r in rules if active(r) and same_payment(entry,r,accounts)]
+        matches=[r for r in rules if r['id'] not in declined and active(r) and same_payment(entry,r,accounts)]
         if len(matches)==1: link=matches[0]
     if link:
         occurrence=usual['occurrence'] if usual else period_for(link,entry['date'])
         entry['rule']=dict(id=link['id'],occurrence=occurrence)
         # The explicitly paid occurrence is consumed even when paid a little early.
-        rules[rules.index(link)]=advance(link,max(entry['date'],occurrence))
+        latest=max((e['date'] for e in actual if e['id']!=entry_id and (e.get('rule',{}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
+        if entry['date']>=latest and max(entry['date'],occurrence)>=link['date']:
+            rules[rules.index(link)]=advance(link,max(entry['date'],occurrence))
     else:
-        resumed=[dict(id=r['id'],description=r['description']) for r in rules if r.get('lifecycle')=='paused' and same_payment(entry,r,accounts)]
+        resumed=[dict(id=r['id'],description=r['description']) for r in rules if r['id'] not in declined and r.get('lifecycle')=='paused' and same_payment(entry,r,accounts)]
     settings=documents.get(root/'data/recurring-settings.json',{'never-automatic':[]})
-    found=candidate(entry,actual,rules,accounts,settings,draft['client_time'][:10],draft['text']) if not link else None
+    covered=any(r['id'] in declined and same_payment(entry,r,accounts) for r in rules)
+    found=candidate(entry,actual,rules,accounts,settings,draft['client_time'][:10],draft['text']) if not link and not covered else None
     made=[]
     if found and found['automatic']:
         made=[found['rule']]; rules.extend(made)
@@ -147,6 +151,7 @@ def wire_proposal(rule, day, filenames, root, body):
 
 
 def queue_usual(settings, drafts, draft, body):
+    if draft.get('correction'): raise ValueError('A correction form cannot add another usual payment')
     allowed={'rule_id','date','amount','update_rule','account','remember_account','another_anyway','client_time','client_zone'}
     if not isinstance(body,dict) or set(body)-allowed: raise ValueError('Unknown usual payment field')
     for key in ('update_rule','remember_account','another_anyway'):
@@ -161,10 +166,10 @@ def queue_usual(settings, drafts, draft, body):
     if draft['state'] not in ('editing','queued','failed','question') or draft.get('claim'): raise ValueError('This draft cannot add a usual payment now')
     policy(settings)
     documents=load(settings.ledger); rule=next((r for r in documents[settings.ledger/'data/forecast.json'] if r['id']==body.get('rule_id')),None)
-    if not rule or not active(rule): raise ValueError('Choose an active rule')
+    if not rule or not active(rule) or rule['id'] in draft.get('declined_rules',[]): raise ValueError('Choose an active rule that has not been declined')
     from draft_time import client_context
     context = client_context(body.get('client_time'),body.get('client_zone')) if 'client_time' in body or 'client_zone' in body else None
-    day=body.get('date') or (context or draft)['client_time'][:10]
+    day=body.get('date') or (draft.get('pieces') or {}).get('fields',{}).get('date',{}).get('value') or (context or draft)['client_time'][:10]
     if not isinstance(day,str) or date.fromisoformat(day).isoformat()!=day: raise ValueError('Choose a calendar payment date')
     proposal,estimated=wire_proposal(rule,day,[f['original_name'].rsplit('.',1)[0] for f in draft['files']],settings.ledger,body)
     Transaction(settings,drafts,draft).prepare(proposal)

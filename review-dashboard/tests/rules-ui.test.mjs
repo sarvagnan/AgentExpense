@@ -7,7 +7,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {createTestServer} from './test-isolation.mjs';
 import {loadPublishedData} from './load-data.mjs';
 import {buildPatterns} from '../scripts/add-patterns.mjs';
-import {complexRule,matchRules,paymentInPeriod,periodFor,ruleAmounts,ruleStatus,statusLabel,textAmounts} from '../scripts/recurring-ui.mjs';
+import {complexRule,nextDueForPayment,matchRules,paymentInPeriod,periodFor,ruleAmounts,ruleStatus,statusLabel,textAmounts} from '../scripts/recurring-ui.mjs';
 const accounts={'Assets:Purse':{kind:'cash',currency:'EUR',label:'Purse',aliases:['purse']},'Expenses:Club':{}};
 const rule=(changes={})=>({id:'f000000000000001',description:'Willow club',date:'2026-11-15',status:'confirmed',schedule:{every:'month',from:'2026-11-15'},postings:[{account:'Expenses:Club',amount:'20.00',commodity:'EUR'},{account:'Assets:Purse',amount:'-20.00',commodity:'EUR'}],...changes});
 test('instant matching agrees with the authoritative matcher across names, dates, ranking, currencies and lifecycles',()=>{
@@ -74,4 +74,12 @@ test('Rules rows render lifecycle controls, native facts, review proposals and o
     const proposal=render(rule({origin:{kind:'monthly-history'},review:{rule_verdict:'propose-removal',reason:'Already covered'}}));assert.match(proposal,/Made automatically/);assert.match(proposal,/Already covered/);assert.match(proposal,/>Keep</);
     const offline=render(rule(),true);const buttons=[...offline.matchAll(/<button([^>]*)>/g)];assert.ok(buttons.length>0);assert.ok(buttons.every(b=>b[1].includes('disabled=""')));
   }finally{await server.close();}
+});
+
+test('chosen payment date owns the cadence and older payments keep the current next due',()=>{
+  const r=rule();
+  assert.equal(nextDueForPayment(r,''),r.date);assert.equal(paymentInPeriod(r,''),undefined);
+  assert.equal(nextDueForPayment(r,'2026-11-02'),'2026-12-15');
+  assert.equal(nextDueForPayment(r,'2026-12-16'),'2027-01-15');
+  assert.equal(nextDueForPayment({...r,date:'2027-01-15',schedule:{every:'month',from:'2027-01-15'},payments:[{date:'2026-12-15'}]},'2026-10-15'),'2027-01-15');
 });

@@ -365,4 +365,32 @@ def rule_agent(body: dict):
     return dict(ok=True)
 
 
+
+@app.post('/__test/receipt-answer')
+def receipt_answer(body: dict):
+    from ledger_manifest import read_manifest
+    currency=read_manifest(settings.ledger)['defaultCurrency']
+    answer=dict(read_ok=True,references=['willow-receipt-reference'],payment_datetime=None,payee='Willow recipient',date=body.get('date'),amount=body.get('amount','120.00'),currency=currency,paying_account=None,notes=['Printed receipt details'])
+    data=json.loads(config.read_text());data['steps']=[dict(answer=answer)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+    return dict(ok=True)
+
+@app.post('/__test/correction-statement')
+def correction_statement(body: dict):
+    from copy import deepcopy
+    from ledger_manifest import read_manifest
+    currency=read_manifest(settings.ledger)['defaultCurrency'];declarations=read_json(settings.ledger/'data/accounts.json')
+    account='Liabilities:Correction Card';category='Expenses:Correction Workshop';declarations['accounts'].update({account:dict(kind='card',currency=currency,label='Correction Card'),category:{},'Equity:Opening Balances':{}})
+    source='Bills/2026-11-01/Correction-Statement.pdf';path=settings.ledger/source
+    entry=dict(id='000000000000d001',date='2026-11-01',status='confirmed',description='Willow statement workshop',sources=[source],postings=[dict(account=category,amount='10.00',commodity=currency),dict(account=account,amount='-10.00',commodity=currency)],**{'statement-end':'2026-11-01','serial-number':'COR-1','statement-page':1})
+    opening=dict(id='000000000000d002',date='2026-11-01',status='confirmed',description='Correction card opening',postings=[dict(account=account,amount='0.00',commodity=currency),dict(account='Equity:Opening Balances',amount='0.00',commodity=currency)])
+    rows=read_json(settings.ledger/'data/expenses/2026.json')+[opening,entry];rows.sort(key=lambda e:e['date'])
+    summaries=read_json(settings.ledger/'data/card-statements.json')+[dict(id='000000000000d003',account=account,start='2026-11-01',end='2026-11-01',source=source,**{'previous-balance':'0.00','purchases':'10.00','credits':'0.00','total-due':'10.00','rows':1})]
+    def install():
+        sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+        from statement_fixtures import statement_pdf
+        path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(statement_pdf('Fictional statement: one workshop payment of 10, zero opening.'))
+        return {settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':rows,settings.ledger/'data/card-statements.json':summaries}
+    update_settings(settings,install,dict(seeded=True),'Fictional statement correction baseline')
+    return dict(entry_id=entry['id'])
+
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

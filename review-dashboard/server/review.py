@@ -273,6 +273,7 @@ def apply(settings, body, *, clock=None):
         actual = {e['id']: e for e in entries(documents)}
         action = body.get('action')
         changes = []
+        evidence_moves = []
         expected = deepcopy(body.get('versions', {}))
         if not isinstance(expected, dict):
             raise ValueError('Reload Review before applying this decision')
@@ -380,6 +381,8 @@ def apply(settings, body, *, clock=None):
                     bank_members = statement_members(documents, root)
                     if (kept.get('statement-end') or kept['id'] in bank_members) and (removed.get('statement-end') or removed['id'] in bank_members):
                         raise ValueError('Both entries belong to filed statements. Reconcile their membership before merging.')
+                    kept_before, removed_before = deepcopy(kept), deepcopy(removed)
+                    kept = deepcopy(kept)
                     if kept.get('rule') and removed.get('rule') and kept['rule'] != removed['rule']:
                         raise ValueError('These entries link different rule occurrences. Reconcile their rules before merging.')
                     if removed.get('rule') and not kept.get('rule'):
@@ -394,6 +397,10 @@ def apply(settings, body, *, clock=None):
                         kept['sources'] = sources
                     if notes:
                         kept['notes'] = notes
+                    from replacements import replace_entry, entry_hash, move_evidence
+                    kept = replace_entry(documents,root,kept_before,kept,expected=entry_hash(kept_before),remove=removed_before,removed_expected=entry_hash(removed_before))
+                    actual[kept['id']]=kept
+                    evidence_moves = move_evidence(documents,root,kept_before,kept)
                     # Retarget other unsettled edges without leaving dangling IDs.
                     edges = [(e['id'], l['id'], l['reason']) for e in actual.values() for l in e.pop('possible-duplicate-of', [])]
                     for a, b, reason in edges:
@@ -401,9 +408,6 @@ def apply(settings, body, *, clock=None):
                         b = kept['id'] if b == removed['id'] else b
                         if a != b:
                             link_pair(actual, a, b, reason)
-                    for path, rows in documents.items():
-                        if path.parent.name == 'expenses':
-                            rows[:] = [e for e in rows if e['id'] != removed['id']]
                     actual.pop(removed['id'])
                     change.update(kept_id=kept['id'], removed_id=removed['id'], sources=removed.get('sources', []), notes=removed.get('notes', []))
             change['after_version'] = digest([actual.get(one), actual.get(two)])
@@ -432,21 +436,10 @@ def apply(settings, body, *, clock=None):
         store.put(draft)
         transaction = Transaction(settings, store, draft)
         transaction.marker = 'Review: ' + identity
-        journal = transaction.snapshot([*store_paths(root), root / 'expense_ledger.ledger', audit_path(root, record)])
-        try:
-            for path, document in documents.items():
-                dump(path, document)
-            append(root, record)
-            result = dict(audit_id=record['id'], action=action, changes=changes)
-            journal['result'] = result
-            transaction.save_journal(journal)
-            result['commit_id'] = transaction.verified_commit(fd, f'Review: {action}\n\n{transaction.marker}\nAudit: {record["id"]}\nDecisions: {len(changes)}')
-            draft['committed_result'] = result
-            store.put(draft)
-            transaction.journal.unlink()
-        except BaseException:
-            transaction.rollback(journal)
-            raise
+        result = dict(audit_id=record['id'], action=action, changes=changes)
+        transaction.publish(documents, record, result, fd,
+                            f'Review: {action}\n\n{transaction.marker}\nAudit: {record["id"]}\nDecisions: {len(changes)}',
+                            moves=evidence_moves)
     return refresh(settings, result)
 
 

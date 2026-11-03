@@ -86,7 +86,7 @@ class Drafts:
                             shutil.rmtree(self.folder(draft['id']))
                     continue
                 if draft['state'] == 'added':
-                    if draft.get('statement_file') or draft.get('audit_pending'):
+                    if draft.get('statement_file') or draft.get('audit_pending') or draft.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question'):
                         continue
                     if datetime.fromisoformat(draft['completed_at']) <= at - timedelta(hours=24):
                         shutil.rmtree(self.folder(draft['id']))
@@ -99,6 +99,8 @@ class Drafts:
             if result.get('outcome') == 'not_expense':
                 from outcomes import queue_outcome
                 queue_outcome(draft, 'not_expense')
+            if draft.get('usual_payment') and result.get('entry_id') and result.get('sources') and not draft.get('receipt_reading'):
+                draft['receipt_reading']=dict(state='queued',queued_at=now(),sources=result['sources'],entry_id=result['entry_id'])
             self.put(draft)  # durable result before removing uploads
             if not draft.get('statement_file'):
                 shutil.rmtree(self.folder(draft['id']) / 'files', ignore_errors=True)

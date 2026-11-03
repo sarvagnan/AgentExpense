@@ -7,7 +7,7 @@ import agent
 from daily_refresh import DailyRefresh
 from outcomes import queue_outcome, OutcomeTransaction
 from agent import now
-from transactions import Transaction, AccountError, ProposalError, clean, ledger_lock, refresh
+from transactions import Transaction, AccountError, ProposalError, LedgerBusy, clean, ledger_lock, refresh
 
 
 class Worker:
@@ -48,6 +48,8 @@ class Worker:
         if getattr(self, "statements", None):
             self.statements.recover_work()
         for draft in self.drafts.all():
+            if draft.get('receipt_reading',{}).get('state')=='reading':
+                draft['receipt_reading']['state']='queued';self.drafts.put(draft)
             if draft['state'] == 'working':
                 draft['state'] = 'queued'
                 for run in draft['runs']:
@@ -86,15 +88,42 @@ class Worker:
                 job = self.calls[0] if self.calls else None
                 if job and draft and draft['queued_at'] <= job['queued_at']: job=None
                 before=job['queued_at'] if job else draft['queued_at'] if draft else None
+                readings=sorted((d for d in self.drafts.all() if d.get('receipt_reading',{}).get('state') in ('queued','ready') and not self.pause.blocked()),key=lambda d:(d['receipt_reading']['queued_at'],d['id']))
+                reading=readings[0] if readings and (not before or readings[0]['receipt_reading']['queued_at']<before) else None
+                if reading: before=reading['receipt_reading']['queued_at']
             # Statement extraction/apply can take time. Keep draft reads and
             # handover Undo available while this single worker performs it.
             if getattr(self, 'statements', None) and self.statements.work(self.stop_event, before=before):
+                continue
+            if reading:
+                try:
+                    from receipts import read
+                    read(self,reading)
+                except LedgerBusy:
+                    try: reading=self.drafts.get(reading['id'],include_discarded=True)
+                    except FileNotFoundError: continue
+                    reading['receipt_reading']['state']='ready'
+                    reading['waiting']='Waiting for a clean ledger before saving receipt details'
+                    self.drafts.put(reading)
+                    self.stop_event.wait(self.retry_interval)
+                except Exception as exc:
+                    try: reading=self.drafts.get(reading['id'],include_discarded=True)
+                    except FileNotFoundError: continue
+                    reading['waiting']=None
+                    reading['receipt_reading'].update(state='unreadable',message='The receipt details could not be saved. Use Correct this entry.',error=str(exc))
+                    self.drafts.put(reading)
                 continue
             if job:
                 with self.drafts.mutex:
                     if job not in self.calls: continue
                     self.calls.remove(job)
-                try: job['result']=job['operation']()
+                try:
+                    while not self.stop_event.is_set():
+                        try:
+                            job['result']=job['operation']();break
+                        except LedgerBusy:
+                            self.stop_event.wait(self.retry_interval)
+                    if 'result' not in job: raise ValueError('The server stopped before this correction; retry it')
                 except Exception as exc: job['error']=exc
                 finally: job['done'].set()
                 continue

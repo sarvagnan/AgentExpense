@@ -130,3 +130,14 @@ account aliases (existing payments metadata), next due and payment history. Live
 rule reads include compact `payments` for checking a chosen payment period.
 Suggestion dismissal uses the existing removed lifecycle and suppression evidence;
 weekly rule verdicts use the existing version-1 `rule-review` schema.
+
+### Format 1: corrections and receipt readings
+
+Version-1 append-only audit events additionally accept `kind: correction`, with
+`entry_id`, `operation_id` (32 hex), `request_hash` (64 hex), complete `before` and
+`after` snapshots, `changed_fields`, optional-text `reason`, `actor`, `result` and
+`rule_changes`. Receipt follow-ups also retain `receipt` (extracted answer, choice,
+run and the compared entry totals). Existing lines are never rewritten. The audit
+retains operation replay after temporary correction drafts expire. No store fields,
+ledger format bump or migration are needed. Correction sources and receipt queue
+state are ignored runtime records in `drafts/`.
