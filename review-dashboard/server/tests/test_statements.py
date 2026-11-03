@@ -152,8 +152,10 @@ class StatementTests(Fixture):
         sessions=Statements(self.settings)
         s=sessions.create(statement_pdf(TEXT.replace('Purchases: 120.00','Purchases: 121.00')), 'CardStatement-2026-01-28.pdf')
         answer=statement_answer();answer['purchases']='121.00'
-        with patch('agent.run', return_value=(answer, dict(model='fake',effort='offline'))), patch('statements.plan') as rules:
-            with self.assertRaisesRegex(ValueError, 'could not validate'):
-                sessions.read(s)
+        with patch('agent.run', return_value=(answer, dict(model='fake',effort='offline'))) as agent, patch('statements.plan') as rules:
+            sessions.read(s)
+            self.assertEqual(sessions.get(s['id'])['state'],'couldnt_read')
+            self.assertIn("The printed totals don't add up, so nothing was saved",sessions.get(s['id'])['error'])
+            agent.assert_not_called()
             rules.assert_not_called()
         self.assertEqual(load(self.ledger)[self.ledger/'data/expenses/2026.json'], [])

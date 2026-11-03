@@ -483,7 +483,9 @@
 .value-chart .chart-tooltip span { white-space: normal; }
 .value-chart .chart-tooltip .chart-tooltip-nav { display: block; color: var(--text-secondary); }
 .chart-key-hint { display: none; margin-bottom: 8px; color: var(--text-secondary); font: var(--text-caption); }
-.value-chart[data-keyboard="true"] .chart-key-hint { display: block; }
+/* Keep later controls still when a pointer click blurs the keyboard chart. */
+.value-chart .chart-key-hint { display: block; visibility: hidden; }
+.value-chart[data-keyboard="true"] .chart-key-hint { visibility: visible; }
 .accounts[data-portfolio="true"] .accounts-workspace > .stack > .panel:first-child .summary-total,
 .accounts .metric[data-selected="true"] .metric-value { font: var(--text-figure); }
 @container (max-width: 300px) {

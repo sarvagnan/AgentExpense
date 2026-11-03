@@ -69,12 +69,16 @@ class Drafts:
     def all(self, *, include_discarded=False):
         with self.mutex:
             records = [self.get(path.parent.name, include_discarded=True) for path in sorted(self.root.glob('*/draft.json'))]
-            return records if include_discarded else [d for d in records if not d.get('discarded_until')]
+            return records if include_discarded else [d for d in records if not d.get('discarded_until') and not d.get('intake_complete')]
 
     def purge(self, at=None):
         at = at or datetime.now(timezone.utc)
         with self.mutex:
             for draft in self.all(include_discarded=True):
+                if draft.get('intake_complete'):
+                    if datetime.fromisoformat(draft['updated_at'] if 'updated_at' in draft else draft['created_at']) <= at - timedelta(hours=24):
+                        shutil.rmtree(self.folder(draft['id']))
+                    continue
                 if draft.get('discarded_until'):
                     if datetime.fromisoformat(draft['discarded_until']) <= at:
                         if not draft.get('discard_audit_queued'):

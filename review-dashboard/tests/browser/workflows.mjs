@@ -12,7 +12,7 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
   await expect(page.locator('#expense-words')).toHaveValue(text);
   await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('ledger-add-v1')||'{}').text)).toBe(text);
   if(attachment){await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:attachment+'.png',mimeType:'image/png',buffer:receipt});await expect(page.locator('.attachments')).toContainText(attachment+'.png');await expect(page.locator('.pending-upload')).toHaveCount(0);}
-  await page.getByRole('button',{name:'Send to agent',exact:true}).click();
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
   await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text===text&&d.state!=='editing')?.id,{timeout:20000}).toBeTruthy();
   return (await get('drafts?include_added=true')).find(d=>d.text===text&&d.state!=='editing').id;
  };
@@ -20,10 +20,10 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  await control('gate',{state:'ready'});await resetDrafts({persona,empty:true});
  let config=await control('scenario',{mode:'ready',attachment:'Copper-Finch-Receipt'});
  await go('add/');
- await expect(page.locator('.composer-panel h2')).toHaveText('An expense');await expect(page.locator('.statement-upload-panel h2')).toHaveText('A statement');
- const boxes=await page.locator('.add-layout>.panel').evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,bottom:b.bottom};}));
- if(width>760)assert.ok(boxes[1].x>=boxes[0].x+boxes[0].width,'Add panels sit side by side');else assert.ok(boxes[1].y>=boxes[0].bottom,'Add panels stack');
- await expect(page.locator('.statement-upload-panel')).toContainText('settle its rows in Drafts before applying');
+ await expect(page.locator('.composer-panel h2')).toHaveText('What happened?');await expect(page.locator('.understood-panel h2')).toHaveText('Understood as');
+ const boxes=await page.locator('.add-layout .panel').filter({has:page.locator('h2')}).evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,bottom:b.bottom};}));
+ if(width>760)assert.ok(boxes[1].x>=boxes[0].x+boxes[0].width,'Add panels sit side by side');
+ await expect(page.locator('.statement-upload-panel')).toHaveCount(0);
  if(persona!=='empty')await snap('add-'+persona);
  const addedId=await submit('Copper Finch Café, 18.60, paid with my card','Copper-Finch-Receipt');
  const added=await wait(addedId,'added');assert.equal(added.result.outcome,'ready');assert.ok(added.result.commit_id);assert.equal(added.result.sources.length,1);assert.ok((await readFile(join(stage.ledger,added.result.sources[0]))).length>0);
@@ -42,7 +42,7 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  await rate.fill('1.1001');await expect(charged).toHaveValue('51.48');await rate.blur();await expect(rate).toHaveValue('1.1001');
  await rate.fill('1.1');await rate.blur();await expect(rate).toHaveValue('1.1000');
  await expect(form.getByLabel('This is an estimate')).toBeChecked();await expect(form).toContainText('replace an estimate with the amount actually charged');await snap('draft-conversion-filled');
- await page.setViewportSize({width:320,height:915});await overflow('conversion at 320');await page.setViewportSize({width,height:width>760?900:915});
+ await page.setViewportSize({width:320,height:915});await overflow('conversion at 320');await page.setViewportSize({width,height:width>760?1000:915});
  await save.click();const converted=await wait(conversion,'added');assert.equal(converted.result.outcome,'ready');
  const expense=JSON.parse(await readFile(join(stage.ledger,'data/expenses/2026.json'))).find(r=>r.id===converted.result.entry_id);
  assert.equal(expense.postings[0].cost.amount,'51.48');assert.equal(expense.postings[1].amount,'-51.48');assert.match(expense.notes.join(' '),/estimate/);
@@ -71,7 +71,8 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  const metadata=JSON.parse(await readFile(join(stage.ledger,'data/accounts.json'))).accounts;
  const identifier=metadata[config.account].statement?.identifier || '5678';
  const pdf=Buffer.from(await (await fetch(base+`__test/statement?currency=${config.currency}&foreign=${config.foreign}&identifier=${identifier}`,{method:'POST'})).arrayBuffer());
- await go('add/');await page.getByLabel('Upload statement PDF').setInputFiles({name:november,mimeType:'application/pdf',buffer:pdf});
+ await go('add/');await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:november,mimeType:'application/pdf',buffer:pdf});
+ await expect(page.locator('.pending-upload')).toHaveCount(0);await expect(page.locator('.file-interpretation')).toContainText('Statement');await snap('add-r3-statement-detected');await page.getByRole('button',{name:'Continue',exact:true}).click();
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===november&&['found','currency_mismatch'].includes(s.state))?.id,{timeout:30000}).toBeTruthy();
  let session=(await get('statements')).sessions.find(s=>s.original_name===november);
  if(session.state==='currency_mismatch'){await page.getByLabel('Account in '+config.currency).selectOption(config.account);await page.getByRole('button',{name:'Use this account',exact:true}).click();await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:30000}).toBe('found');}
@@ -92,20 +93,21 @@ await expect(page.locator('.statement-conversion')).toContainText('51.48');await
  record('4B matching-currency statement upload, checklist gating and checked apply replaces the currency estimate');
  // An explicit mismatch never starts an agent conversion or permits Apply.
  const mismatch=Buffer.from(await (await fetch(base+`__test/statement?currency=${config.foreign}&foreign=${config.currency}&identifier=${identifier}`,{method:'POST'})).arrayBuffer());
- await go('add/');await page.getByLabel('Upload statement PDF').setInputFiles({name:foreignFile,mimeType:'application/pdf',buffer:mismatch});
+ await go('add/');await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:foreignFile,mimeType:'application/pdf',buffer:mismatch});
  await expect(page.locator('.statement-currency')).toBeVisible({timeout:30000});await expect(page.locator('.statement-currency')).toContainText('currencies must match');
- session=(await get('statements')).sessions.find(s=>s.original_name===foreignFile);assert.equal(session.state,'currency_mismatch');
- const denied=await fetch(base+'api/statements/'+session.id+'/apply',{method:'POST'});assert.equal(denied.status,409);
+ await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();
+ assert.equal((await get('statements')).sessions.some(s=>s.original_name===foreignFile),false,'A mismatch stays staged before Continue');
  await snap('statement-mismatch');
  const compatible=Object.entries(metadata).find(([,m])=>['bank','card'].includes(m.kind)&&m.currency===config.foreign)?.[0];assert.ok(compatible);
- await page.getByLabel('Account in '+config.foreign).selectOption(compatible);await page.getByRole('button',{name:'Use this account',exact:true}).click();
- await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:30000}).toBe('found');
- await go('add/');await page.getByLabel('Upload statement PDF').setInputFiles({name:newAccountFile,mimeType:'application/pdf',buffer:mismatch});
+ await page.getByLabel('Account in '+config.foreign).selectOption(compatible);await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeEnabled();await snap('add-r3-currency-resolved');await page.getByRole('button',{name:'Continue',exact:true}).click();
+ await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===foreignFile)?.state,{timeout:30000}).toBe('found');
+ await go('add/');await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:newAccountFile,mimeType:'application/pdf',buffer:mismatch});
  await page.getByRole('button',{name:'Add an account in '+config.foreign,exact:true}).click();
  const inline=page.locator('.inline-account');await inline.getByLabel('Kind',{exact:true}).selectOption('card');await inline.getByLabel('Name',{exact:true}).fill('Willow Statement '+theme+' '+width);await expect(inline.getByLabel('Currency',{exact:true})).toHaveValue(config.foreign);await snap('statement-add-account');
- await inline.getByRole('button',{name:'Create and assign account',exact:true}).click();
+ assert.equal(Object.values(JSON.parse(await readFile(join(stage.ledger,'data/accounts.json'))).accounts).some(m=>m.label==='Willow Statement '+theme+' '+width),false);
+ await page.getByRole('button',{name:'Continue',exact:true}).click();
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===newAccountFile)?.state,{timeout:180000}).toBe('found');
- record('4B statement mismatch blocks Apply, supports reassignment and creates/assigns an account through a verified commit');
+ record('4B statement mismatch blocks Continue, supports reassignment and stages account creation until a verified Continue');
  await quiet();await quiesce();await control('reset-workflows',{});
  // Stable queue/working/empty capture states are ignored fixture records.
  const queue=await resetDrafts({persona:'jordan'});await go('drafts/');await refresh();await snap('draft-queue');

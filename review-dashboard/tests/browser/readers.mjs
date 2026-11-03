@@ -12,8 +12,9 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
   const response=await fetch(base+'__test/reader-file?extension='+extension,{method:'POST'});assert.ok(response.ok);
   const buffer=Buffer.from(await response.arrayBuffer());
   await go('add/');
-  await expect(page.getByLabel('Upload statement PDF')).toHaveAttribute('accept',new RegExp('\\.'+extension));
-  await page.getByLabel('Upload statement PDF').setInputFiles({name,mimeType:extension==='csv'?'text/csv':'application/octet-stream',buffer});
+  await expect(page.getByLabel('Upload files',{exact:true})).toHaveAttribute('accept',new RegExp('\\.'+extension));
+  await page.getByLabel('Upload files',{exact:true}).setInputFiles({name,mimeType:extension==='csv'?'text/csv':'application/octet-stream',buffer});
+  await expect(page.locator('.pending-upload')).toHaveCount(0);await expect(page.locator('.file-interpretation')).toContainText('Statement');await page.getByRole('button',{name:'Continue',exact:true}).click();
   await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===name)?.state,{timeout:30000}).toBe('found');
   let session=(await get('statements')).sessions.find(s=>s.original_name===name);
   assert.equal(session.statement.account,config.account);assert.equal(session.statement.readerName,config.reader);assert.ok(session.checks.every(c=>c.ok));

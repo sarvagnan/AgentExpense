@@ -41,14 +41,14 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});
   const seed=await control('rules',{});
   const byName=async name=>(await get('rules')).rules.find(r=>r.description===name);
-  const words=()=>page.locator('#expense-words'),guess=()=>page.getByRole('complementary',{name:'Usual payment'}),saved=()=>page.getByRole('article',{name:'Added payment'});
+  const words=()=>page.locator('#expense-words'),guess=()=>page.getByRole('complementary',{name:'Usual payment'}),saved=()=>page.getByRole('article',{name:'Added payment'}).first();
   const type=async text=>{await words().fill(text);await expect(words()).toHaveValue(text);await expect(guess()).toBeVisible();};
   const add=async(text,configure=async()=>{})=>{
     await type(text);await configure();await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();
     await guess().getByRole('button',{name:'Add as usual',exact:true}).click();
     await expect(words()).toHaveValue('');
     const draft=await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text===text)?.id).toBeTruthy().then(async()=>(await get('drafts?include_added=true')).find(d=>d.text===text));
-    const result=await wait(draft.id);await refresh();await expect(saved()).toContainText(result.result.description);return result;
+    const result=await wait(draft.id);await refresh();await expect(page.locator('.just-added-row').first()).toContainText(result.result.description);return result;
   };
   await go('add/');await expect(words()).toBeEnabled();
   const countPath=join(stage.root,'fake.count');
@@ -79,7 +79,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   const [duplicateResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/usual')&&r.request().method()==='POST'),guess().getByRole('button',{name:'Add as usual',exact:true}).click()]);
   assert.ok(duplicateResponse.ok(),await duplicateResponse.text());const duplicate=await duplicateResponse.json();await expect(words()).toHaveValue('');
   await wait(duplicate.id);
-  await refresh();await page.waitForLoadState('networkidle');await expect(saved()).toContainText('Birch rent');await expect(saved().getByRole('button',{name:'Undo',exact:true})).toBeVisible();
+  await refresh();await page.waitForLoadState('networkidle');await expect(page.locator('.just-added-row').first()).toContainText('Birch rent');await expect(saved().getByRole('button',{name:'Undo',exact:true})).toBeVisible();
   record('6c2 updating rule amount, duplicate-period disclosure, View entry and explicit override');
   await add('Fable support 15 '+seed.currency,async()=>{await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await guess().getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await guess().getByLabel('Use this account from now on',{exact:true}).check();await snap('rule-missing-payer');});
   assert.equal((await byName('Fable support')).postings.at(-1).account,seed.pay);
@@ -88,14 +88,14 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   assert.equal(await fakeCount(),beforeFake,'Every usual addition bypasses the agent');
   record('6c2 missing payer with remember choice and other-currency planned conversion');
   // Normal fake-agent additions expose automatically made and paused follow-ups.
-  await words().fill('Pine studio subscription 22 '+seed.currency);await page.getByRole('button',{name:'Send to agent',exact:true}).click();await expect(words()).toHaveValue('');
+  await words().fill('Pine studio subscription 22 '+seed.currency);await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(words()).toHaveValue('');
   await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Pine studio'))?.state,{timeout:180000}).toBe('added');await refresh();
   await expect(saved()).toContainText('Made a rule for Pine studio');await expect(saved().getByRole('button',{name:'Edit rule'})).toBeVisible();await snap('rule-automatic-made');
   await clickOp(saved().getByRole('button',{name:'Don’t make a rule',exact:true}));await expect(saved().getByRole('button',{name:'Don’t make a rule',exact:true})).toHaveCount(0);
   assert.equal((await byName('Pine studio')).lifecycle,'removed');
   const pine=(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Pine studio'));assert.ok(pine.result.entry_id);
   await control('rule-agent',{});
-  await words().fill('Cedar archive payment 20 '+seed.currency);await page.getByRole('button',{name:'Send to agent',exact:true}).click();await expect(words()).toHaveValue('');
+  await words().fill('Cedar archive payment 20 '+seed.currency);await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(words()).toHaveValue('');
   await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Cedar archive'))?.state,{timeout:180000}).toBe('added');await refresh();
   await expect(saved()).toContainText('Resume Cedar archive?');await snap('rule-resume-match');await clickOp(saved().getByRole('button',{name:'Resume',exact:true}));
   await expect.poll(async()=>(await byName('Cedar archive')).lifecycle).toBe('active');
@@ -123,7 +123,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   const suggestions=page.getByRole('region',{name:'Suggested rules'});
   await expect(suggestions).toContainText('Mallow workshop');await snap('rules-suggested');await clickOp(suggestions.locator('article').filter({has:page.getByRole('heading',{name:'Mallow workshop',exact:true})}).getByRole('button',{name:'Confirm rule',exact:true}));await expect(row('Mallow workshop')).toBeVisible();
   await clickOp(suggestions.locator('article').filter({has:page.getByRole('heading',{name:'Olive workshop',exact:true})}).getByRole('button',{name:'Dismiss',exact:true}));await expect(suggestions).not.toContainText('Olive workshop');await reload();await expect(suggestions).not.toContainText('Olive workshop');
-  await overflow('Rules');await page.setViewportSize({width:320,height:915});await overflow('Rules at 320px');await page.setViewportSize({width,height:width>760?900:915});
+  await overflow('Rules');await page.setViewportSize({width:320,height:915});await overflow('Rules at 320px');await page.setViewportSize({width,height:width>760?1000:915});
   record('6c2 edit simple and complex rules, New rule, confirm/durably dismiss suggestions, responsive Rules');
   // Health returns an offline state without inventing network errors.
   await page.route('**/api/health',route=>route.fulfill({status:200,contentType:'application/json',body:'{"ok":false}'}));await reload();await expect(page.getByText('Rules are read-only here.',{exact:false})).toContainText('Reconnect');await expect(page.getByRole('button',{name:'New rule',exact:true})).toBeDisabled();await expect(row('Kestrel club').getByRole('button',{name:'Edit rule',exact:true})).toBeDisabled();await snap('rules-offline');

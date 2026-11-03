@@ -228,7 +228,7 @@ class Statements:
                     raise ValueError()
                 self.open_pdf(session, reader)
             except Exception:
-                raise ValueError('That password did not open the PDF. Try again.') from None
+                raise ValueError("That password didn't open the file. Try again.") from None
             return session
 
     def current_generation(self, session):
@@ -252,6 +252,8 @@ class Statements:
             if expected:
                 config['identifier'] = expected
             metadata[assigned] = {**metadata[assigned], 'statement':config}
+        if session.get('agent_requested') and suffix=='.pdf':
+            return self.read_card(session,cancel=cancel)
         if suffix == '.pdf' and (not assigned or metadata[assigned].get('statement', {}).get('reader', 'example-card-pdf') == 'example-card-pdf'):
             # Keep the example PDF's identifier/mismatch/checked-second-reading
             # behavior. Personal PDF readers take precedence only when recognised.
@@ -350,7 +352,7 @@ class Statements:
             text, extraction_error = None, str(exc)
         if not self.current_generation(session):
             return
-        if text is not None and not recognised(text):
+        if text is not None and not recognised(text) and not session.get('agent_requested'):
             session.update(state='wrong_file', error='This is not a recognisable card statement for the configured card.')
             self.put(session)
             return
@@ -377,6 +379,7 @@ class Statements:
             self.put(session)
             return
         parser_error = None
+        parsed = False
         try:
             if extraction_error:
                 raise ValueError('PDF text extraction failed: ' + extraction_error)
@@ -388,11 +391,16 @@ class Statements:
             earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
             prior = max(earlier, key=lambda s:s['end']) if earlier else None
             previous = (prior['total-due'] if 'total-due' in prior else money_text(-Decimal(prior['closing-balance']))) if prior else None
+            parsed = True
             tested = check_statement(statement, account=metadata, previous=dict(balance=previous) if previous is not None else None)
             if not all(c['ok'] for c in tested):
                 raise ValueError('; '.join(c['text'] for c in tested if not c['ok']))
             method = 'parser'
         except ValueError as exc:
+            if parsed:
+                session.update(state='couldnt_read', error="The printed totals don't add up, so nothing was saved. " + str(exc), failure_reason='check_failed')
+                self.put(session)
+                return
             parser_error = str(exc)
             if not self.current_generation(session):
                 return

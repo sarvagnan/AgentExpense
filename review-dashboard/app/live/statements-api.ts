@@ -8,6 +8,7 @@ export type StatementSession = {id:string;state:'agent_waiting'|'account_needed'
 export type StatementList={sessions:StatementSession[];recoverable?:StatementSession[];filed:Summary[];accounts:string[];readers?:{id:string;name:string;extensions:string[];kinds:string[];personal:boolean}[]};
 const json=(method:string,body?:unknown):RequestInit=>({method,...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})});
 export const statementsApi={
+ retry:(id:string)=>request<StatementSession>(`statements/${id}/retry`,json('POST')),
  assign:(id:string,account:string)=>request<StatementSession>(`statements/${id}/account`,json('POST',{account})),
  list:(signal?:AbortSignal)=>request<StatementList>('statements',{signal}),
  get:(id:string,signal?:AbortSignal)=>request<StatementSession>(`statements/${id}`,{signal}),

@@ -1,3 +1,4 @@
+import {runAdd} from './add.mjs';
 import {runCorrections} from './corrections.mjs';
 import {runRules} from './rules.mjs';
 import {runFinish} from './finish.mjs';
@@ -12,7 +13,7 @@ import {gzipSync} from 'node:zlib';
 
 const routes=['add','drafts','review','explorer','atlas','journal','forecast','account-summary','statements'];
 const labels=['Add','Drafts','Review','Explorer','Atlas','Journal','Forecast','Accounts'];
-const sizes=[{width:1440,height:900},{width:412,height:915}];
+const sizes=[{width:1440,height:1000},{width:412,height:915}];
 const locale={asha:'en-IN',jordan:'en-US',sam:'en-GB',empty:'en-US'};
 const zone={asha:'Asia/Kolkata',jordan:'America/Chicago',sam:'Europe/Berlin',empty:'America/Chicago'};
 
@@ -59,7 +60,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         // Await real network completion, clear only the test composer's recovery
         // copy, then unload the app before deleting ignored server records.
         if(!writesSettled)await page.waitForLoadState('networkidle');
-        await page.evaluate(()=>localStorage.removeItem('ledger-add-v1'));
+        await page.evaluate(()=>{localStorage.removeItem('ledger-add-v1');for(const key of Object.keys(sessionStorage))if(key.startsWith('ledger-add-visit-'))sessionStorage.removeItem(key);});
         await page.goto('about:blank');
       }
     };
@@ -84,6 +85,16 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       record('all currency minor units are explicit in the page formatter');
       if(process.env.BROWSER_FOCUS==='review') {
         await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='workflows') {
+        await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='add') {
+        await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
@@ -237,15 +248,14 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       // Real gate checks run against the fake CLI; GET status never triggers them.
       for(const state of ['signed out','paused','unavailable']) {
         const status=await control('gate',{state});assert.equal(status.state,state);
-        await go('add/');await refresh();await expect(page.locator('.agent-notice')).toHaveAttribute('data-agent-state',state);
-        await expect(page.locator('.agent-notice')).toHaveCount(1);
+        await go('add/');await refresh();if(state==='unavailable')await expect(page.locator('.agent-notice')).toHaveCount(0);else {await expect(page.locator('.agent-notice')).toHaveAttribute('data-agent-state',state);await expect(page.locator('.agent-notice')).toHaveCount(1);}
         await page.locator('#expense-words').fill('Paper Kite Market, 12, paid with cash');
-        const save=page.getByRole('button',{name:'Send to agent',exact:true});
+        const save=page.getByRole('button',{name:'Continue',exact:true});
         if(state==='unavailable')await expect(save).toBeEnabled();else await expect(save).toBeDisabled();
-        await expect(page.locator('#expense-words')).toBeEnabled();await expect(page.getByRole('button',{name:'Photos or files',exact:true})).toBeEnabled();
-        if(state==='signed out')await expect(page.locator('.agent-notice code')).toHaveText('make agent-login');
-        if(state==='paused'){await page.locator('.agent-reason summary').click();await expect(page.locator('.agent-reason p')).toBeVisible();await expect(page.locator('.agent-reason')).toContainText('exec_command');await page.locator('.agent-reason summary').click();}
-        if(state==='unavailable')await expect(page.locator('.agent-notice')).toContainText('It will retry on the next draft.');
+        await expect(page.locator('#expense-words')).toBeEnabled();await expect(page.getByRole('button',{name:'Upload',exact:true})).toBeEnabled();
+        if(state==='signed out')await expect(page.locator('.agent-notice')).toContainText('make agent-login');
+        if(state==='paused')await expect(page.locator('.agent-notice')).toContainText('Statements read by the built-in reader still work');
+        if(state==='unavailable')await expect(page.locator('.agent-notice')).toHaveCount(0);
         await overflow('notice '+state);if(persona!=='empty')await snap('notice-add-'+persona+'-'+state.replace(' ','-'));
         await openSettings();await expect(page.locator('.settings-body .agent-notice')).toHaveAttribute('data-agent-state',state);await overflow('Settings '+state);
         if(persona==='jordan')await snap('settings-'+state.replace(' ','-'));
@@ -265,15 +275,15 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
           const retry=page.getByRole('button',{name:'Retry',exact:true});
           if(state==='unavailable')await expect(retry).toBeEnabled();else await expect(retry).toBeDisabled();
         }
-        await go('statements/');await expect(page).toHaveURL(base+'add/');await expect(page.getByLabel('Upload statement PDF')).toBeEnabled();
+        await go('statements/');await expect(page).toHaveURL(base+'add/');await expect(page.getByLabel('Upload files',{exact:true})).toBeEnabled();
       }
       record('fake-driven signed out, paused and unavailable notices and submission/retry/answer gating; statement selection remains usable');
       if(theme==='light' && width===1440) {
         await control('gate',{state:'ready',check:false});
         await go('add/');await refresh();
-        await expect(page.locator('.agent-notice')).toHaveAttribute('data-agent-state','unavailable');
+        await expect(page.locator('.agent-notice')).toHaveCount(0);
         await page.locator('#expense-words').fill('Paper Kite Market, 12, paid with cash');
-        await page.getByRole('button',{name:'Send to agent',exact:true}).click();
+        await page.getByRole('button',{name:'Continue',exact:true}).click();
         await expect.poll(async()=>{const rows=await (await fetch(base+'api/drafts')).json();return rows.some(row=>row.text==='Paper Kite Market, 12, paid with cash' && row.state==='question');},{timeout:20000}).toBe(true);
         assert.equal((await (await fetch(base+'api/agent-status')).json()).state,'ready');
         assert.ok((await readFile(join(stage.root,'fake.calls'),'utf8')).includes('stdin_closed'));
@@ -418,6 +428,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runReaderWorkflows',()=>runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce}));
       await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');

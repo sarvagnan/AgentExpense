@@ -213,14 +213,14 @@ class FinishTests(Fixture):
         dump(self.ledger/'data/accounts.json',documents[self.ledger/'data/accounts.json'])
         sessions=Statements(self.settings);sessions.agent_pause=AgentPause(self.ledger);sessions.agent_pause.fail('usage_limit')
         session=sessions.create(statement_pdf(),'Fictional.pdf')
-        with patch('statements.check_statement',side_effect=ValueError('Second reading needed')),patch('agent.run') as run:
+        with patch('statement_readers.Reader.read',side_effect=ValueError('Second reading needed')),patch('agent.run') as run:
             sessions.work(threading.Event());self.assertEqual(sessions.get(session['id'])['state'],'agent_waiting');run.assert_not_called()
         # A different, readable file is parsed during the same pause.
         other=sessions.create(statement_pdf(),'Fictional-parser.pdf')
         sessions.work(threading.Event());self.assertEqual(sessions.get(other['id'])['state'],'found')
         sessions.agent_pause.success()
         record=dict(start='2026-11-02T00:00:00+00:00',end='2026-11-02T00:00:01+00:00',model='fake',effort='low',outcome='statement',usage={},lookups=[],error=None)
-        with patch('statements.check_statement',side_effect=ValueError('Second reading needed')),patch('agent.run',return_value=(statement_answer(),record)) as run:
+        with patch('statement_readers.Reader.read',side_effect=ValueError('Second reading needed')),patch('agent.run',return_value=(statement_answer(),record)) as run:
             sessions.work(threading.Event());self.assertEqual(sessions.get(session['id'])['state'],'found');run.assert_called_once()
 
     def test_invalid_hand_forms_persist_and_return_checks(self):

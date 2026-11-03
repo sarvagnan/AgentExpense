@@ -18,7 +18,10 @@ export async function capture(page, manifest, info) {
     try {await page.screenshot({path:join(shots,full),fullPage:true,animations:'disabled'});}
     finally {await style.evaluate(node=>node.remove());}
   }
-  manifest.push({...info,file,full,route:new URL(page.url()).pathname+new URL(page.url()).search});
+  const entry={...info,file,full,route:new URL(page.url()).pathname+new URL(page.url()).search};
+  manifest.push(entry);
+  const aliases={'statement-mismatch':'add-r3-currency-mismatch','statement-add-account':'add-r3-currency-add'};
+  if(aliases[info.state])manifest.push({...entry,state:aliases[info.state]});
 }
 export async function contactSheet(manifest) {
   await mkdir(shots,{recursive:true});

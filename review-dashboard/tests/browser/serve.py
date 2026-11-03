@@ -1,5 +1,5 @@
 """Disposable browser-test host. Test controls never enter the production app."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
@@ -21,7 +21,8 @@ assert settings.ledger.resolve().is_relative_to(Path('/tmp').resolve())
 assert settings.state_dir.is_relative_to(Path('/tmp').resolve())
 assert settings.codex_home.is_relative_to(Path('/tmp').resolve())
 assert Path(settings.codex).name == 'fake-agent'
-app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime.now(timezone.utc))
+add_clock_shift=0
+app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime.now(timezone.utc)+timedelta(seconds=add_clock_shift))
 from fastapi.responses import Response
 
 @app.post('/__test/formatting')
@@ -83,6 +84,52 @@ def seed_drafts(body: dict):
         if body['persona']=='jordan':
             statements.put(dict(id=secrets.token_hex(16),state='review',original_name='lumen-october.pdf',created_at=now(),error=None,waiting=None,plan=dict(items=[],counts={},unmatched=[])))
         return dict(attention=len(states)+(body['persona']=='jordan'), ids=ids)
+
+
+@app.post('/__test/add-statement-state')
+def add_statement_state(body: dict):
+    assert body['state'] in ('reading','found','applied')
+    s=dict(id=secrets.token_hex(16),state=body['state'],original_name='Fictional-statement.csv',created_at=now(),queued_at=now(),waiting='Reading fixture' if body['state']=='reading' else None,error=None)
+    app.state.statements.put(s)
+    return dict(id=s['id'],type='statement')
+
+
+@app.post('/__test/add-clock')
+def add_clock(body: dict):
+    global add_clock_shift
+    add_clock_shift=body.get('seconds',0)
+    assert add_clock_shift in (0,1860)
+    return dict(ok=True)
+
+
+@app.post('/__test/add-pause')
+def add_pause(body: dict):
+    if body.get('enabled'):app.state.worker.pause.fail('usage_limit',reason='Fictional usage limit')
+    else:app.state.worker.pause.success()
+    return dict(ok=True)
+
+
+@app.post('/__test/blank-pdf')
+def blank_pdf():
+    from pypdf import PdfWriter
+    import io
+    writer=PdfWriter();writer.add_blank_page(width=200,height=200);output=io.BytesIO();writer.write(output)
+    return Response(output.getvalue(),media_type='application/pdf')
+
+
+@app.post('/__test/add-result')
+def add_result(body: dict):
+    drafts=app.state.drafts
+    with drafts.mutex:
+        draft=drafts.get(body['id']) if body.get('id') else drafts.create(body.get('text','Copper Finch meal'))
+        state=body.get('state','working')
+        assert state in ('working','added','question','failed')
+        draft.update(state=state,saved_at=now(),error='The file could not be read. Your draft is kept.' if state=='failed' else None)
+        if state=='added':
+            draft.update(completed_at=now(),result=dict(outcome='not_expense' if body.get('not_expense') else 'ready',description='Copper Finch meal',explanation='This file is a note, with no payment.' if body.get('not_expense') else None))
+        if state=='question':draft['questions']=[dict(question='Which account did you pay from?',answer=None)]
+        drafts.put(draft)
+        return dict(id=draft['id'],type='draft')
 
 
 @app.post('/__test/openings')
@@ -204,7 +251,7 @@ def receipt_file():
 
 
 @app.post('/__test/statement')
-def statement_file(currency: str, foreign: str, identifier: str='5678'):
+def statement_file(currency: str, foreign: str, identifier: str='5678', locked: bool=False, bad: bool=False):
     from fastapi.responses import Response
     sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
     from statement_fixtures import statement_pdf
@@ -225,7 +272,16 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
 2026-11-03 | WF-002 | Copper Finch Café | 18.60 | Debit | |
 2026-11-04 | WF-003 | Cloudberry Music | 8.25 | Debit | |
 """.replace('Café','Cafe')
-    return Response(statement_pdf(text),media_type='application/pdf')
+    if bad:text=text.replace('Purchases: 78.47','Purchases: 79.47')
+    content=statement_pdf(text)
+    if locked:
+        from pypdf import PdfReader,PdfWriter
+        import io
+        writer=PdfWriter()
+        for page in PdfReader(io.BytesIO(content)).pages:writer.add_page(page)
+        writer.encrypt('fictional-passphrase')
+        output=io.BytesIO();writer.write(output);content=output.getvalue()
+    return Response(content,media_type='application/pdf')
 
 
 @app.post('/__test/reader-scenario')

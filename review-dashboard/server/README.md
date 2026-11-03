@@ -556,3 +556,26 @@ Use the receipt / Keep the entry (`POST /api/drafts/{id}/receipt-choice`, `choic
 conversions require the correction form; statement locks also apply. Unreadable
 receipts change nothing. Pending readings/questions bypass the completed-draft
 24-hour expiry. Restart retains extraction results and operation identity.
+
+Add uses one editing draft for words and attachments. `POST /api/add/interpret`
+recognises statement words; `POST /api/drafts/{id}/interpret` uses the reader
+registry and returns file choices, account, period, currency and checks to come.
+Interpretation never starts an agent or writes financial data. PDF passwords are
+accepted in an unvalidated JSON body to avoid echoing secrets in validation errors;
+they remain in memory and are never part of a draft or response.
+
+`POST /api/drafts/{id}/continue` rechecks the interpretation on the ledger's FIFO
+worker. Each statement file gets its own existing statement session. Receipts and
+expense words stay together in the expense draft. The response supplies both sets
+of IDs. A failed reading leaves its file available while other sessions continue;
+`POST /api/statements/{id}/retry` retries a failed reading. Ambiguous PDFs require
+Statement / Receipt; currency mismatches require a matching account or a staged
+new account. Account creation uses the existing checked settings service only on
+Continue. Internal completed intake containers are omitted from draft lists and
+expire after 24 hours. Retries return the retained intake receipt.
+
+Add remembers up to three result IDs in guarded, ledger-specific session storage.
+It fetches those records explicitly, including applied statements omitted by normal
+queues. Result rows use the records' actual states. Undo uses the server's
+eligibility and expiry; `undo_checked_at` lets its 30-minute countdown tolerate a
+browser clock that differs from the server's. More never pauses that timer.

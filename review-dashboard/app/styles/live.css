@@ -342,3 +342,74 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 
 .hand-finish input[readonly] { background: var(--surface-alt, transparent); color: var(--muted); cursor: default; opacity: .8; }
 .hand-finish [aria-label="Saved sources"] label { display: flex; gap: .5rem; overflow-wrap: anywhere; }
+
+/* One stable composer; confirmations and follow-ups belong below its save bar. */
+.add-page>.page-header,.add-page>.add-blocking-notice,.add-page>.add-savebar,.just-added{max-width:1130px}
+.add-page .add-layout{align-items:stretch;min-height:320px;gap:16px}
+.add-page .composer-panel{display:flex;flex-direction:column}
+.add-page .composer-panel>.panel-body{display:flex;flex:1;flex-direction:column;padding:18px;min-height:260px}
+.add-page .expense-words{flex:1;min-height:180px;resize:vertical}
+.add-page .composer-tools{flex-wrap:wrap;margin-top:12px;gap:12px}
+.add-page .composer-tools .live-hint{margin:0;font-size:12px}
+.text-button{border:0;background:transparent;padding:5px 0;color:var(--accent);font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.add-interpretation{display:flex;flex-direction:column;min-width:0}
+.add-interpretation>.understood-panel{flex:1}
+.understood-panel .panel-header{display:flex;justify-content:space-between;align-items:center}
+.understood-body{padding:18px;overflow-wrap:anywhere}
+.understood-body .sentence-empty{min-height:190px}
+.interpretation-sentence{display:flex;flex-wrap:wrap;gap:5px;line-height:1.8}
+.interpretation-sentence .sentence-piece{font-size:15px;padding:3px 7px}
+.file-interpretation+.file-interpretation{margin-top:14px;padding-top:14px;border-top:1px solid var(--separator)}
+.file-interpretation>strong{font-size:13px;color:var(--text-secondary);overflow-wrap:anywhere}
+.file-interpretation h3{margin:8px 0;font-size:17px}
+.interpretation-details{display:grid;grid-template-columns:70px minmax(0,1fr);gap:7px 10px;font-size:14px;margin:10px 0}
+.interpretation-details dt{color:var(--text-secondary)}
+.interpretation-details dd{margin:0}
+.statement-password{display:grid;gap:6px;margin-top:12px}
+.add-page .add-savebar{position:static;min-height:76px;margin:0;padding:12px 0;background:var(--bg);border-top:0;border-bottom:1px solid var(--separator)}
+.add-savebar p{margin:4px 0 0}
+.just-added{margin-top:20px}
+.just-added>h2{font-size:16px;margin:0 0 10px}
+.just-added-rows{border:1px solid var(--separator);border-radius:var(--radius-panel);overflow:hidden;background:var(--surface)}
+.just-added-row{padding:15px 18px;overflow-wrap:anywhere}
+.just-added-row+.just-added-row{border-top:1px solid var(--separator)}
+.just-added-row>header{display:flex;justify-content:space-between;gap:12px;font-size:13px;align-items:center}
+.result-status{font-weight:650;color:var(--text-secondary)}
+.just-added-row h3{margin:7px 0 4px;font-size:16px}
+.just-added-row p{margin:6px 0;font-size:14px}
+.just-added>footer{padding:12px 0;font-size:13px}
+.just-added .rule-saved-inline{padding:0;margin:10px 0 0;border:0;background:transparent}
+.rule-saved-inline>header{align-items:center;flex-wrap:nowrap}
+.rule-saved-inline>header>strong{font-size:14px}
+.undo-countdown{font-variant-numeric:tabular-nums;font-size:12px}
+.receipt-inline{margin:8px 0}
+.receipt-inline .detail-footer{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:0;border:0}
+.receipt-inline .detail-footer>.button{flex:0 1 auto}
+.add-examples{padding:18px;margin:0}
+@media(max-width:760px){
+ .add-page .add-layout{display:flex;flex-direction:column;min-height:0;gap:12px}
+ .add-page .composer-panel>.panel-body{padding:12px;min-height:0}
+ .add-page .expense-words{min-height:100px;height:100px;font-size:16px}
+ .add-page .composer-panel .panel-header{padding:12px}
+ .add-page .composer-tools{gap:12px;margin-top:8px}
+ .add-page .composer-tools .button{min-height:36px;padding:6px 9px}
+ .add-page .composer-tools .live-hint{font-size:11px}
+ .add-page .understood-panel[data-has-pieces=false]{display:none}
+ .add-page .understood-panel>.panel-header{padding:10px 12px}
+ .add-page .understood-body{padding:10px 12px}
+ .add-page .expense-interpretation>.live-hint{display:none}
+ .add-page .add-savebar{position:fixed;z-index:21;margin:0;border:1px solid var(--separator);border-radius:var(--radius-control);min-height:80px;padding:10px 12px;top:auto;bottom:var(--live-nav-height,68px);left:16px;right:16px;width:auto;max-width:none}
+ .add-savebar .live-hint{max-width:26ch}
+ .just-added{margin-top:16px}
+ .just-added-row{padding:12px}
+ .just-added-row h3{font-size:15px}
+ .just-added-row p{font-size:13px}
+ .just-added .rule-saved-inline{margin-top:8px}
+ .rule-saved-inline .button{min-height:40px}
+ .receipt-inline .button{padding:9px 10px;font-size:13px}
+ .add-interpretation:has(.understood-panel[data-has-pieces=false]):not(:has(.rule-guess)){display:none}
+}
+/* Dynamic results must not let scroll anchoring move the focused composer. */
+html:has(.add-page){overflow-anchor:none}
+/* Keep hidden announcements out of the grid's implicit positioning area. */
+.navigation-status{position:fixed;top:0;left:0}

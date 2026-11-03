@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.middleware.gzip import GZipMiddleware
@@ -97,7 +98,7 @@ class CurrencyAnswer(BaseModel):
     estimate: bool = True
 
 
-def sniff(data):
+def sniff(data, filename=None):
     try:
         with Image.open(io.BytesIO(data)) as image:
             kind = FORMATS.get(image.format)
@@ -117,7 +118,21 @@ def sniff(data):
                     return '.pdf', 'application/pdf'
         except Exception:
             pass
-    raise HTTPException(415, 'Only valid JPEG, PNG, WebP and PDF files are allowed')
+    suffix = Path(filename or '').suffix.lower()
+    if suffix == '.csv':
+        # The configured reader owns encoding and column validation. Exports may
+        # use a legacy encoding or UTF-16; none is sent to an expense agent.
+        return '.csv', 'text/csv'
+    if suffix == '.xlsx' and data.startswith(b'PK\x03\x04'):
+        import zipfile
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                if '[Content_Types].xml' in archive.namelist() and 'xl/workbook.xml' in archive.namelist():
+                    return '.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        except zipfile.BadZipFile: pass
+    if suffix == '.xls' and data.startswith(bytes.fromhex('d0cf11e0a1b11ae1')):
+        return '.xls', 'application/vnd.ms-excel'
+    raise HTTPException(415, 'Choose a valid photo, PDF, CSV or spreadsheet file')
 
 
 class DashboardGZipMiddleware(GZipMiddleware):
@@ -204,6 +219,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             raise HTTPException(404, 'Unknown draft')
 
     def require(draft, *states):
+        if draft.get('intake_complete'):
+            raise HTTPException(409,'This submission is already in Drafts')
         if draft.get('claim'):
             raise HTTPException(409, 'Another page is finishing this draft')
         if draft['state'] not in states:
@@ -224,7 +241,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             if receipt_lines is None:
                 return public_many([draft])[0]
             from rules_service import undo_eligibility
-            result['result'] = {**result['result'], 'can_undo': False}
+            result['result'] = {**result['result'], 'can_undo': False, 'undo_checked_at': (agent_clock() if agent_clock else datetime.now(timezone.utc)).isoformat()}
             if receipt_lines is not False:
                 line = next((r for r in receipt_lines if r['id'] == result['result']['audit_id']), None)
                 result['result'].update(can_undo=bool(line and undo_eligibility(settings, line, agent_clock)),
@@ -296,6 +313,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from ledger_lock import ledger_lock
         with ledger_lock(settings.ledger), drafts.mutex:
             draft = get(identity)
+            from add_intake import interpret
+            if any(f['kind']=='statement' for f in interpret(settings,drafts,draft)['files']):
+                raise HTTPException(409,'Use Continue to read this statement before applying its rows')
             try: queue_usual(settings, drafts, draft, body)
             except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
                 raise HTTPException(409, str(exc)) from exc
@@ -458,7 +478,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 data = file.file.read(MAX_BYTES + 1)
                 if len(data) > MAX_BYTES:
                     raise HTTPException(413, 'At most 25 MB per file')
-                extension, media = sniff(data)
+                extension, media = sniff(data, None if claim_token else file.filename)
                 info = dict(id=upload_id or secrets.token_hex(16), original_name=file.filename or 'Attachment',
                             extension=extension, media_type=media, size=len(data))
                 info['name'] = info['id'] + extension
@@ -529,11 +549,95 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             drafts.put(draft)
             return public(draft)
 
+    @app.post('/api/add/interpret')
+    def interpret_words(body: dict):
+        from add_intake import word_statement
+        from store import load
+        return word_statement(str(body.get('text',''))[:100000], load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'], read_manifest(settings.ledger).get('locale','en'))
+
+    async def intake_body(request):
+        # Avoid validation errors echoing passwords into responses or diagnostics.
+        body = await request.json()
+        if not isinstance(body,dict) or not isinstance(body.get('choices',{}),dict) or not isinstance(body.get('passwords',{}),dict):
+            raise HTTPException(422,'Invalid file choices')
+        return body
+
+    @app.post('/api/drafts/{identity}/interpret')
+    async def interpret_add(identity: str, request: Request):
+        from add_intake import interpret
+        body = await intake_body(request)
+        with drafts.mutex:
+            draft=get(identity); require(draft,'editing')
+            try: return interpret(settings,drafts,{**draft,'text':str(body.get('text',draft['text']))[:100000]},body.get('choices'),body.get('passwords'))
+            except ValueError as exc: raise HTTPException(422,str(exc)) from None
+
+    @app.post('/api/drafts/{identity}/continue')
+    async def continue_add(identity: str, request: Request):
+        from add_intake import interpret
+        from currency_settings import create_account
+        body = await intake_body(request)
+        def dispatch():
+            with drafts.mutex:
+                draft=get(identity)
+                if draft.get('intake_result'): return draft['intake_result']
+                require(draft,'editing')
+                previews=interpret(settings,drafts,draft,body.get('choices'),body.get('passwords'))
+                blocked=[f for f in previews['files'] if f['kind']=='ambiguous' or f.get('mismatch') or f.get('locked')]
+                if blocked:
+                    return dict(blocked=True,interpretation=previews,statements=[],drafts=[])
+                statements_out=[]
+                for preview in previews['files']:
+                    if preview['kind']!='statement': continue
+                    file=next(f for f in draft['files'] if f['id']==preview['id'])
+                    account=preview.get('account')
+                    if preview.get('new_account'):
+                        spec=preview['new_account']
+                        staged=draft.setdefault('intake_accounts',{})
+                        if file['id'] not in staged:
+                            staged[file['id']]=create_account(settings,spec['kind'],spec['name'],spec['currency'])['account']
+                            drafts.put(draft)
+                        account=staged[file['id']]
+                    with statements.mutex:
+                        existing=next((s for s in statements.all() if s.get('intake_file')==file['id'] and s.get('intake_draft')==identity),None)
+                        if existing: session=existing
+                        else:
+                            session=statements.create((drafts.folder(identity)/'files'/file['name']).read_bytes(),file['original_name'],
+                                client_time=draft['client_time'],client_zone=draft['client_zone'])
+                            session.update(intake_draft=identity,intake_file=file['id'],assigned_account=account,agent_requested=not bool(preview.get('reader')))
+                            if preview.get('reader'):
+                                from store import load
+                                metadata=load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts']
+                                source=preview.get('source_account') or preview.get('account')
+                                config=metadata.get(source,{}).get('statement')
+                                if config: session['reader_config']=config
+                            statements.put(session)
+                            if session['state']=='locked':
+                                session=statements.unlock(session['id'],body.get('passwords',{}).get(file['id'],''))
+                        statements_out.append(session)
+                statement_ids={f['id'] for f in previews['files'] if f['kind']=='statement'}
+                draft['files']=[f for f in draft['files'] if f['id'] not in statement_ids]
+                expense=bool(draft['files']) or (bool(draft['text'].strip()) and previews['words']['kind']!='statement')
+                draft_out=[]
+                if expense:
+                    drafts.save_time(draft,body.get('client_time'),body.get('client_zone'))
+                    draft_out=[queue(draft)]
+                else:
+                    draft['intake_complete']=True
+                    drafts.put(draft)
+                result=dict(blocked=False,statements=statements_out,drafts=draft_out)
+                draft['intake_result']=result; drafts.put(draft)
+                worker.wake.set()
+                return result
+        try: return await run_in_threadpool(worker.call,dispatch)
+        except ValueError as exc: raise HTTPException(409,str(exc)) from None
+
     @app.post('/api/drafts/{identity}/save')
     def save(identity: str, body: SaveTime | None = None):
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'editing')
+            if any(f.get('extension') in ('.csv','.xlsx','.xls') for f in draft['files']):
+                raise HTTPException(409,'Use Continue to read statement files')
             body = body or SaveTime()
             try:
                 drafts.save_time(draft, body.client_time, body.client_zone)
@@ -780,6 +884,17 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             raise HTTPException(409, str(exc)) from exc
         except FileNotFoundError:
             raise HTTPException(404, 'Unknown statement session') from None
+        worker.wake.set()
+        return session
+
+    @app.post('/api/statements/{identity}/retry')
+    def retry_statement(identity: str):
+        with statements.mutex:
+            session=statement_get(identity)
+            if session['state'] not in ('wrong_file','couldnt_read'):
+                raise HTTPException(409,'This statement is not waiting for another reading')
+            session.update(state='reading',queued_at=now(),error=None,waiting=None)
+            statements.put(session)
         worker.wake.set()
         return session
 

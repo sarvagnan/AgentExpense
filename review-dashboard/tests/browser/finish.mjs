@@ -11,11 +11,13 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  await control('scenario',{mode:'ready'});
  const seeded=await control('finish',{});
  await go('add/');await refresh();
- await expect(page.locator('.agent-notice')).toHaveCount(1);await expect(page.locator('.agent-notice')).toContainText('Paused: usage limit');
- await page.locator('#expense-words').fill('Fictional queued during pause');
- await expect(page.getByRole('button',{name:'Send to agent',exact:true})).toBeEnabled();
- await snap('pause-add');await page.getByRole('button',{name:'Send to agent',exact:true}).click();
- await expect.poll(async()=>(await get('drafts')).find(d=>d.text==='Fictional queued during pause')?.state).toBe('queued');
+ await expect(page.locator('.agent-notice')).toHaveCount(1);await expect(page.locator('.agent-notice')).toHaveAttribute('data-agent-state','outage');await expect(page.locator('.agent-notice')).toContainText('Resumes at');await expect(page.locator('.agent-notice')).toContainText('Statements read by the built-in reader still work');
+ await page.locator('#expense-words').fill('Fictional words kept during pause');
+ await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();await expect(page.locator('#expense-words')).toHaveValue('Fictional words kept during pause');
+ await snap('pause-add');
+ // Add's approved pause notice blocks Continue. The backend queue and human
+ // transaction contracts remain available independently of agent readiness.
+ const queued=await json('drafts',{text:'Fictional queued through the API during pause'});await json('drafts/'+queued.id+'/save',{});await wait(queued.id,'queued');
  await go('drafts/?draft='+seeded.id);await refresh();
  await expect(page.locator('.agent-notice')).toHaveCount(1);await expect(page.locator('.agent-notice')).toContainText('Paused: usage limit');await snap('pause-usage-limit');
  await page.getByRole('button',{name:'Finish it yourself',exact:true}).click();
@@ -29,7 +31,7 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  await form.getByLabel('Attachments',{exact:true}).setInputFiles({name:'Fictional-Hand-Receipt.png',mimeType:'image/png',buffer:receipt});
  await expect(form.getByText('1 attachment',{exact:true})).toBeVisible();
  await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form.getByRole('heading',{name:'Checks passed',exact:true})).toBeVisible();
- await overflow('finish form');await snap('finish-by-hand');await page.setViewportSize({width:320,height:915});await overflow('finish form 320');await page.setViewportSize({width,height:width>760?900:915});
+ await overflow('finish form');await snap('finish-by-hand');await page.setViewportSize({width:320,height:915});await overflow('finish form 320');await page.setViewportSize({width,height:width>760?1000:915});
  await form.getByRole('button',{name:'Back to Drafts',exact:true}).click();
  await page.getByRole('button',{name:'Finish it yourself',exact:true}).click();
  await expect(form.getByLabel('Notes',{exact:true})).toHaveValue('Finished from a fictional receipt');

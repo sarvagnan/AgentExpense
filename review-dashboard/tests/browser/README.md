@@ -46,7 +46,7 @@ the final gallery is still produced during normal cleanup.
 
 Screenshots and their contact sheet are written to
 `/tmp/agentexpense-5-shots/index.html`. `manifest.json` records engine, persona,
-state, theme, viewport and real route for every image. Exact 1440×900 and 412×915
+state, theme, viewport and real route for every image. Exact 1440×1000 and 412×915
 captures include Light and Dark, with full-page companions for tall screens. The
 suite also checks every route and both dialogs at 320px. It opens the approved
 mockup index from disk read-only as a packaging check; mockup sources are never
@@ -161,3 +161,13 @@ targets, statement locks and receipt disagreement/Keep. Captures include
 `correction-journal-saved` and `receipt-question`. Saves from Explorer and Journal
 retain the saved result through a data refresh before Back returns to the entry.
 `BROWSER_FOCUS=corrections` runs that focused suite during development.
+
+Step 6e adds `add.mjs` and the revision-3 Add capture states: one input for expenses,
+receipts and statements, editable interpretation, Examples dialog, stable measured
+input position, focus/caret preservation, explicit polite announcements, guarded
+three-result visit recovery, inline Undo/countdown and both receipt answers above
+the phone save bar. Statement readers and the existing expense/currency workflows
+now use that same Upload input and Continue. Account creation is staged until
+Continue. Password and checked-failure paths retain their file. Desktop captures
+now use 1440×1000; phones remain 412×915. `BROWSER_FOCUS=add` selects this suite for
+focused development; default matrix runs retain every prior suite.
