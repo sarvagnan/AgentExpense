@@ -157,6 +157,7 @@ def prompt(source, account, locale):
             'Descriptions/references must match the cited cell or complete printed phrase on a PDF line, '
             'after whitespace normalization. Include every movement in printed order, with its running balance '
             '(mandatory for a bank account); cite printed period start/end, opening/closing, debit/credit totals. '
+            'Keep each row\'s printed date, even a card purchase dated before the period start. '
             'Refuse incompatible summaries or unreadable images; images alone cannot supply a citation. '
             'Use uncertain for any doubt. No lookup history can substitute for source evidence.\n'
             + 'Account: ' + json.dumps(account, ensure_ascii=False) + '\nLocale: ' + locale

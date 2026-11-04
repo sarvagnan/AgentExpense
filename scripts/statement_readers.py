@@ -1,6 +1,6 @@
 """Version-1 trusted statement readers and the mandatory shared validation gate."""
 from copy import deepcopy
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import importlib.util
 from pathlib import Path
@@ -25,6 +25,69 @@ def money_text(value):
 
 def signed(row):
     return decimal(row['amount']) * (-1 if row['direction'] == 'Debit' else 1)
+
+
+EARLY_CARD_DAYS = 31
+
+
+class RowDateError(ValueError):
+    """A row's printed date cannot belong to this statement."""
+
+
+def card_debt(statement):
+    """A card statement printing positive debt, before or after signed normalization.
+
+    Such a statement bills purchases by posting date but prints each purchase
+    under the date it was made, so a row can precede the period start.
+    """
+    return (statement.get('sourceBalanceStyle') == 'debt' or statement.get('source-balance-style') == 'debt'
+            or statement.get('kind') != 'bank' and ('previousBalance' in statement or 'previous-balance' in statement))
+
+
+def check_row_date(row, start, end, *, debt=False):
+    """A row never follows the period; a billed card purchase may precede it by up to 31 days."""
+    cite = row.get('citation') or {}
+    source = (f"page {cite['page']}, line {cite['line']}" if 'page' in cite and 'line' in cite else
+              f"{cite['sheet']}, row {cite['row']}" if 'sheet' in cite and 'row' in cite else 'row ' + str(row.get('serial', '?')))
+    try:
+        day = date.fromisoformat(row['date'])
+        if day.isoformat() != row['date']:
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise RowDateError('Row date must be YYYY-MM-DD: ' + source) from None
+    if day > date.fromisoformat(end):
+        raise RowDateError(f"Row date {row['date']} is after the statement period ends: {source}")
+    earliest = date.fromisoformat(start) - timedelta(days=EARLY_CARD_DAYS if debt else 0)
+    if day < earliest:
+        detail = f' by more than {EARLY_CARD_DAYS} days (check the year)' if debt else ''
+        raise RowDateError(f"Row date {row['date']} is before the statement period starts{detail}: {source}")
+
+
+def movement_start(statement, start_date=None):
+    """The first date this statement moves the account: a card's earliest purchase.
+
+    A first opening balance precedes it; startDate still clips by the row's own date.
+    """
+    start = statement['periodStart']
+    if card_debt(statement):
+        start = min([start, *(r['date'] for r in statement['rows'])])
+    return max(start, start_date or start)
+
+
+def continuity_entries(entries, statement, start_date=None):
+    """Ledger entries whose balance a first statement must continue from.
+
+    An account statement continues from everything dated before its period. A
+    card bills by membership: like a filed card chain, its first statement
+    continues from the opening balance alone, because purchases dated before
+    the period may still be billed here.
+    """
+    start = statement['periodStart']
+    effective = max(start, start_date or start)
+    opening = lambda e: any(p['account'].startswith('Equity:Opening Balances') for p in e['postings'])
+    if card_debt(statement):
+        return effective, [e for e in entries if e['date'] <= effective and opening(e)]
+    return effective, [e for e in entries if e['date'] < effective or e['date'] == effective and opening(e)]
 
 
 class Reader:
@@ -126,14 +189,17 @@ def check_statement(statement, *, account, previous=None, start_date=None, openi
             raise ValueError('Statement dates must be YYYY-MM-DD')
     if start > end:
         raise ValueError('Statement start is after end')
+    if s.get('kind') == 'bank' and card_debt(s) and account.get('kind') != 'card':
+        raise ValueError('Debt-style balances require a card account')
     rows, serials = s['rows'], set()
     if not isinstance(rows, list) or not rows:
         raise ValueError('No statement rows found')
-    last = start
+    last, debt = start, card_debt(s)
     for row in rows:
-        if not start <= row['date'] <= end or date.fromisoformat(row['date']).isoformat() != row['date']:
-            raise ValueError('Row date is outside the statement period')
-        if s.get('kind') == 'bank' and row['date'] < last:
+        check_row_date(row, start, end, debt=debt)
+        # Running balances order account statements by date. A card prints early
+        # purchases among the period's rows, so its rows need no date order.
+        if s.get('kind') == 'bank' and not debt and row['date'] < last:
             raise ValueError('Statement rows must be in ascending date order')
         last = row['date']
         if not isinstance(row.get('description'), str) or not row['description'].strip() or any(c in row['description'] for c in '\r\n'):
@@ -179,7 +245,8 @@ def check_statement(statement, *, account, previous=None, start_date=None, openi
             if 'running_balance' in declared and rows[0].get('balance') is not None:
                 inferred = decimal(rows[0]['balance']) - signed(rows[0])
             elif previous:
-                inferred = decimal(previous['balance']) - sum((signed(r) for r in rows if r['date'] <= previous['end']), Decimal(0))
+                # Early card purchases are billed here for the first time, not overlap.
+                inferred = decimal(previous['balance']) - (Decimal(0) if card_debt(s) else sum((signed(r) for r in rows if r['date'] <= previous['end']), Decimal(0)))
             else:
                 inferred = decimal(opening['balance']) - sum((signed(r) for r in rows if start_date and r['date'] < start_date), Decimal(0))
             s['openingBalance'] = money_text(inferred)
@@ -206,12 +273,15 @@ def check_statement(statement, *, account, previous=None, start_date=None, openi
             s['closingBalance'] = money_text(balance)
         if anchor:
             anchor_date = anchor.get('end', anchor.get('date'))
-            overlap = sum((signed(r) for r in rows if r['date'] <= anchor_date), Decimal(0)) if previous else sum((signed(r) for r in rows if start_date and r['date'] < start_date), Decimal(0))
+            if previous:
+                overlap = Decimal(0) if card_debt(s) else sum((signed(r) for r in rows if r['date'] <= anchor_date), Decimal(0))
+            else:
+                overlap = sum((signed(r) for r in rows if start_date and r['date'] < start_date), Decimal(0))
             test(decimal(s['openingBalance']) + overlap == decimal(anchor['balance']), 'Continuity with previous closing balance' if previous else 'Continuity with opening balance')
             if previous and start > previous['end']:
                 test(decimal(s['openingBalance']) == decimal(previous['balance']), 'Statement starts from previous closing balance')
         s['debits'], s['credits'] = money_text(debits), money_text(credits)
-        s['effectiveStart'] = max(start, start_date or start)
+        s['effectiveStart'] = movement_start(s, start_date)
     if not all(c['ok'] for c in tested):
         raise ValueError('; '.join(c['text'] for c in tested if not c['ok']))
     return tested

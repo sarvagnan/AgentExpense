@@ -41,7 +41,15 @@ def coverage(documents, root, entry, *, restoring=False):
             return 'A statement-confirmed balance covers this date for the paying account.'
     if restoring:
         for s in documents[root/'data/card-statements.json']:
-            if s['account'] in payers and s['start'] <= entry['date'] <= s['end']:
+            if s['account'] not in payers:
+                continue
+            start = s['start']
+            if accounts.get(s['account'],{}).get('kind') == 'card':
+                # A card statement also covers the purchases it billed from
+                # before its period, so it covers back to its earliest member.
+                members = [m['date'] for m in s.get('members', [])] + [e['date'] for e in entries(documents) if e.get('statement-end') == s['end'] and any(p['account'] == s['account'] for p in e['postings'])]
+                start = min([start, *members])
+            if start <= entry['date'] <= s['end']:
                 return 'A statement filed since removal covers this date without this entry.'
     return None
 

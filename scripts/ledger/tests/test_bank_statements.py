@@ -4,6 +4,7 @@ from test_ledger import Fixture
 from store import load, dump
 from check_store import check_card_statements
 from reconcile_bank import bank_plan
+from check_bank_statements import check_bank_statements
 
 BANK = 'Assets:Bank:Savings Account'
 
@@ -77,3 +78,44 @@ class BankMembershipTests(Fixture):
         report=bank_plan(documents,dict(account=BANK,periodEnd='2026-01-28',rows=[row]),self.root)
         self.assertEqual(report['items'][0]['rule'],'needs_you')
         self.assertIsNone(report['items'][0]['postings'])
+
+
+class EarlyCardMembershipTests(Fixture):
+    """A normalized card statement bills purchases dated up to 31 days before its period."""
+    CARD = 'Liabilities:Credit Cards:Example Card'
+
+    def setUp(self):
+        super().setUp()
+        card = lambda identity, day, amount, **fields: dict(id=identity, date=day, status='confirmed', description='Fable Shop', sources=['Bills/card.pdf'],
+                                                           postings=[dict(account='Expenses:Test', amount=amount, commodity='INR'), dict(account=self.CARD, amount='-'+amount, commodity='INR')], **fields)
+        opening = dict(id='1'*16, date='2025-11-01', status='confirmed', description='Opening',
+                       postings=[dict(account=self.CARD, amount='0.00', commodity='INR'), dict(account='Equity:Opening Balances', amount='0.00', commodity='INR')])
+        self.early, self.unbilled = card('2'*16, '2025-12-29', '10.00'), card('3'*16, '2026-01-27', '5.00')
+        dump(self.root/'data/expenses/2025.json', [opening, self.early]);dump(self.year, [self.unbilled])
+        self.member = dict(date='2025-12-29', serial='EX-001', description='Fable Shop', amount='10.00', direction='Debit', reference='EX-001', citation=dict(page=1, line=12), disposition='recorded', **{'entry-id': '2'*16})
+        self.summary = dict(id='4'*16, kind='bank', account=self.CARD, start='2026-01-01', end='2026-01-28', source='Bills/card.pdf', reader='personal-card', rows=1, members=[self.member],
+                            **{'opening-balance': '0.00', 'closing-balance': '-10.00', 'debits': '10.00', 'credits': '0.00', 'source-balance-style': 'debt'})
+
+    def check(self, *summaries):
+        dump(self.root/'data/card-statements.json', list(summaries))
+        return check_card_statements(load(self.root), self.root)
+
+    def test_early_member_without_closing_assertion_and_unbilled_report(self):
+        result = self.check(self.summary)
+        self.assertEqual(result['statements'][0]['result'], 'PASS')
+        # Made inside the period but not billed: a later statement bills it early.
+        self.assertEqual([u['id'] for u in result['unbilled']], ['3'*16])
+
+    def test_date_bounds_and_single_billing(self):
+        for day, problem in [('2025-11-30', 'more than 31 days.*page 1, line 12'), ('2026-01-29', 'after the statement period ends')]:
+            with self.subTest(day=day), self.assertRaisesRegex(ValueError, problem):
+                self.check({**self.summary, 'members': [{**self.member, 'date': day}]})
+        # Without the debt marker it is a signed account statement: strict dates.
+        self.check(self.summary)
+        documents = load(self.root)
+        documents[self.root/'data/card-statements.json'][0].pop('source-balance-style')
+        with self.assertRaisesRegex(ValueError, 'before the statement period starts: page 1, line 12'):
+            check_bank_statements(documents, self.root)
+        second = {**deepcopy(self.summary), 'id': '5'*16, 'start': '2026-01-29', 'end': '2026-02-28', 'opening-balance': '-10.00', 'closing-balance': '-20.00'}
+        with self.assertRaisesRegex(ValueError, 'already a member of another statement'):
+            self.check(self.summary, second)

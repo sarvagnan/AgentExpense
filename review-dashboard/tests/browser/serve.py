@@ -359,6 +359,41 @@ def agent_statement_file():
     return Response(file_bytes(currency,'csv'),media_type='text/csv')
 
 
+@app.post('/__test/early-card-scenario')
+def early_card_scenario(body: dict):
+    """Disposable card purchases made before their posting period, never a model."""
+    import base64
+    import csv
+    import io
+    sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+    from statement_fixtures import TEXT, statement_pdf
+    from cited_statement_fixtures import table, answer
+    currency=read_json(settings.ledger/'ledger.json')['defaultCurrency']
+    tag=body['tag']
+    assert isinstance(tag,str) and len(tag)<100 and all(c.isalnum() or c=='-' for c in tag)
+    use_agent=body.get('agent',False)
+    account='Liabilities:Cards:Early Purchases '+tag+(' agent' if use_agent else ' reader')
+    documents=read_json(settings.ledger/'data/accounts.json')
+    meta=dict(kind='card',currency=currency,label='Early Purchases')
+    if not use_agent:meta['statement']=dict(reader='example-card-pdf',identifier='9771')
+    documents['accounts'][account]=meta
+    update_settings(settings,lambda:{settings.ledger/'data/accounts.json':documents},dict(reader=True),'Fictional early card account')
+    if use_agent:
+        rows=table(currency);rows[0][1]='2026-11-01';rows[0][3]='2026-11-28';rows[3][1]='108.00'
+        reading=answer(currency);reading['balanceStyle']='debt';reading['closingBalance']['value']='108.00'
+        reading['periodStart']['value']='2026-11-01';reading['periodEnd']['value']='2026-11-28'
+        for index,(day,balance) in enumerate([('2026-10-31','110.00'),('2026-10-29','108.00')]):
+            rows[index+7][0]=day;rows[index+7][3]=balance
+            reading['rows'][index]['date']['value']=day;reading['rows'][index]['balance']['value']=balance
+        output=io.StringIO();csv.writer(output).writerows(rows);content=output.getvalue().encode()
+        data=json.loads(config.read_text());data['steps']=[dict(answer=reading)]
+        config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+        app.state.worker.pause.success()
+    else:
+        content=statement_pdf(TEXT.replace('2026-01-01 to 2026-01-28','2026-11-01 to 2026-11-28').replace('2026-01-02','2026-10-31').replace('2026-01-03','2026-10-29').replace('5678','9771').replace('2.00 | USD',' | '))
+    return dict(account=account,currency=currency,content=base64.b64encode(content).decode())
+
+
 @app.post('/__test/finish')
 def finish_controls(body: dict):
     worker=app.state.worker

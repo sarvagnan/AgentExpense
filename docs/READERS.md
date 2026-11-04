@@ -57,7 +57,7 @@ Each row has:
 
 | Field | Meaning |
 | --- | --- |
-| `date` | Printed calendar date within the period. Balance-style rows are in ascending date order; same-day order is significant. |
+| `date` | Printed calendar date, never after `periodEnd`. A card statement (positive debt: `previousBalance`, `totalDue`, or a `debt` reading) lists each purchase posted in its period under the day it was made, so it accepts dates up to 31 days before `periodStart`. Account statements (`kind: "bank"` with signed balances) stay within the period in ascending date order; same-day order is significant. |
 | `description` | Nonblank, single-line printed description. |
 | `amount` | Nonnegative exact decimal string, never a JSON number. |
 | `direction` | `Debit` decreases the account balance; `Credit` increases it. Card debt therefore increases on Debit. |
@@ -78,14 +78,20 @@ See the [example PDF layout](../scripts/statements/README.md).
 
 Checks are mandatory before matching:
 
+- Row dates obey the bounds above. A date after `periodEnd`, before an account
+  statement's `periodStart`, or more than 31 days before a card statement's
+  `periodStart` (likely a misread year) stops with the row's page/line or
+  sheet/row citation. A card row dated before `periodStart` belongs to this
+  statement; it never overlaps the previous one.
 - `printed_totals`: every provided printed debit/credit total agrees with rows;
   opening minus debits plus credits agrees with printed closing. The example card
   retains its existing purchases/credits/cash-advance/total-due equation.
 - `running_balance`: every row's printed balance equals the previous running
   balance plus its signed movement, including the first row against opening.
 - Balance-style continuity **always** applies when a prior statement or ledger
-  opening exists. Overlap movement through the previous end is reversed to
-  compare the same balance boundary. Pre-start movement is checked but covered
+  opening exists. For account statements, overlap movement through the previous
+  end is reversed to compare the same balance boundary; a card's opening equals
+  the previous closing. Pre-start movement is checked but covered
   by opening balances; the effective import starts at `ledger.json.startDate`.
 - Without a printed opening, a running balance supplies it. Without either, the
   existing ledger opening or prior closing supplies it. Without any anchor the
@@ -224,7 +230,7 @@ references first; uncertain amount/date matches can be applied pending with
 
 Apply files the original source, adds approved entries, writes the summary and
 explicit membership, adds a zero posting with a closing balance assertion at
-period end, appends an audit event, verifies and commits under the ledger lock.
+period end (account statements only; see cards below), appends an audit event, verifies and commits under the ledger lock.
 Existing bank entries retain their descriptions and dates; ordinary matches add
 source links. A foreign-currency estimate requires the explicit conversion choice
 from the existing checklist before the server can replace its billed amount; the
@@ -244,6 +250,26 @@ Card PDFs spanning startDate use the same signed-balance membership for the
 clipped import and later statements on that account. Pre-start charges stay
 covered by opening balances. Ordinary legacy card imports retain their original
 summary and membership shape.
+
+A card statement read by a personal reader or the agent, or a card PDF spanning
+startDate, is normalized to signed units. The reading keeps
+`sourceBalanceStyle: "debt"` and the stored summary `source-balance-style: "debt"`.
+A billed total is not the account balance on the closing date: a purchase made
+before the close can post on the next statement. These summaries therefore omit
+`assertion-id` and add no closing assertion; membership and the printed arithmetic
+confirm them, as for ordinary card summaries. Continuity compares the previous
+closing with the printed opening. A first statement on an account with activity
+continues from its opening balance alone, as a filed card chain does. A first
+opening for an unused account is dated on the earliest row (clipped at
+`startDate`). Each purchase matches an unbilled entry or is added, and is a member
+of one statement only; `startDate` still classifies each row by its own date.
+Account-style signed exports of bank and card accounts keep their closing
+assertion. Existing summaries and assertions are never rewritten.
+
+Card coverage follows membership. A member is locked against amount and paying
+account changes and cannot be deleted, whatever its date. For Restore, a filed card
+statement covers the dates from its earliest member, or its period start if
+earlier, through its end.
 
 Completed statement uploads are removed after Apply or an already-filed result.
 Completed session records expire after 24 hours; source files filed in Bills remain.

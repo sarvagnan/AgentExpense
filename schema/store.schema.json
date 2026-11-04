@@ -1059,8 +1059,14 @@
         "credits",
         "rows",
         "members",
-        "assertion-id",
         "reader"
+      ],
+      "allOf": [
+        {
+          "if": {"required": ["source-balance-style"]},
+          "then": {"not": {"required": ["assertion-id"]}},
+          "else": {"required": ["assertion-id"]}
+        }
       ],
       "properties": {
         "id": {
@@ -1070,6 +1076,10 @@
         },
         "kind": {
           "const": "bank"
+        },
+        "source-balance-style": {
+          "const": "debt",
+          "description": "Printed card debt normalized to signed units. Coverage and continuity use billed membership, not purchase-date overlap or a closing account-balance assertion."
         },
         "account": {
           "type": "string",

@@ -233,6 +233,12 @@ bills and marks varying estimates/ranges separately from variable spending.
 
 ## Delete and Restore
 
+A filed card statement covers its members, including purchases dated before its
+period, so Delete is refused for them. Restore is refused while a card statement
+covers the payment date, from its earliest member through its end, or a bank
+statement covers it with its period or confirmed balance. A card's billed total is
+not a confirmed balance on its closing date; see [statement readers](READERS.md).
+
 Payment removal uses the shared retention service (`make retention`), with the
 ordinary FIFO, ledger lock, rollback journal, strict verification and commit.
 A deleted linked payment makes that occurrence due again. A paid saved bill

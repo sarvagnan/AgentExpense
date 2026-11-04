@@ -4,7 +4,7 @@ from decimal import Decimal
 from difflib import SequenceMatcher
 from datetime import date
 import re
-from statement_readers import signed, money_text
+from statement_readers import signed, money_text, card_debt
 from store import entries
 from reconcile_statement import activity, card_amount
 
@@ -34,6 +34,7 @@ def bank_plan(documents, statement, root, start_date=None):
     actual = {e['id']: e for e in entries(documents)}
     summaries = [s for s in documents[root/'data/card-statements.json'] if s['account'] == account]
     previous = [m for s in summaries for m in s.get('members', []) if m.get('entry-id')]
+    current = {m['serial']:m for s in summaries if s['end'] == statement['periodEnd'] for m in s.get('members', []) if m.get('entry-id')}
     available = [e for e in actual.values() if activity(e, account)]
     filed_ids = {m['entry-id'] for m in previous}
     currency = documents[root/'data/accounts.json']['accounts'][account]['currency']
@@ -41,12 +42,19 @@ def bank_plan(documents, statement, root, start_date=None):
     ordered = sorted(rows, key=lambda r: (not (r.get('reference') and any(r['reference'] in (e.get('reference'), e.get('serial-number')) for e in available)), not bool(r.get('foreignAmount'))))
     for row in ordered:
         item = dict(row=row, rule='needs_you', why='No safe precedent. Choose an account, or keep this row pending for Review.', entry_id=None, entry_description=None, postings=None, needs_user=True, decision=None, candidates=[])
+        member = current.get(row['serial'])
+        if member and same_row(row, member) and card_amount(actual[member['entry-id']], account) == signed(row):
+            identity = member['entry-id']
+            item.update(rule='serial', why='Member of this filed statement.', entry_id=identity, entry_description=actual[identity]['description'], needs_user=False)
+            used.add(identity)
+            result.append(item)
+            continue
         if start_date and row['date'] < start_date:
             item.update(rule='pre_start', why='Covered by opening balances before the ledger start date.', needs_user=False)
             result.append(item)
             continue
-        overlaps = {m['entry-id'] for m in previous if possible_overlap(row, m)}
-        exact_overlaps = {m['entry-id'] for m in previous if same_row(row, m)}
+        overlaps = {m['entry-id'] for m in previous if possible_overlap(row, m)} if not card_debt(statement) else set()
+        exact_overlaps = {m['entry-id'] for m in previous if same_row(row, m)} if not card_debt(statement) else set()
         distinct = bool(row.get('reference') or row.get('balance') is not None)
         if len(overlaps) == 1 and overlaps == exact_overlaps and distinct and next(iter(overlaps)) not in used:
             identity = next(iter(overlaps));entry = actual[identity]
@@ -78,6 +86,8 @@ def bank_plan(documents, statement, root, start_date=None):
         candidates = []
         for e in available:
             if e['id'] in used or card_amount(e, account) != signed(row):
+                continue
+            if card_debt(statement) and (e['id'] in filed_ids or e.get('statement-end')):
                 continue
             distance = abs((date.fromisoformat(e['date']) - date.fromisoformat(row['date'])).days)
             reference = row.get('reference') and row['reference'] in (e.get('reference'), e.get('serial-number'))
@@ -116,4 +126,7 @@ def bank_plan(documents, statement, root, start_date=None):
                     item.update(rule='booked_before',why='Same description as a confirmed earlier entry; use its accounts.',postings=postings,needs_user=False)
         result.append(item)
     result.sort(key=lambda item: next(i for i,r in enumerate(rows) if r['serial']==item['row']['serial']))
-    return dict(items=result, unmatched=[dict(entry_id=e['id'],date=e['date'],description=e['description'],amount=str(card_amount(e, account))) for e in available if e['id'] not in used and e['date'] <= statement['periodEnd']], counts=dict(Counter(i['rule'] for i in result)))
+    # A card's earlier billed purchases are settled by their own statement,
+    # whatever their dates; only unbilled entries can be missing from this one.
+    billed = filed_ids | {e['id'] for e in available if e.get('statement-end')} if card_debt(statement) else set()
+    return dict(items=result, unmatched=[dict(entry_id=e['id'],date=e['date'],description=e['description'],amount=str(card_amount(e, account))) for e in available if e['id'] not in used and e['id'] not in billed and e['date'] <= statement['periodEnd']], counts=dict(Counter(i['rule'] for i in result)))

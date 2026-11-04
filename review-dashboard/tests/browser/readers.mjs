@@ -83,5 +83,38 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
  await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:'Next-unmapped.csv',mimeType:'text/csv',buffer});
  await expect(page.locator('.file-interpretation')).toContainText('Read by the built-in reader');
  record('7B unknown statement, cited fake reading, source and totals gate, checked Apply, optional learned mapping and built-in recognition');
+ for(const useAgent of [false,true]) {
+  await quiesce();await control('reset-workflows',{});await control('gate',{state:'ready'});
+  const early=await control('early-card-scenario',{tag:`${engine}-${theme}-${width}`,agent:useAgent});
+  const extension=useAgent?'csv':'pdf',name=`Early-${useAgent?'agent':'reader'}-${engine}-${theme}-${width}.${extension}`;
+  await go('add/');
+  await page.getByLabel('Upload files',{exact:true}).setInputFiles({name,mimeType:useAgent?'text/csv':'application/pdf',buffer:Buffer.from(early.content,'base64')});
+  await expect(page.locator('.pending-upload')).toHaveCount(0);
+  if(useAgent) {
+   await expect(page.locator('.file-interpretation')).toContainText('Will be read by the agent');
+   await page.getByLabel('Statement account',{exact:true}).selectOption(early.account);
+  }
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===name)?.state,{timeout:30000}).toBe('found');
+  let session=(await get('statements')).sessions.find(s=>s.original_name===name);
+  assert.equal(session.statement.account,early.account);assert.deepEqual(session.plan.items.map(i=>i.row.date),['2026-10-31','2026-10-29']);
+  assert.ok(session.checks.every(c=>c.ok));assert.equal(session.extraction,useAgent?'agent':'parser');
+  await go('queue/?session='+session.id);await page.getByRole('button',{name:'Review checklist',exact:true}).click();
+  for(const {row} of session.plan.items.filter(i=>i.needs_user))await page.getByRole('combobox',{name:'Decision for '+row.description,exact:true}).selectOption('pending');
+  for(const day of ['2026-10-31','2026-10-29']) {
+   const item=session.plan.items.find(i=>i.row.date===day),row=page.locator(`[data-serial="${item.row.serial}"]`);
+   await row.locator('.statement-row-details > summary').click();
+   await expect(row.locator('.statement-row-details')).toContainText(new Intl.DateTimeFormat({asha:'en-IN',empty:'en-US',jordan:'en-US',sam:'en-GB'}[persona],{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(day+'T00:00:00Z')));
+  }
+  await expect(page.getByRole('button',{name:'Review apply',exact:true})).toBeEnabled();
+  await overflow('7A2 early card dates');await snap(`early-card-${useAgent?'agent':'reader'}-checklist`);
+  await page.getByRole('button',{name:'Review apply',exact:true}).click();await page.getByRole('button',{name:'Apply statement',exact:true}).click();
+  await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:180000}).toBe('applied');
+  session=await get('statements/'+session.id);assert.ok(session.result.commit_id);
+  await go('queue/?filed=2026-11-28&account='+encodeURIComponent(early.account));
+  await expect(page.locator('.stored-statement .statement-row')).toHaveCount(2);
+  await overflow('7A2 filed early card');await snap(`early-card-${useAgent?'agent':'reader'}-filed`);
+  record(`7A2 ${useAgent?'cited fake agent':'built-in reader'} accepts early card dates, shows purchase dates, and applies filed membership`);
+ }
  await quiesce();await control('reset-workflows',{});await go('add/');
 }

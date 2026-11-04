@@ -67,6 +67,7 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
         members[key].append(entry)
     results = []
     unbilled = []
+    explicit_members = {(s['account'], m['entry-id']) for s in documents[root/'data/card-statements.json'] for m in s.get('members', []) if m.get('entry-id')}
     for account, filed in sorted(by_account.items()):
         currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
         filed.sort(key=lambda statement: statement["end"])
@@ -101,9 +102,16 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
             previous = Decimal(statement["total-due"])
             results.append(dict(account=account, start=statement["start"], end=end, rows=len(rows),
                                 purchases=str(purchases), credits=str(credits), totalDue=str(previous), result="PASS"))
-        latest = filed[-1]["end"]
+    # Cards bill by membership, so any activity not yet billed through the latest
+    # statement end is unbilled, including card statements normalized to signed units.
+    from statement_readers import card_debt
+    latest_ends = defaultdict(str)
+    for statement in documents[root/'data/card-statements.json']:
+        if statement.get("kind") != "bank" or card_debt(statement):
+            latest_ends[statement["account"]] = max(latest_ends[statement["account"]], statement["end"])
+    for account, latest in sorted(latest_ends.items()):
         for entry in actuals:
-            if "statement-end" in entry or entry["date"] > latest:
+            if "statement-end" in entry or (account, entry['id']) in explicit_members or entry["date"] > latest:
                 continue
             if any(p["account"].startswith("Equity:Opening Balances") for p in entry["postings"]):
                 continue

@@ -614,6 +614,9 @@ assertion boundaries; the server recomputes them under the ledger lock. Locked
 postings keep amounts/accounts/currencies/costs, while description, category and
 notes stay editable. Dates must preserve their position between the assertions,
 including same-day order. Existing filed-card wording and membership locks remain.
+A normalized card statement (`source-balance-style: "debt"`) adds no closing
+assertion, because purchases dated before its close may be billed later; its
+members keep the filed-card membership lock ([statement readers](../../docs/READERS.md)).
 All built-in adapters share the confirmed-balance instruction in `agent.prompt_for`.
 
 ### Queue, Trash and retention

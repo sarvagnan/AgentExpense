@@ -142,10 +142,18 @@ def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str
     date.fromisoformat(end)
     if start > end:
         raise ValueError('Statement start is after end')
-    if balance_style is True or balance_style is None and documents[root/'data/accounts.json']['accounts'][account].get('kind') == 'bank':
+    from statement_readers import check_row_date, card_debt
+    filed_summaries = [s for s in documents[root/'data/card-statements.json'] if s['account'] == account and s['end'] <= end]
+    latest = max(filed_summaries, key=lambda s:s['end']) if filed_summaries else None
+    inferred_balance = balance_style is None and latest and latest.get('kind') == 'bank'
+    use_balance = balance_style is True or balance_style is None and (inferred_balance or documents[root/'data/accounts.json']['accounts'][account].get('kind') == 'bank')
+    debt = bool(card_debt(latest) if inferred_balance else not use_balance)
+    for row in rows:
+        check_row_date(row, start, end, debt=debt)
+    if use_balance:
         from reconcile_bank import bank_plan
         from ledger_manifest import read_manifest
-        result = bank_plan(documents,dict(account=account,periodStart=start,periodEnd=end,rows=rows),root,read_manifest(root).get('startDate'))
+        result = bank_plan(documents,dict(kind='bank',sourceBalanceStyle='debt' if debt else 'account',account=account,periodStart=start,periodEnd=end,rows=rows),root,read_manifest(root).get('startDate'))
         return dict(kind='bank',**result,notes=['Read-only proposals; file checks and closing-balance verification run in the statement import pipeline.'])
     date.fromisoformat(start)
     date.fromisoformat(end)

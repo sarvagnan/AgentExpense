@@ -177,8 +177,11 @@ def parse_pdf(path, *, expected_last4=''):
 
 
 def checks(statement, previous=None):
+    from statement_readers import check_row_date
     currency = statement.get('currency') or 'account currency'
     rows = statement['rows']
+    for row in rows:
+        check_row_date(row, statement['periodStart'], statement['periodEnd'], debt=True)
     debit = sum((Decimal(r['amount']) for r in rows if r['direction'] == 'Debit'), Decimal(0))
     credit = sum((Decimal(r['amount']) for r in rows if r['direction'] == 'Credit'), Decimal(0))
     return [dict(ok=debit == Decimal(statement['purchasesCharges']), text=f"Purchases: rows {debit:.2f} {currency}; printed {statement['purchasesCharges']} {currency}"),

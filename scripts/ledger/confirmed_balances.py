@@ -47,7 +47,8 @@ def failures(documents, root, *, candidate=None, detail=''):
                     for other in rows[start+1:index+1]:
                         if other['id'] in (candidate.get('id'), entry['id']) or not any((p['account'], p['commodity']) == key and abs(Decimal(p['amount'])) in amounts for p in other['postings']):
                             continue
-                        if (not statement or other['date'] >= statement['start']) and abs((date.fromisoformat(other['date'])-day).days) <= 3:
+                        member = statement and (other.get('statement-end') == statement['end'] or any(m.get('entry-id') == other['id'] for m in statement.get('members', [])))
+                        if (not statement or other['date'] >= statement['start'] or member) and abs((date.fromisoformat(other['date'])-day).days) <= 3:
                             duplicates.append(dict(entry_id=other['id'], date=other['date'], description=other['description'],
                                                    amount=next(p['amount'] for p in other['postings'] if (p['account'], p['commodity']) == key and abs(Decimal(p['amount'])) in amounts), commodity=key[1]))
                 yield dict(kind='confirmed_balance', **assertion_info(documents, root, entry, posting),

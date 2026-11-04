@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from audit import event, append, audit_path
 from store import entries, dump, new_id, store_paths, validate
-from statement_readers import check_statement, signed, money_text
+from statement_readers import check_statement, signed, money_text, card_debt
 from reconcile_statement import reconciliation_path, card_amount
 from ledger_lock import LOCK_FD_ENV
 from transactions import jj
@@ -124,9 +124,15 @@ def apply_bank(transaction, documents, lock_fd):
                 for candidate in item['candidates']:
                     link_pair(actual,identity,candidate['entryId'],reason)
         assertion = dict(id=new_id(used_ids),date=end,status='confirmed',description='Statement closing balance',sources=[source],postings=[dict(account=account,amount='0.00',commodity=currency,**{'assert':dict(amount=statement['closingBalance'],commodity=currency)})])
-        documents.setdefault(root/'data/expenses'/f'{end[:4]}.json',[]).append(assertion)
+        # Billed debt is a membership total, not the account balance on that date:
+        # unbilled purchases may already exist, or arrive on the next statement.
+        if not card_debt(statement):
+            documents.setdefault(root/'data/expenses'/f'{end[:4]}.json',[]).append(assertion)
         summary = dict(id=new_id(used_ids),kind='bank',account=account,start=statement['periodStart'],end=end,source=source,reader=statement['reader'],rows=len(members),members=members,
                        **{'opening-balance':statement['openingBalance'],'closing-balance':statement['closingBalance'],'debits':statement['debits'],'credits':statement['credits'],'assertion-id':assertion['id']})
+        if card_debt(statement):
+            summary.pop('assertion-id')
+            summary['source-balance-style'] = 'debt'
         documents[root/'data/card-statements.json'].append(summary)
         documents[root/'data/card-statements.json'].sort(key=lambda s:s['end'])
         for path, rows in documents.items():
@@ -136,7 +142,7 @@ def apply_bank(transaction, documents, lock_fd):
         for path, document in documents.items():
             dump(path,document)
         dump(reconciliation,{**statement,'source':source})
-        record['entry_ids'] = matched + added + [assertion['id']] + ([opening['id']] if opening else [])
+        record['entry_ids'] = matched + added + ([] if card_debt(statement) else [assertion['id']]) + ([opening['id']] if opening else [])
         append(root,record)
         result = dict(entry_ids=record['entry_ids'],changed=len(matched),added=len(added),converted=sum(i['rule']=='foreign_currency' and (i['decision'] or {}).get('action')=='conversion' for i in checklist),source=source,end=end,audit_id=record['id'],skipped=sum(m['disposition'] in ('already-in-ledger','pre-start','overlap-pending') for m in members))
         journal['result'] = result

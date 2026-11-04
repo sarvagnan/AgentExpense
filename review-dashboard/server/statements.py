@@ -26,7 +26,7 @@ sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
 from statement_pdf import extract_text, recognised, card_identifier, printed_currency, account_currency
 from statement_rules import plan, convert
 from reconcile_statement import select_account, reconciliation_path
-from statement_readers import Registry, check_statement, signed, money_text
+from statement_readers import Registry, RowDateError, check_statement, signed, money_text, continuity_entries, movement_start
 from ledger_manifest import read_manifest
 
 
@@ -47,7 +47,7 @@ def statement_opening(documents, root, statement):
         return None
     currency = statement['currency']
     balance = Decimal(statement['openingBalance']) if statement.get('kind') == 'bank' else -Decimal(statement['previousBalance'])
-    opening_date = max(statement['periodStart'], read_manifest(root).get('startDate', statement['periodStart']))
+    opening_date = movement_start(statement, read_manifest(root).get('startDate'))
     if statement.get('kind') == 'bank':
         balance += sum((signed(r) for r in statement['rows'] if r['date'] < opening_date), Decimal(0))
     path = root/'data/expenses'/f"{opening_date[:4]}.json"
@@ -325,15 +325,13 @@ class Statements:
         if previous and statement['periodEnd'] <= previous['end']:
             raise ValueError('This statement predates the latest filed statement.')
         start_date = read_manifest(self.ledger).get('startDate')
-        effective = max(statement['periodStart'], start_date or statement['periodStart'])
-        actual = entries(documents)
-        prior = [e for e in actual if e['date'] < effective or e['date'] == effective and any(p['account'].startswith('Equity:Opening Balances') for p in e['postings'])]
+        effective, prior = continuity_entries(entries(documents), statement, start_date)
         opening = dict(date=effective, balance=str(sum((Decimal(p['amount']) for e in prior for p in e['postings'] if p['account'] == account), Decimal(0)))) if any(p['account'] == account for e in prior for p in e['postings']) else None
         initial_checks = []
         previous_balance = previous['closing-balance'] if previous and 'closing-balance' in previous else money_text(-Decimal(previous['total-due'])) if previous else None
         if statement.get('kind') != 'bank':
             initial_checks = check_statement(statement,account=meta,previous=dict(balance=money_text(-Decimal(previous_balance))) if previous_balance is not None else None)
-            statement.update(kind='bank',openingBalance=money_text(-Decimal(statement['previousBalance'])),closingBalance=money_text(-Decimal(statement['totalDue'])),debits=statement['purchasesCharges'],credits=statement['paymentsCredits'])
+            statement.update(kind='bank',sourceBalanceStyle='debt',openingBalance=money_text(-Decimal(statement['previousBalance'])),closingBalance=money_text(-Decimal(statement['totalDue'])),debits=statement['purchasesCharges'],credits=statement['paymentsCredits'])
         tested = initial_checks + check_statement(statement, account=meta, previous=dict(end=previous['end'],balance=previous_balance) if previous else None,
                                                   start_date=start_date, opening=opening)
         if statement.get('kind') == 'bank':
@@ -463,7 +461,8 @@ class Statements:
             method = 'parser'
         except ValueError as exc:
             if parsed:
-                session.update(state='couldnt_read', error="The printed totals don't add up, so nothing was saved. " + str(exc), failure_reason='check_failed')
+                problem = "A row's date doesn't fit this statement, so nothing was saved. " if isinstance(exc, RowDateError) else "The printed totals don't add up, so nothing was saved. "
+                session.update(state='couldnt_read', error=problem + str(exc), failure_reason='check_failed')
                 self.put(session)
                 return
             session.update(state='couldnt_read', error='The recognised reader could not read this statement. ' + str(exc), failure_reason='read_failed')
@@ -477,11 +476,10 @@ class Statements:
         # balance-style membership for this import and its subsequent statements;
         # previously filed card summaries and journal comments remain untouched.
         if not filed and ((start_date and any(r['date'] < start_date for r in statement['rows'])) or any(s.get('kind')=='bank' and s['account']==account for s in statements)):
-            statement.update(kind='bank',openingBalance=money_text(-Decimal(statement['previousBalance'])),closingBalance=money_text(-Decimal(statement['totalDue'])),debits=statement['purchasesCharges'],credits=statement['paymentsCredits'])
+            statement.update(kind='bank',sourceBalanceStyle='debt',openingBalance=money_text(-Decimal(statement['previousBalance'])),closingBalance=money_text(-Decimal(statement['totalDue'])),debits=statement['purchasesCharges'],credits=statement['paymentsCredits'])
             for row in statement['rows']:
                 row.setdefault('reference',row['serial'])
-            effective = max(statement['periodStart'],start_date or statement['periodStart'])
-            prior_entries = [e for e in entries(documents) if e['date'] < effective or e['date']==effective and any(p['account'].startswith('Equity:Opening Balances') for p in e['postings'])]
+            effective, prior_entries = continuity_entries(entries(documents), statement, start_date)
             opening_anchor = dict(date=effective,balance=money_text(sum((Decimal(p['amount']) for e in prior_entries for p in e['postings'] if p['account']==account),Decimal(0)))) if any(p['account']==account for e in prior_entries for p in e['postings']) else None
             earlier = [s for s in statements if s['account']==account and s['end'] < statement['periodEnd']]
             prior = max(earlier,key=lambda s:s['end']) if earlier else None

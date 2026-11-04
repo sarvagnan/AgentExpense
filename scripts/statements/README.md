@@ -65,6 +65,11 @@ legacy month-card filenames remain readable.
    Cash advances retain the pipeline's existing separate summary-adjustment
    semantics. The previous balance must match the last filed statement when one
    exists. Minimum due and due date are extracted, without a payment rule.
+   Purchase dates may precede the period start by up to 31 days, but cannot follow
+   its end. A refused date names its source citation. These purchases count in
+   this statement's printed totals and membership, even when dated inside the
+   previous statement's period; they are not overlap. The row's own date still
+   determines whether the ledger's opening balances cover it before `startDate`.
 3. Only after all checks pass does `statement_rules.py` propose matches and
    classifications. The user decides unresolved rows. A restricted second
    reading may recover extraction failures but must pass the same totals checks.
