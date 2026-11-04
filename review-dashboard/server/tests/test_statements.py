@@ -100,7 +100,7 @@ class StatementTests(Fixture):
             response=client.post(f'/api/drafts/{identity}/statements')
             self.assertEqual(response.status_code,201,response.text)
             self.assertEqual(response.json()['handover_draft'],identity)
-            self.assertEqual(client.get(f'/api/drafts/{identity}').status_code,404)
+            self.assertEqual(client.get(f'/api/drafts/{identity}').json()['handover_session'],response.json()['id'])
             self.assertEqual(json.loads((self.ledger/'data/expenses/2026.json').read_text()),[])
 
 

@@ -8,7 +8,7 @@ const subscribe=(fn:()=>void)=>{listeners.add(fn);return()=>{listeners.delete(fn
 async function sync(entry:Entry){
  if(entry.request)return entry.request;
  const run=entry.generation;
- entry.request=(async()=>{try{while(run===entry.generation && entry.text!==entry.serverText){const text=entry.text;await api.keepAnswer(entry.id,entry.index,text,entry.updatedAt);if(run!==entry.generation)return;entry.serverText=text;entry.error='';changed();}}catch(e){if(run!==entry.generation)return;entry.error=`Could not save this answer to Drafts. ${(e as Error).message}`;changed();}finally{entry.request=null;}})();
+ entry.request=(async()=>{try{while(run===entry.generation && entry.text!==entry.serverText){const text=entry.text;await api.keepAnswer(entry.id,entry.index,text,entry.updatedAt);if(run!==entry.generation)return;entry.serverText=text;entry.error='';changed();}}catch(e){if(run!==entry.generation)return;entry.error=`Could not save this answer to Queue. ${(e as Error).message}`;changed();}finally{entry.request=null;}})();
  return entry.request;
 }
 export function useAnswer(d:Draft){

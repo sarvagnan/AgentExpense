@@ -127,7 +127,7 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
         def one(value): return json.dumps(value,ensure_ascii=False,separators=(',',':'))
         rule_text='none' if rule_result['status']=='none' else f"{rule_result['status']}: {rule_result['description']}; next due {rule_result['next_due']}"
         evidence=[str(t.relative_to(root)) for t in targets]+[str(b.relative_to(root)) for a,b in moves]
-        message='\n'.join([f"Correct {after['description']} via dashboard",'',f'Entry: {entry_id}','Changed: '+'; '.join(f'{key}: {one(before.get(key))} → {one(after.get(key))}' for key in changed),'Reason: '+one(body.get('reason','')),'Rule: '+rule_text,'Evidence: '+(', '.join(evidence) or 'none'),f'Draft: {op_id}',trailer or 'Added-by: user (correction)'])
+        message='\n'.join([f"Edit {after['description']} via dashboard",'',f'Entry: {entry_id}','Changed: '+'; '.join(f'{key}: {one(before.get(key))} → {one(after.get(key))}' for key in changed),'Reason: '+one(body.get('reason','')),'Rule: '+rule_text,'Evidence: '+(', '.join(evidence) or 'none'),f'Draft: {op_id}',trailer or 'Added-by: user (correction)'])
         store.put(draft)
         copies=[(drafts.folder(body['draft_id'])/'files'/file['name'],target) for file,target in zip(draft['files'],targets)]
         result=tx.publish(docs,record,result,fd,message,copies=copies,moves=moves)

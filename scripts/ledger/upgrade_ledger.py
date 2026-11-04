@@ -90,7 +90,7 @@ def verify(root):
 
 def validate_plan(result):
     # Validate in scratch space even for --dry-run, without touching the ledger.
-    with tempfile.TemporaryDirectory(prefix='expense-migration-plan-', dir='/tmp') as folder:
+    with tempfile.TemporaryDirectory(prefix='expense-migration-plan-', dir=os.environ.get('EXPENSES_TEST_TMP','/tmp')) as folder:
         root = Path(folder)
         dump(root / 'ledger.json', result[0])
         validate({root / 'data/accounts.json': result[1]}, root)

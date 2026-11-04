@@ -17,28 +17,22 @@ class RecoveryTests(Fixture):
             file = before['files'][0]
             path = records.folder(identity) / 'files' / file['name']
             self.assertEqual(client.delete(f'/api/drafts/{identity}').status_code, 204)
-            self.assertEqual(client.get(f'/api/drafts/{identity}').status_code, 404)
+            self.assertTrue(client.get(f'/api/drafts/{identity}').json()['trashed_at'])
             self.assertEqual(client.get('/api/drafts?include_added=true').json(), [])
             self.assertTrue(path.exists())
             restored = client.post(f'/api/drafts/{identity}/restore').json()
-            self.assertEqual(restored, {**before, 'agent_pause': None})
+            for key in ('id','text','pieces','files','questions','unsent_answer'): self.assertEqual(restored[key],before[key])
+            self.assertEqual(restored['state'],'editing')
             self.assertEqual(restored['unsent_answer']['answer'], 'Savings Account still typing')
             self.assertEqual(client.get(f'/api/drafts/{identity}/files/{file["id"]}').content, png())
             client.delete(f'/api/drafts/{identity}')
-            records.purge(datetime.now(timezone.utc) + timedelta(seconds=31))
-            self.assertTrue(records.folder(identity).exists(), 'Keep the record until its audit is committed')
-            self.assertTrue(records.get(identity, include_discarded=True)['audit_pending'])
-            client.app.state.worker.flush_audits()
             from audit import records as audit_records
-            line = audit_records(self.ledger)[0]
-            self.assertEqual((line['draft_id'], line['outcome'], line['text']), (identity, 'discarded', 'Words to keep'))
-            audit_file = 'data/additions/' + line['time'][:4] + '.jsonl'
-            self.assertEqual(self.jj('diff', '-r', '@-', '--name-only').splitlines(), [audit_file])
-            self.assertIn(line['id'], self.jj('file', 'show', '-r', '@-', audit_file))
-            self.assertTrue(records.folder(identity).exists(), 'Audit must be committed before purge deletes the record')
-            records.purge(datetime.now(timezone.utc) + timedelta(seconds=31))
+            line=audit_records(self.ledger)[-1]
+            self.assertEqual((line['retention_action'],line['selected'],line['details']['text']),('queue-trashed',[identity],'Words to keep'))
+            client.app.state.retention.clock=lambda:datetime.now(timezone.utc)+timedelta(days=8)
+            client.app.state.retention.sweep(force=True)
             self.assertFalse(records.folder(identity).exists())
-            self.assertEqual(client.post(f'/api/drafts/{identity}/restore').status_code, 404)
+            self.assertEqual(client.post(f'/api/drafts/{identity}/restore').status_code,409)
 
     def test_discard_working_rejected_added_never_changes_ledger_and_restart_hides(self):
         with self.client(worker=False) as client:
@@ -51,9 +45,8 @@ class RecoveryTests(Fixture):
             draft.update(state='added', completed_at=datetime.now(timezone.utc).isoformat(), result={'entry_id': 'existing'})
             records.put(draft)
             before = self.bytes()
-            self.assertEqual(client.delete(f'/api/drafts/{identity}').status_code, 204)
-            self.assertEqual(records.all(), [])
-            self.assertEqual(client.post(f'/api/drafts/{identity}/restore').status_code, 200)
+            self.assertEqual(client.delete(f'/api/drafts/{identity}').status_code,409)
+            self.assertEqual(len(records.all()),1)
             self.assertEqual(self.bytes(), before)
             draft = records.get(identity)
             draft['state'] = 'queued'
@@ -61,7 +54,7 @@ class RecoveryTests(Fixture):
             client.delete(f'/api/drafts/{identity}')
         with self.client(worker=False) as client:
             self.assertEqual(client.app.state.drafts.all(), [])
-            self.assertEqual(client.post(f'/api/drafts/{identity}/restore').json()['state'], 'queued')
+            self.assertEqual(client.post(f'/api/drafts/{identity}/restore').json()['state'], 'editing')
 
     def test_unsent_answer_identity_and_send_cleanup(self):
         with self.client(worker=False) as client:

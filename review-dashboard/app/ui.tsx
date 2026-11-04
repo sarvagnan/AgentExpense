@@ -28,7 +28,7 @@ export const daysInMonth = (key: string) => new Date(Number(key.slice(0, 4)), Nu
 export const plural = (count: number, one: string, many = `${one}s`) => `${formatCount(count)} ${count === 1 ? one : many}`;
 
 export type IconName = 'explorer' | 'atlas' | 'journal' | 'forecast' | 'accounts' | 'review' | 'search' | 'source' | 'calendar'
-  | 'chevron-left' | 'chevron-right' | 'close' | 'postings' | 'integrity' | 'copy' | 'pending' | 'flag' | 'check' | 'undo'
+  | 'chevron-left' | 'chevron-right' | 'close' | 'postings' | 'integrity' | 'copy' | 'pending' | 'flag' | 'check'
   | 'import' | 'export' | 'fuel' | 'keyboard' | 'filter' | 'stack' | 'pencil' | 'alert' | 'help' | 'chevron-up-down'
   | 'sun' | 'moon' | 'appearance';
 const ICONS: Record<IconName, ReactNode> = {
@@ -50,7 +50,6 @@ const ICONS: Record<IconName, ReactNode> = {
   pending: <><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></>,
   flag: <><path d="M6 20.5V4"/><path d="M6 4.5h10.5l-2 3.8 2 3.7H6"/></>,
   check: <path d="m5.5 12.5 4.2 4.2 8.8-9.2"/>,
-  undo: <><path d="m9 14.5-4.5-4.5L9 5.5"/><path d="M4.5 10H15a4.5 4.5 0 0 1 0 9h-3"/></>,
   import: <><path d="M12 3.5v11M8 10.5l4 4 4-4"/><path d="M4.5 14v4.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V14"/></>,
   export: <><path d="M12 14.5v-11M8 7.5l4-4 4 4"/><path d="M4.5 14v4.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V14"/></>,
   fuel: <><path d="M5.5 20.5v-15A1.5 1.5 0 0 1 7 4h6a1.5 1.5 0 0 1 1.5 1.5v15M4 20.5h12M5.5 10h9"/><path d="M14.5 8.5h2a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 0 3 0V8.5L18.5 6"/></>,
@@ -363,16 +362,23 @@ export function trapModalTab(event: KeyboardEvent<HTMLElement>, root: HTMLElemen
 }
 
 /** A modal dialog: focus moves in, Tab stays inside, Esc or a click outside closes it, and focus returns. */
+const modalLocks=new WeakMap<HTMLElement,{count:number;original:boolean}>();
+export function lockModalPage(){
+  const page=document.querySelector<HTMLElement>('main.app');
+  if(!page)return ()=>{};
+  const state=modalLocks.get(page)||{count:0,original:page.inert};state.count++;modalLocks.set(page,state);page.inert=true;
+  return ()=>{state.count--;if(!state.count){page.inert=state.original;modalLocks.delete(page);}};
+}
+
 export function Dialog({ title, subtitle, onClose, children, labelId, role = 'dialog', initialFocus }: { initialFocus?: string; title: string; subtitle?: string; onClose: () => void; children: ReactNode; labelId: string; role?: 'dialog' | 'alertdialog' }) {
   const dialog = useRef<HTMLElement>(null);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    const page = document.querySelector<HTMLElement>('main.app');
-    if (page) page.inert = true;
+    const unlock=lockModalPage();
     const target=dialog.current?.querySelector<HTMLElement>(initialFocus || 'button');
     target?.focus();
     if(target instanceof HTMLInputElement)target.select();
-    return () => { if (page) page.inert = false; opener?.focus(); };
+    return () => { unlock();opener?.focus(); };
   }, []);
   useEscape(true, onClose);
   const trap = (event: KeyboardEvent<HTMLElement>) => {

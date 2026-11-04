@@ -21,16 +21,16 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   record('6d typed local date and monotonic Not this across changed words, reload, recovery and pick list');
   await resetDrafts({persona,empty:true});await go('add/');await words.fill('Birch rent yesterday');await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await guess.getByRole('button',{name:'Add as usual'}).click();
   let added;await expect.poll(async()=>{added=(await get('drafts?include_added=true')).find(d=>d.text==='Birch rent yesterday');return added?.state;},{timeout:180000}).toBe('added');
-  await go('drafts/?draft='+added.id);await expect(page.getByRole('button',{name:'Correct this entry'})).toBeVisible();await page.getByRole('button',{name:'Correct this entry'}).click();
-  const form=page.getByRole('article',{name:'Correct this entry',exact:true});await expect(form.getByLabel('Date',{exact:true})).toHaveValue(yesterday);await expect(form).toContainText('No changes yet');
+  await go('queue/?correct='+added.result.entry_id);await expect(page.getByRole('article',{name:'Edit entry',exact:true})).toBeVisible();
+  const form=page.getByRole('article',{name:'Edit entry',exact:true});await expect(form.getByLabel('Date',{exact:true})).toHaveValue(yesterday);await expect(form).toContainText('No changes yet');
   await expect(form.getByText('Agent doubts',{exact:true})).toHaveCount(0);await form.getByLabel('Description',{exact:true}).fill('Birch rent corrected');await form.getByLabel('Reason (optional)').fill('Receipt confirmed the description');
   await snap('correction-from-drafts');await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
-  await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});await snap('correction-saved');await page.getByRole('button',{name:'Back to Drafts',exact:true}).click();
+  await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});await snap('correction-saved');await page.getByRole('button',{name:'Back to Queue',exact:true}).click();
   const entryId=added.result.entry_id,month=yesterday.slice(0,7);
   let savedName='Birch rent corrected';
   for(const view of ['explorer','journal']) {
     await go(`${view}/?month=${month}&entry=${entryId}`);const details=page.getByRole('dialog');
-    await expect(details).toBeVisible();await details.getByRole('button',{name:'Correct this entry'}).click();
+    await expect(details).toBeVisible();await details.getByRole('button',{name:'Edit'}).click();
     await expect(form.getByLabel('Description',{exact:true})).toHaveValue(savedName);
     await snap('correction-from-'+view);
     savedName+=' · '+view;await form.getByLabel('Description',{exact:true}).fill(savedName);
@@ -38,11 +38,11 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
     await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});
     await refresh();await page.waitForLoadState('networkidle');await expect(page.getByText('Correction saved',{exact:true})).toBeVisible();
     await overflow('correction '+view);await snap('correction-'+view+'-saved');
-    await page.getByRole('button',{name:'Back',exact:true}).click();await expect(details.getByRole('button',{name:'Correct this entry'})).toBeVisible();assert.ok(page.url().includes(view+'/'));await expect(details).toContainText(savedName);
+    await page.getByRole('button',{name:'Back',exact:true}).click();await expect(details.getByRole('button',{name:'Edit'})).toBeVisible();assert.ok(page.url().includes(view+'/'));await expect(details).toContainText(savedName);
     await details.getByRole('button',{name:'Close details'}).click();
   }
   record('6d correction from Drafts, Explorer and Journal with saved identity and Back targets');
-  await quiesce();const locked=await control('correction-statement',{});await go('explorer/?month=2026-11&entry='+locked.entry_id);await page.getByRole('dialog').getByRole('button',{name:'Correct this entry'}).click();
+  await quiesce();const locked=await control('correction-statement',{});await go('explorer/?month=2026-11&entry='+locked.entry_id);await page.getByRole('dialog').getByRole('button',{name:'Edit'}).click();
   await expect(form).toContainText('Amounts, currencies, costs, posting count and paying accounts are locked');
   for(const input of await form.getByLabel('Amount',{exact:true}).all())await expect(input).toHaveAttribute('readonly','');
   for(const input of await form.getByLabel('Currency',{exact:true}).all())await expect(input).toHaveAttribute('readonly','');
@@ -54,7 +54,9 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   const receipt=Buffer.from(await(await fetch(base+'__test/receipt',{method:'POST'})).arrayBuffer());await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:'Willow-receipt.png',mimeType:'image/png',buffer:receipt});await expect(page.locator('.pending-upload')).toHaveCount(0);
   await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await guess.getByRole('button',{name:'Add as usual'}).click();
   await expect.poll(async()=>{added=(await get('drafts?include_added=true')).find(d=>d.text==='Birch rent today');return added?.receipt_reading?.state;},{timeout:180000}).toBe('question');
-  await go('drafts/?draft='+added.id);const question=page.getByRole('region',{name:'Receipt reading'});await expect(question).toContainText('The receipt says');await overflow('receipt question');await snap('receipt-question');
+  await page.evaluate(()=>{for(const key of Object.keys(sessionStorage))if(key.startsWith('ledger-add-visit-'))sessionStorage.removeItem(key);});
+  await go('explorer/?month=2026-11&entry='+added.result.entry_id);const receiptInspector=page.locator('#transaction-inspector');await expect(receiptInspector.getByRole('region',{name:'Receipt reading'})).toContainText('The receipt says');await snap('receipt-question-inspector');await receiptInspector.getByRole('button',{name:'Close details'}).click();record('6f C pending receipt questions remain reachable from Explorer without the Add visit');
+  await go('add/?draft='+added.id);await page.locator('.receipt-inline').getByRole('button',{name:'More',exact:true}).click();const question=page.getByRole('region',{name:'Receipt reading'});await expect(question).toContainText('The receipt says');await overflow('receipt question');await snap('receipt-question');
   await question.getByRole('button',{name:'Keep the entry'}).click();await expect(question).toContainText('Entry kept. Receipt notes saved.',{timeout:180000});
   record('6d usual saves first, reads filed receipt afterwards and records the owner choice');
   await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});

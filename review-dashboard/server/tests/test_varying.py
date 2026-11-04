@@ -36,12 +36,6 @@ class VaryingTests(Fixture):
         drafts.completed(d,result)
         return drafts,d,result
 
-    def test_link_recomputes_median_and_existing_payment_undo_restores_estimate(self):
-        r=self.seed();_,d,result=self.usual(amount='120.00')
-        self.assertEqual(self.rule()['postings'][0]['amount'],'120.00');self.assertEqual(self.rule()['date'],'2026-12-15');self.assertEqual(self.rule()['notes'],r['notes'])
-        operate(self.settings,secrets.token_hex(16),dict(action='undone',undoes=result['audit_id']))
-        self.assertEqual(self.rule(),r);self.assertTrue(clean(self.ledger))
-
     def test_switch_to_varies_and_linked_correction_share_recompute(self):
         r=self.seed(fixed=True)
         operate(self.settings,secrets.token_hex(16),dict(action='edited',rule_id=r['id'],rule={'amount':'varies'}))
@@ -59,7 +53,7 @@ class VaryingTests(Fixture):
         with self.client(worker=False) as client:
             identity=self.create(client);body=dict(rule_id=r['id'],amount='125.00',date='2026-11-01',pay_by='2026-11-20')
             before=len(entries(load(self.ledger)));response=client.post(f'/api/drafts/{identity}/bill',json=body)
-            self.assertEqual(response.status_code,200,response.text);client.app.state.worker.process(client.app.state.drafts.get(identity));draft=client.get('/api/drafts/'+identity).json();self.assertEqual(draft['result']['outcome'],'bill');self.assertFalse(draft['result']['can_undo'])
+            self.assertEqual(response.status_code,200,response.text);client.app.state.worker.process(client.app.state.drafts.get(identity));draft=client.get('/api/drafts/'+identity).json();self.assertEqual(draft['result']['outcome'],'bill');self.assertNotIn('can_undo',draft['result'])
             self.assertEqual(len(entries(load(self.ledger))),before);self.assertEqual(self.rule()['date'],r['date']);self.assertTrue(self.rule()['bill']['sources'])
             for source in self.rule()['bill']['sources']:self.assertTrue((self.ledger/source).is_file())
             count=len(records(self.ledger));replay=client.post(f'/api/drafts/{identity}/bill',json=body);self.assertEqual(replay.status_code,200,replay.text);self.assertEqual(len(records(self.ledger)),count)
@@ -74,8 +68,6 @@ class VaryingTests(Fixture):
         entry=next(e for e in entries(load(self.ledger)) if e['id']==result['entry_id'])
         self.assertEqual(entry['postings'][0]['amount'],'125.00');self.assertIn(source,entry['sources']);self.assertIn(source,result['sources']);self.assertNotIn('bill',self.rule());self.assertEqual(self.rule()['date'],'2026-12-15');self.assertEqual(self.rule()['postings'][0]['amount'],'125.00')
         self.assertEqual(entry['rule']['occurrence'],'2026-11-15');line=records(self.ledger)[-1];self.assertEqual(line['rule_action'],'bill-paid');self.assertEqual(line['text'],d['text']);self.assertEqual(line['bill']['sources'],[source]);self.assertTrue(clean(self.ledger))
-        # Existing payment Undo remains functional, including its before snapshot.
-        operate(self.settings,secrets.token_hex(16),dict(action='undone',undoes=result['audit_id']));self.assertEqual(self.rule(),r)
 
     def test_amount_check_explicit_doubts_on_payment_and_bill(self):
         r=self.seed()

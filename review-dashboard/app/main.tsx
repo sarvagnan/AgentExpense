@@ -15,7 +15,9 @@ const routes: Record<string, View> = {
   [`${basePath}/review`]: 'review',
   [`${basePath}/account-summary`]: 'accounts',
   [`${basePath}/add`]: 'add',
-  [`${basePath}/drafts`]: 'drafts',
+  [`${basePath}/queue`]: 'queue',
+  [`${basePath}/drafts`]: 'queue',
+  [`${basePath}/trash`]: 'trash',
   [`${basePath}/statements`]: 'add',
 };
 
@@ -28,6 +30,7 @@ function App() {
   // Loading and recovery use the same remembered appearance as the dashboard.
   useAppearance();
   if(window.location.pathname.replace(/\/$/,'')===`${basePath}/statements`)window.history.replaceState({},'',`${basePath}/add/`);
+  if(window.location.pathname.replace(/\/$/,'')===`${basePath}/drafts`)window.history.replaceState({},'',`${basePath}/queue/${window.location.search}`);
   const [view, setView] = useState(() => routeFor(window.location.pathname));
   const [load, setLoad] = useState<{ state: 'loading' } | { state: 'ready' } | { state: 'failed'; message: string }>({ state: 'loading' });
   const attempt = useRef(0);
@@ -72,6 +75,7 @@ function App() {
       if (!(target instanceof HTMLAnchorElement) || target.target === '_blank' || target.hasAttribute('download')) return;
 
       const url = new URL(target.href, window.location.href);
+      if(url.pathname.replace(/\/$/,'')===`${basePath}/drafts`)url.pathname=`${basePath}/queue/`;
       const path = url.pathname.replace(/\/$/, '') || '/';
       if (url.origin !== window.location.origin || !routes[path]) return;
 

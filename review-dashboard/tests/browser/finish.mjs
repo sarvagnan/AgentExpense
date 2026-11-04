@@ -18,7 +18,7 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  // Add's approved pause notice blocks Continue. The backend queue and human
  // transaction contracts remain available independently of agent readiness.
  const queued=await json('drafts',{text:'Fictional queued through the API during pause'});await json('drafts/'+queued.id+'/save',{});await wait(queued.id,'queued');
- await go('drafts/?draft='+seeded.id);await refresh();
+ await go('queue/?draft='+seeded.id);await refresh();
  await expect(page.locator('.agent-notice')).toHaveCount(1);await expect(page.locator('.agent-notice')).toContainText('Paused: usage limit');await snap('pause-usage-limit');
  await page.getByRole('button',{name:'Finish it yourself',exact:true}).click();
  const form=page.getByRole('article',{name:'Finish it yourself',exact:true});
@@ -32,7 +32,7 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  await expect(form.getByText('1 attachment',{exact:true})).toBeVisible();
  await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form.getByRole('heading',{name:'Checks passed',exact:true})).toBeVisible();
  await overflow('finish form');await snap('finish-by-hand');await page.setViewportSize({width:320,height:915});await overflow('finish form 320');await page.setViewportSize({width,height:width>760?1000:915});
- await form.getByRole('button',{name:'Back to Drafts',exact:true}).click();
+ await form.getByRole('button',{name:'Back to Queue',exact:true}).click();
  await page.getByRole('button',{name:'Finish it yourself',exact:true}).click();
  await expect(form.getByLabel('Notes',{exact:true})).toHaveValue('Finished from a fictional receipt');
  await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form.getByRole('heading',{name:'Checks passed',exact:true})).toBeVisible();
@@ -54,7 +54,7 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  record('6a outage notice and hand form preserve claim work, upload evidence and commit without agent');
  await control('scenario',{mode:'new-root'});
  const draft=await json('drafts',{text:'Fictional shared purchase'});await json('drafts/'+draft.id+'/save',{});await wait(draft.id,'question');
- await go('drafts/?draft='+draft.id);await refresh();
+ await go('queue/?draft='+draft.id);await refresh();
  await expect(page.getByRole('heading',{name:'Create these accounts?',exact:true})).toBeVisible();await expect(page.locator('.draft-detail')).toContainText('Shared:Accounts Receivable:Finch');
  await overflow('new account consent');await snap('new-account-question');await page.getByRole('button',{name:'Create and add',exact:true}).click();
  await wait(draft.id,'added');record('6a new top-level account question approves exact proposal without a second agent call');

@@ -22,17 +22,17 @@ class Drafts:
 
     def folder(self, identity):
         if not re.fullmatch('[0-9a-f]{32}', identity):
-            raise FileNotFoundError('Unknown draft')
+            raise FileNotFoundError('Unknown item')
         folder = self.root / identity
         if folder.is_symlink():
-            raise FileNotFoundError('Invalid draft')
+            raise FileNotFoundError('Invalid item')
         return folder
 
     def get(self, identity, *, include_discarded=False):
         with self.mutex:
             draft = json.loads((self.folder(identity) / 'draft.json').read_text())
-            if draft.get('discarded_until') and not include_discarded:
-                raise FileNotFoundError('Discarded draft')
+            if (draft.get('trashed_at') or draft.get('discarded_until')) and not include_discarded:
+                raise FileNotFoundError('Item in Trash')
             if draft.get('claim') and datetime.fromisoformat(draft['claim']['expires_at']) <= self.clock():
                 self.release_claim(draft)
                 self.put(draft)
@@ -43,6 +43,10 @@ class Drafts:
             folder = self.folder(draft['id'])
             folder.mkdir(exist_ok=True)
             path = folder / 'draft.json'
+            if draft['state']=='editing':
+                previous=json.loads(path.read_text()) if path.exists() else None
+                if previous is None or any(previous.get(key)!=draft.get(key) for key in ('text','pieces','files')):
+                    draft['updated_at']=self.clock().isoformat()
             temporary = path.with_suffix('.tmp')
             with temporary.open('w') as handle:
                 json.dump(draft, handle, indent=2, ensure_ascii=False, allow_nan=False)
@@ -54,7 +58,7 @@ class Drafts:
 
     def create(self, text='', pieces=None, client_time=None, client_zone=None):
         draft = dict(id=secrets.token_hex(16), state='editing', text=text, pieces=pieces,
-                     created_at=now(), saved_at=None, queued_at=None, files=[], runs=[],
+                     created_at=self.clock().isoformat(), saved_at=None, queued_at=None, files=[], runs=[],
                      questions=[], check_errors=[], result=None, error=None, waiting=None,
                      **client_context(client_time, client_zone))
         with self.mutex:
@@ -79,6 +83,8 @@ class Drafts:
                     if datetime.fromisoformat(draft['updated_at'] if 'updated_at' in draft else draft['created_at']) <= at - timedelta(hours=24):
                         shutil.rmtree(self.folder(draft['id']))
                     continue
+                if draft.get('trashed_at'):
+                    continue  # The checked retention service owns expiry and audit.
                 if draft.get('discarded_until'):
                     if datetime.fromisoformat(draft['discarded_until']) <= at:
                         if not draft.get('discard_audit_queued'):
@@ -117,10 +123,10 @@ class Drafts:
     def claim(self, draft, token=None):
         with self.mutex:
             if draft['state'] not in ('queued','failed','question'):
-                raise ValueError('Only queued, failed or question drafts can be finished by hand')
+                raise ValueError('Only queued, failed or question items can be finished by hand')
             previous = draft.get('claim')
             if previous and previous['token'] != token:
-                raise ValueError('Another page is finishing this draft')
+                raise ValueError('Another page is finishing this item')
             draft['claim'] = dict(token=previous['token'] if previous else secrets.token_hex(32),
                                   expires_at=(self.clock()+timedelta(minutes=30)).isoformat())
             self.put(draft)
@@ -128,5 +134,5 @@ class Drafts:
 
     def require_claim(self, draft, token):
         if not draft.get('claim') or not secrets.compare_digest(draft['claim']['token'], token):
-            raise ValueError('This page no longer owns the draft; reopen Finish it yourself')
+            raise ValueError('This page no longer owns the item; reopen Finish it yourself')
         self.claim(draft, token)

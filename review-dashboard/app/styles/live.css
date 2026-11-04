@@ -153,8 +153,6 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .storage-warning { padding: 12px; margin-top: 12px; border: 1px solid var(--warning); border-radius: var(--radius-control); }
 .storage-warning p { margin-bottom: 10px; }
 .draft-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.draft-undo { position: fixed; z-index: 30; bottom: calc(var(--live-bottom-space, 24px) + 4px); right: 16px; max-width: calc(100vw - 32px); padding: 12px; box-shadow: var(--shadow-popover); }
-.draft-undo > div { display: flex; gap: 12px; align-items: center; }
 .file-remove { position: relative; flex: none; }
 .file-remove::after { content: attr(data-tooltip); position: absolute; right: 0; bottom: calc(100% + 6px); width: max-content; max-width: 220px; padding: 6px 9px; border: 1px solid var(--control-border); border-radius: 4px; background: var(--surface); color: var(--text); font: var(--text-caption); box-shadow: var(--shadow-popover); pointer-events: none; opacity: 0; z-index: 2; }
 .file-remove:is(:hover,:focus-within)::after { opacity: 1; }
@@ -168,7 +166,6 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
  .drafts-page .page-header { flex-wrap: wrap; }
  .draft-toolbar { width: 100%; }
  .draft-toolbar .phone-draft-back { margin: 0; }
- .draft-undo .button { min-height: 44px; }
 }
 @media (forced-colors: active) { .draft-row[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -3px; } }
 
@@ -381,7 +378,6 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .just-added .rule-saved-inline{padding:0;margin:10px 0 0;border:0;background:transparent}
 .rule-saved-inline>header{align-items:center;flex-wrap:nowrap}
 .rule-saved-inline>header>strong{font-size:14px}
-.undo-countdown{font-variant-numeric:tabular-nums;font-size:12px}
 .receipt-inline{margin:8px 0}
 .receipt-inline .detail-footer{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:0;border:0}
 .receipt-inline .detail-footer>.button{flex:0 1 auto}
@@ -434,3 +430,32 @@ html:has(.add-page){overflow-anchor:none}
 .rule-payment-values { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-4); margin:var(--space-2) 0; padding:0; list-style:none; font:var(--text-caption); color:var(--text-secondary); }
 .rule-editor input[readonly] { background:var(--surface-sunken); color:var(--text-secondary); }
 .rule-status.bill-received { color:var(--accent); }
+
+/* Queue uses the Journal's flat section and row rhythm. */
+.queue-table{padding:0;overflow:hidden}
+.queue-heading{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--separator);background:var(--surface-sunken);font:var(--text-callout)}
+.queue-heading strong{font-weight:600;color:var(--text)}
+.queue-heading>span{color:var(--text-secondary);font-size:12px;text-align:right}
+.queue-table .draft-row{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);border:0;border-bottom:1px solid var(--separator);border-radius:0;margin:0}
+.queue-row-copy{display:grid;gap:var(--space-1);min-width:0}
+.queue-row-copy>strong{font:var(--text-body);overflow-wrap:anywhere}
+.queue-amount{font-variant-numeric:tabular-nums;white-space:nowrap}
+.queue-pieces{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.queue-pieces .sentence-piece{display:grid;gap:var(--space-1)}
+.queue-pieces small{font-size:11px;color:var(--text-secondary)}
+.piece-conflict{color:var(--warning);border-color:var(--warning)}
+.queue-next{padding-bottom:var(--space-4);border-bottom:1px solid var(--separator)}
+.retention-control{margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--separator)}
+.retention-control .live-hint{margin-top:var(--space-2)}
+.retention-notice{margin:var(--space-4);display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap}
+.trash-row{padding:var(--space-4);display:flex;justify-content:space-between;gap:var(--space-4);border-bottom:1px solid var(--separator)}
+.trash-row h2{font:var(--text-headline);overflow-wrap:anywhere}
+.trash-row p{margin-top:var(--space-2)}
+.trash-row[data-selected="true"]{background:var(--selection-fill-inactive);box-shadow:inset 3px 0 var(--accent)}
+.trash-actions{display:flex;align-items:flex-start;gap:var(--space-2);flex-shrink:0}
+.retention-settings>div{margin-block:var(--space-3)}
+@media(max-width:760px){.queue-table .draft-row{padding:var(--space-3)}.queue-heading{padding:var(--space-3)}.trash-row{display:block}.trash-actions{margin-top:var(--space-3)}.queue-amount{font-size:13px}}
+.queue-table section>ul{list-style:none;margin:0;padding:0}
+
+/* Retention previews grow below the controls; the dialog frame stays still. */
+.dialog:has(.retention-settings){height:min(880px,100%)}

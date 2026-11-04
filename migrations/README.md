@@ -114,7 +114,7 @@ or match. `data/recurring-settings.json` optionally stores the schema-checked
 Version-1 draft audit lines optionally add `usual_payment` and `rule_changes`
 (before/after rule snapshots). New `rule` events record made, edited, paused,
 resumed, ended, restored, removed, kept, undone, catch-up and backfill, with durable
-request IDs/hashes and changes; undo retains its original audit ID and reversing
+request IDs/hashes and changes. Historical Undo events retain their original audit ID and reversing
 entry ID. `rule-review` events record confirm/propose-removal plus reason/reviewer;
 the owner's removal/keep answer is a separate line. Existing lines are unchanged.
 See [Recurring rules](../docs/RULES.md) for exact fields, API and CLI contracts.
@@ -165,4 +165,23 @@ and `bill-paid`, optional bill snapshots and structured `amount_check` with
 amount/min/max/currency. Existing text/files/doubts retain typed words and
 accepted checks. Existing draft audit doubts now also retain checked usual-payment
 proposal doubts. Link/correction/switching share the estimate recompute; Delete
-and Restore callers belong to Part C. Existing payment Undo is preserved.
+and Restore callers are implemented by Part C. Historical reversal records remain valid.
+
+### Step 6f C: Queue, Trash and retention (format 1)
+
+Format 1 remains unreleased. The optional manifest `retention` object has
+`delete_days`, `trash_days` and `saved_hours`; absent means 7 days, 7 days and
+24 hours. `data/trash.json` stores removed entry snapshots, original same-day
+index, addition/removal times, reason, original/stored evidence paths, shared
+citations, duplicate links and rule before/after changes. Exclusive files live in
+`data/trash-files/<operation id>/`. Trash IDs are disjoint from actual IDs; rule
+origin/removal evidence may refer to retained Trash IDs. Permanent removal drops
+those evidence IDs from live rules. Python and Node validate this optional store;
+Trash never renders as actual entries or forecasts. No migration is required.
+
+Append-only version-1 `retention` audit events add `retention_action`,
+`operation_id`, `request_hash`, selected IDs, details/result and local save context.
+Actions are deleted, restored, restore-refused, removed-for-good, queue-trashed,
+queue-restored and settings-changed. Previous payment/separation reversal lines
+remain valid. Current writes use Delete, Restore, Edit and the shared retention
+service instead. Ignored operation journals/receipts live in `drafts/retention/`.

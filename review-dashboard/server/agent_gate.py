@@ -1,3 +1,4 @@
+import os
 """One background isolation check shared by every use of the agent runner."""
 from dataclasses import replace
 from functools import lru_cache
@@ -179,7 +180,7 @@ class AgentGate:
         from adapters import get_adapter, require_isolation, adapter_version
         adapter = get_adapter(settings)
         require_isolation(adapter, settings)
-        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-gate-') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-agent-gate-') as folder:
             work = Path(folder)
             version = adapter_version(adapter, work, stop=self.stop)
             values = fingerprint(settings, version)

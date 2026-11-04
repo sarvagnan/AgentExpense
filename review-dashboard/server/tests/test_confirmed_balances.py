@@ -20,6 +20,10 @@ from audit import records
 from rules_service import queue_usual
 
 
+# Reads the selected ledger manifest to exercise its native currency.
+PERSONA_SENSITIVE = True
+
+
 class ConfirmedBalanceTests(Fixture):
     def seed(self):
         source=Path(os.environ['LEDGER_DIR'])/'ledger.json'

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 const source=ts.transpileModule(readFileSync(new URL('../app/live/use-drafts.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-const slots=[],effects=[],timers=new Map();let index=0,timerId=0,records=[],statements=[],healthWait=null,calls=0,reloads=0,dirty=false,current;
+const slots=[],effects=[],timers=new Map();let index=0,timerId=0,records=[],statements=[],healthWait=null,listWait=[],calls=0,reloads=0,dirty=false,current;
 const window=new EventTarget(),document=new EventTarget();document.hidden=false;
 const changed=(a,b)=>!a||a.length!==b.length||a.some((x,i)=>!Object.is(x,b[i]));
 const hooks={
@@ -15,7 +15,7 @@ const hooks={
  useEffect(fn,deps){const i=index++;if(!slots[i]||changed(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,cleanup:null};effects.push(()=>{old?.cleanup?.();slots[i].cleanup=fn();});}},
 };
 const exports={};
-vm.runInNewContext(source,{exports,window,document,Event,AbortController,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),require:name=>name==='react'?hooks:name==='../data'?{reloadData:async()=>{reloads++;}}:name==='./statements-api'?{statementsApi:{list:async()=>({sessions:statements})}}:{request:async()=>({state:'ready',reason:null}),api:{health:async()=>healthWait || ({ok:true}),list:async()=>{calls++;return records;}}}});
+vm.runInNewContext(source,{exports,window,document,Event,AbortController,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),require:name=>name==='react'?hooks:name==='../data'?{reloadData:async()=>{reloads++;}}:name==='./statements-api'?{statementsApi:{list:async()=>({sessions:statements})}}:{isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:({state:'ready',reason:null}),api:{health:async()=>healthWait || ({ok:true}),list:async()=>{calls++;return listWait.length?listWait.shift():records;}}}});
 const render=()=>{index=0;dirty=false;current=exports.useDrafts();while(effects.length)effects.shift()();};
 async function settle(){for(let n=0;n<8;n++){await new Promise(r=>setImmediate(r));if(dirty)render();}}
 function delay(){assert.equal(timers.size,1,'Exactly one poll timer must exist');return [...timers.values()][0].delay;}
@@ -37,5 +37,10 @@ window.dispatchEvent(new Event('focus'));await settle();assert.equal(reloads,1,'
 window.dispatchEvent(new Event('pagehide'));await settle();assert.equal(timers.size,0);
 window.dispatchEvent(new Event('pageshow'));await settle();assert.equal(delay(),30000);
 let releaseHealth;healthWait=new Promise(resolve=>{releaseHealth=resolve;});window.dispatchEvent(new Event('focus'));await settle();const beforeLeaving=calls;window.dispatchEvent(new Event('pagehide'));releaseHealth({ok:true});await settle();assert.equal(calls,beforeLeaving,'A late health response must not start draft requests after departure');assert.equal(timers.size,0);healthWait=null;window.dispatchEvent(new Event('pageshow'));await settle();assert.equal(delay(),30000);
+// A mutation requests a fresh pass while an older poll is held open.
+let releaseOld,releaseNew;listWait=[new Promise(r=>releaseOld=r),new Promise(r=>releaseNew=r)];
+const pending=current.refresh();await settle();void current.refresh();releaseOld([{...draft('question'),id:'obsolete'}]);await settle();
+assert.equal(current.drafts.some(d=>d.id==='obsolete'),false,'A poll superseded by an action cannot publish its older rows');
+releaseNew([draft('editing')]);await pending;await settle();assert.equal(current.drafts[0].state,'editing');
 for(const slot of slots)slot?.cleanup?.();assert.equal(timers.size,0,'Unmount removes polling');
-console.log('Draft polling: initial active draft, answer/retry interval transitions, one timer, visibility pause, focus refresh, one reload per addition and cleanup passed.');
+console.log('Draft polling: initial active draft, answer/retry interval transitions, one timer, visibility pause, focus refresh, one reload per addition cleanup and held poll superseded by an action passed.');

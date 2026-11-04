@@ -31,7 +31,7 @@ SCHEMA={'type':'object','additionalProperties':False,'required':['value'],'prope
 
 class AdapterTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir='/tmp',prefix='expense-adapter-test-');self.addCleanup(self.tmp.cleanup)
+        self.tmp=tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'),prefix='expense-adapter-test-');self.addCleanup(self.tmp.cleanup)
         self.work=Path(self.tmp.name).resolve();ledger,old,self.account=fixture(self.work)
         (ledger/'AGENTS.md').write_text('## Before adding\nFictional policy\n## Rebuild and verify\n')
         self.settings=Settings(ledger=ledger,old_ledger=old,state_dir=self.work/'state',model='anthropic/fixture',effort='high',timeout=5)

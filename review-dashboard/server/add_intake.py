@@ -1,3 +1,4 @@
+import os
 """Read-only Add interpretation. Recognition never books or starts an agent."""
 from copy import deepcopy
 import json
@@ -42,7 +43,7 @@ def interpret(settings, drafts, draft, choices=None, passwords=None):
         if path.is_symlink() or not path.is_file(): raise ValueError('Attachment is unavailable')
         suffix = path.suffix.lower()
         result = dict(id=file['id'],name=file['original_name'],kind='receipt',account=choice.get('account') or words['account'],locked=False,checks=[],can_choose_kind=suffix=='.pdf')
-        with tempfile.TemporaryDirectory(dir='/tmp',prefix='expense-add-recognise-') as temporary:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP','/tmp'),prefix='expense-add-recognise-') as temporary:
             source = path
             if suffix == '.pdf':
                 reader = PdfReader(path)

@@ -1,3 +1,4 @@
+import os
 """Runtime selection is local and refuses unavailable fnm versions."""
 from pathlib import Path
 import sys
@@ -11,7 +12,7 @@ import node_toolchain
 
 class NodeToolchainTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir='/tmp');self.addCleanup(self.temp.cleanup)
+        self.temp=tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'));self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name);(self.root/'.node-version').write_text('26.13.0\n')
 
     def test_installed_fnm_directory_and_notifier(self):

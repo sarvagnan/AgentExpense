@@ -128,7 +128,8 @@ class LifecycleTests(Fixture):
                     self.set_answers(ready())
                     self.assertEqual(client.post(f'/api/drafts/{identity}/retry').status_code, 200)
                     self.wait(client, identity, 'added')
-                    self.assertEqual(client.delete(f'/api/drafts/{identity}').status_code, 204)
+                    self.assertEqual(client.delete(f'/api/drafts/{identity}').status_code, 409)
+                    self.assertFalse(client.app.state.drafts.get(identity).get('trashed_at'))
 
     def test_server_checks_correct_once_then_fail(self):
         for defect in ('invisible', 'unbalanced', 'text_control', 'missing_names'):
@@ -411,7 +412,7 @@ class ApiTests(Fixture):
             self.assertEqual(client.patch(f'/api/drafts/{identity}', json={'text': 'late'}).status_code, 409)
             self.assertEqual(client.post(f'/api/drafts/{identity}/save').status_code, 409)
             self.assertEqual(client.delete(f'/api/drafts/{identity}').status_code, 204)
-            self.assertEqual(client.get(f'/api/drafts/{identity}').status_code, 404)
+            self.assertTrue(client.get(f'/api/drafts/{identity}').json()['trashed_at'])
             identity = self.create(client)
             drafts = client.app.state.drafts
             draft = drafts.get(identity)

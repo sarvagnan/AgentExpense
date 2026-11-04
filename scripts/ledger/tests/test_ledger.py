@@ -1,3 +1,4 @@
+import os
 """Regression tests with isolated, small stores; scratch files stay under this checkout."""
 from copy import deepcopy
 import json
@@ -29,7 +30,7 @@ def entry(identity='0000000000000001', day='2026-01-02', amount='10.00', **field
 
 class Fixture(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-ledger-fixture-')
+        self.temp = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-ledger-fixture-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         dump(self.root / 'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))

@@ -11,7 +11,7 @@ from hledger_oracle import calendar_dates
 
 class OracleTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='expense-oracle-test-', dir='/tmp')
+        temporary = tempfile.TemporaryDirectory(prefix='expense-oracle-test-', dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'))
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.binary = self.root / 'hledger'

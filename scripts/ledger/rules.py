@@ -26,7 +26,6 @@ def main(argv=None):
     operation=sub.add_parser('operations');operation.add_argument('file',type=Path,help='JSON operation body');operation.add_argument('--op-id',default=None)
     for name in ('backfill','catch-up'):
         p=sub.add_parser(name);p.add_argument('--op-id',default=None)
-    undo=sub.add_parser('undo');undo.add_argument('audit_id');undo.add_argument('--op-id',default=None)
     args=parser.parse_args(argv)
     settings=Settings(ledger=args.root.resolve(),state_dir=args.root.resolve()/'drafts/unused-agent-state')
     try:
@@ -34,7 +33,7 @@ def main(argv=None):
             with ledger_lock(settings.ledger):
                 result=rules_service.snapshot(settings) if args.command=='list' else rules_service.match(settings,args.text,args.today,args.currency)
         else:
-            body=json.loads(args.file.read_text()) if args.command=='operations' else dict(action='undone',undoes=args.audit_id) if args.command=='undo' else dict(action=args.command)
+            body=json.loads(args.file.read_text()) if args.command=='operations' else dict(action=args.command)
             result=rules_service.operate(settings,args.op_id or secrets.token_hex(16),body)
         print(json.dumps(result,ensure_ascii=False,indent=2))
     except (ValueError,KeyError,TypeError,OSError) as exc:

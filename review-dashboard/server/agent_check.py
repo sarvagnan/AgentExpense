@@ -417,7 +417,7 @@ def main():
             finally:
                 gate.close()
             return 0
-        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-check-') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP','/tmp'), prefix='expense-agent-check-') as folder:
             work = Path(folder)
             ledger, old, account = fixture(work)
             settings = replace(settings, ledger=ledger, old_ledger=old if 'search_old_ledger' in lookup_names(settings) else None)

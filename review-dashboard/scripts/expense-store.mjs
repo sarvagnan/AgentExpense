@@ -134,6 +134,20 @@ export async function loadExpenseStore(root = storeRoot) {
   ]);
   const schema = await readJson(path.join(applicationRoot, 'schema/store.schema.json'));
   const recurringSettings = await readJson(path.join(root, 'data/recurring-settings.json')).catch(error => { if (error.code === 'ENOENT') return {'never-automatic': []}; throw error; });
+  const trash = await readJson(path.join(root, 'data/trash.json')).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
+  validate(trash, schema.$defs.trash, 'data/trash.json', schema);
+  const trashedIds = new Set(trash.map(item => item.entry.id));
+  if (trashedIds.size !== trash.length || new Set(trash.map(item=>item.id)).size !== trash.length) throw new Error('Trash IDs must be unique');
+  const storedPaths=new Set();
+  for (const item of trash) {
+    const originals=[...item.files.map(file=>file.original),...item.kept.map(file=>file.path)];
+    const sources=(item.entry.sources||[]).filter(source=>source.startsWith('Bills/'));
+    if (new Set(originals).size!==originals.length || originals.length!==sources.length || sources.some(source=>!originals.includes(source)) || originals.some(source=>source.split('/').includes('..'))) throw new Error('Trash evidence must map every Bills source exactly once');
+    for (const file of item.files) {
+      if (!file.stored.startsWith(`data/trash-files/${item.id}/`) || storedPaths.has(file.stored)) throw new Error('Trash files must stay inside their operation folder');
+      storedPaths.add(file.stored);
+    }
+  }
   validate(recurringSettings, schema.$defs['recurring-settings'], 'data/recurring-settings.json', schema);
   validate(declarations, schema.$defs.accounts, 'data/accounts.json', schema);
   for (const metadata of Object.values(declarations.accounts)) {
@@ -159,6 +173,7 @@ export async function loadExpenseStore(root = storeRoot) {
     ids.add(entry.id);
   }
   const actualIds = new Set(actuals.map(entry => entry.id));
+  if ([...trashedIds].some(id=>actualIds.has(id))) throw new Error('Trash entries must be absent from the ledger');
   for (const entry of actuals) {
     if (entry.rule) {
       validate(entry.rule, schema.$defs.entry.properties.rule, 'entry.rule', schema);
@@ -177,7 +192,7 @@ export async function loadExpenseStore(root = storeRoot) {
     scheduleText(rule.schedule);
     if (occurrenceDate(rule.schedule.from, 0, rule.schedule['anchor-day']) !== rule.date) throw new Error('Rule anchor and date disagree');
     if (rule.lifecycle === 'removed' && !rule.removal) throw new Error('Removed rule needs removal evidence');
-    if ([...(rule.origin?.evidence ?? []), ...(rule.removal?.evidence ?? [])].some(id => !actualIds.has(id))) throw new Error('Unknown rule evidence');
+    if ([...(rule.origin?.evidence ?? []), ...(rule.removal?.evidence ?? [])].some(id => !actualIds.has(id) && !trashedIds.has(id))) throw new Error('Unknown rule evidence');
     return {...toTransaction(rule, declarations.accounts),...(rule.amount==='varies'?{varying:varyingDetails(rule,actuals,declarations.accounts)}:{})};
   });
   return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };

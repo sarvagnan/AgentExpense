@@ -122,6 +122,7 @@ class Statements:
             for s in self.all():
                 completed = s['state'] in ('applied','already_filed') and datetime.fromisoformat(s.get('updated_at',s['created_at'])) <= datetime.now(timezone.utc)-timedelta(hours=RECOVERY_HOURS)
                 discarded = s.get('discarded_until') and datetime.fromisoformat(s['discarded_until']) <= datetime.now(timezone.utc)
+                if s.get('trashed_at'): continue
                 if s['id'] not in self.in_flight and (completed or discarded):
                     shutil.rmtree(self.folder(s['id']))
 
@@ -665,7 +666,7 @@ class StatementTransaction(Transaction):
             if sha256(path.read_bytes()).hexdigest() != s['source_hash']:
                 raise ValueError('The statement source changed; read it again before applying')
             meta = documents[self.root/'data/accounts.json']['accounts'][statement['account']]
-            with tempfile.TemporaryDirectory(dir='/tmp',prefix='expense-statement-check-') as temporary:
+            with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP','/tmp'),prefix='expense-statement-check-') as temporary:
                 source = extract(path,Path(temporary),meta.get('statement',{}).get('options'),render_images=False)
                 verified = verify(s['agent_answer'],source,meta,meta.get('locale') or read_manifest(self.root).get('locale','en'))
             for key in ('rows','periodStart','periodEnd','currency','openingBalance','closingBalance','debits','credits'):

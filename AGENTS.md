@@ -10,13 +10,13 @@ Python and Node share ledger-root helpers in `scripts/`: use `LEDGER_DIR`, other
 
 Node is pinned by `.node-version` through fnm. To update it, run `fnm install <v>`, change `.node-version`, then run `make personas` while nothing else is running. Without fnm, launchers warn and use Node on PATH. npm launchers disable the update notifier.
 
-Keep experiments in ignored `tmp/`; maintained code belongs in `scripts/`, `review-dashboard/`, `tools/`, `migrations/` or `fixtures/`. After ledger-code changes run `make verify`. After dashboard changes run `npm --prefix review-dashboard run data`, `npm --prefix review-dashboard test` and `npm --prefix review-dashboard run build`; `make dashboard` verifies and builds both. Saves run `make verify-data` (journal, store and strict hledger checks) under the lock; `make verify` adds ledger code tests for development. After server changes run `make test-server`. `make test` runs ledger, migration and offline server tests; development verification runs ledger code tests, avoiding server-test recursion. `make dashboard` also runs the disposable-repository migration tests; `make test-migrations` runs them separately. Run `make personas` for every fictional fixture under `fixtures/ledgers/`. For refactors retain a baseline and require a byte-identical journal, identical hledger reports and dashboard JSON except `meta.generatedAt`. For documentation changes check referenced paths and commands.
+Keep experiments in ignored `tmp/`; maintained code belongs in `scripts/`, `review-dashboard/`, `tools/`, `migrations/` or `fixtures/`. After ledger-code changes run `make verify`. After dashboard changes run `npm --prefix review-dashboard run data`, `npm --prefix review-dashboard test` and `npm --prefix review-dashboard run build`; `make dashboard` verifies and builds both. Saves run `make verify-data` (journal, store and strict hledger checks) under the lock; `make verify` adds ledger code tests for development. After server changes run `make test-server`. `make test` runs ledger, migration and offline server tests; development verification runs ledger code tests, avoiding server-test recursion. `make dashboard` also runs the disposable-repository migration tests; `make test-migrations` runs them separately. Run `make personas` for every fictional fixture under `fixtures/ledgers/`: it runs the full server suite once for the default fixture and only explicitly marked persona-sensitive tests for the others. Plain `make test-server` keeps full discovery; `SERVER_TESTS=persona make test-server` selects the guarded subset. For refactors retain a baseline and require a byte-identical journal, identical hledger reports and dashboard JSON except `meta.generatedAt`. For documentation changes check referenced paths and commands.
 
 Run the personal-data scan before committing: `make scan LIST=/path/to/private-identifiers.tsv`.
 
-## Live drafts, locking and agent isolation
+## Queue, locking and agent isolation
 
-`review-dashboard/server/` owns the API and one FIFO worker per ledger. Drafts, uploads, run records and rollback journals live under `LEDGER_DIR/drafts/`; they are temporary and ignored, as is `.lock`. Completed draft records last 24 hours and uploads are removed on completion. Ordinary lists omit completed drafts. Pending drafts are not expenses.
+`review-dashboard/server/` owns the API and one FIFO worker per ledger. Queue items, uploads, run records and rollback journals live under `LEDGER_DIR/drafts/`; they are temporary and ignored, as is `.lock`. Completed draft records last 24 hours and uploads are removed on completion. Ordinary lists omit completed drafts. Pending drafts are not expenses.
 
 Every writer must cooperate with `scripts/ledger/ledger_lock.py`; never unlink `.lock`. `make commit m="…"` holds the lock through `verify-data`, ledger commit and main bookmark update. The price job uses the same lock; keep `scripts/prices/update_fund_prices.sh` as its entry point and reserve `--ledger-locked` for the helper. The server waits for a clean ledger working copy before applying. Ledger commits use Jujutsu colocated with git; initialize personal ledger repositories separately from this application.
 
@@ -39,7 +39,7 @@ Added-by: dashboard agent (<model>, <effort>)
 Dashboard corrections keep the entry ID and use this reviewable format. Reasons use JSON quoting:
 
 ```text
-Correct <entry description> via dashboard
+Edit <entry description> via dashboard
 
 Entry: <entry id>
 Changed: <field: old → new; …>
@@ -69,7 +69,7 @@ The postings hold the median of its last three payments, including matching olde
 history. Read [docs/RULES.md](docs/RULES.md) before changing varying rules or bills.
 A saved bill is unpaid: save it on the rule and retain its evidence; record an
 expense only after payment. An amount-check doubt needs the owner's explicit
-acceptance and remains in the audit. Bill saves have no Undo.
+acceptance and remains in the audit.
 
 Dashboard bill commits use the draft's recorded local time, with Typed JSON-quoted:
 
@@ -84,3 +84,43 @@ Agent doubts: <amount-check doubt, or none>
 Draft: <draft id>
 Added-by: user (bill, rule <rule id>)
 ```
+
+## Delete, Trash and retention
+
+Delete is offered only before the ledger's Delete time limit ends and while no
+filed card statement or statement-confirmed bank balance covers the entry.
+The addition audit time starts the window; otherwise use the first ledger commit
+containing the ID. Entries present in the ledger's first commit have no known
+addition time and cannot be deleted, even when an import retained audit lines.
+Ledger history reads are cached and read-only.
+
+Delete moves the entry and exclusively cited evidence into ledger-local Trash.
+Restore retains its ID, postings and original evidence paths, and marks a linked
+rule paid again. Refuse Restore when a statement filed since removal covers the
+payment date without the entry. The audit records deletions, restores, refusals,
+permanent removals and changes to the shared time limits. Edit again to reverse
+an edit. A saved bill remains unpaid until a payment is recorded.
+
+Dashboard retention operations use these commit formats. JSON-quote reasons;
+Saved uses the operation's recorded local time, offset and IANA zone.
+
+```text
+Delete <description> via dashboard
+
+Saved: <YYYY-MM-DD HH:MM> <±HH:MM> <IANA zone>
+Entry: <entry id>
+Reason: <JSON-quoted reason, or "">
+Rule: <next due or none>
+Files to Trash: <original paths, or none>
+Files kept: <shared paths, or none>
+Draft: <operation id>
+Added-by: user (retention)
+```
+
+Restore uses `Restore <description> via dashboard`, with Saved, Entry, Reason,
+Rule, `Files restored: <original Bills/ paths, or none>`, Draft and Added-by.
+Removal uses `Remove <count> entries for good via dashboard`; settings use
+`Change time limits via dashboard`. Both retain Saved, Entry (selected IDs or
+none), JSON-quoted Reason, Draft and Added-by. The audit retains selected items
+or the complete limits before and after. Queue commits use `Discard Queue item
+via dashboard` / `Restore Queue item via dashboard` with the same attribution.

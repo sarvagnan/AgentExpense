@@ -25,12 +25,12 @@ endif
 ledger:
 	uv run --with jsonschema python scripts/ledger/generate_ledger.py
 
-test: test-ledger test-migrations test-server
+test-inside: test-ledger test-migrations test-server
 
 review-dashboard/node_modules/.package-lock.json: review-dashboard/package-lock.json
 	npm --prefix review-dashboard ci
 
-test-server: review-dashboard/node_modules/.package-lock.json
+test-server-inside: review-dashboard/node_modules/.package-lock.json
 	HLEDGER_BIN="$(HLEDGER)" uv run --locked --directory review-dashboard/server python tests/run_tests.py
 
 agent-check: review-dashboard/node_modules/.package-lock.json
@@ -45,12 +45,12 @@ agent-upgrade: review-dashboard/node_modules/.package-lock.json
 service:
 	python3 scripts/install_expense_service.py
 
-test-ledger:
+test-ledger-inside:
 	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/ledger/tests/run_tests.py
 
 .PHONY: test-migrations
-test-migrations:
-	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python -m unittest discover -s scripts/ledger/migration_tests -v
+test-migrations-inside:
+	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/test_python.py -m unittest discover -s scripts/ledger/migration_tests -v
 
 # Saves validate data only; development verify and dashboard also test the code.
 check:
@@ -60,7 +60,7 @@ check:
 format:
 	uv run --with jsonschema python scripts/ledger/store.py --format
 
-dashboard: review-dashboard/node_modules/.package-lock.json verify test-migrations
+dashboard-inside: review-dashboard/node_modules/.package-lock.json verify test-migrations
 	npm --prefix review-dashboard run data
 	npm --prefix review-dashboard run build
 
@@ -76,17 +76,19 @@ scan:
 	@test -n "$(LIST)" || (echo "Usage: make scan LIST=/path/to/private-list.tsv" >&2; exit 2)
 	python3 scripts/check_private.py --list "$(LIST)"
 
-test-scanner:
-	python3 -m unittest discover -s scripts/tests -v
+test-scanner-inside:
+	python3 scripts/test_python.py -m unittest discover -s scripts/tests -v
 
 .PHONY: upgrade-ledger personas
 upgrade-ledger:
 	uv run --with jsonschema python scripts/ledger/upgrade_ledger.py $(ARGS)
 
-personas:
+personas-inside:
 	@node --version
-	@set -e; output=$$(mktemp -d /tmp/expense-personas-data-XXXXXX); trap 'rm -rf "$$output"' EXIT HUP INT TERM; for persona in fixtures/ledgers/*; do \
-	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) dashboard test-server; \
+	@set -e; output=$$(mktemp -d "$${EXPENSES_TEST_TMP}/expense-personas-data-XXXXXX"); server_tests=all; for persona in fixtures/ledgers/*; do \
+	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) dashboard; \
+	  SERVER_TESTS="$$server_tests" DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) test-server; \
+	  server_tests=persona; \
 	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" npm --prefix review-dashboard test; \
 	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) test-scanner; \
 	  printf 'PASS %s\n' "$${persona##*/}"; \
@@ -104,11 +106,11 @@ weekly-review:
 	uv run --with jsonschema python scripts/ledger/weekly_review.py
 
 .PHONY: browser-tests browser-capture
-browser-tests:
+browser-tests-inside:
 	@node --version
 	node review-dashboard/tests/browser/run.mjs
 
-browser-capture:
+browser-capture-inside:
 	CAPTURE=1 node review-dashboard/tests/browser/run.mjs
 
 .PHONY: rules rules-backfill rules-catch-up
@@ -124,3 +126,28 @@ rules-catch-up:
 .PHONY: correct
 correct:
 	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/correct.py $(ARGS)
+
+# Nested test targets share their parent run root and cleanup boundary.
+.PHONY: test test-server dashboard personas browser-tests test-scanner test-ledger test-migrations browser-capture
+test:
+	@scripts/test-run.sh $(MAKE) --no-print-directory test-inside
+test-server:
+	@scripts/test-run.sh $(MAKE) --no-print-directory test-server-inside
+dashboard:
+	@scripts/test-run.sh $(MAKE) --no-print-directory dashboard-inside
+personas:
+	@scripts/test-run.sh $(MAKE) --no-print-directory personas-inside
+browser-tests:
+	@scripts/test-run.sh $(MAKE) --no-print-directory browser-tests-inside
+test-scanner:
+	@scripts/test-run.sh $(MAKE) --no-print-directory test-scanner-inside
+test-ledger:
+	@scripts/test-run.sh $(MAKE) --no-print-directory test-ledger-inside
+test-migrations:
+	@scripts/test-run.sh $(MAKE) --no-print-directory test-migrations-inside
+browser-capture:
+	@scripts/test-run.sh $(MAKE) --no-print-directory browser-capture-inside
+
+.PHONY: retention
+retention:
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/retain.py $(ARGS)

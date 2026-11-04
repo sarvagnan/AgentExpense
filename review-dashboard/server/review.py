@@ -133,10 +133,7 @@ def snapshot(root, *, clock=None):
                                   entries=[public[identity] for identity in row['review-candidates']]))
     items.sort(key=lambda item: not item['important'])
     history = [line for line in lines if line['kind'] == 'review-action']
-    undone = {c['undoes'] for line in history for c in line['changes'] if c.get('undoes')}
-    # An Undo always uses current versions and verifies the edge is still absent.
-    for line in history:
-        line['canUndo'] = line['action'] == 'separate' and line['id'] not in undone and all(c['entry_id'] in public and c['other_id'] in public for c in line['changes'])
+    for line in history: line['canUndo'] = False  # Historical reversals remain readable.
     export_entries = deepcopy(public)
     originals = {}
     for line in history:
@@ -356,7 +353,7 @@ def apply(settings, body, *, clock=None):
                     decide(item['entry_id'], decision)
             if not changes:
                 raise ValueError('No valid decisions to apply')
-        elif action in ('separate', 'undo-separate', 'merge'):
+        elif action in ('separate', 'merge'):
             one, two = body.get('entry_id'), body.get('other_id')
             first, second = require(one), require(two)
             if one == two:
@@ -364,52 +361,44 @@ def apply(settings, body, *, clock=None):
             owner, target = sorted((one, two))
             link = next((l for l in actual[owner].get('possible-duplicate-of', []) if l['id'] == target), None)
             change = dict(entry_id=one, other_id=two, before_version=digest([state['entries'][one]['version'], state['entries'][two]['version']]), after_version='')
-            if action == 'undo-separate':
-                separated = next((r for r in state['history'] if r['id'] == body.get('undoes') and r['action'] == 'separate' and r['canUndo']), None)
-                original = next((c for c in separated['changes'] if {c['entry_id'], c['other_id']} == {one, two}), None) if separated else None
-                if not original or link:
-                    raise ValueError('This separation can no longer be undone')
-                link_pair(actual, one, two, original['reason'])
-                change.update(reason=original['reason'], undoes=separated['id'])
-            else:
-                if not link:
-                    raise ValueError('This duplicate was already settled. Reload Review.')
-                change['reason'] = link['reason']
-                unlink_pair(actual, one, two)
-                if action == 'merge':
-                    kept, removed = merge_order(first, second, records(root), root)
-                    bank_members = statement_members(documents, root)
-                    if (kept.get('statement-end') or kept['id'] in bank_members) and (removed.get('statement-end') or removed['id'] in bank_members):
-                        raise ValueError('Both entries belong to filed statements. Reconcile their membership before merging.')
-                    kept_before, removed_before = deepcopy(kept), deepcopy(removed)
-                    kept = deepcopy(kept)
-                    if kept.get('rule') and removed.get('rule') and kept['rule'] != removed['rule']:
-                        raise ValueError('These entries link different rule occurrences. Reconcile their rules before merging.')
-                    if removed.get('rule') and not kept.get('rule'):
-                        kept['rule'] = deepcopy(removed['rule'])
-                    for rule in documents[root / 'data/forecast.json']:
-                        for field in ('origin', 'removal'):
-                            if rule.get(field, {}).get('evidence'):
-                                rule[field]['evidence'] = list(dict.fromkeys(kept['id'] if identity == removed['id'] else identity for identity in rule[field]['evidence']))
-                    sources = list(dict.fromkeys(kept.get('sources', []) + removed.get('sources', [])))
-                    notes = list(dict.fromkeys(kept.get('notes', []) + removed.get('notes', [])))
-                    if sources:
-                        kept['sources'] = sources
-                    if notes:
-                        kept['notes'] = notes
-                    from replacements import replace_entry, entry_hash, move_evidence
-                    kept = replace_entry(documents,root,kept_before,kept,expected=entry_hash(kept_before),remove=removed_before,removed_expected=entry_hash(removed_before))
-                    actual[kept['id']]=kept
-                    evidence_moves = move_evidence(documents,root,kept_before,kept)
-                    # Retarget other unsettled edges without leaving dangling IDs.
-                    edges = [(e['id'], l['id'], l['reason']) for e in actual.values() for l in e.pop('possible-duplicate-of', [])]
-                    for a, b, reason in edges:
-                        a = kept['id'] if a == removed['id'] else a
-                        b = kept['id'] if b == removed['id'] else b
-                        if a != b:
-                            link_pair(actual, a, b, reason)
-                    actual.pop(removed['id'])
-                    change.update(kept_id=kept['id'], removed_id=removed['id'], sources=removed.get('sources', []), notes=removed.get('notes', []))
+            if not link:
+                raise ValueError('This duplicate was already settled. Reload Review.')
+            change['reason'] = link['reason']
+            unlink_pair(actual, one, two)
+            if action == 'merge':
+                kept, removed = merge_order(first, second, records(root), root)
+                bank_members = statement_members(documents, root)
+                if (kept.get('statement-end') or kept['id'] in bank_members) and (removed.get('statement-end') or removed['id'] in bank_members):
+                    raise ValueError('Both entries belong to filed statements. Reconcile their membership before merging.')
+                kept_before, removed_before = deepcopy(kept), deepcopy(removed)
+                kept = deepcopy(kept)
+                if kept.get('rule') and removed.get('rule') and kept['rule'] != removed['rule']:
+                    raise ValueError('These entries link different rule occurrences. Reconcile their rules before merging.')
+                if removed.get('rule') and not kept.get('rule'):
+                    kept['rule'] = deepcopy(removed['rule'])
+                for rule in documents[root / 'data/forecast.json']:
+                    for field in ('origin', 'removal'):
+                        if rule.get(field, {}).get('evidence'):
+                            rule[field]['evidence'] = list(dict.fromkeys(kept['id'] if identity == removed['id'] else identity for identity in rule[field]['evidence']))
+                sources = list(dict.fromkeys(kept.get('sources', []) + removed.get('sources', [])))
+                notes = list(dict.fromkeys(kept.get('notes', []) + removed.get('notes', [])))
+                if sources:
+                    kept['sources'] = sources
+                if notes:
+                    kept['notes'] = notes
+                from replacements import replace_entry, entry_hash, move_evidence
+                kept = replace_entry(documents,root,kept_before,kept,expected=entry_hash(kept_before),remove=removed_before,removed_expected=entry_hash(removed_before))
+                actual[kept['id']]=kept
+                evidence_moves = move_evidence(documents,root,kept_before,kept)
+                # Retarget other unsettled edges without leaving dangling IDs.
+                edges = [(e['id'], l['id'], l['reason']) for e in actual.values() for l in e.pop('possible-duplicate-of', [])]
+                for a, b, reason in edges:
+                    a = kept['id'] if a == removed['id'] else a
+                    b = kept['id'] if b == removed['id'] else b
+                    if a != b:
+                        link_pair(actual, a, b, reason)
+                actual.pop(removed['id'])
+                change.update(kept_id=kept['id'], removed_id=removed['id'], sources=removed.get('sources', []), notes=removed.get('notes', []))
             change['after_version'] = digest([actual.get(one), actual.get(two)])
             changes.append(change)
         else:
@@ -452,18 +441,10 @@ def merge_order(first, second, lines, root=None):
     additions = {line.get('entry_id'): (line['time'], index) for index, line in enumerate(lines) if line['kind'] == 'draft' and line.get('outcome') == 'added'}
     imported = {}
     if root is not None and any(e['id'] not in additions for e in (first, second)):
-        # Find the first committed appearance, including entries imported before
-        # the audit log existed. Calendar dates and random IDs don't express age.
-        parent = jj(root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
-        commits = subprocess.check_output(['git', '-C', str(root), 'log', '--reverse', '--format=%H', parent, '--', 'data/expenses'], text=True).splitlines()
-        for index, commit in enumerate(commits):
-            for entry in (first, second):
-                if entry['id'] in imported:
-                    continue
-                path = 'data/expenses/' + entry['date'][:4] + '.json'
-                shown = subprocess.run(['git', '-C', str(root), 'show', commit + ':' + path], text=True, capture_output=True)
-                if shown.returncode == 0 and any(e['id'] == entry['id'] for e in json.loads(shown.stdout)):
-                    imported[entry['id']] = index
+        # The server primes this cached read-only history at startup; maintenance
+        # refreshes it. Comparing a pair never scans the repository per request.
+        from retention_service import history_for
+        imported = history_for(root).first_commits
     def order(entry):
         if entry['id'] in imported:
             return (0, imported[entry['id']], entry['id'])

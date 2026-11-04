@@ -630,3 +630,13 @@
   /* Exactly one complete numeric column beside the sticky names at rest. */
   .holdings-table { width: calc(var(--sticky-width, 112px) + 5 * var(--numeric-width, 182px)); flex-basis: calc(var(--sticky-width, 112px) + 5 * var(--numeric-width, 182px)); }
 }
+
+/* Account list headings and selection follow the Journal's flat rows. */
+.account-list h3,.account-list h3:has(>.account-group-open){display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);padding:var(--space-3);border-bottom:1px solid var(--separator);background:var(--surface-sunken);color:var(--text);white-space:nowrap}
+.account-list .account-group-name{display:inline-flex;align-items:center;gap:var(--space-1);min-width:0}
+.account-list .account-group-name strong{font-weight:600}
+.account-list .account-group-name small{font-weight:400;color:var(--text-secondary)}
+.account-list .account-group-total{font-size:11px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.account-list .account-group-open{padding:0;border-radius:0;gap:var(--space-2)}
+.account-list .account-row{width:100%;margin:0;padding:var(--space-3);border-radius:0;border-bottom:1px solid var(--separator)}
+.account-list .account-row[aria-current="true"],.account-list .account-group-open[aria-current="true"]{border-radius:0;box-shadow:inset 3px 0 var(--accent)}

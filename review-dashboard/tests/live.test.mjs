@@ -99,11 +99,8 @@ test('each draft state renders its content and permitted actions',async()=>{
  const consent=render({state:'question',account_question:{proposal_hash:'a'.repeat(64),accounts:['Shared:Accounts Receivable:Finch'],postings:[{account:'Shared:Accounts Receivable:Finch',amount:'46.80',commodity:'EUR',cost:{amount:'51.48',commodity:'USD'}}]}});assert.match(consent,/total cost/);assert.match(consent,/51.48/);
  const categoryQuestion=render({state:'question',questions:[{question:'Which expense account should I use for this payment?',answer:null}]});assert.match(categoryQuestion,/<textarea/);assert.doesNotMatch(categoryQuestion,/<select/);
  assert.match(render({state:'failed',error:'Upload unreadable'}),/Upload unreadable/);assert.match(render({state:'failed'}),/Retry/);assert.match(render({state:'failed'}),/Discard/);
- const result={outcome:'ready',description:'Fuel',entry_id:'abc',total:'100 INR',payment_account:'Assets:Cash',new_accounts:['Expenses:New'],sources:['Bills/2026-10-30/fuel.png']};
- const added=render({state:'added',result});assert.match(added,/month=2026-09/);for(const text of ['Fuel','100 INR','Assets:Cash','Expenses:New','Open in Explorer','fuel.png','No reference supplied'])assert.ok(added.includes(text),text);
- const not={state:'added',result:{outcome:'not_expense',explanation:'A card statement'}};assert.equal(draftStatus({...base,...not}),'Not an expense');assert.match(render(not),/A card statement/);
  assert.equal(needsAttention({...base,state:'failed'}),true);assert.equal(needsAttention({...base,state:'question'}),true);assert.equal(needsAttention(base),false);assert.equal(pollDelay([base]),3000);assert.equal(pollDelay([]),30000);
- assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt',can_undo:false}}]),3000);
+ assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt'}}]),30000);
  assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt',can_undo:false,undo_until:null}}]),30000);
  const input=[{...base,id:'old',created_at:'2026-01-01'},{...base,id:'new',created_at:'2026-10-30'}];assert.equal(newestFirst(input)[0].id,'new');assert.equal(input[0].id,'old');
  }finally{await server.close();}

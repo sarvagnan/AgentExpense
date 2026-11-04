@@ -5,7 +5,7 @@ export type Attachment = { id: string; original_name: string; media_type: string
 export type Proposal = {account_metadata?:Record<string,{kind:string;currency:string}>;status:string;question:string|null;explanation:string|null;entry:{date:string;status:string;description:string;notes:string[];postings:{account:string;amount:string;commodity:string;cost:{amount:string;commodity:string}|null}[];[key:string]:unknown};new_accounts:string[];doubts:string[];attachment_names:string[]};
 export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;resumes_at:string;attempt:number};
 export type HandChecks = {refusal?:BalanceRefusal;unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
-export type Draft = {refusal?:BalanceRefusal;
+export type Draft = {proposal?:Proposal|null;trashed_at?:string|null;refusal?:BalanceRefusal;
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
   correction?:{entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings']};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
@@ -15,7 +15,7 @@ export type Draft = {refusal?:BalanceRefusal;
   statement_file?: string; handover_session?: string; client_time?: string; client_zone?: string; created_at: string; saved_at: string | null; queued_at: string | null; files: Attachment[];
   runs: { start: string; doubts: string[]; error?: string | null }[];
   questions: { question: string; answer: string | null }[]; unsent_answer?: {question_index: number; answer: string; updated_at?: number}; error: string | null; waiting: string | null;
-  result: null | {rule?:{id:string;occurrence:string};next_due?:string;made_rules?:string[];resume_rules?:{id:string;description:string}[];weekly_review_note?:string;can_undo?:boolean;undo_until?:string|null;undo_checked_at?:string;undone?:boolean;audit_id?:string;usual_payment?:{estimated:boolean}; outcome: string; explanation?: string; entry_id?: string; description?: string; total?: string; payment_account?: string; new_accounts?: string[]; sources?: string[]; data_stale?: boolean; refresh_error?: string };
+  result: null | {rule?:{id:string;occurrence:string};next_due?:string;made_rules?:string[];resume_rules?:{id:string;description:string}[];weekly_review_note?:string;audit_id?:string;usual_payment?:{estimated:boolean}; outcome: string; explanation?: string; entry_id?: string; description?: string; total?: string; payment_account?: string; new_accounts?: string[]; sources?: string[]; data_stale?: boolean; refresh_error?: string };
 };
 export type CorrectionResult={entry_id:string;description:string;changed:string[];rule:{status:string;description:string|null;next_due:string|null};data_stale?:boolean};
 export const apiUrl = (path: string, base = import.meta.env.BASE_URL) => `${base.replace(/\/?$/, '/')}api/${path.replace(/^\//, '')}`;
@@ -42,6 +42,8 @@ if(typeof window!=='undefined') {
 }
 export async function request<T>(path: string, options: RequestInit = {}, timeout = 12000): Promise<T> {
   if(departing)throw new DOMException('Request cancelled','AbortError');
+  const item=path.match(/^drafts\/([^/]+)/)?.[1],method=(options.method||'GET').toUpperCase();
+  if(item&&isRemoved(item)&&!['GET','HEAD','DELETE'].includes(method)&&!path.endsWith('/restore'))throw new DOMException('Item moved to Trash','AbortError');
   const read = ['GET','HEAD'].includes((options.method || 'GET').toUpperCase());
   // A write can already be in flight before pagehide. Keep ordinary JSON writes
   // alive too, without changing explicit cancellation. Eight thousand UTF-16
@@ -78,6 +80,12 @@ export async function request<T>(path: string, options: RequestInit = {}, timeou
   } finally {if(!started)clearTimeout(timer);options.signal?.removeEventListener('abort',cancelled);}
 }
 
+// A removal tombstone outlives in-flight list/result reads on this page.
+const removed = new Map<string,{id:string;trashed_at?:string|null}>();
+export const forgetRemoved = (id:string) => removed.delete(id);
+export const isRemoved = (id:string) => removed.has(id);
+export const removedItem = <T,>(id:string) => removed.get(id) as T|undefined;
+export function rememberRemoved<T extends {id:string;trashed_at?:string|null}>(item:T) { removed.set(item.id,{...item,trashed_at:item.trashed_at||new Date().toISOString()}); }
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}) });
 export const api = {
   correctionForm:(id:string)=>request<Draft>(`entries/${id}/correction-form`,json('POST')),
@@ -85,7 +93,12 @@ export const api = {
   receiptChoice:(id:string,choice:'use'|'keep')=>request<Draft>(`drafts/${id}/receipt-choice`,json('POST',{choice}),120000),
   health: (signal?: AbortSignal) => request<{ok: boolean}>('health', {signal, keepalive:true}, 5000),
   list: (signal?: AbortSignal) => request<Draft[]>('drafts?include_added=true', {signal}),
-  get: (id: string) => request<Draft>(`drafts/${encodeURIComponent(id)}`),
+  get: async (id: string) => {
+    if(removed.has(id))return removedItem<Draft>(id)!;
+    const value=await request<Draft>(`drafts/${encodeURIComponent(id)}`);
+    if(value.trashed_at)rememberRemoved(value);
+    return removedItem<Draft>(id)||value;
+  },
   create: (text: string, pieces: unknown, client_updated_at=0,declined_rules:string[]=[]) => request<Draft>('drafts', json('POST', {text, pieces, client_updated_at, declined_rules, ...clientTime()})),
   edit: (id: string, text: string, pieces: unknown, client_updated_at=0,declined_rules:string[]=[]) => request<Draft>(`drafts/${id}`, json('PATCH', {text, pieces, client_updated_at, declined_rules, ...clientTime()})),
   save: (id: string) => request<Draft>(`drafts/${id}/save`, json('POST', clientTime())),
@@ -99,9 +112,9 @@ export const api = {
   resolveRefusal:(id:string,action:'edit'|'answer')=>request<Draft>(`drafts/${id}/resolve-refusal`,json('POST',{action})),
   retry: (id: string) => request<Draft>(`drafts/${id}/retry`, json('POST')),
   keepAnswer: (id: string, question_index: number, answer: string, updated_at=0) => request<Draft>(`drafts/${id}/unsent-answer`, json('PATCH', {question_index, answer, updated_at})),
-  restore: (id: string) => request<Draft>(`drafts/${id}/restore`, json('POST')),
+  restore: async (id: string) => {const value=await request<Draft>(`drafts/${id}/restore`, json('POST'));removed.delete(id);return value;},
   cancelUpload: (id: string, token: string) => request<Draft>(`drafts/${id}/uploads/${token}`, json('DELETE')),
-  discard: (id: string) => request<void>(`drafts/${id}`, json('DELETE')),
+  discard: async (id: string) => {const value=removed.get(id);removed.set(id,value||{id,trashed_at:new Date().toISOString()} as Draft);try{await request<void>(`drafts/${id}`, json('DELETE'));window.dispatchEvent(new Event('item-removed'));}catch(error){if(!value)removed.delete(id);throw error;}},
   remove: (id: string, file: string, claimToken?:string) => request<Draft>(`drafts/${id}/files/${file}${claimToken?'?claim_token='+encodeURIComponent(claimToken):''}`, json('DELETE')),
 };
 export const fileUrl = (id: string, file: string) => apiUrl(`drafts/${encodeURIComponent(id)}/files/${encodeURIComponent(file)}`);

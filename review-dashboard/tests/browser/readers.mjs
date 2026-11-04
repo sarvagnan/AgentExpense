@@ -18,7 +18,7 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
   await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===name)?.state,{timeout:30000}).toBe('found');
   let session=(await get('statements')).sessions.find(s=>s.original_name===name);
   assert.equal(session.statement.account,config.account);assert.equal(session.statement.readerName,config.reader);assert.ok(session.checks.every(c=>c.ok));
-  await go('drafts/?session='+session.id);
+  await go('queue/?session='+session.id);
   await expect(page.getByText('Closing balance',{exact:true})).toBeVisible();
   await expect(page.locator('.statement-total')).toBeVisible();
   await page.getByRole('button',{name:'Review checklist',exact:true}).click();
@@ -40,7 +40,7 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
   const entries=JSON.parse(await readFile(join(stage.ledger,'data/expenses/2026.json')));
   assert.ok(entries.find(e=>e.id===summary['assertion-id']).postings[0].assert);
   assert.ok((await readFile(join(stage.ledger,summary.source))).equals(buffer));
-  await go('drafts/?filed=2026-11-28&account='+encodeURIComponent(config.account));
+  await go('queue/?filed=2026-11-28&account='+encodeURIComponent(config.account));
   await expect(page.getByRole('link',{name:'Open filed statement',exact:true})).toBeVisible();
   await expect(page.locator('.stored-statement')).toContainText('965');
   await snap('filed-statement-'+extension);
@@ -60,7 +60,7 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===name)?.state,{timeout:30000}).toBe('found');
  let session=(await get('statements')).sessions.find(s=>s.original_name===name);
  assert.equal(session.extraction,'agent');assert.equal(session.agent_verified,true);assert.ok(session.learning);
- await go('drafts/?session='+session.id);
+ await go('queue/?session='+session.id);
  await expect(page.getByText('Read by the agent · source values and totals checked',{exact:true})).toBeVisible();
  await page.getByLabel('Save this column mapping for future statements',{exact:true}).check();
  await expect.poll(async()=>(await get('statements/'+session.id)).learn_mapping).toBe(true);

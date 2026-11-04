@@ -228,6 +228,8 @@ def reset_review():
     # Test-only reset in a disposable repository. Production audit is append-only;
     # tests restore the complete seed before exercising the next matrix case.
     with ledger_lock(settings.ledger):
+        (settings.ledger/'data/trash.json').unlink(missing_ok=True)
+        shutil.rmtree(settings.ledger/'data/trash-files',ignore_errors=True)
         for path in (settings.ledger/'data/additions').glob('*.jsonl'):
             if path not in original_audit:
                 path.unlink()
@@ -548,5 +550,97 @@ def varying_rules(body: dict):
     update_settings(settings,lambda:documents,dict(varying=True),'Fictional varying bill history')
     return dict(rule_id=rule['id'],currency=currency)
 
+
+
+
+@app.post('/__test/retention')
+def retention_fixture(body: dict):
+    """Wholly fictional retention cases; no source fixture is changed."""
+    from copy import deepcopy
+    from store import load, entries, dump
+    from outcomes import draft_event
+    from audit import append
+    from ledger_manifest import read_manifest
+    root=settings.ledger;docs=load(root);declarations=docs[root/'data/accounts.json'];accounts=declarations['accounts'];code=read_manifest(root)['defaultCurrency']
+    pay='Assets:Bank:Willow everyday';bank='Assets:Bank:Willow retention';card='Liabilities:Cards:Willow retention';category='Expenses:Willow retention'
+    for account,kind in [(pay,'bank'),(bank,'bank'),(card,'card')]:accounts[account]=dict(kind=kind,currency=code,label=account.split(':')[-1])
+    accounts[category]={}
+    def entry(n,description,day='2026-11-01',account=pay,value='12.34'):
+        return dict(id=f'6fc000000000{n:04x}',date=day,status='confirmed',description=description,postings=[dict(account=category,amount=value,commodity=code),dict(account=account,amount='-'+value,commodity=code)])
+    plain=entry(1,'Willow lunch');plain['sources']=['Bills/2026-11-01/Willow-only.txt','Bills/2026-11-01/Willow-shared.txt']
+    shared=entry(2,'Willow market');shared['sources']=['Bills/2026-11-01/Willow-shared.txt']
+    old=entry(3,'Willow older payment');old['sources']=['Bills/2026-11-01/Willow-older.txt'];locked=entry(4,'Willow bank-confirmed payment','2026-10-20',bank)
+    assertion=dict(id='6fc0000000000005',date='2026-10-31',status='confirmed',description='Willow monthly bank balance',postings=[dict(account=bank,amount='0.00',commodity=code,assert_=None)])
+    assertion['postings'][0].pop('assert_');assertion['postings'][0]['assert']=dict(amount='-12.34',commodity=code)
+    member=entry(6,'Willow statement payment','2026-10-20',card);member.update({'statement-end':'2026-10-31','serial-number':'W-1','statement-page':1,'sources':['Bills/2026-10-31/Willow-statement.pdf']})
+    summary=dict(id='6fc0000000000007',account=card,start='2026-10-01',end='2026-10-31',source=member['sources'][0],**{'previous-balance':'0.00','purchases':'12.34','credits':'0.00','total-due':'12.34','rows':1})
+    docs[root/'data/card-statements.json'].append(summary);docs[root/'data/card-statements.json'].sort(key=lambda s:s['end'])
+    accounts.setdefault('Equity:Opening Balances',{})
+    opening=dict(id='6fc0000000000008',date='2026-10-01',status='confirmed',description='Willow card opening',postings=[dict(account=card,amount='0.00',commodity=code),dict(account='Equity:Opening Balances',amount='0.00',commodity=code)])
+    rows=docs[root/'data/expenses/2026.json'];rows.extend([plain,shared,old,locked,assertion,member,opening]);rows.sort(key=lambda e:e['date'])
+    lines=[];added=[]
+    for row in (plain,shared,old,locked,member):
+        d=app.state.drafts.create(row['description']);d.update(state='added',saved_at=now(),completed_at=now(),result=dict(outcome='ready',entry_id=row['id'],description=row['description'],sources=row.get('sources',[]),total='12.34 '+code,payment_account=row['postings'][1]['account']))
+        app.state.drafts.put(d);record=draft_event(d,'added');record['time']=(datetime.now(timezone.utc)-timedelta(days=8 if row is old else 0)).isoformat();lines.append(record);added.append(d['id'])
+    def install():
+        for source in {s for e in [plain,shared,old,member] for s in e.get('sources',[])}:
+            target=root/source;target.parent.mkdir(parents=True,exist_ok=True)
+            if target.suffix=='.pdf':
+                from pypdf import PdfWriter
+                writer=PdfWriter();writer.add_blank_page(width=200,height=200)
+                with target.open('wb') as handle:writer.write(handle)
+            else:target.write_text('Fictional retention evidence.\n')
+        for line in lines:append(root,line)
+        return docs
+    result=update_settings(settings,install,dict(seeded=True),'Fictional retention browser cases')
+    app.state.retention.history.refresh()
+    from retention_service import coverage
+    unknown=next((e for e in entries(docs) if e['id'] in app.state.retention.history.initial and not any(p['account']=='Equity:Opening Balances' for p in e['postings']) and not coverage(docs,root,e)),None)
+    return dict(unknown=unknown['id'] if unknown else None,unknown_month=unknown['date'][:7] if unknown else None,currency=code,plain=plain['id'],shared=shared['id'],old=old['id'],bank=locked['id'],card=member['id'],added=added[0],**result)
+
+
+@app.post('/__test/retention-queue')
+def retention_queue(body: dict):
+    drafts=app.state.drafts;ids={}
+    if body.get('failed'):
+        d=drafts.create('Willow interrupted reading');d.update(state='failed',error='Fictional connection interrupted');drafts.put(d);return dict(failed=d['id'])
+    metadata=read_json(settings.ledger/'data/accounts.json')['accounts'];payers={m['currency']:a for a,m in metadata.items() if m.get('kind') in ('bank','card','cash','wallet')};currencies=list(payers)
+    for i,(state,text) in enumerate([('question','Willow question 12'),('working','Willow reading 14'),('queued','Willow next 16'),('queued','Willow second 18'),('queued','Willow third 20'),('editing','Willow saved words 22')]):
+        d=drafts.create(text,pieces=dict(pattern='expense',fields=dict(what=dict(value='Willow',source='typed'),amount=dict(value=str(12+i*2),source='typed'),pay=dict(value=payers[currencies[i%len(currencies)]],source='typed'),date=dict(value='2026-11-02',source='typed'))))
+        d.update(state=state,queued_at=(datetime.now(timezone.utc)+timedelta(minutes=i)).isoformat(),waiting='Fictional reading in progress' if state=='working' else None)
+        if state=='question':
+            d['questions']=[dict(question='Which account did you pay from?',answer=None)]
+            from PIL import Image
+            import io
+            image=io.BytesIO();Image.new('RGB',(32,32),'orange').save(image,format='PNG')
+            folder=drafts.folder(d['id'])/'files';name='Willow-receipt.png';(folder/name).write_bytes(image.getvalue())
+            d['files']=[dict(id='6fc00000000000000000000000000001',name=name,original_name=name,extension='.png',media_type='image/png',size=len(image.getvalue()))]
+        drafts.put(d);ids[state]=d['id']
+    return ids
+
+
+
+@app.post('/__test/retention-confirm')
+def retention_confirm(body: dict):
+    from decimal import Decimal
+    from store import load,entries
+    docs=load(settings.ledger);account='Assets:Bank:Willow everyday';code=docs[settings.ledger/'data/accounts.json']['accounts'][account]['currency']
+    balance=sum((Decimal(p['amount']) for e in entries(docs) for p in e['postings'] if p['account']==account),Decimal(0))
+    row=dict(id='6fc0000000000009',date='2026-11-01',status='confirmed',description='Willow newly confirmed bank balance',postings=[dict(account=account,amount='0.00',commodity=code,assert_=None)])
+    row['postings'][0].pop('assert_');row['postings'][0]['assert']=dict(amount=format(balance,'f'),commodity=code)
+    docs[settings.ledger/'data/expenses/2026.json'].append(row);docs[settings.ledger/'data/expenses/2026.json'].sort(key=lambda e:e['date'])
+    return update_settings(settings,lambda:docs,dict(confirmed=True),'Confirm fictional retention balance')
+
+
+@app.post('/__test/retention-saved-statement')
+def retention_saved_statement():
+    from pypdf import PdfWriter
+    import io
+    data=io.BytesIO();writer=PdfWriter();writer.add_blank_page(width=200,height=200);writer.add_metadata({"/Title":"Fictional Saved for later statement"});writer.write(data)
+    statements=app.state.statements
+    with statements.mutex:
+        session=statements.create(data.getvalue(),'Willow-saved-statement.pdf')
+        session.update(state='saved',cancelled=True);statements.put(session)
+    return dict(id=session['id'])
 
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

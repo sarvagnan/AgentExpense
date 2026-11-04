@@ -11,8 +11,13 @@ import sys
 import time
 import unittest
 
+sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'scripts'))
+from test_run import ensure_root
+ensure_root()
+
 SERVER = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(SERVER / 'tests'), str(SERVER)]
+from persona_guard import check_marks, is_persona_sensitive, install, activate, deactivate
 
 
 class Output(io.StringIO):
@@ -27,10 +32,15 @@ class TimedResult(unittest.TextTestResult):
 
     def startTest(self, test):
         self.started = time.perf_counter()
+        activate(test)
         super().startTest(test)
 
     def stopTest(self, test):
         self.timings.append({'test': test.id(), 'seconds': time.perf_counter() - self.started})
+        violations=deactivate()
+        if violations:
+            try:raise AssertionError('\n'.join(dict.fromkeys(violations)))
+            except AssertionError:self.addFailure(test,sys.exc_info())
         super().stopTest(test)
 
 
@@ -55,6 +65,7 @@ def batches(suite):
 
 
 def run_batch(identities):
+    install(os.environ.get('LEDGER_DIR'))
     output = Output()
     result = TimedResult(output, descriptions=True, verbosity=2)
     with redirect_stdout(output), redirect_stderr(output):
@@ -113,13 +124,19 @@ def main():
         raise ValueError('EXPENSES_TEST_WORKERS must be positive')
     started = time.perf_counter()
     suite = unittest.defaultTestLoader.discover(str(SERVER / 'tests'))
+    check_marks(SERVER/'tests')
+    discovered=list(cases(suite));mode=os.environ.get('SERVER_TESTS','all')
+    if mode not in ('all','persona'):raise ValueError('SERVER_TESTS must be all or persona')
+    chosen=discovered if mode=='all' else [test for test in discovered if is_persona_sensitive(test)]
+    if not chosen:raise ValueError('The selected server test inventory is empty')
+    suite=unittest.TestSuite(chosen)
     groups = batches(suite)
     # Scheduler contracts create their own two-worker pools. Run them in the
     # parent after the ordinary pool closes, keeping total worker load bounded.
     contracts = [group for group in groups if group[0].startswith('test_runner.')]
     groups = [group for group in groups if group not in contracts]
     workers = min(workers, max(1, len(groups)))
-    print(f'Running complete offline discovery in {workers} isolated worker processes', flush=True)
+    print(f'Running {mode} offline inventory: {len(chosen)} of {len(discovered)} tests in {workers} isolated worker processes', flush=True)
     result = run_batches(groups, workers)
     if contracts:
         contract_result = run_batches(contracts, 1)
@@ -127,7 +144,7 @@ def main():
             result[key] += contract_result[key]
         result['successful'] &= contract_result['successful']
         result['timings'].extend(contract_result['timings'])
-    result.update(persona=ledger.name, seconds=time.perf_counter() - started, workers=workers)
+    result.update(persona=ledger.name, mode=mode, discovered=len(discovered), seconds=time.perf_counter() - started, workers=workers)
     print(f"\nRan {result['tests']} tests in {result['seconds']:.3f}s\n")
     details = ', '.join(f'{name}={result[name]}' for name in ('failures', 'errors', 'skipped', 'expectedFailures', 'unexpectedSuccesses') if result[name])
     print(('OK' if result['successful'] else 'FAILED') + (f' ({details})' if details else ''))

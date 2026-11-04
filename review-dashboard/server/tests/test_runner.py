@@ -15,7 +15,7 @@ from run_tests import batches, run_batches
 
 class RunnerTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='expense-runner-test-', dir='/tmp')
+        temporary = tempfile.TemporaryDirectory(prefix='expense-runner-test-', dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'))
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         sys.path.insert(0, str(self.root))

@@ -26,7 +26,8 @@
         "review-action",
         "rule",
         "rule-review",
-        "correction"
+        "correction",
+        "retention"
       ]
     },
     "time": {
@@ -794,6 +795,26 @@
           "type": "string"
         }
       }
+    },
+    "retention_action": {
+      "enum": [
+        "deleted",
+        "restored",
+        "restore-refused",
+        "removed-for-good",
+        "queue-trashed",
+        "queue-restored",
+        "settings-changed"
+      ]
+    },
+    "selected": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "details": {
+      "type": "object"
     }
   },
   "allOf": [
@@ -962,6 +983,27 @@
           "text",
           "files",
           "doubts"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "retention"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "retention_action",
+          "operation_id",
+          "request_hash",
+          "selected",
+          "details",
+          "result",
+          "client_time",
+          "client_zone"
         ]
       }
     }

@@ -14,7 +14,7 @@ from ledger_lock import ledger_lock
 
 class DailyRefreshTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='daily-refresh-', dir='/tmp')
+        self.temp = tempfile.TemporaryDirectory(prefix='daily-refresh-', dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'))
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         self.settings = SimpleNamespace(application=root, ledger=root, dashboard_data=root / 'review-dashboard')

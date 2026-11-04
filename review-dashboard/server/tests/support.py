@@ -32,8 +32,10 @@ _oracle_cache = None
 def oracle_cache():
     global _oracle_cache
     if _oracle_cache is None:
-        _oracle_cache = tempfile.TemporaryDirectory(prefix='expense-hledger-oracles-', dir='/tmp')
+        _oracle_cache = tempfile.TemporaryDirectory(prefix='expense-hledger-oracles-', dir=os.environ.get('AGENTEXPENSE_TEST_ROOT', os.environ.get('EXPENSES_TEST_TMP', '/tmp')))
         atexit.register(_oracle_cache.cleanup)
+    if os.environ.get('AGENTEXPENSE_TEST_ROOT') and not Path(_oracle_cache.name).resolve().is_relative_to(Path(os.environ['AGENTEXPENSE_TEST_ROOT']).resolve()):
+        raise AssertionError('Worker oracle cache escaped the owned test root')
     return _oracle_cache.name
 
 

@@ -52,11 +52,11 @@ ledger locations are refused.
 | DELETE `api/drafts/{id}/files/{file_id}` | Remove while editing |
 | DELETE `api/drafts/{id}/uploads/{upload_id}` | Cancel one upload, including a late arrival |
 | PATCH `api/drafts/{id}/unsent-answer` | `{question_index, answer, updated_at}`; keep an answer without sending |
-| POST `api/drafts/{id}/restore` | Undo Discard within 30 seconds |
+| POST `api/drafts/{id}/restore` | Restore from Trash as Saved for later |
 | POST `api/drafts/{id}/save` | JSON `{client_time, client_zone}`; save time and FIFO queue |
 | POST `api/drafts/{id}/answer` | `{answer: "…"}` from question state; queue again |
 | POST `api/drafts/{id}/retry` | Failed draft; reset check-repair allowance and queue |
-| DELETE `api/drafts/{id}` | Soft discard except while working (204); Undo for 30 seconds |
+| DELETE `api/drafts/{id}` | Move an unfinished item to Trash (204) |
 
 Add's create, edit and Save requests and statement uploads carry `client_time` (ISO local time with
 an explicit ±HH:MM offset within ±14:00) and `client_zone` (a known IANA name).
@@ -77,11 +77,10 @@ used to choose between local recovery and a newer server copy. Keeping an unsent
 answer never queues the agent; Send records the answer and clears that recovery
 copy. The question index must identify the current unanswered question.
 
-A discarded draft disappears from reads, lists and the worker queue immediately.
-Its record and remaining files stay for 30 seconds, including across a restart.
-Restore retains its prior state, words, pieces, answers and files, and wakes queued
-work. The worker and list/restore requests purge expired records. Discarding an
-added record never touches its ledger entry or filed evidence.
+A removed item disappears from active lists and the worker queue immediately.
+A late GET returns its Trash tombstone, so in-flight reads never turn Discard
+into a 404. Late writes still refuse it. Restore returns it to Saved for later
+and never automatically queues an agent. Added entries leave the Queue.
 
 An individual file upload may include an `upload_id` multipart field (32 hex
 characters). Cancellation records that token before removing its file. A late
@@ -168,7 +167,7 @@ The direct APIs run a bounded in-process read-only tool loop with no CLI tools.
 returns adapter description/pin/isolation, model/effort, selected login command and
 an isolation warning when applicable. Reads never run diagnostics or a model.
 States remain checking, ready, signed out, paused and unavailable. The existing
-Add/Drafts/Settings notice explains the selected login/key action. Signed-out and
+Add/Queue/Settings notice explains the selected login/key action. Signed-out and
 paused states block agent submission; edits/uploads and built-in statement parsing
 remain usable. The signed-out watcher checks every 30 seconds. Unavailable checks
 retry on the next draft. Both threads stop with the application.
@@ -183,8 +182,8 @@ make verify
 
 For a run that writes no bytecode or environment updates in the application,
 use `PYTHONDONTWRITEBYTECODE=1 UV_NO_SYNC=1 make test-server` after dependencies are
-installed. `EXPENSES_TEST_TMP=/tmp/expense-checks` groups fixture applications and
-ledgers. `make test-server` activates the installed server venv through `uv`, so
+installed. The test launcher groups fixture applications and ledgers under its
+owned temporary root. `make test-server` activates the installed server venv through `uv`, so
 nested `make commit`/`make verify-data` subprocesses reuse its `jsonschema` even with
 `UV_OFFLINE=1` and an empty `/tmp` `UV_CACHE_DIR`. Browser fixture APIs activate
 the same environment explicitly while using its Python directly; neither path
@@ -193,7 +192,7 @@ needs pre-filled caches or a venv resync.
 The suite uses unittest, TestClient, temporary fixture ledgers with their own jj
 repositories and `tests/fake_agent.py`. It never runs a model or contacts an external network. Direct API protocols use
 local loopback fake HTTP servers.
-Complete discovery runs in three isolated worker processes. Whole test classes
+Complete discovery runs in two isolated worker processes by default. Whole test classes
 stay together; modules with module fixtures stay together as well. Each worker
 uses normal unittest fixture/error/subtest handling, and the runner checks the
 executed test inventory against discovery before reporting success. No writable
@@ -245,7 +244,7 @@ Live actions append version 1 records to `LEDGER_DIR/data/additions/YYYY.jsonl`.
 `schema/additions.schema.json` and `scripts/ledger/audit.py` define and check every
 line. An addition and its audit line share one commit. Failed and not-expense
 outcomes get record-only commits; a discarded draft is recorded after its
-30-second Undo period, before its record is purged. These commits wait for a clean
+Trash lifetime, before its record is purged. These commits wait for a clean
 ledger and use the same lock and rollback journal. Failed audit commits remain
 pending in the draft, with `audit_error`, for the worker to retry. See
 [WEEKLY-REVIEW.md](WEEKLY-REVIEW.md) for exact reviewer commands.
@@ -294,8 +293,7 @@ Completed uploads are removed, and completed session records expire after 24 hou
 Add detects statement text before running the expense agent. A locked PDF can be
 opened in Statements to establish its contents. An agent `not_expense` statement
 result also offers handover. Statement attachments remain until handover/discard;
-Undo handover restores the draft and invalidates its session. Once applying has
-started the handover cannot be undone.
+Handover moves the file to a statement session in Queue. Once checked Apply starts, wait for its commit or rollback.
 
 Checked commits explicitly allow large new evidence in Jujutsu snapshots. The
 cleanliness check also sees large unrelated files and waits for them to be
@@ -308,7 +306,7 @@ The session list contains work in progress. Applied/already-filed results remain
 addressable by session URL and appear through Past statements, rather than in the
 work list. The list also returns `recoverable`, including expiry times. Discarded
 statements retain their source file and decisions for 24 hours; `POST statements/{id}/keep`
-extends recovery by another day, and `restore` reopens the session. Handover Undo
+extends recovery by another day, and `restore` reopens the session. Handover recovery
 has the same 24-hour interval and can be extended with `keep` while it is valid.
 
 Upload may include a 32-hex `upload_id`. `DELETE statements/uploads/{token}`
@@ -341,7 +339,7 @@ the existing draft refresh cadence (30 seconds idle, three seconds while working
 paused while hidden). In-flight read-only requests finish with keepalive transport;
 caller cancellation is immediate and departed views cannot publish stale data.
 This avoids WebKit teardown errors. Writes retain transport cancellation and all
-requests retain their network deadlines. Only Add, Drafts and Settings explain agent readiness.
+requests retain their network deadlines. Only Add, Queue and Settings explain agent readiness.
 Signed-out and paused states disable agent submission, answer and retry controls;
 editing and uploads remain available. An unavailable check retries on the next
 draft. While signed out, a separate server watcher checks for login every 30
@@ -370,11 +368,11 @@ Headless fixture browser tests and captures are documented in
 [the browser harness](../tests/browser/README.md).
 
 
-### Add and Drafts currency workflows
+### Add and Queue currency workflows
 
 Add owns expense/receipt composition and statement uploads. The legacy Statements
 page redirects to Add; sessions, checklists, filed reconciliations and recovery now
-live in Drafts (`?session=…` / `?filed=…&account=…`). Statements remain independent
+live in Queue (`?session=…` / `?filed=…&account=…`). Statements remain independent
 of agent readiness when the built-in reader can read them.
 
 An agent question with an incomplete two-posting foreign expense or transfer yields
@@ -428,7 +426,7 @@ offline tests and defaults to UTC now; amounts never affect importance.
 account's matching postings, confirms the entry, uses a nonblank label as its
 description and appends notes as lines. Followup changes only the audit log and
 leaves the entry waiting. Acknowledge settles a doubt without changing postings.
-Separate removes a canonical pair; undo-separate takes its audit ID in `undoes`.
+Separate removes a canonical pair. Historical reversal records remain readable.
 Merge keeps statement membership first, then the earliest committed/audited
 addition (ID breaks a same-commit tie), unions sources and notes in retained-first
 order and retargets other unresolved links. Both-statement pairs are refused until
@@ -504,7 +502,7 @@ local calendar; tests may set `DASHBOARD_TODAY=YYYY-MM-DD`.
 
 The [recurring API and CLI reference](../../docs/RULES.md) documents read routes,
 `POST api/drafts/{id}/usual`, idempotent `POST api/rules/operations/{op-id}`, rule
-lifecycles, detection, suppression, history backfill, catch-up and checked Undo.
+lifecycles, detection, suppression, history backfill, catch-up. Payment removal uses Delete and Trash.
 These services use the shared transaction/FIFO without an agent call. Additions
 link/advance or create rules in their existing verified addition commit. UI for
 these services is implemented separately; no due-payment list is added to Add.
@@ -512,14 +510,9 @@ these services is implemented separately; no due-payment list is added to Add.
 Recurring dashboard UI and weekly review: see `docs/RULES.md` at the application
 root. Editing drafts accept optional `declined_rules`, a unique list of 16-hex
 rule IDs; this is ignored runtime state and never queues a payment. Completed
-recurring receipts expose `can_undo`, `undo_until` (30 minutes from the permanent
-audit timestamp) and `undone`. Eligibility is recomputed server-side on every
-read and checked again under the ledger lock on Undo. Receipt reads acquire the
-ledger lock with one bounded one-second wait for the entire receipt batch. This
-lets brief competing reads finish without starving eligibility checks. While a
-writer stays busy, `can_undo` is false and `undo_until` is omitted, and the page
-keeps polling every three seconds until the check settles.
-This prevents Jujutsu's working-copy snapshot from racing a payment write.
+recurring receipts expose their rule and next due date. Receipt reads acquire the
+ledger lock for a stable audit snapshot. Payment removal is offered separately
+by the inspector's retention endpoint, with all conditions rechecked on Delete.
 The built rule snapshot is a fallback: live reads start independently, and a
 late snapshot cannot replace a known live result. Rules keeps its edit state
 across dashboard refreshes; Overview retains its existing data-version reset.
@@ -536,17 +529,17 @@ Data refresh and `/data/` use the `DASHBOARD_DATA_DIR` captured at server startu
 See [Recurring rules](../../docs/RULES.md#varying-recurring-rules-and-saved-bills-6f-b)
 for store/API/CLI and audit contracts. `POST api/drafts/{id}/bill` uses the same
 FIFO worker, lock, rollback journal and verified commit as rule operations, filing
-uploads as evidence. It saves no actual entry and offers no Undo. Paying a bill
+uploads as evidence. It saves no actual entry. Paying a bill
 uses the usual transaction, retaining its sources and appending `bill-paid` in
 the addition commit. The stored postings are the median estimate; link,
 correction and a switch to Varies share `recurring.recompute_estimate`, ready for
-Part C's Delete/Restore callers. Those operations are not implemented here.
+Delete and Restore as well.
 
 Amount checks use the last six matching payments without discarding outliers.
 An unusual amount requires explicit `amount_anyway: true`; its structured check
 and accepted doubt remain auditable. Calendar dates and commodity are passed as
 data for page-local formatting. Automatic detection, tolerance and existing
-payment Undo remain unchanged.
+fixed payment matching remain unchanged.
 
 ### Correcting entries and reading filed receipts
 
@@ -596,9 +589,8 @@ expire after 24 hours. Retries return the retained intake receipt.
 
 Add remembers up to three result IDs in guarded, ledger-specific session storage.
 It fetches those records explicitly, including applied statements omitted by normal
-queues. Result rows use the records' actual states. Undo uses the server's
-eligibility and expiry; `undo_checked_at` lets its 30-minute countdown tolerate a
-browser clock that differs from the server's. More never pauses that timer.
+queues. Result rows use the records' actual states. Just added opens the entry
+inspector over Add; completed expenses appear in Explorer, rather than Queue.
 
 ### Statement-confirmed balances (6f A)
 
@@ -623,3 +615,98 @@ postings keep amounts/accounts/currencies/costs, while description, category and
 notes stay editable. Dates must preserve their position between the assertions,
 including same-day order. Existing filed-card wording and membership locks remain.
 All built-in adapters share the confirmed-balance instruction in `agent.prompt_for`.
+
+### Queue, Trash and retention
+
+`/queue/` replaces `/drafts/` (which redirects, preserving its query). Both and
+`/trash/` retain production directory indexes. Queue lists only unfinished work:
+Needs you, In progress (worker then FIFO), Saved for later. Completed receipt
+follow-ups stay with Just added and the entry inspector, outside Queue. The
+inspector uses the same live poll, so another device can settle a pending receipt
+question even without the original Add visit.
+
+Optional `ledger.json.retention` holds `delete_days`, `trash_days` (1, 3, 7, 14,
+30; default 7) and `saved_hours` (12, 24, 72, 168; default 24). Omitted settings use
+defaults, without a migration. The settings preview lists immediate permanent
+removals, saved-item expiry and reopened Delete windows. Saving applies the new
+limits immediately. The worker sweeps every 30 seconds, outside active writes.
+
+Deleted entry snapshots live in canonical `data/trash.json`; exclusive evidence
+moves to `data/trash-files/<operation id>/`. Both are committed inside the ledger.
+Shared evidence stays in Bills while another entry, bill or Trash record cites it.
+Trash entries do not count as actual entries or totals. Restore retains identity,
+postings, same-day position and original Bills paths. Permanent removal also
+removes retained Bills files only when nothing remaining cites them. Queue items
+stay in ignored `drafts/`; they survive restarts and restore as Saved for later.
+
+Delete needs no statement membership/covering paying-account assertion, a known
+addition time and an unexpired window. The first ledger commit's IDs stay
+protected, including imports with retained audit lines. For other entries, audit
+addition time wins; startup and maintenance cache first committed appearance as
+the fallback. History reads use `jj --ignore-working-copy` and
+read-only git commands; no request scans history. No-history fixtures use only
+audit addition times. Restore is refused and audited when a statement now covers
+the date without that entry. A removed entry cancels receipt work before it can
+apply details. Delete/Restore recompute linked varying estimates through the shared
+service and restore/consume the original saved bill.
+
+| Method/path | Contract |
+| --- | --- |
+| GET `api/entries/{id}/retention` | Hash, eligibility/reason, deadlines, owned/shared files and linked rule |
+| GET `api/trash` | Newest-first items and shared limits |
+| GET `api/settings/retention` | Current limits with defaults |
+| POST `api/settings/retention-preview` | Complete candidate limits; no write |
+| POST `api/retention/operations/{32-hex id}` | `delete` + entry_id/version; `restore` + item_id; `remove` + items; `queue-discard` / `queue-restore` + item_id; `settings` + limits. Optional reason/client_time/client_zone. |
+
+Operations use the FIFO, runtime policy, clean-ledger wait, standard ledger lock,
+rollback journal and `make commit`. Audit lines retain version 1 and kind
+`retention`, action, request hash/operation, selected IDs, details and result.
+Identical retries replay; changed payloads are refused. Runtime changes recover
+from committed receipts after a restart. Historical payment reversal audit lines
+remain valid; the old operation and eligibility/countdown API are removed.
+
+Operator commands use these same services, never a model:
+
+```sh
+make retention ARGS='list'
+make retention ARGS='entry <entry-id>'
+make retention ARGS='preview /tmp/time-limits.json'
+make retention ARGS='operations /tmp/retention-operation.json --op-id <32-hex-id>'
+make retention ARGS='sweep'
+```
+
+Receipt prompts request ISO calendar dates. Invalid dates, amounts or printed
+times become null with a retained “Receipt … not understood” note. Numeric
+slash/dash dates need an evident day (>12) or an explicitly recorded draft locale;
+the server never assumes its own locale. Other receipt facts still apply.
+
+### Temporary files
+
+Every test launcher owns one `agentexpense-run-*` root. Nested make targets,
+Node tests, Python workers, fake agent/gate homes, browser profiles/downloads and
+oracle caches inherit it through `AGENTEXPENSE_TEST_ROOT`, `EXPENSES_TEST_TMP`
+and `TMPDIR`. Completion and SIGINT/SIGTERM/SIGHUP remove it, pass or fail.
+Failures first copy only failing trace ZIPs into a printed
+`/tmp/agentexpense-failures-<timestamp>/` folder. `KEEP_ARTIFACTS=1` retains the
+whole run; test-helper folders removed during normal teardown are archived under
+its `kept/` directory. Production temporary-directory defaults are unchanged.
+
+### Persona test coverage
+
+Plain `make test-server` runs full discovery for the selected `LEDGER_DIR`.
+`SERVER_TESTS=persona make test-server` runs only tests marked with module-level
+`PERSONA_SENSITIVE = True` or `@persona_sensitive` from `tests/persona_guard.py`.
+`make personas` runs full server coverage once for the default fictional fixture
+(first in the fixture list), then the marked subset for each remaining fixture.
+All other persona checks still run for every fixture.
+
+The selected-manifest confirmed-balance tests, the agent-gate class and two
+agent-check methods that read the manifest indirectly are marked. The two explicit
+all-fixture import/backfill tests are conservatively marked at method scope
+because they read the selected fixture as part of their matrix. Other tests
+build independent disposable ledgers. Discovery checks direct selection reads
+(`LEDGER_DIR`, `PERSONA`, ledger-root helpers) for a mark; a runtime filesystem
+audit catches unmarked selected-ledger reads hidden behind helpers. The common
+Fixture's one fixed fictional policy input is selection-independent. Guard tests
+verify detection and exact marked-test selection. Timing JSON records mode,
+discovered/executed counts and elapsed seconds.

@@ -1,3 +1,5 @@
+import {ensureTestRoot} from '../../scripts/test-run.mjs';
+ensureTestRoot();
 // Test-only filesystem boundary. Production builders and servers keep their normal paths.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';

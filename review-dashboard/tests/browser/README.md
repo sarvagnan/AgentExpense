@@ -9,7 +9,7 @@ make browser-capture
 ```
 
 The default runs every engine and all four fictional fixture personas. Both targets capture the shell, notices, Settings, opening balances, currency views,
-account dialogs and all step 4B Add/Drafts and group-5 Review states. `CAPTURE=0 make browser-tests` runs assertions without captures.
+account dialogs and all step 4B Add/Queue and group-5 Review states. `CAPTURE=0 make browser-tests` runs assertions without captures.
 `ENGINES` and `PERSONA` accept comma-separated subsets.
 
 Use the installed Playwright **1.64.1** at `~/.cache/expense-playwright`. Chromium
@@ -45,7 +45,8 @@ trace ZIPs. `BROWSER_RESULTS` in stdout retains the assertion matrix.
 help diagnose interruptions. The final gallery is produced during normal cleanup.
 
 Screenshots and their contact sheet are written to
-`/tmp/agentexpense-5-shots/index.html`. `manifest.json` records engine, persona,
+`$AGENTEXPENSE_TEST_ROOT/shots/index.html` by default; set `BROWSER_SHOTS` to
+export them for review after cleanup. `manifest.json` records engine, persona,
 state, theme, viewport and real route for every image. Exact 1440×1000 and 412×915
 captures include Light and Dark, with full-page companions for tall screens. The
 suite also checks every route and both dialogs at 320px. It opens the approved
@@ -90,7 +91,7 @@ The default capture index remains `/tmp/agentexpense-5-shots/index.html`.
 
 Phase 5 adds `review.mjs`: every engine, theme and size checks server counts,
 important ordering, empty Review and native amounts. Asha exercises separate,
-immediate/history undo, merge confirm/cancel, receipt/note movement and agreement
+separation history, merge confirm/cancel, receipt/note movement and agreement
 between two independent browser contexts. Populated personas exercise Follow-up,
 Resolve, recovery after an unreadable successful response, idempotent retry after
 reload, actual version-2 export download/import preview/apply and legacy saved-work
@@ -139,13 +140,13 @@ unrelated checked browser addition. No real financial verification is bypassed.
 Step 6c part 2 adds `rules.mjs` to every default matrix case. It creates fictional
 rules/history only in the disposable ledger, drives Add's guessed/pick-list/
 amount/duplicate/missing-payer/conversion states, commits real usual payments,
-checks Undo and automatic/paused follow-ups, and exercises every Rules lifecycle
+checks saved payments and automatic/paused follow-ups, and exercises every Rules lifecycle
 operation, simple/complex editing, New rule, suggestion confirmation/dismissal,
 review Keep, and built read-only mode. Every checked write waits for its actual
 HTTP/worker result; the production request deadline stays unchanged. Captures
 include each named `rule-*` and `rules-*` state. `BROWSER_FOCUS=rules` is a focused
 development option; the required default run retains every existing suite.
-The host uses the current UTC instant for agent/Undo expiry while review-age
+The host uses the current UTC instant for agent/retention expiry while review-age
 checks retain their fixed November 1 clock. Payment dates and built-data windows
 remain explicit fixture dates; the browser records its own local save context.
 
@@ -153,7 +154,7 @@ The runner selects `.node-version` through fnm and prints the Node version. Each
 
 Step 6d adds `corrections.mjs` to every default case, covering typed dates across
 local date boundaries, monotonic declines across changed words/reload/server
-recovery/pick lists, saved-entry corrections from Drafts/Explorer/Journal, Back
+recovery/pick lists, saved-entry corrections from Queue/Explorer/Journal, Back
 targets, statement locks and receipt disagreement/Keep. Captures include
 `usual-typed-date`, `correction-from-drafts`, `correction-saved`,
 `correction-from-explorer`, `correction-from-journal`,
@@ -165,7 +166,7 @@ retain the saved result through a data refresh before Back returns to the entry.
 Step 6e adds `add.mjs` and the revision-3 Add capture states: one input for expenses,
 receipts and statements, editable interpretation, Examples dialog, stable measured
 input position, focus/caret preservation, explicit polite announcements, guarded
-three-result visit recovery, inline Undo/countdown and both receipt answers above
+three-result visit recovery, entry links and retention and both receipt answers above
 the phone save bar. Statement readers and the existing expense/currency workflows
 now use that same Upload input and Continue. Account creation is staged until
 Continue. Password and checked-failure paths retain their file. Desktop captures
@@ -200,3 +201,22 @@ exact bill versus estimated Forecast rows. `BROWSER_FOCUS=varying` runs this
 workflow alone; the default suite includes it for every persona/engine/size.
 Sam's workflow uses the secondary account currency. Use `THEMES=light` for the
 required assertion matrix, and Chromium Dark captures at both sizes.
+
+## Temporary files
+
+Each test command creates one `agentexpense-run-*` root, shared by nested make
+commands, Python pools, Node helpers, oracle caches and pinned headless browsers.
+`TMPDIR` and `EXPENSES_TEST_TMP` point inside it. It is removed on success,
+failure, SIGINT, SIGTERM and SIGHUP. Before removal, only failing-case trace ZIPs
+are copied to a printed `/tmp/agentexpense-failures-<timestamp>/` path. Explicit
+`BROWSER_SHOTS` exports captures outside the root; `KEEP_ARTIFACTS=1` retains the
+whole root, with test-helper teardown snapshots under `kept/`. The scanner's cleanup regression runs a small server suite, Node
+suite and deliberately failed/interrupted browser cases and checks only their
+owned paths, never a global /tmp inventory. Production server scratch is unchanged.
+
+Part C timing coverage (`BROWSER_FOCUS=retention-timing`) holds real Queue polls,
+autosaves, Trash lists, retention saves and time-limit previews open with routes.
+It acts before releasing them and checks retained words, completed actions, stable
+pointer targets and absence of stale rows/errors. A receipt date arrives during
+the Delete confirmation. Node timer doubles cover the 3/30-second Queue intervals
+and 30-second Trash poll; a server clock double checks Saved/Trash expiry boundaries.

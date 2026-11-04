@@ -52,7 +52,7 @@ class CorrectionTests(Fixture):
         self.assertEqual(load(self.ledger)[self.ledger/'data/expenses/2026.json'],[])
         line=records(self.ledger)[-1];self.assertEqual(line['kind'],'correction');self.assertEqual(line['before'],before);self.assertEqual(line['after'],current)
         message=self.jj('log','-r','@-','--no-graph','-T','description')
-        for field in ['Correct Willow corrected via dashboard','Entry: '+before['id'],'Changed: ','Reason: "','Rule: kept','Evidence: Bills/2027-01-02/Willow.png','Draft: '+op,'Added-by: user (correction)']: self.assertIn(field,message)
+        for field in ['Edit Willow corrected via dashboard','Entry: '+before['id'],'Changed: ','Reason: "','Rule: kept','Evidence: Bills/2027-01-02/Willow.png','Draft: '+op,'Added-by: user (correction)']: self.assertIn(field,message)
         shutil.rmtree(self.ledger/'drafts/corrections')
         self.assertTrue(self.save(before,body,op)['replayed']);self.assertTrue(clean(self.ledger))
         with self.assertRaisesRegex(ValueError,'different correction'): self.save(before,{**body,'reason':'different'},op)
@@ -290,7 +290,10 @@ class ReceiptTests(Fixture):
             d.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id']),receipt_reading=dict(state='reading',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e['sources']))
             drafts.put(d)
             response=client.delete('/api/drafts/'+d['id']);self.assertEqual(response.status_code,409)
-            d['receipt_reading']['state']='question';drafts.put(d);self.assertEqual(client.delete('/api/drafts/'+d['id']).status_code,204)
+            d['receipt_reading']['state']='question';drafts.put(d)
+            # Financial entries leave the Queue, including receipt follow-ups.
+            self.assertEqual(client.delete('/api/drafts/'+d['id']).status_code,409)
+            self.assertFalse(drafts.get(d['id']).get('trashed_at'))
         vanished=threading.Event()
         def missing(worker,draft):
             shutil.rmtree(worker.drafts.folder(draft['id']));vanished.set();raise FileNotFoundError('removed temporary receipt record')

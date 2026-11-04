@@ -19,22 +19,19 @@ class StatementFixTests(Fixture):
         sessions.put(s)
         return sessions, s
 
-    def test_discard_recovery_is_listed_durable_extendable_and_keeps_pdf(self):
+    def test_discard_uses_shared_trash_and_restores_as_saved_with_pdf(self):
         sessions, s = self.session()
         with self.client() as client:
             self.assertEqual(client.delete('/api/statements/'+s['id']).status_code, 204)
             data = client.get('/api/statements').json()
-            recovered = data['recoverable'][0]
-            self.assertEqual(recovered['id'], s['id'])
-            self.assertGreater(datetime.fromisoformat(recovered['discarded_until']), datetime.now(timezone.utc)+timedelta(hours=23))
+            self.assertEqual(data['sessions'],[]);self.assertEqual(data['recoverable'],[])
+            recovered = client.get('/api/trash').json()['items'][0]
+            self.assertEqual(recovered['id'],s['id'])
+            self.assertGreater(datetime.fromisoformat(recovered['expires_at']),datetime.now(timezone.utc)+timedelta(days=6))
             self.assertTrue((sessions.folder(s['id'])/'read.pdf').exists())
-            old = datetime.now(timezone.utc)+timedelta(minutes=1)
-            recovered['discarded_until'] = old.isoformat(); sessions.put(recovered)
-            response = client.post('/api/statements/'+s['id']+'/keep')
-            self.assertEqual(response.status_code, 200, response.text)
-            self.assertGreater(datetime.fromisoformat(response.json()['discarded_until']), old+timedelta(hours=23))
-            self.assertEqual(client.post('/api/statements/'+s['id']+'/restore').status_code, 200)
-            self.assertFalse(sessions.get(s['id']).get('discarded_until'))
+            self.assertEqual(client.post('/api/statements/'+s['id']+'/keep').status_code,409)
+            self.assertEqual(client.post('/api/statements/'+s['id']+'/restore').status_code,200)
+            restored=sessions.get(s['id']);self.assertEqual(restored['state'],'saved');self.assertFalse(restored.get('trashed_at'))
 
     def test_completed_sessions_leave_work_list_but_direct_result_remains(self):
         sessions, s = self.session()
@@ -55,7 +52,7 @@ class StatementFixTests(Fixture):
             self.assertTrue(sessions.get(s['id'], include_discarded=True)['discarded_until'])
             self.assertEqual(client.post('/api/statements/'+s['id']+'/restore').status_code, 200)
             sessions.put(stale)
-            self.assertEqual(sessions.get(s['id'])['state'], 'reading')
+            self.assertEqual(sessions.get(s['id'])['state'], 'saved')
 
     def test_queued_apply_cancel_does_not_write_and_atomic_apply_refuses_cancel(self):
         sessions, s = self.session()
@@ -77,7 +74,7 @@ class StatementFixTests(Fixture):
             token = 'b'*32
             uploaded = client.post('/api/statements', files={'file': ('arrived.pdf', pdf)}, data={'upload_id': token}).json()
             self.assertEqual(client.delete('/api/statements/uploads/'+token).status_code, 204)
-            self.assertEqual(client.get('/api/statements/'+uploaded['id']).status_code, 404)
+            self.assertTrue(client.get('/api/statements/'+uploaded['id']).json()['discarded_until'])
 
     def test_stale_failure_is_structured_and_cannot_retry(self):
         sessions, s = self.session()

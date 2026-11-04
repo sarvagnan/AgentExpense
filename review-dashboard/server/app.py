@@ -10,7 +10,7 @@ import shutil
 import time
 from urllib.parse import unquote, urlsplit
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 from PIL import Image
@@ -27,7 +27,7 @@ from settings import Settings
 from dashboard_data import public_data
 from ledger_manifest import read_manifest
 from worker import Worker
-from transactions import BalanceRefusal
+from transactions import BalanceRefusal, ledger_lock
 from statements import Statements
 
 def error_detail(exc):
@@ -153,7 +153,11 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     read_manifest(settings.ledger)
     drafts = Drafts(settings.ledger, clock=agent_clock)
     worker = Worker(settings, drafts)
+    from retention_service import Retention
+    retention = Retention(settings, drafts, agent_clock)
+    worker.retention = retention
     statements = Statements(settings)
+    retention.statements = statements
     worker.statements = statements
     if agent_clock: worker.pause.clock = agent_clock
     statements.agent_pause = worker.pause
@@ -173,6 +177,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 worker.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.retention = retention
     app.state.settings, app.state.drafts, app.state.worker = settings, drafts, worker
     app.state.statements = statements
     app.state.agent_gate = gate
@@ -221,15 +226,15 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         try:
             return drafts.get(identity)
         except (FileNotFoundError, ValueError):
-            raise HTTPException(404, 'Unknown draft')
+            raise HTTPException(404, 'Unknown item')
 
     def require(draft, *states):
         if draft.get('intake_complete'):
-            raise HTTPException(409,'This submission is already in Drafts')
+            raise HTTPException(409,'This submission is already in Queue')
         if draft.get('claim'):
-            raise HTTPException(409, 'Another page is finishing this draft')
+            raise HTTPException(409, 'Another page is finishing this item')
         if draft['state'] not in states:
-            raise HTTPException(409, f"Draft is {draft['state']}; expected {', '.join(states)}")
+            raise HTTPException(409, f"Item is {draft['state']}; expected {', '.join(states)}")
 
     def queue(draft, proposal=None):
         draft.pop('refusal', None)
@@ -246,13 +251,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         if isinstance(result.get('result'), dict) and result['result'].get('audit_id'):
             if receipt_lines is None:
                 return public_many([draft])[0]
-            from rules_service import undo_eligibility
-            result['result'] = {**result['result'], 'can_undo': False, 'undo_checked_at': (agent_clock() if agent_clock else datetime.now(timezone.utc)).isoformat()}
             if receipt_lines is not False:
                 line = next((r for r in receipt_lines if r['id'] == result['result']['audit_id']), None)
-                result['result'].update(can_undo=bool(line and undo_eligibility(settings, line, agent_clock)),
-                                        undone=any(r.get('rule_action') == 'undone' and r.get('undoes') == result['result']['audit_id'] for r in receipt_lines),
-                                        undo_until=(datetime.fromisoformat(line['time']) + timedelta(minutes=30)).isoformat() if line else None)
                 if line and result['result'].get('resume_rules'):
                     answered = {r.get('rule_id') for r in receipt_lines if r['kind']=='rule' and r['rule_action'] in ('kept','resumed') and r['time']>=line['time']}
                     result['result']['resume_rules'] = [r for r in result['result']['resume_rules'] if r['id'] not in answered]
@@ -469,7 +469,11 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     @app.get('/api/drafts/{identity}')
     def read(identity: str):
-        return public(get(identity))
+        try:
+            value = drafts.get(identity, include_discarded=True)
+            return public(value)
+        except FileNotFoundError:
+            raise HTTPException(404, 'Unknown item')
 
     @app.patch('/api/drafts/{identity}')
     def update(identity: str, body: Edit):
@@ -484,7 +488,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                     raise HTTPException(422, str(exc))
             if 'declined_rules' in values:
                 values['declined_rules'] = sorted(set(draft.get('declined_rules',[])) | set(values['declined_rules']))
-            draft.update(values)
+            draft.update(values, updated_at=drafts.clock().isoformat())
             drafts.put(draft)
             return public(draft)
 
@@ -816,44 +820,68 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'failed')
-            if draft.get('refusal'): raise HTTPException(409, 'Change the account or date, or answer the agent before sending this draft again')
+            if draft.get('refusal'): raise HTTPException(409, 'Change the account or date, or answer the agent before sending this item again')
             draft['check_errors'] = []
             return queue(draft, draft.get('proposal') if draft.get('usual_payment') else draft.get('hand_form') if draft.get('finished_by') else None)
 
+    @app.get('/api/entries/{entry_id}/retention')
+    def entry_retention(entry_id: str):
+        try: return retention.eligibility(entry_id)
+        except ValueError as exc: raise HTTPException(409, str(exc))
+
+    @app.get('/api/trash')
+    def trash_list():
+        with ledger_lock(settings.ledger): return retention.listing()
+
+    @app.get('/api/settings/retention')
+    def retention_settings():
+        from retention_service import limits
+        return limits(read_manifest(settings.ledger))
+
+    @app.post('/api/settings/retention-preview')
+    def retention_preview(body: dict = Body(...)):
+        try:
+            with ledger_lock(settings.ledger): return retention.preview(body)
+        except ValueError as exc: raise HTTPException(422, str(exc))
+
+    @app.post('/api/retention/operations/{operation_id}')
+    def retention_operation(operation_id: str, body: dict = Body(...)):
+        try:
+            if body.get('action') == 'delete':
+                try: status=retention.eligibility(body.get('entry_id'))
+                except ValueError: status=None  # A committed retry replays below.
+                if status and status['offered'] and status['version']==body.get('version'): worker.cancel_receipt(body.get('entry_id'))
+            result = worker.call(lambda: retention.operate(operation_id, body))
+            worker.wake.set()
+            return result
+        except ValueError as exc: raise HTTPException(409, str(exc))
+
     @app.delete('/api/drafts/{identity}', status_code=204)
     def discard(identity: str):
+        # Durable Trash keeps GET safe for an already in-flight poll. All writers
+        # still require an active item, so a late autosave cannot resurrect it.
         with drafts.mutex:
-            draft = get(identity)
-            if draft['state'] == 'working' or draft.get('claim') or draft.get('receipt_reading',{}).get('state') in ('reading','ready'):
-                raise HTTPException(409, 'Release the form or wait for the active reading to finish')
-            draft['discarded_until'] = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
-            drafts.put(draft)
+            draft=get(identity)
+            if draft['state']=='working' or draft.get('claim'):
+                raise HTTPException(409,'Release the form or wait for the reading to finish')
+            if draft['state']=='added' and not draft.get('statement_file'):
+                raise HTTPException(409,'Added entries leave the Queue; use the entry inspector')
+            draft['discard_requested']=True;drafts.put(draft)
+        try: worker.call(lambda: retention.operate(secrets.token_hex(16), dict(action='queue-discard', item_id=identity)))
+        except ValueError as exc: raise HTTPException(409, str(exc))
+        finally:
+            with drafts.mutex:
+                try:
+                    latest=drafts.get(identity,include_discarded=True)
+                    if latest.pop('discard_requested',None):drafts.put(latest)
+                except FileNotFoundError:pass
 
     @app.post('/api/drafts/{identity}/restore')
     def restore(identity: str):
-        with drafts.mutex:
-            drafts.purge()
-            try:
-                draft = drafts.get(identity, include_discarded=True)
-            except (FileNotFoundError, ValueError):
-                raise HTTPException(404, 'The Undo time has ended')
-            if draft.get('discarded_until') and datetime.fromisoformat(draft['discarded_until']) <= datetime.now(timezone.utc):
-                raise HTTPException(404, 'The Undo time has ended')
-            if not draft.pop('discarded_until', None):
-                raise HTTPException(409, 'Draft is not discarded')
-            handed=draft.get('handover_session')
-            if handed:
-                with statements.mutex:
-                    session=statements.get(handed,include_discarded=True)
-                    if session['state'] in ('applying','applied'):
-                        draft['discarded_until']=(datetime.now(timezone.utc)+timedelta(seconds=30)).isoformat()
-                        raise HTTPException(409,'The statement has started applying; the handover cannot be undone.')
-                    session.update(cancelled=True,handover_undone=True,generation=session.get('generation',0)+1,discarded_until=datetime.now(timezone.utc).isoformat())
-                    statements.put(session, force=True)
-                    draft.pop('handover_session',None)
-            drafts.put(draft)
-            worker.wake.set()
-            return public(draft)
+        try:
+            worker.call(lambda: retention.operate(secrets.token_hex(16), dict(action='queue-restore', item_id=identity)))
+            return public(get(identity))
+        except ValueError as exc: raise HTTPException(409, str(exc))
 
     def statement_get(identity, **kwargs):
         try:
@@ -866,7 +894,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from store import load
         statements.purge()
         documents = load(settings.ledger)
-        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('handover_undone')], filed=documents[settings.ledger/'data/card-statements.json'], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']), readers=__import__('statement_readers').Registry(settings.ledger).describe())
+        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('trashed_at') and not s.get('handover_undone')], filed=documents[settings.ledger/'data/card-statements.json'], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']), readers=__import__('statement_readers').Registry(settings.ledger).describe())
 
     @app.get('/api/statements/filed/{end}')
     def filed_statement(end: str, account: str | None = None):
@@ -916,7 +944,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     @app.get('/api/statements/{identity}')
     def read_statement(identity: str):
-        return statement_get(identity)
+        return statement_get(identity, include_discarded=True)
 
     @app.post('/api/statements/{identity}/unlock')
     async def unlock_statement(identity: str, request: Request):
@@ -957,9 +985,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def retry_statement(identity: str):
         with statements.mutex:
             session=statement_get(identity)
-            if session['state'] not in ('wrong_file','couldnt_read'):
+            if session['state'] not in ('wrong_file','couldnt_read','saved'):
                 raise HTTPException(409,'This statement is not waiting for another reading')
-            session.update(state='reading',queued_at=now(),error=None,waiting=None)
+            session.update(state='reading',queued_at=now(),error=None,waiting=None,cancelled=False,generation=session.get('generation',0)+1)
             statements.put(session)
         worker.wake.set()
         return session
@@ -1008,9 +1036,13 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     @app.delete('/api/statements/{identity}', status_code=204)
     def discard_statement(identity: str):
-        statement_get(identity)
+        with statements.mutex:
+            saved=statement_get(identity)
+            if saved.get('apply_started') or saved['state']=='applying': raise HTTPException(409,'The checked apply has started')
+            saved.update(cancelled=True,generation=saved.get('generation',0)+1)
+            statements.put(saved,force=True)
         try:
-            statements.discard(identity)
+            worker.call(lambda: retention.operate(secrets.token_hex(16),dict(action='queue-discard',item_id=identity)))
         except ValueError as exc:
             raise HTTPException(409, str(exc))
 
@@ -1020,6 +1052,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         with drafts.mutex, statements.mutex:
             statements.purge()
             s = statement_get(identity, include_discarded=True)
+            if s.get('trashed_at'): raise HTTPException(409,'Change the shared time limits in Settings')
             until = (datetime.now(timezone.utc)+timedelta(hours=24)).isoformat()
             if s.get('discarded_until'):
                 s['discarded_until'] = until
@@ -1042,7 +1075,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def restore_statement(identity: str):
         statement_get(identity, include_discarded=True)
         try:
-            s = statements.restore(identity)
+            worker.call(lambda: retention.operate(secrets.token_hex(16),dict(action='queue-restore',item_id=identity)))
+            s = statements.get(identity)
         except ValueError as exc:
             raise HTTPException(409, str(exc))
         except FileNotFoundError:

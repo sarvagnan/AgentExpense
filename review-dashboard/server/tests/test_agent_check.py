@@ -17,6 +17,7 @@ from agent_check import (DiagnosticUnavailable, NESTED_TOOLS, OFFLINE_PROMPT, Po
                          configured_features, debug_command, fixture, home_problems,
                          inspect_events, inspect_features, inspect_prompt, main)
 from settings import Settings
+from persona_guard import persona_sensitive
 
 
 def message(text, role='user'):
@@ -62,7 +63,7 @@ def lookup(account='Assets:AgentCheck:fixture'):
 
 class AgentIsolationTests(unittest.TestCase):
     def test_command_isolation_and_ledger_approval(self):
-        folder = tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-isolation-command-')
+        folder = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-isolation-command-')
         self.addCleanup(folder.cleanup)
         ledger, old, _ = fixture(Path(folder.name))
         settings = Settings(ledger=ledger, old_ledger=old)
@@ -101,7 +102,7 @@ class AgentIsolationTests(unittest.TestCase):
             self.assertEqual(codex_environment(Settings())['CODEX_HOME'], str(Settings().codex_home))
 
     def test_renderer_adapter_omits_exec_only_flags_and_keeps_settings(self):
-        folder = tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-render-command-')
+        folder = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-render-command-')
         self.addCleanup(folder.cleanup)
         ledger, _, _ = fixture(Path(folder.name))
         command = command_for(Settings(ledger=ledger), OFFLINE_PROMPT, [])
@@ -116,7 +117,7 @@ class AgentIsolationTests(unittest.TestCase):
         self.assertEqual(debug[-2:], ['--', OFFLINE_PROMPT])
 
     def test_home_inspection_uses_names_and_allows_only_system_skills(self):
-        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-home-check-') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-home-check-') as folder:
             home = Path(folder).resolve()
             # Contents are irrelevant; the checker never opens authentication.
             system = home / 'skills/.system'
@@ -138,6 +139,7 @@ class AgentIsolationTests(unittest.TestCase):
             self.assertEqual(home_problems(home), {'skills/.system'})
             self.assertEqual(home_problems(home / 'missing'), {'missing-home'})
 
+    @persona_sensitive
     def test_feature_check_rejects_unknown_enable_and_disable_names(self):
         command = command_for(Settings(), '--disable prompt-is-not-a-flag', [])
         self.assertFalse(inspect_features(feature_output(command), command))
@@ -192,7 +194,7 @@ class AgentIsolationTests(unittest.TestCase):
                 inspect_prompt(data)
 
     def test_offline_checks_every_allowlist_even_when_login_fails(self):
-        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-offline-check-') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-offline-check-') as folder:
             home = Path(folder).resolve()
             ledger, _, _ = fixture(home)
             settings = Settings(ledger=ledger, codex_home=home, model='fixture-model')
@@ -223,7 +225,7 @@ class AgentIsolationTests(unittest.TestCase):
             invoke.assert_not_called()
 
     def test_defaults_and_missing_binary(self):
-        with tempfile.TemporaryDirectory(dir='/tmp') as folder, patch.dict(os.environ, {}, clear=True):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp')) as folder, patch.dict(os.environ, {}, clear=True):
             with patch('pathlib.Path.home', return_value=Path(folder)):
                 settings = Settings.from_env()
             self.assertEqual(settings.state_dir, Path(folder).resolve() / '.local/state/agentexpense')
@@ -236,7 +238,7 @@ class AgentIsolationTests(unittest.TestCase):
             self.assertFalse(settings.codex_home.exists())
 
     def test_state_directory_precedence_and_dedicated_agent_home(self):
-        with tempfile.TemporaryDirectory(dir='/tmp') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp')) as folder:
             home = Path(folder).resolve()
             cases = [
                 ({}, home / '.local/state/agentexpense'),
@@ -280,7 +282,7 @@ class AgentIsolationTests(unittest.TestCase):
             self.assertNotIsInstance(raised.exception, (PolicyFailure, DiagnosticUnavailable))
 
     def test_fixture_lookup_server_and_mocked_live_probe(self):
-        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-check-test-') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-agent-check-test-') as folder:
             work = Path(folder).resolve()
             ledger, old, account = fixture(work)
             settings = replace(Settings(), ledger=ledger, old_ledger=old, codex_home=work / 'service-home')
@@ -317,7 +319,7 @@ class AgentIsolationTests(unittest.TestCase):
                     check_live(settings, work, account)
 
     def test_production_runner_with_offline_protocol_double(self):
-        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-run-test-') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-agent-run-test-') as folder:
             work = Path(folder).resolve()
             ledger, old, _ = fixture(work)
             (ledger / 'AGENTS.md').write_text('## Before adding\nFixture policy.\n## Rebuild and verify\n')
@@ -344,8 +346,9 @@ class AgentIsolationTests(unittest.TestCase):
             self.assertIn('mcp_servers.ledger.default_tools_approval_mode="approve"', call['argv'])
             self.assertFalse(Path(call['cwd']).exists())
 
+    @persona_sensitive
     def test_unlogged_service_home_error_does_not_fall_back(self):
-        with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-login-error-') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-login-error-') as folder:
             work = Path(folder).resolve()
             home = work / 'service-home'
             fake = work / 'fake-codex'

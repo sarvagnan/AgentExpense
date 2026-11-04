@@ -28,13 +28,13 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  const addedId=await submit('Copper Finch Café, 18.60, paid with my card','Copper-Finch-Receipt');
  const added=await wait(addedId,'added');assert.equal(added.result.outcome,'ready');assert.ok(added.result.commit_id);assert.equal(added.result.sources.length,1);assert.ok((await readFile(join(stage.ledger,added.result.sources[0]))).length>0);
  const rows=JSON.parse(await readFile(join(stage.ledger,'data/expenses/2026.json')));assert.ok(rows.some(r=>r.id===added.result.entry_id));
- await go('drafts/?draft='+addedId);await refresh();await expect(page.getByRole('heading',{name:'Added to your ledger',exact:true})).toBeVisible();await expect(page.locator('.draft-queue .draft-row')).toHaveCount(0);
+ await go('add/?draft='+addedId);await refresh();await expect(page.locator('.just-added-row').first()).toContainText('Added');await go('queue/');await expect(page.locator('.draft-queue .draft-row')).toHaveCount(0);
  record('4B Add panels and expense submission through fake agent to verified ledger commit');
  // Conversion question comes from the real worker and fake agent proposal.
  config=await control('scenario',{mode:'conversion'});
  const conversion=await submit('Dinner at Juniper Table, 46.80 '+config.foreign+', on my card');
  const draft=await wait(conversion,'question');assert.equal(draft.currency_request.kind,'expense');
- await go('drafts/?draft='+conversion);await refresh();
+ await go('queue/?draft='+conversion);await refresh();
  const form=page.locator('.currency-form'),charged=form.getByLabel('Amount in '+config.currency,{exact:true}),rate=form.getByLabel(config.currency+' for 1 '+config.foreign,{exact:true}),save=form.getByRole('button',{name:'Save expense',exact:true});
  await expect(save).toBeDisabled();await overflow('conversion blank');await snap('draft-conversion');
  for(const invalid of ['0','-1','abc','Infinity','1e3','']){await charged.fill(invalid);await expect(save).toBeDisabled();await rate.fill(invalid);await expect(save).toBeDisabled();}
@@ -48,7 +48,7 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  assert.equal(expense.postings[0].cost.amount,'51.48');assert.equal(expense.postings[1].amount,'-51.48');assert.match(expense.notes.join(' '),/estimate/);
  record('4B conversion blank/invalid gating, linked math in both directions, four decimals, estimate and committed total cost');
  config=await control('scenario',{mode:'transfer'});
- const transfer=await submit('Sent 1000 from '+config.source+' to '+config.destination);await wait(transfer,'question');await go('drafts/?draft='+transfer);await refresh();
+ const transfer=await submit('Sent 1000 from '+config.source+' to '+config.destination);await wait(transfer,'question');await go('queue/?draft='+transfer);await refresh();
  const received=page.getByLabel('Received in '+config.destinationCurrency,{exact:true}),transferRate=page.getByLabel(config.destinationCurrency+' for 1 '+config.sourceCurrency,{exact:true}),saveTransfer=page.getByRole('button',{name:'Save transfer',exact:true});
  await expect(saveTransfer).toBeDisabled();await snap('draft-transfer');
  for(const value of ['','0','-1','oops']){await received.fill(value);await expect(saveTransfer).toBeDisabled();}
@@ -57,11 +57,11 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  const savedTransfer=JSON.parse(await readFile(join(stage.ledger,'data/expenses/2026.json'))).find(r=>r.id===transferred.result.entry_id);
  assert.deepEqual(savedTransfer.postings.map(p=>p.commodity),[config.sourceCurrency,config.destinationCurrency]);assert.equal(Number(savedTransfer.postings[0].amount),-1000);assert.equal(Number(savedTransfer.postings[1].amount),1160);
  record('4B transfer links received amount/rate and saves both native amounts');
- await control('scenario',{mode:'question'});const question=await submit('Paper Kite Market, groceries yesterday');await wait(question,'question');await go('drafts/?draft='+question);await refresh();
+ await control('scenario',{mode:'question'});const question=await submit('Paper Kite Market, groceries yesterday');await wait(question,'question');await go('queue/?draft='+question);await refresh();
  await expect(page.getByRole('button',{name:'Send answer',exact:true})).toBeDisabled();
  await page.locator('.draft-question select').selectOption({index:1});await expect(page.getByRole('button',{name:'Send answer',exact:true})).toBeEnabled();await snap('draft-question');
  await control('scenario',{mode:'ready'});await page.getByRole('button',{name:'Send answer',exact:true}).click();await wait(question,'added');
- await control('scenario',{mode:'failure'});const failed=await submit('Cedar Taxi, paid with my card','Cedar-Taxi-Receipt');await wait(failed,'failed');await go('drafts/?draft='+failed);await refresh();
+ await control('scenario',{mode:'failure'});const failed=await submit('Cedar Taxi, paid with my card','Cedar-Taxi-Receipt');await wait(failed,'failed');await go('queue/?draft='+failed);await refresh();
  await expect(page.locator('.draft-words')).toContainText('Cedar Taxi');await expect(page.locator('.attachments')).toContainText('Cedar-Taxi-Receipt.png');await snap('draft-failed');await quiet();
  await control('scenario',{mode:'ready',attachment:'Cedar-Taxi-Receipt'});await page.getByRole('button',{name:'Retry',exact:true}).click();await wait(failed,'added');
  record('4B account selection required before answering, failed input preserved and real Retry succeeds');
@@ -76,7 +76,7 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===november&&['found','currency_mismatch'].includes(s.state))?.id,{timeout:30000}).toBeTruthy();
  let session=(await get('statements')).sessions.find(s=>s.original_name===november);
  if(session.state==='currency_mismatch'){await page.getByLabel('Account in '+config.currency).selectOption(config.account);await page.getByRole('button',{name:'Use this account',exact:true}).click();await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:30000}).toBe('found');}
- await go('drafts/?session='+session.id);await page.getByRole('button',{name:'Review checklist',exact:true}).click();await expect(page.getByRole('button',{name:'Review apply',exact:true})).toBeDisabled();
+ await go('queue/?session='+session.id);await page.getByRole('button',{name:'Review checklist',exact:true}).click();await expect(page.getByRole('button',{name:'Review apply',exact:true})).toBeDisabled();
 await expect(page.locator('.statement-conversion')).toContainText('51.48');await expect(page.locator('.statement-conversion')).toContainText('51.62');await snap('draft-statement');
  await page.getByRole('combobox',{name:'Decision for Juniper Table',exact:true}).selectOption('conversion');
  await expect(page.locator('.statement-decision').filter({hasText:'Replace estimate with posted amount'})).toBeVisible();
@@ -110,10 +110,10 @@ await expect(page.locator('.statement-conversion')).toContainText('51.48');await
  record('4B statement mismatch blocks Continue, supports reassignment and stages account creation until a verified Continue');
  await quiet();await quiesce();await control('reset-workflows',{});
  // Stable queue/working/empty capture states are ignored fixture records.
- const queue=await resetDrafts({persona:'jordan'});await go('drafts/');await refresh();await snap('draft-queue');
+ const queue=await resetDrafts({persona:'jordan'});await go('queue/');await refresh();await snap('draft-queue');
  if(width>760){const links=page.locator('.draft-queue a.draft-row');await links.first().focus();await page.keyboard.press('End');await expect(links.last()).toBeFocused();await page.keyboard.press('j');await expect(links.filter({hasText:'Juniper Table'})).toBeFocused();}
- if(width<760){await expect(page.locator('.draft-detail-wrap')).toBeHidden();await page.locator('.draft-row').first().click();await expect(page.getByRole('link',{name:'All drafts',exact:true})).toBeVisible();await page.getByRole('link',{name:'All drafts',exact:true}).click();await expect(page.locator('.draft-queue')).toBeVisible();}
- await go('drafts/?draft='+queue.ids.at(-1));await refresh();await expect(page.locator('.agent-next')).toContainText('You can leave this page');await snap('draft-working');
- await resetDrafts({persona,empty:true});await go('drafts/');await refresh();await expect(page.getByText('No drafts waiting.',{exact:true})).toBeVisible();await snap('draft-empty');
+ if(width<760){await expect(page.locator('.draft-detail-wrap')).toBeHidden();await page.locator('.draft-row').first().click();await expect(page.getByRole('link',{name:'All items',exact:true})).toBeVisible();await page.getByRole('link',{name:'All items',exact:true}).click();await expect(page.locator('.draft-queue')).toBeVisible();}
+ await go('queue/?draft='+queue.ids.at(-1));await refresh();await expect(page.locator('.queue-next')).toContainText('You can leave this page');await snap('draft-working');
+ await resetDrafts({persona,empty:true});await go('queue/');await refresh();await expect(page.getByText('No items waiting.',{exact:true})).toBeVisible();await snap('draft-empty');
  record('4B phone list/detail All drafts navigation, safe working state and empty actionable badge');
 }

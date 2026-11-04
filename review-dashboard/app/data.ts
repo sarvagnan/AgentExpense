@@ -52,3 +52,10 @@ export function reloadData() {
   if (!reloading) reloading = loadData().finally(() => { reloading = null; });
   return reloading;
 }
+
+// A read begun before a write can contain the previous ledger. Let it finish,
+// then start a new complete snapshot for the committed result.
+export async function reloadDataAfterWrite() {
+  if(reloading)await reloading.catch(()=>undefined);
+  return reloadData();
+}

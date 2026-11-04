@@ -58,7 +58,7 @@ test('guess card renders payment choices, duplicate entry link, missing payer an
     const {RuleSaved}=await server.ssrLoadModule('/app/live/rule-saved.tsx');
     const completed={id:'0'.repeat(32),created_at:'2026-11-02T12:00:00Z',result:{audit_id:'1'.repeat(32),description:'Willow club',next_due:'2026-12-15',can_undo:false}};
     const saved=draft=>renderToStaticMarkup(createElement(RuleSaved,{draft,online:true}));
-    assert.doesNotMatch(saved(completed),/>Undo</);assert.match(saved({...completed,result:{...completed.result,can_undo:true,undo_until:'2999-01-01T00:00:00Z'}}),/>Undo</);assert.equal(saved({...completed,result:{...completed.result,undone:true}}),'');
+    assert.doesNotMatch(saved(completed),/>Undo</);assert.match(saved(completed),/Next due/);
 
 
   }finally{await server.close();}

@@ -328,13 +328,13 @@ class Transaction:
                     new_roots=[a for a in new if a.split(':')[0] not in roots],
                     proposal_hash=proposal_hash(answer))
 
-    def publish(self, documents, record, result, lock_fd, message, *, copies=(), moves=()):
+    def publish(self, documents, record, result, lock_fd, message, *, copies=(), moves=(), removals=()):
         """Publish a replacement/merge through the same checked recovery boundary."""
         from audit import append, audit_path
         from replacements import check_documents
         check_documents(documents, self.root)
         paths=[*store_paths(self.root), *documents, self.root/'expense_ledger.ledger', audit_path(self.root,record)]
-        paths += [p for pair in moves for p in pair] + [target for source,target in copies]
+        paths += [p for pair in moves for p in pair] + [target for source,target in copies] + list(removals)
         journal=self.snapshot(list(dict.fromkeys(paths)))
         try:
             for source,target in copies:
@@ -343,6 +343,7 @@ class Transaction:
             for source,target in moves:
                 target.parent.mkdir(parents=True,exist_ok=True)
                 source.rename(target)
+            for path in removals: path.unlink()
             for path,value in documents.items(): dump(path,value)
             append(self.root,record)
             journal['result']=result;self.save_journal(journal)

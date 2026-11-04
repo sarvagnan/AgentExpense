@@ -1,3 +1,4 @@
+import os
 """Module settings shape prompts, schemas and read-only MCP capabilities at runtime."""
 from dataclasses import replace
 import json
@@ -25,7 +26,7 @@ class ModuleServerTests(Fixture):
 
     def prompt(self, settings):
         draft = dict(files=[], text='lunch 100 cash', saved_at='2026-10-31T12:00:00+00:00', questions=[])
-        with tempfile.TemporaryDirectory(dir='/tmp') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp')) as folder:
             return prompt_for(settings, draft, self.base, Path(folder))[0]
 
     def tools(self, settings):

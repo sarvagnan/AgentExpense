@@ -1,3 +1,4 @@
+import os
 """Versioned readers on wholly fictional sources; never run an agent/model."""
 from copy import deepcopy
 from decimal import Decimal
@@ -10,6 +11,7 @@ import unittest
 from unittest.mock import patch
 import sys
 
+from persona_guard import persona_sensitive
 from support import APPLICATION, Fixture
 from statement_readers import Registry, Reader, check_statement
 from statements import Statements
@@ -27,7 +29,7 @@ CSV = b'Date,Description,Amount,Balance,Reference\n2026-01-02,Fable Shop,-10.00,
 
 class ReaderContract(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(dir='/tmp',prefix='expense-readers-')
+        self.temporary = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'),prefix='expense-readers-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.csv = self.root/'example.csv';self.csv.write_bytes(CSV)
@@ -373,6 +375,7 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
         self.assertEqual(row['postings'][1]['amount'],'-0.005')
         check_card_statements(docs,self.ledger)
 
+    @persona_sensitive
     def test_every_persona_pdf_applies_with_preserved_existing_entries(self):
         from dataclasses import replace
         import shutil

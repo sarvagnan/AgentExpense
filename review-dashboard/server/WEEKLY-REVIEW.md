@@ -59,7 +59,7 @@ Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` fr
    justify a rule, and a payment already covered by a rule never justifies a
    second rule. Check amount/currency, planned costs, payment account, schedule
    anchor and next date against the full payment. Read duplicate-period overrides,
-   undos (including reversing entries), suppression evidence and paused matches.
+   historical reversals (including reversing entries), suppression evidence and paused matches.
    Check that a paused payment offered the owner Resume / Keep paused; review
    never chooses for them.
 
@@ -77,8 +77,7 @@ Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` fr
    verdicts only: never edit an entry, move evidence or apply another correction.
 
 6. Look for recurring failed checks, retries, questions, discards, misleading
-   suggestions and missing evidence. Distinguish a discarded draft from removal
-   of an expense: discarding a record leaves an added ledger entry in place.
+   suggestions and missing evidence. Distinguish a Queue item moved to Trash from deletion of an expense: a Queue item was never in the ledger.
 
 7. Give every listed line one verdict: `ok` when checked, or `issue` with the
    concrete concern and what the user must decide. Write them all to
@@ -119,3 +118,15 @@ only to forecasts. Verify its payment retains its sources and clears the bill in
 the same commit. Check the estimate against the latest three payments including
 outliers, and accepted unusual amounts against the latest six. Record a verdict
 or propose a rule change; a verdict authorizes no entry or bill correction.
+
+## Delete, Trash and retention
+
+Review every retention event: deleted, restored, restore-refused,
+removed-for-good, queue-trashed, queue-restored and settings-changed. Read the
+selected IDs, reasons, entry snapshots, moved/shared evidence and rule changes.
+Check addition time, first-commit protection, the Delete window and statement
+coverage. Verify restored files use their original Bills paths and that a linked
+rule/bill and its median agree with the final actual payments. A restore refusal
+must retain its reason and record-only commit. Check settings before/after and
+immediate expiry effects. Permanent removal retains a version-history copy.
+Record a verdict only; review never authorizes an edit, deletion or restore.

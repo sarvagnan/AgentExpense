@@ -1,12 +1,13 @@
+import {lockModalPage} from './ui';
 import {api as liveApi} from './live/api';
 import { SettingsDialog } from './settings-dialog';
 import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { money as amountMoney, axisMoney } from './formatting';
 import {today, calendarMonths, formatTimestamp} from './date-time';
 import { reviewKeys } from '../scripts/account-metadata.mjs';
-import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, Fragment } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, Fragment } from 'react';
 import { createPortal } from 'react-dom';
-import { dashboard as data, review as reviewData, type DashboardData } from './data';
+import { dashboard as data, reloadData, review as reviewData, type DashboardData } from './data';
 import Review from './review/page';
 import {useReview} from './review/api';
 import Add from './live/add';
@@ -14,7 +15,10 @@ import {useAnswerGuard} from './live/answers';
 import {useComposer} from './live/composer';
 import {useLiveFocus} from './live/focus';
 import Drafts from './live/drafts';
+import Trash,{DeleteEntry,RetentionNotice} from './live/retention';
 import { useDrafts } from './live/use-drafts';
+import {LiveDraftsContext} from './live/context';
+import ReceiptReading from './live/receipt-reading';
 import { subscribeData, dataVersion } from './data';
 import AccountSummary from './account-summary';
 import { displayAccountLabel, summarizeAccounts } from './account-labels';
@@ -27,13 +31,13 @@ import {
   currencySymbol, moneyTotal, sumCurrencies, currencyOrder, money, monthLong, monthName, monthShort, plural, useEscape, useQueryState, useRowNavigation, type IconName,
 } from './ui';
 
-export type View = 'explorer' | 'atlas' | 'journal' | 'forecast' | 'review' | 'accounts' | 'add' | 'drafts';
+export type View = 'explorer' | 'atlas' | 'journal' | 'forecast' | 'review' | 'accounts' | 'add' | 'queue' | 'trash';
 type Transaction = DashboardData['transactions'][number];
 type Month = DashboardData['months'][number];
 
 export const VIEWS: { id: View; label: string; href: string; icon: IconName; carriesMonth: boolean }[] = [
   { id: 'add', label: 'Add', href: 'add/', icon: 'pencil', carriesMonth: false },
-  { id: 'drafts', label: 'Drafts', href: 'drafts/', icon: 'stack', carriesMonth: false },
+  { id: 'queue', label: 'Queue', href: 'queue/', icon: 'stack', carriesMonth: false },
   { id: 'review', label: 'Review', href: 'review/', icon: 'review', carriesMonth: false },
   { id: 'explorer', label: 'Explorer', href: 'explorer/', icon: 'explorer', carriesMonth: true },
   { id: 'atlas', label: 'Atlas', href: 'atlas/', icon: 'atlas', carriesMonth: true },
@@ -108,7 +112,7 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
       <section className="help-review"><h3>Review</h3>
         <details><summary>Backup and moving browsers</summary><p>Export decisions saves a version-2 backup. Import previews its valid, changed and unknown entries before saving valid decisions to the ledger.</p></details>
         <details><summary>Multiple tabs</summary><p>Every device reads the same ledger queue and count. If another device changes an entry, reload and check it before applying your decision.</p></details>
-        <details><summary>Recovery</summary><p>Unsent edits and failed requests remain in this browser. Resume or discard edits, or retry the saved request. Duplicate separations can be undone immediately or from Change history.</p></details>
+        <details><summary>Recovery</summary><p>Unsent edits and failed requests remain in this browser. Resume or discard edits, or retry the saved request. Changes are recorded in Change history.</p></details>
         {moduleSettings(data.meta.ledger).fuel && <details><summary>Fuel Log</summary><p>Open Fuel Log while reviewing an entry to compare its payment and readings. Numbered Entry links open the confirmed ledger entries in a new tab.</p></details>}
       </section>
       <section><h3>Keyboard shortcuts</h3><div className="shortcuts">{SHORTCUTS.filter(([group]) => group !== 'Investment value charts' || (moduleSettings(data.meta.ledger).investments !== false && data.prices.length > 0)).map(([group, items]) => <section key={group}><h4>{group}</h4><dl>{items.map(([keys, action]) => <div key={keys}><dt><kbd>{keys}</kbd></dt><dd>{action}</dd></div>)}</dl></section>)}</div>
@@ -144,7 +148,7 @@ function EmptyMonth({title, month, setMonth}: {title:string; month:string; setMo
   </div></section>;
 }
 
-function Sidebar({ active, month, attention, status, unreviewed, important, onHelp, onSettings }: { active: View; month: string; attention: number; status: string; unreviewed: number; important: boolean; onHelp: () => void; onSettings: () => void }) {
+function Sidebar({ active, month, attention, status, unreviewed, important, onHelp, onSettings,trashCount }: { trashCount:number; active: View; month: string; attention: number; status: string; unreviewed: number; important: boolean; onHelp: () => void; onSettings: () => void }) {
   const [appearance, setAppearance] = useAppearance();
   const nextAppearance = appearance === 'light' ? 'dark' : 'light';
   const appearanceLabel = `Switch to ${nextAppearance === 'light' ? 'Light' : 'Dark'} appearance`;
@@ -153,10 +157,10 @@ function Sidebar({ active, month, attention, status, unreviewed, important, onHe
     <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">A</span><span className="sidebar-label">AgentExpense</span></a>
     <Identity onSettings={onSettings}/><nav aria-label="Views">{VIEWS.map((view, index) => <Fragment key={view.id}>{index===3 && <hr/>}<a key={view.id} href={`${import.meta.env.BASE_URL}${view.href}${view.carriesMonth ? query : ''}`} aria-current={view.id === active ? 'page' : undefined} title={view.label}>
       <Icon name={view.icon}/><span className="sidebar-label">{view.label}</span>{view.id === 'review' && unreviewed > 0 && <span className={`nav-count ${important?'important':''}`}><span className="sr-only">, </span>{unreviewed}<span className="sr-only"> to review</span></span>}
-      {view.id === 'drafts' && attention > 0 && <span className="nav-count"><span className="sr-only">, </span>{attention}<span className="sr-only"> need attention</span></span>}
+      {view.id === 'queue' && attention > 0 && <span className="nav-count"><span className="sr-only">, </span>{attention}<span className="sr-only"> need attention</span></span>}
     </a></Fragment>)}</nav>
-    <div className="sidebar-footer">
-      <p className="sidebar-status" aria-hidden="true">{status}</p>
+    <div className="sidebar-footer"><a href={`${import.meta.env.BASE_URL}trash/`} aria-current={active==='trash'?'page':undefined} className="appearance"><Icon name="stack"/><span className="sidebar-label">Trash{trashCount?` (${trashCount})`:""}</span></a>
+      <button type="button" className="sidebar-button" title="Settings" onClick={onSettings}><Icon name="chevron-up-down"/><span className="sidebar-label">Settings</span></button><p className="sidebar-status" aria-hidden="true">{status}</p>
       <button type="button" className="sidebar-button" aria-label={appearanceLabel} title={appearanceLabel} onClick={() => setAppearance(nextAppearance)}>
         <Icon name={nextAppearance === 'light' ? 'sun' : 'moon'}/><span className="sidebar-label">{nextAppearance === 'light' ? 'Light' : 'Dark'} appearance</span></button>
       <button type="button" className="sidebar-button" title="Help & Shortcuts" onClick={(event) => { event.currentTarget.focus(); onHelp(); }}><Icon name="help"/><span className="sidebar-label">Help &amp; Shortcuts</span></button>
@@ -180,6 +184,8 @@ export function TransactionDetails({ transaction, onClose, entries = [], onStep 
 
 function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: Omit<EntryPanelProps, 'transaction'> & { transaction: Transaction; closing: boolean }) {
   useDocumentScrollLock();
+  const live=useContext(LiveDraftsContext);
+  const receiptDraft=live?.drafts.find(d=>d.result?.entry_id===(transaction.storeId||transaction.id.split('-')[0])&&d.receipt_reading&&d.receipt_reading.state!=='cancelled');
   const dialog = useRef<HTMLElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -191,11 +197,10 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
   const lastId = useRef(transaction.id);
   lastId.current = transaction.id;
   useEffect(() => {
-    const page = document.querySelector<HTMLElement>('main.app');
-    if (page) page.inert = true;
+    const unlock=lockModalPage();
     dialog.current?.querySelector<HTMLElement>('#entry-title')?.focus({ preventScroll: true });
     return () => {
-      if (page) page.inert = false;
+      unlock();
       const row = document.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(lastId.current)}"]`);
       row?.focus({ preventScroll: true });
     };
@@ -221,10 +226,10 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
       <div><h2 id="entry-title" tabIndex={-1}>{transaction.description}</h2><p>{dayLabel(transaction.date)} · {transaction.displayType}{transaction.status === 'Pending' ? ' · unclassified' : ''}</p>
         <p className={`amount-hero ${amountClass(transaction)}`}>{signedAmount(transaction)}</p>
         {reimbursable && <p>Purchase amount{transaction.originalAmount ? ` · ${transaction.originalAmount} billed` : ''}</p>}</div>
-      <div className="entry-header-tools"><button type="button" className="button plain" onClick={async () => setLinkCopied(await copyText(entryUrl(transaction.id)))}><Icon name="copy"/>Copy Link</button><span className={`entry-copy-status ${linkCopied === false ? 'error' : ''}`} role="status">{linkCopied === null ? '' : linkCopied ? 'Link copied' : 'Copy blocked'}</span><div className="entry-navigation"><button type="button" className="icon-button" aria-label="Previous entry" title="Previous entry (↑)" disabled={index <= 0} onClick={() => step(-1)}>↑</button><button type="button" className="icon-button" aria-label="Next entry" title="Next entry (↓)" disabled={index < 0 || index >= entries.length - 1} onClick={() => step(1)}>↓</button><button ref={closeRef} type="button" className="icon-button" onClick={onClose} aria-label="Close details" title="Close (Esc)"><Icon name="close"/></button></div></div>
+      <div className="entry-header-tools">{correctionOnline&&<button className="button" onClick={()=>navigate(`queue/?correct=${encodeURIComponent(transaction.storeId||transaction.id.split('-')[0])}&back=${encodeURIComponent(location.pathname+location.search)}`)}>Edit</button>}<button type="button" className="button plain" onClick={async () => setLinkCopied(await copyText(entryUrl(transaction.id)))}><Icon name="copy"/>Copy Link</button><span className={`entry-copy-status ${linkCopied === false ? 'error' : ''}`} role="status">{linkCopied === null ? '' : linkCopied ? 'Link copied' : 'Copy blocked'}</span><div className="entry-navigation"><button type="button" className="icon-button" aria-label="Previous entry" title="Previous entry (↑)" disabled={index <= 0} onClick={() => step(-1)}>↑</button><button type="button" className="icon-button" aria-label="Next entry" title="Next entry (↓)" disabled={index < 0 || index >= entries.length - 1} onClick={() => step(1)}>↓</button><button ref={closeRef} type="button" className="icon-button" onClick={onClose} aria-label="Close details" title="Close (Esc)"><Icon name="close"/></button></div></div>
     </div>
     <div className="inspector-body" ref={body}>
-    {correctionOnline?<button className="button" onClick={()=>navigate(`drafts/?correct=${encodeURIComponent(transaction.storeId||transaction.id.split('-')[0])}&back=${encodeURIComponent(location.pathname+location.search)}`)}>Correct this entry</button>:<p className="live-hint">Corrections need the live server.</p>}
+    {!correctionOnline&&<p className="live-hint">Editing needs the live server.</p>}
     <dl className="facts">
       <dt>Category</dt><dd>{transaction.category}</dd>
       {transaction.kind === 'Transfer' ? <>
@@ -247,6 +252,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
         <span className="posting-amount">{money(Math.abs(posting.amount), posting.currency)}{'cost' in posting && posting.cost !== undefined && <span className="row-sub" title={`Cost in ${posting.costCurrency}`}>Cost {money(Math.abs(posting.cost), posting.costCurrency)}</span>}</span>
       </div>)}
     </div></section>
+    {receiptDraft&&live&&<section className="inspector-section"><ReceiptReading draft={receiptDraft} onAction={async()=>{await reloadData();await live.refresh();}}/></section>}
     {transaction.provenance && <section className="inspector-section" aria-label="Added from the live page"><h3>Added from the live page</h3>{transaction.provenance.text.length>240?<details className="provenance-original"><summary><span className="provenance-preview">{transaction.provenance.text}</span><span className="provenance-disclose">Show full typed words</span></summary><p className="provenance-words">{transaction.provenance.text}</p></details>:<p className="provenance-words">{transaction.provenance.text || 'Files only — no typed words.'}</p>}<p className="live-hint">{formatTimestamp(transaction.provenance.savedAt || transaction.provenance.time)}<br/>{transaction.provenance.models.join(', ') || 'No agent run'}</p>{transaction.provenance.questions.map((q,i)=><div className="earlier-answer" key={i}><p>{q.question}</p><p><strong>You:</strong> {q.answer || 'Unanswered'}</p></div>)}<p><strong>Doubts:</strong> {transaction.provenance.doubts.join('; ') || 'None reported'}</p></section>}
     <section className="inspector-section" aria-label="Source evidence"><h3><Icon name="source"/>Evidence</h3>
       <ul className="source-list">{transaction.sources.map((source) => <SourceItem key={source} path={source} onCopied={setCopied}/>)}</ul>
@@ -254,6 +260,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
       <p className="message">{linked ? <><Icon name="check"/>Filed under Bills/</> : <><Icon name="pending"/>Recorded source, not filed under Bills/</>}</p>
       {copied !== null && <p className={`message ${copied ? 'success' : 'error'}`} role="status">{copied ? <><Icon name="check"/>Path copied</> : 'The browser blocked copying. Select the path and press ⌘C.'}</p>}
     </section>
+    {correctionOnline&&<DeleteEntry id={transaction.storeId||transaction.id.split('-')[0]} onDeleted={onClose}/>}
     </div>
   </aside></div>;
   return typeof document === 'undefined' ? content : createPortal(content, document.body);
@@ -641,7 +648,7 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
   </div>;
 }
 
-const TITLES: Record<View, string> = { explorer: 'Explorer', atlas: 'Atlas', journal: 'Journal', forecast: 'Forecast', accounts: 'Accounts', review: 'Review', add: 'Add', drafts: 'Drafts' };
+const TITLES: Record<View, string> = { explorer: 'Explorer', atlas: 'Atlas', journal: 'Journal', forecast: 'Forecast', accounts: 'Accounts', review: 'Review', add: 'Add', queue: 'Queue', trash: 'Trash' };
 
 export default function Dashboard({ view }: { view: View }) {
   const [month, setMonth] = useQueryState('month', defaultMonth(), isMonth);
@@ -651,7 +658,9 @@ export default function Dashboard({ view }: { view: View }) {
   useAnswerGuard();
   useLiveFocus(view);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [settingsOpen,setSettingsOpen] = useState(false);
+  const [settingsQuery,setSettingsQuery]=useQueryState('settings','');
+  const [settingsOpen,setSettingsOpen] = useState(!!settingsQuery);
+  useEffect(()=>{if(settingsQuery)setSettingsOpen(true);},[settingsQuery]);
   const [status, setStatus] = useState('');
   const reviewLive=useReview();
   const unreviewed=reviewLive.data?.count || 0;
@@ -698,12 +707,11 @@ export default function Dashboard({ view }: { view: View }) {
     document.addEventListener('copy', onCopy);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onStep); document.removeEventListener('copy', onCopy); };
   }, []);
-  return <main className={`app ${view === 'add' || view === 'drafts' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} important={important} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)}/><p className="sr-only navigation-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
-    <div className="content" id="main-content" tabIndex={-1}><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'drafts' ? <Drafts live={live}/> : <div key={view==='review'||view==='forecast'?view:version}>{view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? (data.transactions.some(row=>row.month===month) ? <Journal month={month} setMonth={setMonth}/> : <EmptyMonth title="Journal" month={month} setMonth={setMonth}/>) : view === 'forecast' ? <Forecast online={live.online} version={version}/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
-    {!!live.undo.length && <div className="draft-undo panel" role="status">{live.undo.map(item=><div key={item.id}>Draft discarded. <button className="button" onClick={()=>void live.restore(item.id)}>Undo</button></div>)}{live.undoError && <p role="alert" className="live-error">{live.undoError}</p>}</div>}
-    <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='drafts'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className={`nav-count ${v.id==='review'&&important?'important':''}`} aria-label={v.id==='drafts'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='drafts'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
-    {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><button className="button" onClick={closeViews}>Close views</button></div>}
-    {settingsOpen && <SettingsDialog agent={live.agent} onClose={()=>setSettingsOpen(false)}/>}
+  return <LiveDraftsContext.Provider value={live}><main className={`app ${view === 'add' || view === 'queue' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} important={important} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)} trashCount={live.trashCount}/><p className="sr-only navigation-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
+    <div className="content" id="main-content" tabIndex={-1}><RetentionNotice/><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'queue' ? <Drafts live={live}/> : view === 'trash' ? <Trash/> : <div key={view==='review'||view==='forecast'?view:version}>{view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? (data.transactions.some(row=>row.month===month) ? <Journal month={month} setMonth={setMonth}/> : <EmptyMonth title="Journal" month={month} setMonth={setMonth}/>) : view === 'forecast' ? <Forecast online={live.online} version={version}/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
+    <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='queue'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className={`nav-count ${v.id==='review'&&important?'important':''}`} aria-label={v.id==='queue'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='queue'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={view==='trash'||VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
+    {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><a className="button" aria-current={view==='trash'?'page':undefined} href={`${import.meta.env.BASE_URL}trash/`}>Trash{live.trashCount?` (${live.trashCount})`:""}</a><button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><button className="button" onClick={closeViews}>Close views</button></div>}
+    {settingsOpen && <SettingsDialog agent={live.agent} onClose={()=>{setSettingsOpen(false);setSettingsQuery('','replace');}}/>}
     {shortcutsOpen && <HelpDialog onClose={() => setShortcutsOpen(false)}/>}
-  </main>;
+  </main></LiveDraftsContext.Provider>;
 }

@@ -12,21 +12,73 @@ from store import load, entries
 from ledger_lock import ledger_lock
 
 
-def validate_reading(answer):
-    if answer['date']:
-        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',answer['date']): raise ValueError('Invalid receipt date')
-        date.fromisoformat(answer['date'])
-    if answer['amount'] is not None and (not Decimal(answer['amount']).is_finite() or Decimal(answer['amount'])<0): raise ValueError('Invalid receipt amount')
-    if answer['payment_datetime']:
-        # A printed local time may have no offset; never supply an invented zone.
-        if 'T' not in answer['payment_datetime']: raise ValueError('Receipt payment time must include a time')
-        datetime.fromisoformat(answer['payment_datetime'])
+def date_order(locale):
+    # Locale context is optional. Resolve its numeric field order through the
+    # installed project Node's Intl data rather than assuming a region.
+    import subprocess
+    from node_toolchain import node_environment
+    try:
+        result = subprocess.check_output(['node','-e',"const l=process.argv[1]; if(Intl.DateTimeFormat.supportedLocalesOf([l]).length){const p=new Intl.DateTimeFormat(l).formatToParts(new Date(2001,10,22)); console.log(p.find(x=>x.type==='day'||x.type==='month').type)}",locale], env=node_environment(), text=True, stderr=subprocess.DEVNULL,timeout=5).strip()
+        return result
+    except (ValueError,OSError,subprocess.SubprocessError): return None
+
+
+
+def validate_reading(answer, locale=None):
+    """Normalize uncertain printed facts independently; one bad fact never loses a receipt."""
+    from decimal import InvalidOperation
+    notes = answer.get('notes') or []
+    def unknown(field, label):
+        raw = answer.get(field)
+        if raw is not None:
+            import unicodedata
+            readable=''.join(f'\\u{ord(c):04x}' if unicodedata.category(c) in ('Cc','Cf') else c for c in str(raw))
+            notes.append(f'Receipt {label} not understood: {readable}')
+        answer[field] = None
+    raw = answer.get('date')
+    if raw is not None:
+        try:
+            if re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw):
+                answer['date'] = date.fromisoformat(raw).isoformat()
+            else:
+                match = re.fullmatch(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', raw)
+                if not match: raise ValueError()
+                first, second, year = map(int, match.groups())
+                if first > 12: day, month = first, second
+                elif second > 12: month, day = first, second
+                elif locale:
+                    order = date_order(locale)
+                    if order == 'day': day, month = first, second
+                    elif order == 'month': month, day = first, second
+                    else: raise ValueError()
+                else: raise ValueError()
+                answer['date'] = date(year, month, day).isoformat()
+        except (ValueError, TypeError, LookupError): unknown('date', 'date')
+    if answer.get('amount') is not None:
+        try:
+            value = Decimal(answer['amount'])
+            if not value.is_finite() or value < 0: raise ValueError()
+            answer['amount'] = format(value, 'f')
+        except (InvalidOperation, ValueError, TypeError): unknown('amount', 'amount')
+    if answer.get('payment_datetime') is not None:
+        try:
+            if 'T' not in answer['payment_datetime']: raise ValueError()
+            datetime.fromisoformat(answer['payment_datetime'])
+        except (ValueError, TypeError): unknown('payment_datetime', 'payment time')
+    answer['notes'] = notes if notes else (None if answer.get('notes') is None else [])
     from transactions import reject_invisible
     reject_invisible(answer)
 
 
 def payment_rows(entry, accounts):
     return [p for p in entry['postings'] if accounts.get(p['account'],{}).get('kind') in ('bank','card','cash','wallet') and Decimal(p['amount'])<0]
+
+
+def resume_cancelled(worker, identity):
+    with worker.drafts.mutex:
+        latest=worker.drafts.get(identity,include_discarded=True)
+        if latest.get('receipt_reading',{}).get('state')=='reading':
+            latest['receipt_reading']['state']='queued';worker.drafts.put(latest)
 
 
 def read(worker, draft):
@@ -42,21 +94,36 @@ def read(worker, draft):
     if ready:
         choose(settings,worker.drafts,draft,'agree');return
     for source in reading['sources']: safe_evidence(settings.ledger,source)
+    import threading
+    cancel = threading.Event()
+    worker.receipt_cancellations[reading['entry_id']] = cancel
     task={**draft,'receipt_task':reading}
     try:
-        answer,run=agent.run(settings,task,worker.drafts.folder(draft['id']),cancel=worker.stop_event)
+        answer,run=agent.run(settings,task,worker.drafts.folder(draft['id']),cancel=cancel)
     except agent.AgentFailure as exc:
+        worker.receipt_cancellations.pop(reading['entry_id'],None)
+        if cancel.is_set():
+            resume_cancelled(worker,draft['id'])
+            return
         reading['run']=exc.record
         if exc.kind!='bad_answer':
             worker.pause.fail(exc.kind,exc.reset_at);reading['state']='queued'
-        else: reading.update(state='unreadable',message='The receipt could not be read. Use Correct this entry to add its details.')
+        else: reading.update(state='unreadable',message='The receipt could not be read. Use Edit entry to add its details.')
         worker.drafts.put(draft);return
+    worker.receipt_cancellations.pop(reading['entry_id'],None)
+    if cancel.is_set():
+        resume_cancelled(worker,draft['id'])
+        return
+    with worker.drafts.mutex:
+        latest=worker.drafts.get(draft['id'],include_discarded=True)
+        if latest.get('receipt_reading',{}).get('state') == 'cancelled': return
+    validate_reading(answer, draft.get('client_locale'))
     worker.pause.success();reading.update(answer=answer,run=run)
     if not answer['read_ok']:
-        reading.update(state='unreadable',message='The receipt could not be read. Use Correct this entry to add its details.');worker.drafts.put(draft);return
+        reading.update(state='unreadable',message='The receipt could not be read. Use Edit entry to add its details.');worker.drafts.put(draft);return
     with ledger_lock(settings.ledger):
         documents=load(settings.ledger);entry=next((e for e in entries(documents) if e['id']==reading['entry_id']),None)
-        if not entry: raise ValueError('The saved entry no longer exists')
+        if not entry: return
         accounts=documents[settings.ledger/'data/accounts.json']['accounts'];payments=payment_rows(entry,accounts)
         reading.update(version=entry_hash(entry),entry=deepcopy(entry),operation_id=reading.get('operation_id') or secrets.token_hex(16))
         # Keep both sides structured; the page supplies its own date/money formats.
@@ -91,11 +158,11 @@ def choose(settings, drafts, draft, choice):
         accounts=load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'];payers=payment_rows(before,accounts)
         financial_change=answer['amount'] is not None and (len(payers)!=1 or Decimal(answer['amount'])!=-Decimal(payers[0]['amount'])) or answer['currency'] and any(p['commodity']!=answer['currency'] for p in payers) or answer['paying_account'] and {p['account'] for p in payers}!={answer['paying_account']}
         if financial_change and (len(entry['postings'])!=2 or len(payers)!=1 or any(p['cost'] for p in entry['postings']) or len({p['commodity'] for p in entry['postings']})!=1):
-            raise ValueError('The receipt changes a split payment or currency conversion. Use Correct this entry to allocate it, or Keep the entry.')
+            raise ValueError('The receipt changes a split payment or currency conversion. Use Edit entry to allocate it, or Keep the entry.')
         if answer['date']: entry['date']=answer['date']
         if financial_change:
             code=answer['currency'] or payers[0]['commodity'];account=answer['paying_account'] or payers[0]['account']
-            if accounts.get(account,{}).get('kind') not in ('bank','card','cash','wallet') or accounts[account]['currency']!=code: raise ValueError('The receipt account or currency needs Correct this entry.')
+            if accounts.get(account,{}).get('kind') not in ('bank','card','cash','wallet') or accounts[account]['currency']!=code: raise ValueError('The receipt account or currency needs Edit entry.')
             value=answer['amount'] or str(-Decimal(payers[0]['amount']))
             for p in entry['postings']:
                 if p['account']==payers[0]['account']: p.update(account=account,amount='-'+value,commodity=code)

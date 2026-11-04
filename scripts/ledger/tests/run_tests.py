@@ -4,6 +4,9 @@ from pathlib import Path
 import re
 import sys
 import unittest
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
+from test_run import ensure_root
+ensure_root()
 
 suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent))
 output = io.StringIO()

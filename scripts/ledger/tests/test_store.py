@@ -1,3 +1,4 @@
+import os
 """Canonical JSON publication must remain readable during a concurrent write."""
 from pathlib import Path
 import sys
@@ -11,7 +12,7 @@ from store import canonical_text, dump, read_json
 
 class PublicationTests(unittest.TestCase):
     def test_readers_keep_the_previous_document_until_publication(self):
-        with tempfile.TemporaryDirectory(dir='/tmp') as folder:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp')) as folder:
             target = Path(folder) / 'accounts.json'
             previous, updated = {'accounts': {'Old': {}}}, {'accounts': {'New': {}}}
             target.write_text(canonical_text(previous))

@@ -189,6 +189,18 @@ def check(root: Path = ROOT) -> None:
             raise ValueError(f"{path.relative_to(root)} is not canonical; run make format")
         if path.name in ("accounts.json", "recurring-settings.json"):
             continue
+        if path.name == 'trash.json':
+            for item in document:
+                for file in item['kept']:
+                    target = root / file['path']
+                    if not target.is_file() or any(parent.is_symlink() for parent in [target, *target.parents] if parent.is_relative_to(root)):
+                        raise ValueError('Missing or unsafe shared Trash evidence')
+                    evidence.add(file['path'])
+                for file in item['files']:
+                    target = root / file['stored']
+                    if not target.is_file() or any(parent.is_symlink() for parent in [target, *target.parents] if parent.is_relative_to(root)):
+                        raise ValueError('Missing or unsafe Trash file')
+            continue
         for entry in document:
             sources = [entry["source"]] if path.name == "card-statements.json" else [*entry.get("sources", []), *entry.get('bill', {}).get('sources', [])]
             for source in sources:

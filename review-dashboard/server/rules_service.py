@@ -275,14 +275,6 @@ class RuleRecords(SettingsRecords):
         self.root.mkdir(parents=True,exist_ok=True)
 
 
-def undo_eligibility(settings, line, clock=None):
-    if line.get('kind')!='draft' or line.get('outcome')!='added' or not line.get('entry_id') or 'rule_changes' not in line and not line.get('usual_payment'): return False
-    age=current_time(clock)-datetime.fromisoformat(line['time'])
-    if not timedelta(0)<=age<=timedelta(minutes=30) or not clean(settings.ledger): return False
-    description=jj(settings.ledger,'log','-r','@-','--no-graph','-T','description')
-    return ('Draft: '+line['draft_id']) in description.splitlines()
-
-
 def snapshot(settings, clock=None):
     root=settings.ledger; documents=load(root); lines=records(root); accounts=documents[root/'data/accounts.json']['accounts']
     actual=[e for e in entries(documents) if e['id'] not in ignored_entries(lines)]
@@ -305,8 +297,7 @@ def snapshot(settings, clock=None):
         life=rule.get('lifecycle','active')
         status=life if life!='active' else 'bill-received' if rule.get('bill') else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<today(clock) else 'due' if rule['date']==today(clock) else 'on-track'
         public.append(dict(rule, lifecycle=life,version=digest(rule),last_payment=last,next_due=rule.get('bill',{}).get('pay_by',rule['date']),payments=[dict(id=e['id'],date=e['date'],**({'rule':e['rule']} if e.get('rule') else {})) for e in paid],rule_status=status,review=proposals.get(rule['id']),review_state=review_states.get(rule['id'],'waiting'),**varying_details(rule,actual,accounts)))
-    return dict(rules=public,suggestions=suggestions,history=[line for line in lines if line['kind'] in ('rule','rule-review')],
-                undo=[dict(audit_id=line['id'],entry_id=line['entry_id'],eligible=undo_eligibility(settings,line,clock)) for line in lines if line['kind']=='draft' and line.get('entry_id') and (line.get('usual_payment') or 'rule_changes' in line)])
+    return dict(rules=public,suggestions=suggestions,history=[line for line in lines if line['kind'] in ('rule','rule-review')])
 
 
 def match(settings,text,day=None,currency=None):
@@ -327,7 +318,7 @@ def from_entry(settings,identity):
 def operate(settings, op_id, body, *, clock=None):
     if not re.fullmatch(r'[0-9a-f]{32}',op_id): raise ValueError('Use a unique 32-hex operation id')
     if not isinstance(body,dict): raise ValueError('Supply an operation object')
-    allowed={'action','rule_id','rule','version','undoes','entry_id','client_time','client_zone','bill','text','draft_id','amount_anyway'}
+    allowed={'action','rule_id','rule','version','entry_id','client_time','client_zone','bill','text','draft_id','amount_anyway'}
     if set(body)-allowed: raise ValueError('Unknown rule operation field')
     if 'amount_anyway' in body and type(body['amount_anyway']) is not bool: raise ValueError('amount_anyway must be boolean')
     from draft_time import client_context
@@ -359,7 +350,7 @@ def operate(settings, op_id, body, *, clock=None):
         actual=[e for e in entries(documents) if e['id'] not in ignored_entries(lines)]
         accounts=documents[root/'data/accounts.json']['accounts']; action=body.get('action');rule=next((r for r in rules if r['id']==body.get('rule_id')),None)
         if body.get('version') and (not rule or digest(rule)!=body['version']): raise ValueError('The rule changed; reload it')
-        reversal=None;undone=None;bill_draft=None;copies=[];check=None;bill_record=None
+        bill_draft=None;copies=[];check=None;bill_record=None
         if action=='made':
             proposed=deepcopy(body.get('rule')) if body.get('rule') else from_entry(settings,body['entry_id'])['rule'] if body.get('entry_id') else None
             if not isinstance(proposed,dict): raise ValueError('Supply a complete rule')
@@ -384,24 +375,6 @@ def operate(settings, op_id, body, *, clock=None):
                 result = dict(changed=0,changes=[])
                 store.put(dict(id=op_id,request_hash=request_hash,committed_result=result))
                 return result
-        elif action=='undone':
-            undone=next((r for r in lines if r['id']==body.get('undoes')),None)
-            if not undone or not undo_eligibility(settings,undone,clock): raise ValueError('Undo is no longer available')
-            original=next((e for e in actual if e['id']==undone['entry_id']),None)
-            if not original: raise ValueError('The payment changed')
-            reversal=deepcopy(original);reversal.pop('rule',None);reversal.pop('possible-duplicate-of',None)
-            for key in ('statement-end','serial-number','statement-page','source-row','source-page'): reversal.pop(key,None)
-            reversal['id']=new_id({e['id'] for v in documents.values() if isinstance(v,list) for e in v})
-            reversal['description']='Undo '+original['description']
-            for p in reversal['postings']:
-                p['amount']=format(-Decimal(p['amount']),'f');p.pop('assert',None)
-            rows=documents.setdefault(root/'data/expenses'/f"{reversal['date'][:4]}.json",[]);rows.append(reversal);rows.sort(key=lambda e:e['date'])
-            for change in undone.get('rule_changes',[]):
-                now_rule=next((r for r in rules if r['id']==change['id']),None)
-                if now_rule!=change['after']: raise ValueError('The rule changed; Undo is no longer available')
-                if change['before'] is None:
-                    now_rule.update(lifecycle='removed',removal=dict(date=action_day,evidence=now_rule.get('origin',{}).get('evidence',[])))
-                else: rules[rules.index(now_rule)]=deepcopy(change['before'])
         else:
             if action=='removed' and not rule and 'rule' in body and not body.get('rule_id'):
                 # Dismiss a suggestion by retaining its evidence as a suppression rule.
@@ -470,7 +443,7 @@ def operate(settings, op_id, body, *, clock=None):
         record=event('rule',rule_action=action,request_id=op_id,request_hash=request_hash,rule_changes=changes,
                      **context,
                      **({'rule_id':rule['id']} if rule else {}),
-                     **({'undoes':undone['id'],'reversal_id':reversal['id']} if undone else {}))
+                     )
         if bill_record is not None:
             record.update(bill=deepcopy(bill_record),text=bill_draft['text'] if bill_draft else body.get('text',''),
                           files=[dict(original_name=f['original_name'],filed_path=source) for f,source in zip(bill_draft['files'],bill_record['sources'])] if bill_draft else [dict(original_name=source,filed_path=source) for source in bill_record['sources']],
@@ -485,7 +458,7 @@ def operate(settings, op_id, body, *, clock=None):
                 shutil.copyfile(source,target);compress(target)
             for path,value in documents.items(): dump(path,value)
             append(root,record)
-            result=dict(audit_id=record['id'],action=action,changes=changes,changed=len(changes),**({'reversal_id':reversal['id']} if reversal else {}))
+            result=dict(audit_id=record['id'],action=action,changes=changes,changed=len(changes))
             if action=='bill-saved':
                 result.update(outcome='bill',description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['sources'],total=f"{bill_record['amount']} {main_postings(rule)[0]['commodity']}")
             journal['result']=result;tx.save_journal(journal)

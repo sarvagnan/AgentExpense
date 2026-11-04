@@ -14,7 +14,7 @@ await mkdir(path.join(dist,'data'),{recursive:true});
 for (const name of await readdir(dashboardDataPath('public/data'))) {
   if (/^[a-z-]+\.json\.gz$/.test(name)) await copyFile(dashboardDataPath('public/data',name),path.join(dist,'data',name));
 }
-const views = ['explorer', 'atlas', 'journal', 'forecast', 'review', 'account-summary', 'add', 'drafts', 'statements'];
+const views = ['explorer', 'atlas', 'journal', 'forecast', 'review', 'account-summary', 'add', 'queue', 'trash', 'drafts', 'statements'];
 
 // Static file servers use directory indexes and follow the relative evidence links.
 for (const view of views) {

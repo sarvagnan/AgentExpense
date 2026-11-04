@@ -66,11 +66,12 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await resetDrafts({persona,empty:true});await go('add/');
   const first=await add('Birch rent 105 '+seed.currency,async()=>{await expect(guess().getByLabel('This payment only',{exact:true})).toBeChecked();await snap('rule-amount-this-payment');});
   assert.equal((await byName('Birch rent')).postings[0].amount,'100.00');
-  await expect(saved().getByRole('button',{name:'Undo',exact:true})).toBeVisible();await expect(saved()).toContainText('Next due');await snap('rule-saved');
-  await clickOp(saved().getByRole('button',{name:'Undo',exact:true}));await expect(saved()).toHaveCount(0);
+  await expect(saved().getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);await expect(saved()).toContainText('Next due');await snap('rule-saved');
+  const eligibility=await get('entries/'+first.result.entry_id+'/retention');
+  const removed=await fetch(base+'api/retention/operations/'+crypto.randomUUID().replaceAll('-',''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',entry_id:first.result.entry_id,version:eligibility.version})});assert.ok(removed.ok,await removed.clone().text());await refresh();
   await expect.poll(async()=>(await byName('Birch rent')).date).toBe('2026-11-02');
   await page.waitForLoadState('networkidle');
-  record('6c2 usual payment commits entry and advance together, this-payment amount, server-eligible Undo');
+  record('6c2 usual payment commits entry and advance together, this-payment amount, checked Delete and Trash');
   const second=await add('Birch rent 108 '+seed.currency,async()=>{await guess().getByLabel('Update the rule too',{exact:true}).check();await snap('rule-amount-update-rule');});
   assert.equal((await byName('Birch rent')).postings[0].amount,'108.00');
   await type('Birch rent 108 '+seed.currency);await expect(guess()).toContainText('Already added for');await expect(guess().getByRole('link',{name:'View entry'})).toHaveAttribute('href',new RegExp(second.result.entry_id));
@@ -79,7 +80,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   const [duplicateResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/usual')&&r.request().method()==='POST'),guess().getByRole('button',{name:'Add as usual',exact:true}).click()]);
   assert.ok(duplicateResponse.ok(),await duplicateResponse.text());const duplicate=await duplicateResponse.json();await expect(words()).toHaveValue('');
   await wait(duplicate.id);
-  await refresh();await page.waitForLoadState('networkidle');await expect(page.locator('.just-added-row').first()).toContainText('Birch rent');await expect(saved().getByRole('button',{name:'Undo',exact:true})).toBeVisible();
+  await refresh();await page.waitForLoadState('networkidle');await expect(page.locator('.just-added-row').first()).toContainText('Birch rent');await expect(saved().getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);
   record('6c2 updating rule amount, duplicate-period disclosure, View entry and explicit override');
   await add('Fable support 15 '+seed.currency,async()=>{await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await guess().getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await guess().getByLabel('Use this account from now on',{exact:true}).check();await snap('rule-missing-payer');});
   assert.equal((await byName('Fable support')).postings.at(-1).account,seed.pay);
@@ -130,7 +131,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   record('6c2 built host Rules remain readable with changes disabled without server');
   const logs=(await import('node:fs/promises')).readdir;
   const audit=(await Promise.all((await logs(join(stage.ledger,'data/additions'))).map(y=>readFile(join(stage.ledger,'data/additions',y),'utf8')))).join('\n').split('\n').filter(Boolean).map(JSON.parse);
-  assert.ok(audit.some(r=>r.draft_id===first.id&&r.usual_payment));assert.ok(audit.some(r=>r.rule_action==='undone'&&r.undoes===first.result.audit_id));assert.ok(audit.some(r=>r.usual_payment?.another_anyway));assert.ok(audit.some(r=>r.rule_action==='kept'));assert.ok(audit.some(r=>r.rule_action==='removed'&&r.rule_changes.some(c=>c.before===null)));
-  const completed=await get('drafts?include_added=true');assert.ok(completed.every(d=>d.state==='added'&&!d.audit_pending),'Every submitted write settled before fixture reset');
+  assert.ok(audit.some(r=>r.draft_id===first.id&&r.usual_payment));assert.ok(audit.some(r=>r.retention_action==='deleted'&&r.selected.includes(first.result.entry_id)));assert.ok(audit.some(r=>r.usual_payment?.another_anyway));assert.ok(audit.some(r=>r.rule_action==='kept'));assert.ok(audit.some(r=>r.rule_action==='removed'&&r.rule_changes.some(c=>c.before===null)));
+  const completed=(await get('drafts?include_added=true')).filter(d=>!d.trashed_at);assert.ok(completed.every(d=>d.state==='added'&&!d.audit_pending),'Every submitted write settled before fixture reset');
   await quiesce({writesSettled:true});await page.unroute('**/api/health');await control('reset-review',{});await resetDrafts({persona,empty:true});
 }

@@ -26,7 +26,7 @@ def strip_header(journal):
 
 def snapshot(root, *, format_zero_settings=None):
     """Build in scratch space; neither the source ledger nor app outputs are written."""
-    with tempfile.TemporaryDirectory(prefix='expense-outputs-', dir='/tmp') as folder:
+    with tempfile.TemporaryDirectory(prefix='expense-outputs-', dir=os.environ.get('EXPENSES_TEST_TMP','/tmp')) as folder:
         scratch = Path(folder)
         ledger = scratch / 'ledger'
         # Only source data is needed. Never copy repository metadata, drafts or auth.

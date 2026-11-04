@@ -4,6 +4,7 @@ import { isCurrency } from '../scripts/formatting.mjs';
 import { dashboard, reloadData } from './data';
 import { Dialog, Icon, announce, money, useAppearance, useDocumentScrollLock, useQueryState } from './ui';
 import { request } from './live/api';
+import {retentionOperation,type Limits} from './live/retention';
 import { AgentNotice, type AgentStatus } from './live/agent-status';
 
 async function saveSetting(path:string,body:unknown) {
@@ -17,6 +18,10 @@ export function CurrencyOptions({current}: {current:string}) {
 export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentStatus}) {
   useDocumentScrollLock();
   const [name,setName]=useState(dashboard.meta.ledger.name), [currency,setCurrency]=useState(dashboard.meta.ledger.defaultCurrency);
+  const [limits,setLimits]=useState<Limits>({delete_days:7,trash_days:7,saved_hours:24}),[original,setOriginal]=useState<Limits|null>(null),[effects,setEffects]=useState<{remove_now:{description:string}[];move_to_trash:{description:string}[];deletable_again:{description:string}[]}|null>(null),[previewError,setPreviewError]=useState('');
+  useEffect(()=>{let alive=true;void request<Limits>('settings/retention').then(value=>{if(alive){setLimits(value);setOriginal(value);}},e=>{if(alive)setPreviewError(e.message);});return()=>{alive=false;};},[]);
+  const changed=!!original&&JSON.stringify(limits)!==JSON.stringify(original);
+  useEffect(()=>{if(!changed){setEffects(null);return;}let alive=true;setEffects(null);setPreviewError('');void request<typeof effects>('settings/retention-preview',post(limits)).then(value=>{if(alive)setEffects(value);},e=>{if(alive)setPreviewError(e.message);});return()=>{alive=false;};},[limits,changed]);
   const [appearance,setAppearance]=useAppearance();
   const [busy,setBusy]=useState(false), [error,setError]=useState('');
   const otherAccounts=Object.entries(dashboard.meta.accounts).filter(([,meta])=>meta.kind && meta.currency && isCurrency(meta.currency) && meta.currency!==currency);
@@ -29,6 +34,7 @@ export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentSt
     try {
       if(name.trim()!==dashboard.meta.ledger.name) await saveSetting('settings/name',{name:name.trim()});
       if(currency!==dashboard.meta.ledger.defaultCurrency) await saveSetting('settings/default-currency',{currency});
+      if(changed){await retentionOperation({action:'settings',limits});setOriginal(limits);}
       await reloadData();announce('Settings saved.');onClose();
     } catch(e) {
       // One field may already have committed; reload the actual ledger before retrying.
@@ -43,10 +49,10 @@ export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentSt
       <label><span className="field-label" id="settings-currency-label">Main currency</span><select aria-labelledby="settings-currency-label" className="field" value={currency} disabled={busy} onChange={e=>setCurrency(e.target.value)} aria-describedby="main-currency-help"><CurrencyOptions current={currency}/></select></label>
       <p className="live-hint" id="main-currency-help">New accounts start in this currency. Changing it doesn’t change existing accounts.</p>
       {otherAccounts.length>0 && <p className="settings-inset live-hint" data-existing-currencies>{keptNote}</p>}
-    </section><section className="settings-section"><h3>Agent status</h3><AgentNotice status={agent} settings/></section>
+    </section><section className="settings-section retention-settings"><h3>Time limits</h3>{([['delete_days','Delete an entry'],['trash_days','Keep in Trash'],['saved_hours','Keep Saved for later']] as const).map(([key,label])=><div key={key}><label><span className="field-label">{label}</span><select aria-label={label} className="field" disabled={busy||!original} value={limits[key]} onChange={e=>setLimits({...limits,[key]:Number(e.target.value)})}>{(key==='saved_hours'?[12,24,72,168]:[1,3,7,14,30]).map(value=><option key={value} value={value}>{key==='saved_hours'?(value===12?'12 hours':`${value/24} ${value===24?'day':'days'}`):`${value} ${value===1?'day':'days'}`}</option>)}</select></label></div>)}{changed&&<div className="retention-effects">{(['delete_days','trash_days','saved_hours'] as const).map(key=><section key={key}>{original&&limits[key]!==original[key]&&<div className="live-hint" role="status">{!effects?'Checking effects…':key==='delete_days'?<><p>{effects.deletable_again.length?`${effects.deletable_again.length} older entries become deletable again.`:'The new window applies to existing entries immediately.'}</p>{effects.deletable_again.map((item,i)=><p key={i}>{item.description}</p>)}</>:key==='trash_days'?<><p>{effects.remove_now.length?`${effects.remove_now.length} items would be removed for good now:`:'No Trash items would be removed for good now.'}</p>{effects.remove_now.map((item,i)=><p key={i}>{item.description}</p>)}</>:<><p>{effects.move_to_trash.length?`${effects.move_to_trash.length} saved items would move to Trash now:`:'No saved items would move to Trash now.'}</p>{effects.move_to_trash.map((item,i)=><p key={i}>{item.description}</p>)}</>}</div>}</section>)}</div>}{previewError&&<p className="live-error" role="alert">{previewError}</p>}<p className="live-hint">Time limits are shared by every device using this ledger.</p></section><section className="settings-section"><h3>Agent status</h3><AgentNotice status={agent} settings/></section>
     <section className="settings-section"><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button></section>
     {error && <p className="live-error" role="alert">{error}</p>}</div>
-    <footer className="dialog-footer"><button type="button" className="button" disabled={busy} onClick={close}>Cancel</button><button type="submit" className="button primary" disabled={busy || !name.trim()}>{busy?'Saving…':'Save changes'}</button></footer>
+    <footer className="dialog-footer"><button type="button" className="button" disabled={busy} onClick={close}>Cancel</button><button type="submit" className="button primary" disabled={busy || !name.trim() || changed&&!effects}>{busy?'Saving…':'Save changes'}</button></footer>
   </form></Dialog>;
 }
 

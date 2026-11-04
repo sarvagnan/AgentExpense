@@ -10,13 +10,13 @@ import subprocess
 import threading
 from unittest.mock import patch
 
+from persona_guard import persona_sensitive
 from support import Fixture, ready
 from store import dump, entries, load, read_json
 from audit import append, event, records
 from drafts import Drafts
 from ledger_lock import ledger_lock
-from rules_service import (from_entry, match, operate, queue_usual, snapshot,
-                           undo_eligibility)
+from rules_service import from_entry, match, operate, queue_usual, snapshot
 from transactions import Transaction, clean
 
 
@@ -44,7 +44,7 @@ class RuleTests(Fixture):
         drafts.completed(draft,result)
         return drafts,draft,result
 
-    def test_usual_verified_atomic_advance_audit_retry_and_undo(self):
+    def test_usual_verified_atomic_advance_audit_retry(self):
         self.seed();before=self.jj('log','-r','@-','--no-graph','-T','commit_id')
         drafts,draft,result=self.add_direct(date='2026-11-10')
         self.assertNotEqual(result['commit_id'],before);self.assertTrue(clean(self.ledger))
@@ -53,16 +53,8 @@ class RuleTests(Fixture):
         self.assertEqual(entry['date'],'2026-11-10')
         line=records(self.ledger)[-1];self.assertEqual(len(line['rule_changes']),1);self.assertTrue(line['usual_payment'])
         self.assertEqual(line['entry_id'],entry['id']);self.assertIn('Added-by: user (usual payment, rule '+rule['id']+')',self.jj('log','-r','@-','--no-graph','-T','description'))
-        self.assertTrue(undo_eligibility(self.settings,line));self.assertTrue(snapshot(self.settings)['undo'][0]['eligible'])
         queued_at=draft['queued_at'];queue_usual(self.settings,drafts,draft,dict(rule_id=rule['id'],date='2026-11-10'));self.assertEqual(draft['queued_at'],queued_at)
         with self.assertRaisesRegex(ValueError,'different usual'):queue_usual(self.settings,drafts,draft,dict(rule_id=rule['id'],date='2026-11-16'))
-        op_id=secrets.token_hex(16);body=dict(action='undone',undoes=line['id']);undone=operate(self.settings,op_id,body)
-        self.assertTrue(operate(self.settings,op_id,body)['replayed']);self.assertNotEqual(undone['commit_id'],result['commit_id'])
-        self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['date'],'2026-10-15')
-        actual=entries(load(self.ledger));self.assertEqual(len(actual),2);self.assertEqual(actual[-1]['id'],undone['reversal_id'])
-        self.assertEqual(sum(__import__('decimal').Decimal(e['postings'][0]['amount']) for e in actual),0)
-        self.assertEqual(len(records(self.ledger)),2);self.assertFalse(undo_eligibility(self.settings,line));self.assertTrue(clean(self.ledger))
-        with self.assertRaisesRegex(ValueError,'no longer'):self.op('undone',undoes=line['id'])
 
     def test_amount_this_payment_or_update_rule_and_duplicate_override(self):
         for update in (False,True):
@@ -113,7 +105,7 @@ class RuleTests(Fixture):
         self.assertEqual(removed['removal']['evidence'],[entry['id']]);self.assertEqual(removed['lifecycle'],'removed')
         self.assertEqual(self.op('backfill')['changed'],0)
 
-    def test_backdated_addition_then_undo_does_not_block_later_saves(self):
+    def test_backdated_addition_then_delete_does_not_block_later_saves(self):
         self.seed(False)
         drafts=Drafts(self.ledger)
         def add(day, text):
@@ -129,9 +121,11 @@ class RuleTests(Fixture):
         add('2026-09-15','Willow club monthly membership')
         latest=records(self.ledger)[-1]
         self.assertTrue(latest['rule_changes'])
-        self.op('undone',undoes=latest['id'])
-        # The detector may reconsider history after this perfectly valid Undo.
-        # Later data saves must not depend on code-test invariants about history.
+        from retention_service import Retention
+        from replacements import entry_hash
+        service=Retention(self.settings,drafts)
+        entry=entries(load(self.ledger))[0]
+        service.operate(secrets.token_hex(16),dict(action='delete',entry_id=entry['id'],version=entry_hash(entry)))
         add('2026-10-15','Willow club later payment')
         self.op('kept',rule_id=read_json(self.ledger/'data/forecast.json')[0]['id'])
         self.assertTrue(clean(self.ledger))
@@ -151,8 +145,6 @@ class RuleTests(Fixture):
         self.assertEqual(result['resume_rules'][0]['id'],r['id']);self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['lifecycle'],'paused')
         line=records(self.ledger)[-1]
         self.assertEqual(line['rule_changes'],[])
-        self.assertTrue(undo_eligibility(self.settings,line))
-        self.op('undone',undoes=line['id'])
         self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['lifecycle'],'paused')
 
     def test_each_operation_idempotency_changed_payload_stale_and_review_answer(self):
@@ -171,7 +163,7 @@ class RuleTests(Fixture):
         copy=payment_rule();copy['id']='f000000000000002';self.op('made',rule=copy)
         self.assertEqual(len(read_json(self.ledger/'data/forecast.json')),2)
 
-    def test_backfill_catch_up_noop_and_undo_limits(self):
+    def test_backfill_catch_up_noop(self):
         a=payment_rule();a.pop('schedule');a.pop('origin');a.pop('lifecycle');a['id']='0000000000000001';a['date']='2026-09-15'
         b={**deepcopy(a),'id':'0000000000000002','date':'2026-10-15'};self.seed(False,[a,b])
         clock=lambda:datetime(2026,11,1,tzinfo=timezone.utc)
@@ -185,8 +177,6 @@ class RuleTests(Fixture):
         r['date']=r['schedule']['from']='2026-09-15';dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Fictional stale rule')
         self.assertEqual(snapshot(self.settings,clock)['rules'][0]['rule_status'],'stale');caught=self.op('catch-up')
         self.assertEqual(caught['changed'],1);self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['date'],'2026-11-15')
-        line=event('draft',outcome='added',entry_id=a['id'],draft_id='a'*32,usual_payment={})
-        self.assertFalse(undo_eligibility(self.settings,line,lambda:datetime.fromisoformat(line['time'])+timedelta(minutes=31)))
         self.assertEqual(self.op('catch-up')['changed'],0)
 
     def test_atomic_rollback_rule_edits_and_stale_queued_rule(self):
@@ -211,15 +201,8 @@ class RuleTests(Fixture):
             response=client.post(f'/api/drafts/{draft_id}/usual',json=dict(rule_id='f000000000000001',date='2026-11-15'))
             self.assertEqual(response.status_code,200,response.text);self.assertEqual(response.json()['queued_at'],'2026-01-01T00:00:00+00:00')
             client.app.state.worker.process(drafts.get(draft_id));added=client.get('/api/drafts/'+draft_id).json()
-            self.assertEqual(added['state'],'added');self.assertTrue(added['result']['can_undo']);self.assertEqual(self.calls(),[])
-            # Receipt polling must not snapshot jj while a cooperating writer owns the ledger.
-            with ledger_lock(self.ledger), patch('rules_service.clean',side_effect=AssertionError('Undo read raced a ledger writer')):
-                for path in ('/api/drafts/'+draft_id,'/api/drafts?include_added=true'):
-                    response=client.get(path);self.assertEqual(response.status_code,200,response.text)
-                    receipt=response.json() if isinstance(response.json(),dict) else next(d for d in response.json() if d['id']==draft_id)
-                    self.assertFalse(receipt['result']['can_undo'])
-                    self.assertNotIn('undo_until',receipt['result'])
-            self.assertTrue(client.get('/api/drafts/'+draft_id).json()['result']['can_undo'])
+            self.assertEqual(added['state'],'added');self.assertEqual(self.calls(),[])
+            self.assertNotIn('can_undo',added['result'])
             replay=client.post(f'/api/drafts/{draft_id}/usual',json=dict(rule_id='f000000000000001',date='2026-11-15'));self.assertEqual(replay.status_code,200)
             entry_id=added['result']['entry_id'];self.assertEqual(client.get('/api/rules/from-entry/'+entry_id).status_code,200)
         with self.client(worker=False,dev=False) as client:
@@ -251,9 +234,9 @@ class RuleTests(Fixture):
             finally:
                 release.set();thread.join();timer.cancel()
             self.assertEqual(response.status_code,200,response.text)
-            self.assertTrue(response.json()['result']['can_undo'])
+            self.assertNotIn('can_undo',response.json()['result'])
 
-    def test_usual_evidence_retry_preserves_fifo_and_undo_window_boundaries(self):
+    def test_usual_evidence_retry_preserves_fifo(self):
         self.seed()
         with self.client(worker=False) as client:
             identity=self.create(client);drafts=client.app.state.drafts
@@ -272,10 +255,6 @@ class RuleTests(Fixture):
             client.app.state.worker.process(drafts.get(identity));added=client.get('/api/drafts/'+identity).json()
             self.assertEqual(added['state'],'added');self.assertEqual(self.calls(),[])
             source=self.ledger/added['result']['sources'][0];self.assertTrue(source.is_file())
-            line=records(self.ledger)[-1];instant=datetime.fromisoformat(line['time'])
-            self.assertTrue(undo_eligibility(self.settings,line,lambda:instant+timedelta(minutes=30)))
-            self.assertFalse(undo_eligibility(self.settings,line,lambda:instant+timedelta(minutes=30,microseconds=1)))
-            self.op('undone',undoes=line['id']);self.assertTrue(source.is_file());self.assertEqual(records(self.ledger)[0]['id'],line['id'])
 
     def test_review_merge_preserves_rule_link_and_retargets_suppression_evidence(self):
         from review import apply as review_apply, snapshot as review_snapshot, link_pair
@@ -289,6 +268,7 @@ class RuleTests(Fixture):
         saved=read_json(self.ledger/'data/forecast.json')[0]
         self.assertEqual(saved['origin']['evidence'],[actual[0]['id']]);self.assertEqual(saved['removal']['evidence'],[actual[0]['id']]);self.assertTrue(records(self.ledger)[-1]['rule_changes'])
 
+    @persona_sensitive
     def test_persona_backfill_and_catch_up_use_real_checked_services(self):
         from settings import APPLICATION
         for persona,count in [('asha',1),('empty',0),('jordan',1),('sam',1)]:

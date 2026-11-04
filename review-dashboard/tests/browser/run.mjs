@@ -1,5 +1,7 @@
 import {useProjectNode} from '../../../scripts/node-toolchain.mjs';
 useProjectNode();
+import {ensureTestRoot} from "../../../scripts/test-run.mjs";
+ensureTestRoot();
 console.log(`Browser Node ${process.version}`);
 // All browsers are headless; all writable runtime state and artifacts stay under /tmp.
 import assert from 'node:assert/strict';
@@ -24,7 +26,7 @@ for(const theme of themes)assert.ok(['light','dark'].includes(theme),'THEMES mus
 const personas=(process.env.PERSONA || 'asha,empty,jordan,sam').split(',');
 for(const engine of engines)assert.ok(['chromium','firefox','webkit'].includes(engine));
 for(const persona of personas)assert.ok(['asha','empty','jordan','sam'].includes(persona));
-const artifacts=await mkdtemp('/tmp/agentexpense-5-browser-');
+const artifacts=await mkdtemp(join(process.env.AGENTEXPENSE_TEST_ROOT,'agentexpense-5-browser-'));
 process.env.TMPDIR=join(artifacts,'tmp');await mkdir(process.env.TMPDIR);
 const venv=join(source,'review-dashboard/server/.venv'),python=join(venv,'bin/python');
 if(process.env.CAPTURE!=='0' && !process.env.ENGINES && !process.env.PERSONA)await rm(shots,{recursive:true,force:true});
@@ -120,12 +122,12 @@ async function cleanupArtifacts(passed) {
     const failures=[];
     async function retain(folder){for(const name of await readdir(folder)){const path=join(folder,name);if((await lstat(path)).isDirectory())await retain(path);else if(name.startsWith('failure-')&&name.endsWith('.zip'))failures.push(path);}}
     await retain(artifacts);
-    const saved=[];for(const [i,path] of failures.entries()){const bytes=await readFile(path);saved.push([`${i}-${path.split('/').at(-1)}`,bytes]);}
+    const saved=[];for(const [i,path] of failures.entries()){const bytes=await readFile(path);saved.push([`failure-${i}-${path.split('/').at(-1)}`,bytes]);}
     await rm(artifacts,{recursive:true,force:true});
-    if(saved.length){await mkdir(artifacts);for(const [name,bytes] of saved)await writeFile(join(artifacts,name),bytes);console.log(`Failing traces: ${artifacts}`);}
+    if(saved.length){await mkdir(artifacts);for(const [name,bytes] of saved)await writeFile(join(artifacts,name),bytes);console.log('Failing case traces retained for run cleanup.');}
   }
 }
-for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{await activeBrowser?.close();await stop(activeServer);await cleanupArtifacts(false);process.exit(130);});
+for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.once(signal,async()=>{try{if(stage?.activeContext)await stage.activeContext.tracing.stop({path:join(stage.root,`failure-${stage.activeCase}-interrupted.zip`)});}catch{}await activeBrowser?.close();await stop(activeServer);await cleanupArtifacts(false);process.exit(130);});
 try {
   for(const persona of personas) {
     stage=await staging(persona);

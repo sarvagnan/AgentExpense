@@ -14,7 +14,7 @@ class IsolationTests(unittest.TestCase):
     expense_name = 'ledger/data/expenses/2026.json'
 
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='expense-guard-', dir='/tmp')
+        temporary = tempfile.TemporaryDirectory(prefix='expense-guard-', dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'))
         self.addCleanup(temporary.cleanup)
         self.application = Path(temporary.name)
         self.ledger = self.application / 'ledger'

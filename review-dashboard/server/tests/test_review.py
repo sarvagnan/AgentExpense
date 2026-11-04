@@ -84,16 +84,11 @@ class ReviewTests(Fixture):
         self.assertEqual(updated['notes'],['Invented note 1','Checked receipt','Confirmed category'])
         self.check_commit(before,'resolve');self.assertEqual(snapshot(self.ledger)['count'],2)
 
-    def test_separate_undo_history_and_stale_retry(self):
-        rows=self.seed(pair=True);one,two=[r['id'] for r in rows[:2]]
-        self.assertEqual(snapshot(self.ledger)['important'],1);self.assertEqual(snapshot(self.ledger)['count'],2)
-        before=deepcopy(rows);result=apply(self.settings,self.body('separate',one,two))
-        state=snapshot(self.ledger);self.assertTrue(state['history'][0]['canUndo']);self.assertEqual(state['important'],0)
-        self.assertEqual(state['count'],3,'Both pending entries remain ordinary work after separation')
-        result=apply(self.settings,self.body('undo-separate',one,two,undoes=result['audit_id']))
-        self.assertEqual(read_json(self.ledger/'data/expenses/2026.json'),before)
-        self.assertEqual(snapshot(self.ledger)['important'],1);self.assertFalse(snapshot(self.ledger)['history'][1]['canUndo'])
-        self.assertEqual([r['action'] for r in records(self.ledger)],['separate','undo-separate'])
+    def test_separate_history_and_removed_reverse_action(self):
+        rows=self.seed(pair=True);one,two=rows[0]['id'],rows[1]['id']
+        result=apply(self.settings,self.body('separate',one,two))
+        self.assertEqual(snapshot(self.ledger)['important'],0)
+        with self.assertRaises(ValueError): apply(self.settings,self.body('undo-separate',one,two,undoes=result['audit_id']))
 
     def test_merge_keeps_statement_postings_and_moves_receipts_notes(self):
         rows=self.seed(pair=True,statement=True);one='0000000000000001';two='0000000000000002'

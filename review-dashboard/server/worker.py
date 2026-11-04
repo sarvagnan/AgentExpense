@@ -16,6 +16,7 @@ class Worker:
         self.stop_event, self.wake = threading.Event(), threading.Event()
         self.thread = None
         self.calls = []
+        self.receipt_cancellations = {}
         self.retry_interval = 30
         self.daily_refresh = DailyRefresh(settings)
         from agent_pause import AgentPause
@@ -37,6 +38,11 @@ class Worker:
         if 'error' in job: raise job['error']
         return job['result']
 
+    def cancel_receipt(self, entry_id):
+        with self.drafts.mutex:
+            signal = self.receipt_cancellations.get(entry_id)
+            if signal: signal.set()
+
     def start(self):
         self.lease = (self.drafts.root / '.worker.lock').open('a+b')
         try:
@@ -48,6 +54,7 @@ class Worker:
         if getattr(self, "statements", None):
             self.statements.recover_work()
         for draft in self.drafts.all():
+            if draft.pop('discard_requested',None):self.drafts.put(draft)
             if draft.get('receipt_reading',{}).get('state')=='reading':
                 draft['receipt_reading']['state']='queued';self.drafts.put(draft)
             if draft['state'] == 'working':
@@ -61,6 +68,7 @@ class Worker:
 
     def close(self):
         self.stop_event.set()
+        for signal in self.receipt_cancellations.values(): signal.set()
         self.wake.set()
         with self.drafts.mutex:
             for job in self.calls:
@@ -76,13 +84,18 @@ class Worker:
 
     def loop(self):
         while not self.stop_event.is_set():
+            if getattr(self, "retention", None):
+                try: self.retention.sweep()
+                except Exception:
+                    import logging
+                    logging.exception("Retention sweep deferred")
             self.daily_refresh.tick()
             self.drafts.purge()
             from agent_gate import get_gate
             self.pause.tick(get_gate(self.settings))
             self.flush_audits()
             with self.drafts.mutex:
-                queued = sorted((d for d in self.drafts.all() if d['state'] == 'queued' and not d.get('claim') and (d.get('bill_request') or d.get('finished_by') or d.get('proposal') or not self.pause.blocked())),
+                queued = sorted((d for d in self.drafts.all() if d['state'] == 'queued' and not d.get('claim') and not d.get('discard_requested') and (d.get('bill_request') or d.get('finished_by') or d.get('proposal') or not self.pause.blocked())),
                                 key=lambda d: (d['queued_at'], d['id']))
                 draft = queued[0] if queued else None
                 job = self.calls[0] if self.calls else None
@@ -92,7 +105,7 @@ class Worker:
                 reading=readings[0] if readings and (not before or readings[0]['receipt_reading']['queued_at']<before) else None
                 if reading: before=reading['receipt_reading']['queued_at']
             # Statement extraction/apply can take time. Keep draft reads and
-            # handover Undo available while this single worker performs it.
+            # cancellation available while this single worker performs it.
             if getattr(self, 'statements', None) and self.statements.work(self.stop_event, before=before):
                 continue
             if reading:
@@ -110,7 +123,7 @@ class Worker:
                     try: reading=self.drafts.get(reading['id'],include_discarded=True)
                     except FileNotFoundError: continue
                     reading['waiting']=None
-                    reading['receipt_reading'].update(state='unreadable',message='The receipt details could not be saved. Use Correct this entry.',error=str(exc))
+                    reading['receipt_reading'].update(state='unreadable',message='The receipt details could not be saved. Use Edit entry.',error=str(exc))
                     self.drafts.put(reading)
                 continue
             if job:
@@ -133,7 +146,7 @@ class Worker:
                         draft = self.drafts.get(draft['id'])
                     except FileNotFoundError:
                         continue
-                    if draft['state'] != 'queued' or draft.get('claim'):
+                    if draft['state'] != 'queued' or draft.get('claim') or draft.get('discard_requested'):
                         continue
                     draft.update(state='working', waiting=None)
                     self.drafts.put(draft)

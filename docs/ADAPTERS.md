@@ -155,7 +155,7 @@ matching passing check does not spend another probe. Sign-out is checked again
 before each run and never cached as a permanent failure. Shutdown cancels a check;
 transient/incomplete diagnostics do not replace the last cache.
 
-Agent status continues through the existing Add/Drafts/Settings components.
+Agent status continues through the existing Add/Queue/Settings components.
 Settings names the adapter/model/effort; signed-out notices give the selected
 `make agent-login ADAPTER=…` command (API notices explain key configuration).
 Paused checks block agent submission; built-in statement parsing remains usable.

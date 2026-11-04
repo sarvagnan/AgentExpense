@@ -42,7 +42,7 @@ journals, validate, audit and commit through the shared transaction service.
 
 | Method/path | Contract |
 | --- | --- |
-| GET `/api/rules` | `rules`, `suggestions`, `history`, `undo`; each rule includes lifecycle, `version`, `last_payment`, `next_due`, `rule_status`, latest outstanding `review`. Status is on-track, due, overdue, stale, paused, ended or removed. |
+| GET `/api/rules` | `rules`, `suggestions`, `history`; each rule includes lifecycle, `version`, `last_payment`, `next_due`, `rule_status`, latest outstanding `review`. Status is on-track, due, overdue, stale, paused, ended or removed. |
 | GET `/api/rules/match?text=…&today=YYYY-MM-DD&currency=EUR` | Ranked `matches`, `pick_list`, unambiguous `rule_id` or null. A description/category name word is mandatory; date words are excluded from amount ranking. The page supplies local today and currency; browserless defaults use the server date and ledger default currency. |
 | GET `/api/rules/from-entry/{entry-id}` | Complete owner-rule proposal and `entry_id`; no write. |
 | POST `/api/drafts/{draft-id}/usual` | `rule_id`, optional `date`, positive decimal-string `amount`, `update_rule`, `account`, `remember_account`, `another_anyway`, `client_time`, `client_zone`. Returns the queued draft; poll the existing draft endpoint for completion. |
@@ -66,8 +66,7 @@ statement reconciliation will correct it. Attachments use the ordinary upload,
 filing and compression path. No agent runs for Add as usual.
 
 The added result includes `rule`, `next_due`, `made_rules`, `rule_changes`,
-`resume_rules`, `weekly_review_note`, `audit_id`, optional `usual_payment`, and
-server-computed `can_undo`. An automatically made rule may be edited with `edited`
+`resume_rules`, `weekly_review_note`, `audit_id`, optional `usual_payment`.. An automatically made rule may be edited with `edited`
 or suppressed with `removed` (the payment remains). Paused matches return
 `resume_rules`; the owner chooses `resumed` or leaves the rule paused.
 
@@ -87,13 +86,6 @@ Operation bodies:
 - `{"action":"backfill"}` makes all qualifying historical rules in one commit
   with `origin.kind: history-pass`. Suggestions remain proposals. A no-op writes
   and commits nothing.
-- `{"action":"undone","undoes":"<draft-audit-id>"}` reverses an addition.
-  Eligibility is at most 30 minutes after its audit timestamp, only while its
-  addition commit remains the latest ledger change and the ledger is clean.
-  The service checks again under the lock. A new reversing entry cancels the
-  original postings on the original date and restores earlier rule schedules;
-  an automatically made rule is retained as removed with suppression evidence.
-  Original entry, evidence and audit remain. No repository history is rewritten.
 
 Page operations may carry `client_time` and `client_zone`; their local calendar
 date supplies creation/removal dates. Browserless commands use the server date.
@@ -110,11 +102,10 @@ make rules ARGS='match "Willow membership 20 EUR" --today 2026-11-01 --currency 
 make rules ARGS='operations /tmp/rule-operation.json --op-id 0123456789abcdef0123456789abcdef'
 make rules-backfill
 make rules-catch-up
-make rules ARGS='undo <draft-audit-id>'
 ```
 
 The underlying entry point is `scripts/ledger/rules.py`, with `list`, `match`,
-`operations`, `backfill`, `catch-up`, `undo`. All return JSON. Write commands accept
+`operations`, `backfill`, `catch-up`. All return JSON. Write commands accept
 `--op-id` for durable retry. They never invoke an adapter or model. The 0 → 1
 upgrade prints the stale-rule count and catch-up command but changes no rule.
 
@@ -132,7 +123,7 @@ request_hash, estimated, update_rule, another_anyway, remember_account) and
 one line and one commit. Standalone `kind: rule` events require `rule_action`,
 `request_id`, `request_hash`, `rule_changes`; they may include `rule_id`, `undoes`,
 `reversal_id` and local save context. Actions are made, edited, paused, resumed,
-ended, restored, removed, kept, undone, catch-up, backfill.
+ended, restored, removed, kept, catch-up, backfill.
 
 `kind: rule-review` events require `rule_id`, `rule_verdict` (confirm or
 propose-removal), `reason` and `reviewer`. They never authorize an edit. The owner's
@@ -156,8 +147,7 @@ editing draft and hides that guess. It never submits a payment or invokes an
 agent. Live matching owns the choice; the built snapshot mirrors matching for
 instant display. Add as usual supports a payment date, changed amount with either
 scope, missing payer, remembering that payer, duplicate-period override, receipts
-and planned conversion. Completed draft receipts supply next due, server-checked
-Undo, automatic-rule removal/editing and paused-match choices. These cards are
+and planned conversion. Completed draft receipts supply next due, automatic-rule removal/editing and paused-match choices. These cards are
 independent of Add's current two-panel layout.
 
 `audit.py review --verdicts FILE --reviewer NAME` accepts outcome verdicts
@@ -204,7 +194,7 @@ occurrence does not consume that following estimate.
 operation ID. Its files use ordinary evidence filing/compression. The FIFO runs
 `operate`, the ledger lock, rollback journal, strict checks and `make commit`.
 Identical retries recover the same bill result even after it is paid; changed
-payloads are refused. There is no bill Undo. Completed bill items expire like
+payloads are refused. Completed bill items expire like
 other completed drafts, without expiring the stored bill.
 
 The CLI uses the same `operations` command with `action: bill-saved`, `rule_id`,
@@ -218,7 +208,7 @@ is saved. With a bill, its exact amount and occurrence own the payment; paying i
 clears the bill, retains sources on the entry, advances exactly its recorded
 occurrence and recomputes the median. An early or late payment date does not
 repeat that occurrence or skip the following estimate. Corrections retain the
-saved bill’s occurrence, including when the payment date crosses a month. The existing payment Undo continues to restore its before snapshot.
+saved bill’s occurrence, including when the payment date crosses a month. Delete restores the saved bill and recomputes the estimate; Restore pays it again and recomputes the estimate.
 Varying payments keep the exact typed/bill decimal amount and never accept
 `update_rule: true`; fixed rules retain their existing scaling/rounding path.
 
@@ -240,3 +230,14 @@ action. Rules shows bill status/pay-by or the estimate and recent range. Its
 editor switches fixed/varying mode and charts up to 12 payments, highlighting the
 three used for the estimate with existing chart tokens. Forecast badges exact
 bills and marks varying estimates/ranges separately from variable spending.
+
+## Delete and Restore
+
+Payment removal uses the shared retention service (`make retention`), with the
+ordinary FIFO, ledger lock, rollback journal, strict verification and commit.
+A deleted linked payment makes that occurrence due again. A paid saved bill
+returns with its evidence. Restore pays the same occurrence and clears that bill.
+Both call `recurring.recompute_estimate` on the final actual entries, excluding
+entries in Trash. Historical reversal audit records remain valid and continue to
+exclude their original/reversing entries from payment history. There is no current
+reversal operation or reversing-entry command.

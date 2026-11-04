@@ -22,9 +22,13 @@ from agent_tools import login, upgrade
 from settings import APPLICATION, Settings
 
 
+# Gate fingerprints read the selected manifest through Settings.
+PERSONA_SENSITIVE = True
+
+
 class GateTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-gate-test-')
+        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-gate-test-')
         self.addCleanup(self.tmp.cleanup)
         self.work = Path(self.tmp.name).resolve()
         self.config = self.work / 'fake.json'
@@ -586,7 +590,7 @@ class GateTests(unittest.TestCase):
                         upgrade(settings, '0.166.0')
             self.assertEqual(npm.call_count, 1)
             self.assertEqual(npm.call_args.kwargs['env']['npm_config_update_notifier'],'false')
-            self.assertTrue(npm.call_args.args[0][3].startswith('/tmp/expense-agent-upgrade-'))
+            self.assertTrue(npm.call_args.args[0][3].startswith(str(Path(os.environ['EXPENSES_TEST_TMP'])/'expense-agent-upgrade-')))
             self.assertEqual((dashboard / 'package.json').read_text(), 'original package.json')
             self.assertEqual((dashboard / 'package-lock.json').read_text(), 'original package-lock.json')
         with patch('agent_tools.subprocess.run') as npm, patch('agent_tools.check_offline', side_effect=OfflineFailure([], signed_out=True)), \

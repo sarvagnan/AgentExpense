@@ -18,6 +18,9 @@
     },
     {
       "$ref": "#/$defs/recurring-settings"
+    },
+    {
+      "$ref": "#/$defs/trash"
     }
   ],
   "$defs": {
@@ -1225,6 +1228,105 @@
             "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$"
           }
         }
+      }
+    },
+    "trash-item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "entry",
+        "removed_at",
+        "reason",
+        "files",
+        "kept",
+        "index",
+        "rule_changes",
+        "duplicate_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "entry": {
+          "$ref": "#/$defs/entry"
+        },
+        "removed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "added_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rule_changes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "duplicate_links": {
+          "type": "object"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "original",
+              "stored"
+            ],
+            "properties": {
+              "original": {
+                "type": "string",
+                "pattern": "^Bills/[^.].*"
+              },
+              "stored": {
+                "type": "string",
+                "pattern": "^data/trash-files/[a-f0-9]{32}/[^/]+$"
+              }
+            }
+          }
+        },
+        "kept": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "citations"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^Bills/[^.].*"
+              },
+              "citations": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "trash": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/trash-item"
       }
     }
   }

@@ -123,7 +123,8 @@ def dump(path: Path, value: Any) -> None:
 
 def store_paths(root: Path = ROOT) -> list[Path]:
     return [root / "data/accounts.json", *sorted((root / "data/expenses").glob("*.json")), root / "data/forecast.json", root / "data/card-statements.json",
-            *([root / 'data/recurring-settings.json'] if (root / 'data/recurring-settings.json').exists() else [])]
+            *([root / 'data/recurring-settings.json'] if (root / 'data/recurring-settings.json').exists() else []),
+            *([root / 'data/trash.json'] if (root / 'data/trash.json').exists() else [])]
 
 
 @lru_cache(maxsize=1)
@@ -132,7 +133,7 @@ def validators():
     schema = read_json(SCHEMA_PATH)
     Draft202012Validator.check_schema(schema)
     result = {}
-    for kind in ('accounts', 'expenses', 'forecast', 'card-statements', 'recurring-settings'):
+    for kind in ('accounts', 'expenses', 'forecast', 'card-statements', 'recurring-settings', 'trash'):
         result[kind] = Draft202012Validator(
             {**{k: v for k, v in schema.items() if k != 'oneOf'}, '$ref': f'#/$defs/{kind}'},
             format_checker=FormatChecker())
@@ -148,13 +149,16 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
     checks['manifest'].validate(read_json(root / 'ledger.json'))
     ids: dict[str, Path] = {}
     for path, document in documents.items():
-        kind = {"accounts.json": "accounts", "forecast.json": "forecast", "card-statements.json": "card-statements", "recurring-settings.json": "recurring-settings"}.get(path.name, "expenses")
+        if path.name == "ledger.json":
+            checks["manifest"].validate(document)
+            continue
+        kind = {"accounts.json": "accounts", "forecast.json": "forecast", "card-statements.json": "card-statements", "recurring-settings.json": "recurring-settings", "trash.json": "trash"}.get(path.name, "expenses")
         # The file chooses its root type. The generic oneOf is ambiguous for empty arrays.
         errors = sorted(checks[kind].iter_errors(document), key=lambda e: str(list(e.absolute_path)))
         if errors:
             error = errors[0]
             raise ValueError(f"{path.relative_to(root)}:{list(error.absolute_path)}: {error.message}")
-        if kind == 'recurring-settings':
+        if kind in ('recurring-settings','trash'):
             continue
         if kind == "accounts":
             import shlex
@@ -236,9 +240,28 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
         for target in targets:
             if target not in actual or identity >= target:
                 raise ValueError(f'{identity}: duplicate link must name an existing, greater actual entry ID')
+    trash = documents.get(root / 'data/trash.json', [])
+    trashed = {item['entry']['id'] for item in trash}
+    if len(trashed) != len(trash) or trashed & actual.keys():
+        raise ValueError('Trash entries must be unique and absent from the ledger')
+    if len({item['id'] for item in trash}) != len(trash):
+        raise ValueError('Trash operation IDs must be unique')
+    stored_paths=set()
+    for item in trash:
+        originals=[file['original'] for file in item['files']]
+        kept=[file['path'] for file in item['kept']]
+        sources={source for source in item['entry'].get('sources',[]) if source.startswith('Bills/')}
+        if len(set(originals+kept))!=len(originals+kept) or set(originals+kept)!=sources:
+            raise ValueError('Trash evidence must map every Bills source exactly once')
+        for file in item['files']:
+            if not file['stored'].startswith('data/trash-files/' + item['id'] + '/') or '..' in Path(file['original']).parts or file['stored'] in stored_paths:
+                raise ValueError('Trash files must stay inside their operation folder')
+            stored_paths.add(file['stored'])
+        if any('..' in Path(source).parts for source in kept):
+            raise ValueError('Kept Trash evidence must stay inside Bills')
     for rule in rules.values():
         evidence = [*rule.get('origin', {}).get('evidence', []), *rule.get('removal', {}).get('evidence', [])]
-        if any(identity not in actual for identity in evidence):
+        if any(identity not in actual and identity not in trashed for identity in evidence):
             raise ValueError(f"{rule['id']}: rule evidence must name existing actual entries")
 
 

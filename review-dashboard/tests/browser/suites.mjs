@@ -1,3 +1,5 @@
+import {runRetention} from './retention.mjs';
+import {runRetentionTiming} from './retention-timing.mjs';
 import {runVarying} from './varying.mjs';
 import {runConfirmedBalances} from './confirmed-balances.mjs';
 import {runAdd} from './add.mjs';
@@ -13,8 +15,8 @@ import {runWorkflows} from './workflows.mjs';
 import {execFileSync} from 'node:child_process';
 import {gzipSync} from 'node:zlib';
 
-const routes=['add','drafts','review','explorer','atlas','journal','forecast','account-summary','statements'];
-const labels=['Add','Drafts','Review','Explorer','Atlas','Journal','Forecast','Accounts'];
+const routes=['add','queue','review','explorer','atlas','journal','forecast','account-summary','statements'];
+const labels=['Add','Queue','Review','Explorer','Atlas','Journal','Forecast','Accounts'];
 const sizes=[{width:1440,height:1000},{width:412,height:915}];
 const locale={asha:'en-IN',jordan:'en-US',sam:'en-GB',empty:'en-US'};
 const zone={asha:'Asia/Kolkata',jordan:'America/Chicago',sam:'Europe/Berlin',empty:'America/Chicago'};
@@ -38,6 +40,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const context=await browser.newContext({viewport:size,colorScheme:theme,locale:locale[persona],timezoneId:zone[persona],reducedMotion:'reduce',acceptDownloads:true});
     await context.addInitScript(value=>{if(location.protocol==='http:'||location.protocol==='https:')localStorage.setItem('ledger-appearance',value);},theme);
     await context.tracing.start({screenshots:true,snapshots:true});
+    stage.activeContext=context;stage.activeCase=`${engine}-${theme}-${width}`;
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
     page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
@@ -71,6 +74,13 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
+      if(process.env.BROWSER_FOCUS==='cleanup') {
+        await go('add/');await expect(page.getByRole('heading',{name:'Add',exact:true})).toBeVisible();
+        console.log('CLEANUP_BROWSER_READY');
+        if(process.env.BROWSER_CLEANUP_PROBE==='term')await new Promise(()=>{});
+        assert.notEqual(process.env.BROWSER_CLEANUP_PROBE,'fail','Deliberate test-root cleanup failure');
+        await context.tracing.stop();await context.close();continue;
+      }
       const table = JSON.parse(await readFile(join(stage.env.DASHBOARD_DATA_DIR,'app/data/dashboard.json'),'utf8')).meta.currencyMinorUnits;
       assert.deepEqual(table,JSON.parse(await readFile(join(stage.app,'schema/currency-minor-units.json'),'utf8')),'The page data ships the versioned minor-unit table');
       await page.goto(base+'add/');
@@ -85,6 +95,12 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       },{base,table});
       assert.equal(formatterChecks,true,'All currency codes use the app minor-unit table in this engine');
       record('all currency minor units are explicit in the page formatter');
+      if(process.env.BROWSER_FOCUS==='part-c-details') {
+        const args={browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts};
+        for(const run of [runReview,runRules,runAdd,runCorrections,runConfirmedBalances])await timed(run.name,()=>run(args));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
       if(process.env.BROWSER_FOCUS==='review') {
         await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
@@ -102,6 +118,16 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       }
       if(process.env.BROWSER_FOCUS==='add') {
         await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='retention-timing') {
+        await runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts});
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await context.tracing.stop();await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='retention') {
+        await runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
@@ -140,7 +166,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       assert.equal(await page.locator('.sidebar nav a[href*="statements"]').count(),0);
       await expect(identity()).toContainText(initialManifest.name);
       const nav=page.locator(width>760?'.sidebar nav':'.phone-live-nav');
-      const draftsLink=nav.locator('a[href$="drafts/"]');
+      const draftsLink=nav.locator('a[href$="queue/"]');
       if(seeded.attention)await expect(draftsLink.locator('.nav-count')).toHaveText(new RegExp(`^(?:, )?${seeded.attention}(?: need attention)?$`));
       else await expect(draftsLink.locator('.nav-count')).toHaveCount(0);
       const reviewData=await (await fetch(base+'api/review')).json();
@@ -155,7 +181,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await page.locator(':focus').evaluate(element=>element.blur());
       }
       if(width<760) {
-        assert.deepEqual(await page.locator('.phone-live-nav > a,.phone-live-nav > button').evaluateAll(nodes=>nodes.map(node=>node.textContent.replace(/\d+/g,'').trim())),['Add','Drafts','Review','Views']);
+        assert.deepEqual(await page.locator('.phone-live-nav > a,.phone-live-nav > button').evaluateAll(nodes=>nodes.map(node=>node.textContent.replace(/\d+/g,'').trim())),['Add','Queue','Review','Views']);
         await page.getByRole('button',{name:'Views',exact:true}).click();
         assert.deepEqual(await page.locator('#phone-more-views nav a').allTextContents(),labels.slice(3));
         await expect(page.locator('#phone-more-views nav a').first()).toBeFocused();
@@ -277,7 +303,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await openSettings();await expect(page.locator('.settings-body .agent-notice')).toHaveAttribute('data-agent-state',state);await overflow('Settings '+state);
         if(persona==='jordan')await snap('settings-'+state.replace(' ','-'));
         await closeDialog();
-        await go('drafts/'+(seeded.ids.length?'?draft='+seeded.ids[0]:''));await refresh();
+        await go('queue/'+(seeded.ids.length?'?draft='+seeded.ids[0]:''));await refresh();
         await expect(page.locator('.agent-notice')).toHaveCount(1);
         if(seeded.ids.length){
           const answer=page.locator('.draft-question select');
@@ -288,7 +314,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         if(persona==='jordan')await snap('notice-drafts-'+state.replace(' ','-'));
         if(persona==='asha' || persona==='jordan') {
           const failed=seeded.ids[persona==='asha'?1:2];
-          await go('drafts/?draft='+failed);await refresh();
+          await go('queue/?draft='+failed);await refresh();
           const retry=page.getByRole('button',{name:'Retry',exact:true});
           if(state==='unavailable')await expect(retry).toBeEnabled();else await expect(retry).toBeDisabled();
         }
@@ -308,9 +334,9 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       }
       await control('gate',{state:'ready'});
       await resetDrafts({persona,empty:true});
-      await go('drafts/');await refresh();await expect(page.locator('.agent-notice')).toHaveCount(0);
-      await expect(page.getByText('No drafts waiting.',{exact:true})).toBeVisible();
-      await expect(page.locator('.sidebar a[href$="drafts/"] .nav-count,.phone-live-nav a[href$="drafts/"] .nav-count')).toHaveCount(0);
+      await go('queue/');await refresh();await expect(page.locator('.agent-notice')).toHaveCount(0);
+      await expect(page.getByText('No items waiting.',{exact:true})).toBeVisible();
+      await expect(page.locator('.sidebar a[href$="queue/"] .nav-count,.phone-live-nav a[href$="queue/"] .nav-count')).toHaveCount(0);
       if(persona==='empty')await snap('drafts-empty');
       record('ready has no banner, and no pending work has no Drafts badge');
       // Existing and opening-only account currency dialogs use the real endpoints.
@@ -448,6 +474,8 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runRetentionTiming',()=>runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts}));
       await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');

@@ -33,7 +33,7 @@ def upgrade(settings, version='', *, dry_run=False):
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', version):
         raise ValueError('VERSION must be an exact npm version')
     print('Checking ' + settings.adapter + ' ' + version, flush=True)
-    with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-upgrade-') as folder:
+    with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP','/tmp'), prefix='expense-agent-upgrade-') as folder:
         work = Path(folder)
         npm_env = dict(base_env, HOME=str(work / 'npm-home'), npm_config_cache=str(work / 'npm-cache'))
         (work / 'npm-home').mkdir()

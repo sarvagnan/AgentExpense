@@ -424,9 +424,12 @@ function DetailedAccounts() {
         <div className="account-list-search"><SearchField id="account-search" value={query} onChange={setQuery} label="Find an account" placeholder="Find" scope="Accounts"/></div>
         <div onKeyDown={accountNav.onKeyDown}>{visibleGroups.map((group) => {
           const members = listed.filter((account) => account.group === group);
+          const totals:Record<string,number>={};
+          for(const account of members){const fund=holdings.find(item=>item.account.key===account.key);if(fund){if(priced)totals[fund.currency]=(totals[fund.currency]||0)+fund.value;else for(const [code,value] of Object.entries(fund.costs))totals[code]=(totals[code]||0)+Number(value);}else totals[account.currency]=(totals[account.currency]||0)+(group==='Credit cards'?Math.abs(account.balance):account.balance);}
+          const heading=<><span className="account-group-name"><strong>{group}</strong><small>{members.length}</small>{group===PORTFOLIO&&<Icon name="chevron-right"/>}</span><span className="account-group-total">{Object.entries(totals).map(([code,value])=>money(value,code)).join(' + ')}{group==='Credit cards'?' owed':''}</span></>;
           return members.length ? <section key={group} aria-label={group}>{group === PORTFOLIO
-            ? <h3><button type="button" className="account-group-open" aria-current={portfolio ? 'true' : undefined} title="Show every investment together" onClick={() => { setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}><span>{group}<Icon name="chevron-right"/></span><span>{members.length}</span></button></h3>
-            : <h3>{group}<span>{members.length}</span></h3>}{members.map((account) => {
+            ? <h3><button type="button" className="account-group-open" aria-current={portfolio ? 'true' : undefined} title="Show every investment together" onClick={() => { setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}>{heading}</button></h3>
+            : <h3>{heading}</h3>}{members.map((account) => {
             const fund = holdings.find((item) => item.account.key === account.key);
             const amount = fund ? priced ? money(fund.value, fund.currency) : moneyTotal(fund.costs) : money(group === 'Credit cards' ? Math.abs(account.balance) : account.balance, account.currency);
             return <button key={account.key} type="button" className="account-row" {...accountNav.rowProps(account)} aria-current={account.key === selected?.key ? 'true' : undefined} onClick={() => chooseAccount(account)}

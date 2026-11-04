@@ -1,3 +1,4 @@
+import os
 """Invented identifiers only; no private list or financial inputs."""
 from contextlib import redirect_stderr, redirect_stdout
 import io
@@ -13,7 +14,7 @@ from check_private import Matcher, read_list, scan
 
 class PrivateScanTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir='/tmp', prefix='fictional-scan-')
+        self.temp = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='fictional-scan-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.list = self.root / 'identifiers.tsv'
