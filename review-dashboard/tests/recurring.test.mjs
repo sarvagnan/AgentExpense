@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { temporaryDirectory } from './test-isolation.mjs';
 import { expandForecast, loadExpenseStore, occurrenceDate } from '../scripts/expense-store.mjs';
+import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
 const r = (overrides = {}) => ({id:'f000000000000001',date:'2026-02-28',status:'confirmed',description:'Willow club',schedule:{every:'month',from:'2026-02-28','anchor-day':31},
   postings:[{account:'Expenses:Club',amount:'10.00',commodity:'EUR'},{account:'Assets:Purse',amount:'-10.00',commodity:'EUR'}],...overrides});
 
@@ -19,7 +20,7 @@ test('Node reader validates recurring store metadata, links, preferences and anc
   const root=await temporaryDirectory('recurring-store-');t.after(()=>rm(root,{recursive:true,force:true}));
   await mkdir(path.join(root,'data/expenses'),{recursive:true});
   const put=(name,value)=>writeFile(path.join(root,name),JSON.stringify(value));
-  await put('ledger.json',{format:1,id:'00000000-0000-4000-8000-000000000001',name:'Offline recurring',defaultCurrency:'EUR',modules:{investments:false}});
+  await put('ledger.json',{format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000001',name:'Offline recurring',defaultCurrency:'EUR',modules:{investments:false}});
   await put('data/accounts.json',{commodities:['EUR'],accounts:{'Assets:Purse':{kind:'cash',currency:'EUR'},'Expenses:Club':{}}});
   const actual={...r(),id:'0000000000000001',date:'2026-01-31',rule:{id:'f000000000000001',occurrence:'2026-01-31'}};delete actual.schedule;
   await put('data/expenses/2026.json',[actual]);

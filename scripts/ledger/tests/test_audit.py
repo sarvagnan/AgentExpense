@@ -14,6 +14,7 @@ from jsonschema import ValidationError
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from audit import append, audit_path, event, main, missing_entries, records, review, stamp
 from ledger_lock import LOCK_FD_ENV, ledger_lock
+from ledger_manifest import CURRENT_FORMAT
 
 
 def draft(**changes):
@@ -27,7 +28,7 @@ class AuditTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(prefix='expense-audit-')
         self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
         from store import dump
-        dump(self.root/'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
+        dump(self.root/'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
 
     def add(self,line):
         with ledger_lock(self.root): append(self.root,line)

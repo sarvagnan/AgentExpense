@@ -16,6 +16,7 @@ CARD = 'Liabilities:Credit Cards:Example Card'
 
 from store import ROOT, canonical_text, dump, entries, load, new_id, read_json, store_paths
 from project_paths import APPLICATION_ROOT
+from ledger_manifest import CURRENT_FORMAT
 from generate_ledger import render_entry
 from check_store import check_card_statements
 from add_entry import add_entry
@@ -33,7 +34,7 @@ class Fixture(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-ledger-fixture-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        dump(self.root / 'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
+        dump(self.root / 'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
         self.year = self.root / 'data/expenses/2026.json'
         dump(self.root / 'data/accounts.json', dict(commodities=['INR', 'USD'], accounts={CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf')), 'Expenses:Test': {}, 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}}))
         dump(self.year, [entry()])

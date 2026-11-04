@@ -17,6 +17,7 @@ import sys
 APPLICATION = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APPLICATION / 'scripts'))
 import check_version  # noqa: E402
+import dependencies  # noqa: E402
 
 # The oldest hledger whose behaviour the app relies on; docs/VERSIONS.md says why.
 HLEDGER_MINIMUM = (1, 25)
@@ -152,16 +153,10 @@ def check_ledger(application, environ):
 
 
 def check_npm_packages(application):
-    dashboard = application / 'review-dashboard'
+    different = dependencies.npm_differences(application)
     fix = 'npm --prefix review-dashboard ci'
-    hidden = dashboard / 'node_modules/.package-lock.json'
-    if not hidden.is_file():
+    if different is None:
         return Row('npm packages', FAIL, 'not installed', fix)
-    locked = json.loads((dashboard / 'package-lock.json').read_text()).get('packages', {})
-    installed = json.loads(hidden.read_text()).get('packages', {})
-    different = [name for name, item in locked.items() if name and not (item.get('optional') and name not in installed)
-                 and installed.get(name, {}).get('version') != item.get('version')]
-    different += [name for name in installed if name not in locked]
     if different:
         return Row('npm packages', FAIL, f'{len(different)} differ from package-lock.json', fix)
     return Row('npm packages', OK, 'match package-lock.json')

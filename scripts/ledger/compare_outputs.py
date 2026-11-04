@@ -12,6 +12,7 @@ import tempfile
 from store import read_json, store_paths, load
 from generate_ledger import render
 from project_paths import APPLICATION_ROOT
+from ledger_manifest import CURRENT_FORMAT
 from node_toolchain import node_environment
 
 BASELINE_FILE = 'outputs.json'
@@ -48,7 +49,15 @@ def snapshot(root, *, format_zero_settings=None):
         shutil.copytree(root / 'data', ledger / 'data')
         manifest = root / 'ledger.json'
         if manifest.exists():
-            shutil.copyfile(manifest, ledger / 'ledger.json')
+            # This app reads only the current format. An older manifest (a migration
+            # baseline) is compared as if current; a migration whose settings change
+            # the outputs declares that change instead.
+            value = read_json(manifest)
+            if isinstance(value, dict) and type(value.get('format')) is int and 0 < value['format'] < CURRENT_FORMAT:
+                from store import dump
+                dump(ledger / 'ledger.json', {**value, 'format': CURRENT_FORMAT})
+            else:
+                shutil.copyfile(manifest, ledger / 'ledger.json')
             documents = load(ledger)
         else:
             # Format-0 has no metadata. Migration comparisons supply the exact
@@ -65,10 +74,11 @@ def snapshot(root, *, format_zero_settings=None):
                 for account in declarations['accounts']:
                     units = {p['commodity'] for p in postings if p['account'] == account}
                     metadata[account] = {'kind': infer_kind(account) or 'person', 'currency': next(iter(units)) if len(units) == 1 else default} if is_balance_sheet(account) else {}
-                settings = dict(format=1, id='00000000-0000-4000-8000-000000000000', name='Comparison', defaultCurrency=default)
+                settings = dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000000', name='Comparison', defaultCurrency=default)
                 declarations = {**declarations, 'accounts': metadata}
             else:
                 settings, declarations = format_zero_settings
+                settings = {**settings, 'format': CURRENT_FORMAT}
             dump(ledger / 'ledger.json', settings)
             dump(ledger / 'data/accounts.json', declarations)
             documents[ledger / 'data/accounts.json'] = declarations

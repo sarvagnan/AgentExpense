@@ -1,0 +1,36 @@
+name: AgentExpense toolchain
+description: Node from .node-version, Python, a pinned uv, hledger, a pinned jj, and dependencies installed from the lockfiles.
+inputs:
+  uv-version:
+    description: Exact uv version
+    default: "0.12.13"
+  jj-version:
+    description: Exact Jujutsu version
+    default: "0.46.0"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - uses: astral-sh/setup-uv@v6
+      with:
+        version: ${{ inputs.uv-version }}
+    - name: Install hledger and jj
+      shell: bash
+      env:
+        JJ_VERSION: ${{ inputs.jj-version }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y hledger
+        mkdir -p "$RUNNER_TEMP/jj"
+        curl -fsSL "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz" | tar -xz -C "$RUNNER_TEMP/jj"
+        echo "$RUNNER_TEMP/jj" >> "$GITHUB_PATH"
+    - name: Install dependencies from the lockfiles
+      shell: bash
+      run: |
+        npm --prefix review-dashboard ci
+        uv sync --locked --directory review-dashboard/server

@@ -11,6 +11,7 @@ import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {cp,mkdir,mkdtemp,readFile,writeFile,rename,rm,open} from 'node:fs/promises';
 import {spawn,execFileSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
 import {createServer} from 'node:net';
 import {capture,contactSheet,shots} from './capture.mjs';
 import {runSuite} from './suites.mjs';
@@ -133,10 +134,13 @@ try {
     stage=await staging(persona);
     for(const engine of engines) {
       activeBrowser=await launch(engine,stage.root);
-      if(persona===personas[0] && engine===engines[0]) {
+      // The approved mockups live in the ignored tmp/ folder, so a published checkout (CI) has none.
+      const mockups=join(source,'tmp/mockups/index.html');
+      if(persona===personas[0] && engine===engines[0] && !existsSync(mockups))console.log('Mockup packaging check not run: tmp/mockups is not in this checkout');
+      if(persona===personas[0] && engine===engines[0] && existsSync(mockups)) {
         const context=await activeBrowser.newContext(),page=await context.newPage();
         await page.route('**/*',route=>route.request().url().startsWith('file:')?route.continue():route.abort());
-        await page.goto('file://'+join(source,'tmp/mockups/index.html'));
+        await page.goto('file://'+mockups);
         assert.ok((await page.title()).includes('mockup'));
         await context.close();
       }

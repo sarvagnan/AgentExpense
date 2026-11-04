@@ -1,0 +1,125 @@
+# Offline checks, per-persona suites, the update test and headless browsers.
+# Nothing here reads a private list, signs in to an agent or runs a model.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  npm_config_update_notifier: "false"
+  PLAYWRIGHT_VERSION: "1.64.1"
+  GITLEAKS_VERSION: "8.18.4"
+  JJ_USER: CI
+  JJ_EMAIL: ci@example.invalid
+  GIT_AUTHOR_NAME: CI
+  GIT_AUTHOR_EMAIL: ci@example.invalid
+  GIT_COMMITTER_NAME: CI
+  GIT_COMMITTER_EMAIL: ci@example.invalid
+
+jobs:
+  privacy:
+    name: Personal-data and secret scans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Personal-data scan with an empty list
+        # The real list is private and never leaves the owner's machine.
+        run: |
+          list="$RUNNER_TEMP/private-list.tsv"
+          : > "$list"
+          python3 scripts/check_private.py --list "$list"
+      - name: Personal-data scanner tests
+        run: python3 -m unittest discover -s scripts/tests -p test_check_private.py -v
+      - name: Secret scan (gitleaks, pinned)
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "$base/$archive"
+          curl -fsSLO "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          mkdir gitleaks
+          tar -xzf "$archive" -C gitleaks
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/gitleaks/gitleaks" detect --source . --redact --no-banner --exit-code 1
+
+  offline:
+    name: Offline suites and build (${{ matrix.persona }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        persona: [asha, empty, jordan, sam]
+    env:
+      LEDGER_DIR: ${{ github.workspace }}/fixtures/ledgers/${{ matrix.persona }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: make doctor
+      - name: Verify, test migrations and build
+        run: make dashboard
+      - name: Server tests
+        # The full suite once; other personas run the persona-sensitive tests.
+        run: make test-server SERVER_TESTS=${{ matrix.persona == 'asha' && 'all' || 'persona' }}
+      - name: Dashboard tests
+        run: npm --prefix review-dashboard test
+      - name: Scanner, doctor and tooling tests
+        run: make test-scanner
+      - name: Workflow structure check
+        if: matrix.persona == 'asha'
+        run: make check-workflows
+
+  update:
+    name: make update between local releases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Update v0.1.0 to v0.2.0 with a migration, and roll back a failing release
+        run: make test-update
+
+  browser:
+    name: Headless browsers (${{ matrix.engine }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Install Playwright (pinned) and its headless ${{ matrix.engine }}
+        # The harness loads Playwright from this folder and refuses any other version.
+        run: |
+          mkdir -p ~/.cache/expense-playwright
+          cd ~/.cache/expense-playwright
+          printf '{"private": true}\n' > package.json
+          npm install --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
+          npx playwright install --with-deps ${{ matrix.engine == 'chromium' && 'chromium-headless-shell' || matrix.engine }}
+      - name: Browser suites, every persona, size and theme
+        run: ENGINES=${{ matrix.engine }} CAPTURE=0 make browser-tests
+      - name: Keep failing-case traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-traces-${{ matrix.engine }}
+          path: /tmp/agentexpense-run-*/**/failure-*.zip
+          if-no-files-found: ignore

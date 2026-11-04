@@ -1,6 +1,7 @@
 import {lockModalPage} from './ui';
 import {api as liveApi} from './live/api';
 import { SettingsDialog } from './settings-dialog';
+import { refreshUpdateStatus } from './live/update-notice';
 import { moduleSettings } from '../scripts/ledger-modules.mjs';
 import { money as amountMoney, axisMoney } from './formatting';
 import {today, calendarMonths, formatTimestamp} from './date-time';
@@ -654,6 +655,8 @@ export default function Dashboard({ view }: { view: View }) {
   const [month, setMonth] = useQueryState('month', defaultMonth(), isMonth);
   const version = useSyncExternalStore(subscribeData, dataVersion, dataVersion);
   const live = useDrafts();
+  // Settings shows the update notice, when the server turns it on, from this earlier read.
+  useEffect(()=>{if(live.online)void refreshUpdateStatus();},[live.online]);
   const composer = useComposer(view==='add');
   useAnswerGuard();
   useLiveFocus(view);

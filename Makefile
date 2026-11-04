@@ -2,8 +2,8 @@
 export PYTHONDONTWRITEBYTECODE = 1
 export npm_config_update_notifier = false
 # Resolve the installed project Node once; helpers never install or download it.
-# doctor and check-version need no Node, so they work before it is installed.
-ifneq ($(MAKECMDGOALS),$(filter doctor check-version,$(MAKECMDGOALS)))
+# doctor, check-version and update need no Node; update runs make for each release.
+ifneq ($(MAKECMDGOALS),$(filter doctor check-version update,$(MAKECMDGOALS)))
 NODE_BIN := $(shell python3 "$(dir $(abspath $(firstword $(MAKEFILE_LIST))))scripts/node_toolchain.py")
 ifeq ($(strip $(NODE_BIN)),)
 $(error Cannot resolve .node-version; install its version with fnm install $$(cat .node-version))
@@ -38,19 +38,25 @@ doctor:
 check-version:
 	@python3 scripts/check_version.py
 
-review-dashboard/node_modules/.package-lock.json: review-dashboard/package-lock.json
-	npm --prefix review-dashboard ci
+# npm ci only when installed packages differ from package-lock.json by version.
+.PHONY: node-modules install
+node-modules:
+	@python3 scripts/dependencies.py npm
 
-test-server-inside: review-dashboard/node_modules/.package-lock.json
+# npm and Python dependencies, each reinstalled only when it differs from its lockfile.
+install:
+	@python3 scripts/dependencies.py install
+
+test-server-inside: node-modules
 	HLEDGER_BIN="$(HLEDGER)" uv run --locked --directory review-dashboard/server python tests/run_tests.py
 
-agent-check: review-dashboard/node_modules/.package-lock.json
+agent-check: node-modules
 	@PYTHONDONTWRITEBYTECODE=1 LIVE="$(LIVE)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_check.py
 
-agent-login: review-dashboard/node_modules/.package-lock.json
+agent-login: node-modules
 	ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_tools.py login
 
-agent-upgrade: review-dashboard/node_modules/.package-lock.json
+agent-upgrade: node-modules
 	VERSION="$(VERSION)" DRY_RUN="$(DRY_RUN)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_tools.py upgrade
 
 service:
@@ -71,9 +77,39 @@ check:
 format:
 	uv run --with jsonschema python scripts/ledger/store.py --format
 
-dashboard-inside: review-dashboard/node_modules/.package-lock.json verify test-migrations
+dashboard-inside: node-modules verify test-migrations
 	npm --prefix review-dashboard run data
 	npm --prefix review-dashboard run build
+
+# The installation's own dashboard data and build, without tests; make update uses it.
+.PHONY: build-dashboard update-checks update test-update
+build-dashboard: node-modules
+	npm --prefix review-dashboard run data
+	npm --prefix review-dashboard run build
+
+# What make update runs after checking out a release: versions, the selected ledger,
+# its dashboard, and the ledger, migration and server tests (not the browser suites).
+# With no ledger selected there is no dashboard to build; the tests use the fixture.
+update-checks:
+	$(MAKE) --no-print-directory check-version
+ifneq ($(wildcard $(LEDGER_DIR)/.),)
+	$(MAKE) --no-print-directory verify
+	$(MAKE) --no-print-directory build-dashboard
+else
+	@echo "No ledger selected: no ledger to verify or dashboard to build."
+	$(MAKE) --no-print-directory test-ledger
+endif
+	$(MAKE) --no-print-directory test-migrations
+	$(MAKE) --no-print-directory test-server
+
+# The GitHub workflows' structure, checked offline with the server environment's PyYAML.
+.PHONY: check-workflows
+check-workflows:
+	uv run --locked --directory review-dashboard/server python ../../scripts/check_workflows.py
+
+# Update to the latest release tag; ARGS="--yes" skips the prompt. See docs/RELEASING.md.
+update:
+	@HLEDGER="$(HLEDGER)" python3 scripts/update.py $(ARGS)
 
 verify-data: ledger
 	$(MAKE) check
@@ -157,6 +193,11 @@ test-ledger:
 	@scripts/test-run.sh $(MAKE) --no-print-directory test-ledger-inside
 test-migrations:
 	@scripts/test-run.sh $(MAKE) --no-print-directory test-migrations-inside
+# Releases v0.1.0 to v0.2.0 between disposable clones of a local bare repository.
+test-update:
+	@scripts/test-run.sh $(MAKE) --no-print-directory test-update-inside
+test-update-inside:
+	AGENTEXPENSE_UPDATE_TEST=1 python3 scripts/test_python.py -m unittest discover -s scripts/tests -p test_update.py -v
 browser-capture:
 	@scripts/test-run.sh $(MAKE) --no-print-directory browser-capture-inside
 

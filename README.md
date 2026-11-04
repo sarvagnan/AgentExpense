@@ -34,13 +34,15 @@ With no ledger selected (no `ledger/` and no `LEDGER_DIR`), the test targets and
 
 `DASHBOARD_DATA_DIR` selects a generated-output root containing `app/data/` and `public/data/` (default `review-dashboard/`). Relative paths resolve from the invoking directory. A private source stamp follows the ledger’s real path; builds refuse another ledger before changing any output. Choose another root or set `DASHBOARD_DATA_REPLACE=1` to replace it. The stamp is neither published nor served. Tests and persona runs always use temporary output roots; npm update notifications are disabled.
 
-`make dashboard` installs the pinned npm dependencies when needed, generates dashboard data and builds static views. Server tests use disposable repositories and a fake agent; they run no model. Browser suites are separate and are not part of the commands above. See [dashboard documentation](review-dashboard/README.md) and [server documentation](review-dashboard/server/README.md).
+`make dashboard` installs the pinned npm dependencies when the installed versions differ from the lockfile, generates dashboard data and builds static views. Server tests use disposable repositories and a fake agent; they run no model. Browser suites are separate and are not part of the commands above. See [dashboard documentation](review-dashboard/README.md) and [server documentation](review-dashboard/server/README.md).
 
 Before committing, run `make scan LIST=/path/to/private-identifiers.tsv`. Keep that list outside the repository. Each line is `label<TAB>value`; output contains only labels and locations. Binary files are reported for manual inspection. Review the scanner's limits in `scripts/check_private.py`.
 
 ## Versions
 
 The application version is in `VERSION`; `make check-version` confirms the package files follow it. [CHANGELOG.md](CHANGELOG.md) describes each release with upgrade steps, and [docs/VERSIONS.md](docs/VERSIONS.md) explains the ledger format, interface and audit versions.
+
+`make update` updates an installation to the newest release tag, upgrades the ledger and runs the offline checks, and rolls everything back if a step fails; `make update ARGS="--yes"` skips the question. [docs/RELEASING.md](docs/RELEASING.md) covers updating, the optional update notice, how releases are cut and the CI workflows.
 
 ## Licence
 

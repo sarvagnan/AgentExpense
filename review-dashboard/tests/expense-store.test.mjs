@@ -5,6 +5,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { decimalNumber, isAssertionOnly, loadExpenseStore, parsePrices, toTransaction } from '../scripts/expense-store.mjs';
+import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
 
 const entry = (overrides = {}) => ({ id: '0000000000000001', date: '2026-01-30', status: 'pending', description: 'Test purchase',
   sources: ['statement.pdf', 'receipt.png'], classification: 'Pending receipt',
@@ -17,7 +18,7 @@ async function fixture(t, actuals = [entry()], rules = [rule()]) {
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'data/expenses'), { recursive: true });
   await mkdir(path.join(root, 'data/prices'));
-  await writeFile(path.join(root, 'ledger.json'), JSON.stringify({format:1,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
+  await writeFile(path.join(root, 'ledger.json'), JSON.stringify({format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
   await writeFile(path.join(root, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:{'Expenses:Test':{}}}));
   await writeFile(path.join(root, 'data/expenses/2026.json'), JSON.stringify(actuals));
   await writeFile(path.join(root, 'data/forecast.json'), JSON.stringify(rules));
@@ -125,8 +126,8 @@ test('manifest gates run before store reads and fill independent defaults', asyn
   assert.deepEqual(manifest.review, { storageKey: null });
   await rm(path.join(root, 'ledger.json'));
   await assert.rejects(loadExpenseStore(root), { message: 'This ledger uses format 0; run make upgrade-ledger.' });
-  await writeFile(path.join(root, 'ledger.json'), JSON.stringify({ format: 2 }));
-  await assert.rejects(loadExpenseStore(root), { message: 'This app reads format 1; this ledger uses format 2; a newer AgentExpense is needed.' });
+  await writeFile(path.join(root, 'ledger.json'), JSON.stringify({ format: CURRENT_FORMAT + 1 }));
+  await assert.rejects(loadExpenseStore(root), { message: `This app reads format ${CURRENT_FORMAT}; this ledger uses format ${CURRENT_FORMAT + 1}; a newer AgentExpense is needed.` });
 });
 
 test('account metadata accepts any root and requires kind and currency outside Income, Expenses and Equity', async t => {

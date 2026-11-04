@@ -1,0 +1,56 @@
+# Weekly: check each pinned agent CLI's newest npm release offline and propose the new pin.
+# CI never signs in or runs a model. The owner runs the live probe before merging:
+#   make agent-check LIVE=1 ADAPTER=<adapter>
+name: Agent CLI upgrades
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  npm_config_update_notifier: "false"
+
+jobs:
+  upgrade:
+    name: Pin ${{ matrix.adapter }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [codex, claude, pi, opencode]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Offline allow-list checks for the newest release (dry run)
+        run: make agent-upgrade ADAPTER=${{ matrix.adapter }} DRY_RUN=1
+      - name: Pin the checked release
+        run: make agent-upgrade ADAPTER=${{ matrix.adapter }}
+      - name: Versions still agree
+        run: make check-version
+      - name: Open a pull request with the new pin
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: agent-upgrade/${{ matrix.adapter }}
+          delete-branch: true
+          add-paths: |
+            review-dashboard/package.json
+            review-dashboard/package-lock.json
+          commit-message: Pin the ${{ matrix.adapter }} agent CLI to its newest release
+          title: Pin the ${{ matrix.adapter }} agent CLI to its newest release
+          body: |
+            The scheduled upgrade job installed the newest `${{ matrix.adapter }}` CLI release in a
+            temporary folder and its offline allow-list checks passed (`make agent-upgrade DRY_RUN=1`).
+            This pull request changes only the exact npm pin.
+
+            CI never signs in or runs a model. Before merging, on the computer that runs AgentExpense:
+
+            1. Check out this branch and run `npm --prefix review-dashboard ci`.
+            2. Run `make agent-check LIVE=1 ADAPTER=${{ matrix.adapter }}` (the live fixture probe).
+            3. Record the result in `docs/ADAPTERS.md` and `CHANGELOG.md`, then merge.

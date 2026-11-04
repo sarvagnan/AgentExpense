@@ -162,6 +162,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     if agent_clock: worker.pause.clock = agent_clock
     statements.agent_pause = worker.pause
     gate = get_gate(settings)
+    from update_notice import UpdateNotice
+    update_notice = UpdateNotice(settings)
+    worker.update_notice = update_notice
 
     @asynccontextmanager
     async def lifespan(app):
@@ -181,6 +184,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     app.state.settings, app.state.drafts, app.state.worker = settings, drafts, worker
     app.state.statements = statements
     app.state.agent_gate = gate
+    app.state.update_notice = update_notice
     app.add_middleware(DashboardGZipMiddleware, minimum_size=1024)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.hosts))
 
@@ -378,6 +382,11 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def health():
         return {'ok': True, 'base_path': settings.base_path, 'worker': bool(worker.thread and worker.thread.is_alive()),
                 'agent': gate.status(), 'agent_pause': worker.pause.status()}
+
+    @app.get('/api/update')
+    def update_status():
+        # Reading the notice never contacts the remote; the worker checks at most daily.
+        return update_notice.status()
 
     @app.get('/api/agent-status')
     def agent_status():

@@ -6,6 +6,7 @@ import { Dialog, Icon, announce, money, useAppearance, useDocumentScrollLock, us
 import { request } from './live/api';
 import {retentionOperation,type Limits} from './live/retention';
 import { AgentNotice, type AgentStatus } from './live/agent-status';
+import { UpdateNotice, knownUpdateStatus, refreshUpdateStatus } from './live/update-notice';
 
 async function saveSetting(path:string,body:unknown) {
   const result=await request<{data_stale?:boolean}>(path,post(body),120000);
@@ -23,6 +24,9 @@ export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentSt
   const changed=!!original&&JSON.stringify(limits)!==JSON.stringify(original);
   useEffect(()=>{if(!changed){setEffects(null);return;}let alive=true;setEffects(null);setPreviewError('');void request<typeof effects>('settings/retention-preview',post(limits)).then(value=>{if(alive)setEffects(value);},e=>{if(alive)setPreviewError(e.message);});return()=>{alive=false;};},[limits,changed]);
   const [appearance,setAppearance]=useAppearance();
+  // The notice uses the status known when Settings opened; a later reply waits for the next opening.
+  const [update]=useState(knownUpdateStatus);
+  useEffect(()=>{void refreshUpdateStatus();},[]);
   const [busy,setBusy]=useState(false), [error,setError]=useState('');
   const otherAccounts=Object.entries(dashboard.meta.accounts).filter(([,meta])=>meta.kind && meta.currency && isCurrency(meta.currency) && meta.currency!==currency);
   const keptCurrencies=[...new Set(otherAccounts.map(([,meta])=>meta.currency))];
@@ -51,6 +55,7 @@ export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentSt
       {otherAccounts.length>0 && <p className="settings-inset live-hint" data-existing-currencies>{keptNote}</p>}
     </section><section className="settings-section retention-settings"><h3>Time limits</h3>{([['delete_days','Delete an entry'],['trash_days','Keep in Trash'],['saved_hours','Keep Saved for later']] as const).map(([key,label])=><div key={key}><label><span className="field-label">{label}</span><select aria-label={label} className="field" disabled={busy||!original} value={limits[key]} onChange={e=>setLimits({...limits,[key]:Number(e.target.value)})}>{(key==='saved_hours'?[12,24,72,168]:[1,3,7,14,30]).map(value=><option key={value} value={value}>{key==='saved_hours'?(value===12?'12 hours':`${value/24} ${value===24?'day':'days'}`):`${value} ${value===1?'day':'days'}`}</option>)}</select></label></div>)}{changed&&<div className="retention-effects">{(['delete_days','trash_days','saved_hours'] as const).map(key=><section key={key}>{original&&limits[key]!==original[key]&&<div className="live-hint" role="status">{!effects?'Checking effects…':key==='delete_days'?<><p>{effects.deletable_again.length?`${effects.deletable_again.length} older entries become deletable again.`:'The new window applies to existing entries immediately.'}</p>{effects.deletable_again.map((item,i)=><p key={i}>{item.description}</p>)}</>:key==='trash_days'?<><p>{effects.remove_now.length?`${effects.remove_now.length} items would be removed for good now:`:'No Trash items would be removed for good now.'}</p>{effects.remove_now.map((item,i)=><p key={i}>{item.description}</p>)}</>:<><p>{effects.move_to_trash.length?`${effects.move_to_trash.length} saved items would move to Trash now:`:'No saved items would move to Trash now.'}</p>{effects.move_to_trash.map((item,i)=><p key={i}>{item.description}</p>)}</>}</div>}</section>)}</div>}{previewError&&<p className="live-error" role="alert">{previewError}</p>}<p className="live-hint">Time limits are shared by every device using this ledger.</p></section><section className="settings-section"><h3>Agent status</h3><AgentNotice status={agent} settings/></section>
     <section className="settings-section"><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button></section>
+    <UpdateNotice status={update}/>
     {error && <p className="live-error" role="alert">{error}</p>}</div>
     <footer className="dialog-footer"><button type="button" className="button" disabled={busy} onClick={close}>Cancel</button><button type="submit" className="button primary" disabled={busy || !name.trim() || changed&&!effects}>{busy?'Saving…':'Save changes'}</button></footer>
   </form></Dialog>;

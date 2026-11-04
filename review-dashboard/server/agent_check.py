@@ -85,7 +85,8 @@ def fixture(work):
         (ledger / 'data' / path).write_text(json.dumps(value))
     old = work / 'fixture-old.ledger'
     old.write_text('')
-    (ledger / 'ledger.json').write_text(json.dumps(dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline probe', defaultCurrency='INR')))
+    from ledger_manifest import CURRENT_FORMAT
+    (ledger / 'ledger.json').write_text(json.dumps(dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline probe', defaultCurrency='INR')))
     return ledger, old, account
 
 

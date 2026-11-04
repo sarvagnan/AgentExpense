@@ -12,6 +12,7 @@ from unittest import mock
 APPLICATION = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(APPLICATION / 'scripts'))
 import check_version
+from ledger_manifest import CURRENT_FORMAT
 import doctor
 
 PIN = '26.13.0'
@@ -158,7 +159,8 @@ class DoctorTests(DoctorFixture):
 
     def test_ledger_formats(self):
         for manifest, status, words in [
-            (None, 'warn', 'format 0'), (dict(format=1), 'ok', 'format 1'), (dict(format=2), 'warn', 'format 2'),
+            (None, 'warn', 'format 0'), (dict(format=CURRENT_FORMAT), 'ok', f'format {CURRENT_FORMAT}'),
+            (dict(format=CURRENT_FORMAT + 1), 'warn', f'format {CURRENT_FORMAT + 1}'),
             ('{"format": ', 'FAIL', 'unreadable'), ('{"format": "1"}', 'FAIL', 'unreadable')]:
             with self.subTest(manifest=manifest):
                 root = self.ledger(manifest)
@@ -169,7 +171,7 @@ class DoctorTests(DoctorFixture):
         row = self.rows(LEDGER_DIR=self.ledger(None))['Ledger']
         self.assertEqual(row.fix, 'make upgrade-ledger ARGS="--dry-run", then make upgrade-ledger')
         shutil.rmtree(self.base / 'ledger-folder')
-        self.assertEqual(self.rows(LEDGER_DIR=self.ledger(dict(format=1), repository=None))['Ledger'].status, 'warn')
+        self.assertEqual(self.rows(LEDGER_DIR=self.ledger(dict(format=CURRENT_FORMAT), repository=None))['Ledger'].status, 'warn')
         self.assertEqual(self.rows(LEDGER_DIR=str(self.base / 'absent'))['Ledger'].status, 'FAIL')
 
     def test_old_format_ledger_alone_does_not_block(self):

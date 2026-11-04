@@ -10,6 +10,7 @@ import {loadPublishedData} from './load-data.mjs';
 import {expandForecast,toTransaction,loadExpenseStore} from '../scripts/expense-store.mjs';
 import {varyingDetails,varyingAmountCheck,ruleStatus,matchRules} from '../scripts/recurring-ui.mjs';
 import {buildPatterns} from '../scripts/add-patterns.mjs';
+import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
 const accounts={'Assets:Purse':{kind:'cash',currency:'GBP',label:'Purse'},'Expenses:Utilities':{}};
 const rule=()=>({id:'f000000000000001',date:'2026-11-12',status:'confirmed',description:'Willow Energy',amount:'varies',schedule:{every:'month',from:'2026-11-12'},postings:[{account:'Expenses:Utilities',amount:'48.00',commodity:'GBP'},{account:'Assets:Purse',amount:'-48.00',commodity:'GBP'}]});
 const history=()=>['40.00','180.00','48.00'].map((amount,i)=>({...rule(),amount:undefined,schedule:undefined,id:String(i+1).padStart(16,'0'),date:`2026-${String(i+8).padStart(2,'0')}-12`,postings:rule().postings.map((p,index)=>({...p,amount:(index?'-':'')+amount}))}));
@@ -31,7 +32,7 @@ test('forecast bill is exact once at pay-by and all following occurrences keep t
 test('Node reader checks varying shape and closed bill dates/occurrence/currency',async t=>{
  const root=await temporaryDirectory('varying-reader-');t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(join(root,'data/expenses'),{recursive:true});
  const write=(p,value)=>writeFile(join(root,p),JSON.stringify(value));
- await write('ledger.json',{format:1,id:'00000000-0000-4000-8000-000000000001',name:'Fictional bills',defaultCurrency:'GBP',modules:{investments:false}});await write('data/accounts.json',{commodities:['GBP','EUR'],accounts});await write('data/expenses/2026.json',history());
+ await write('ledger.json',{format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000001',name:'Fictional bills',defaultCurrency:'GBP',modules:{investments:false}});await write('data/accounts.json',{commodities:['GBP','EUR'],accounts});await write('data/expenses/2026.json',history());
  const r=rule();await write('data/forecast.json',[r]);assert.equal((await loadExpenseStore(root)).rawRules[0].amount,'varies');
  for(const change of [{postings:[...r.postings,{account:'Expenses:Fees',amount:'1.00',commodity:'GBP'}]},{postings:r.postings.map((p,i)=>i?{...p,commodity:'EUR'}:p)},{amount:'sometimes'},{bill:{amount:'1.00',received:'2026-02-30',occurrence:r.date,sources:[]}},{bill:{amount:'1.00',received:'2026-11-01',occurrence:'2026-12-12',sources:[]}},{bill:{amount:'1.00',received:'2026-11-01',occurrence:r.date,sources:[],extra:'invalid'}}]){
   await write('data/forecast.json',[{...r,...change}]);await assert.rejects(loadExpenseStore(root));

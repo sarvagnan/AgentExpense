@@ -1,6 +1,7 @@
 import {runRetention} from './retention.mjs';
 import {runRetentionTiming} from './retention-timing.mjs';
 import {runVarying} from './varying.mjs';
+import {runUpdateNotice} from './update-notice.mjs';
 import {runConfirmedBalances} from './confirmed-balances.mjs';
 import {runAdd} from './add.mjs';
 import {runAddPolish} from './add-polish.mjs';
@@ -156,6 +157,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
+      if(process.env.BROWSER_FOCUS==='update-notice') {
+        await runUpdateNotice({page,base,expect,go,snap,overflow,record});
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
+      }
       if(process.env.BROWSER_FOCUS==='finish') {
         await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
@@ -235,6 +241,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await page.setViewportSize({width:narrow,height});await openSettings();await overflow('Settings at '+narrow);await closeDialog();
       }
       record('Settings controls, keyboard order, focus return and 320px fit');
+      await timed('runUpdateNotice',()=>runUpdateNotice({page,base,expect,go,snap,overflow,record}));
       if(theme==='light' && width===1440) {
         const settingsStarted=performance.now(), settingsBefore=commits();
         const changedName=initialManifest.name+' Test';

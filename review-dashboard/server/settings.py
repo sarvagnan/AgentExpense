@@ -40,6 +40,8 @@ class Settings:
     allow_unisolated: bool = False
     custom_adapter: str | None = None
     api_options: str = '{}'  # Canonical JSON keeps Settings hashable; never contains a key.
+    update_notice: bool = False  # local.json updates.notice; off unless turned on.
+    update_remote: str = 'origin'
 
     @property
     def agent_home(self):
@@ -80,6 +82,8 @@ class Settings:
         if not isinstance(local, dict) or not isinstance(local.get('agent', {}), dict):
             raise ValueError('local.json must contain an agent object')
         agent = local.get('agent', {})
+        from local_settings import update_settings
+        updates = update_settings(local)
         adapter = os.getenv('EXPENSES_AGENT') or os.getenv('ADAPTER') or agent.get('adapter', 'codex')
         if not isinstance(adapter, str) or not __import__('re').fullmatch(r'[a-z][a-z0-9-]*', adapter):
             raise ValueError('Invalid agent adapter id')
@@ -110,4 +114,5 @@ class Settings:
                    effort=os.getenv('EXPENSES_AGENT_EFFORT') or agent.get('effort') or ('xhigh' if adapter == 'codex' else 'high'),
                    timeout=timeout, adapter=adapter, agent_binary=os.getenv('EXPENSES_AGENT_BINARY'),
                    allow_unisolated=agent.get('allowUnisolated', False), custom_adapter=agent.get('module'),
-                   api_options=json.dumps(api, sort_keys=True))
+                   api_options=json.dumps(api, sort_keys=True),
+                   update_notice=updates['notice'], update_remote=updates['remote'])

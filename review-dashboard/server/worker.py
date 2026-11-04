@@ -90,6 +90,11 @@ class Worker:
                     import logging
                     logging.exception("Retention sweep deferred")
             self.daily_refresh.tick()
+            if getattr(self, 'update_notice', None):
+                try: self.update_notice.tick()
+                except Exception:
+                    import logging
+                    logging.exception('Update check deferred')
             self.drafts.purge()
             from agent_gate import get_gate
             self.pause.tick(get_gate(self.settings))

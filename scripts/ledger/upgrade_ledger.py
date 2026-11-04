@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -96,6 +97,29 @@ def validate_plan(result):
         validate({root / 'data/accounts.json': result[1]}, root)
 
 
+def rehearse(root, options, steps, version):
+    """Plan and apply every step on a scratch copy; validate the result at the current format.
+
+    This app reads only the current format, so intermediate results can't be validated
+    alone. Returns the first step's plan; the ledger itself is never written.
+    """
+    with tempfile.TemporaryDirectory(prefix='expense-migration-chain-', dir=os.environ.get('EXPENSES_TEST_TMP','/tmp')) as folder:
+        scratch = Path(folder)
+        shutil.copytree(root / 'data', scratch / 'data')
+        if (root / 'ledger.json').exists():
+            shutil.copyfile(root / 'ledger.json', scratch / 'ledger.json')
+        first = None
+        while version < CURRENT_FORMAT:
+            step = steps[version]
+            result = step.plan(scratch, options)
+            first = first or result
+            if step.TARGET_FORMAT == CURRENT_FORMAT:
+                validate_plan(result)
+            step.apply(scratch, result)
+            version = step.TARGET_FORMAT
+        return first
+
+
 def report_stale_rules(root, declarations):
     from recurring import stale_rules
     actual = [entry for path in sorted((root / 'data/expenses').glob('*.json')) for entry in read_json(path)]
@@ -117,10 +141,11 @@ def upgrade(root, options):
     if options.dry_run:
         repo.require_clean()
         step = steps[version]
-        result = step.plan(root, options)
-        validate_plan(result)
+        result = rehearse(root, options, steps, version)
         print(f'Plan: format {version} -> {step.TARGET_FORMAT} (app v{app_version()})')
         print(json.dumps(ordered_manifest(result[0]), indent=2, ensure_ascii=False))
+        for later in range(step.TARGET_FORMAT, CURRENT_FORMAT):
+            print(f'Then: format {later} -> {later + 1}')
         report_stale_rules(root, result[1])
         return
     with ledger_lock(root):
@@ -137,19 +162,28 @@ def upgrade(root, options):
         targets = ['ledger.json', 'data/accounts.json', 'expense_ledger.ledger']
         before = {name: (root / name).read_bytes() if (root / name).exists() else None for name in targets}
         try:
+            rehearse(root, options, steps, version)
             initial_plan = steps[version].plan(root, options)
-            validate_plan(initial_plan)
             if version == 0:
                 report_stale_rules(root, initial_plan[1])
             baseline = snapshot(root, format_zero_settings=initial_plan if version == 0 else None)
+            # Dashboard paths the applied migrations declare as intended changes.
+            declared = [path for source in range(version, CURRENT_FORMAT) for path in getattr(steps[source], 'OUTPUT_CHANGES', ())]
             while version < CURRENT_FORMAT:
                 step = steps[version]
                 result = initial_plan if version == 0 else step.plan(root, options)
-                validate_plan(result)
+                final = step.TARGET_FORMAT == CURRENT_FORMAT
+                # This app reads only the current format, so intermediate formats are
+                # committed as they are; the final one is validated, verified and
+                # compared, and any failure restores the checkpoint for every step.
+                if final:
+                    validate_plan(result)
                 step.apply(root, result)
-                verify(root)
-                if not compare(baseline, snapshot(root)):
-                    raise ValueError('Generated outputs changed; migration declares no output changes.')
+                if final:
+                    verify(root)
+                    if not compare(baseline, snapshot(root), declared):
+                        raise ValueError('Generated outputs changed beyond the changes the migrations declare.' if declared
+                                         else 'Generated outputs changed; migration declares no output changes.')
                 repo.commit(f'Upgrade ledger format {version} → {step.TARGET_FORMAT} (app v{app_version()})')
                 version = step.TARGET_FORMAT
             print(f'Upgraded ledger to format {version}.')

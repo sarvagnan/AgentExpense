@@ -50,7 +50,19 @@ The first release. The date is set when the release is tagged.
 - **Tooling.** `VERSION` as the single application version (`make check-version`),
   `make doctor` for offline prerequisite checks, fictional fixture ledgers
   (`make personas`), offline test suites with fake agents, headless browser
-  suites, and a personal-data scanner (`make scan`).
+  suites, and a personal-data scanner (`make scan`). `npm ci` runs only when the
+  installed packages differ from `package-lock.json` by version (`make install`
+  covers both dependency sets).
+- **Updates and releases.** `make update` moves an installation to the newest
+  release tag: doctor, a clean checkout, the changelog since the installed version,
+  confirmation (or `--yes`), a detached checkout of the tag, the ledger upgrade,
+  verification, the dashboard build and the offline tests, and a restart of a
+  service named in `local.json`; any failure after the checkout restores the previous
+  checkout, the ledger checkpoint and the dashboard. `make upgrade-ledger` runs a
+  chain of migrations, rehearsing it on a scratch copy first. An optional update
+  notice in Settings (off unless `local.json` turns it on) reads the remote's tags at
+  most daily. GitHub workflows run CI, propose agent CLI pins weekly and publish
+  releases from tags; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ### Upgrade notes
 

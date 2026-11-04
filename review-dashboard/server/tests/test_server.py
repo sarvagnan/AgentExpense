@@ -468,10 +468,11 @@ class ManifestIntegrationTests(Fixture):
             create_app(self.settings, start_worker=False)
         path.write_bytes(original)
         with self.client(worker=False) as client:
-            dump(path, {'format': 2})
+            from ledger_manifest import CURRENT_FORMAT
+            dump(path, {'format': CURRENT_FORMAT + 1})
             response = client.get('/api/statements')
             self.assertEqual(response.status_code, 409)
-            self.assertEqual(response.json()['detail'], 'This app reads format 1; this ledger uses format 2; a newer AgentExpense is needed.')
+            self.assertEqual(response.json()['detail'], f'This app reads format {CURRENT_FORMAT}; this ledger uses format {CURRENT_FORMAT + 1}; a newer AgentExpense is needed.')
         path.write_bytes(original)
 
     def test_proposed_balance_sheet_account_gets_metadata_without_reordering(self):

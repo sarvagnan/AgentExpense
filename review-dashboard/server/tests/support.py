@@ -83,7 +83,8 @@ class Fixture(unittest.TestCase):
         (dash / 'package.json').write_text(json.dumps(package))
         self.ledger = self.application / 'ledger'
         (self.ledger / 'data/expenses').mkdir(parents=True)
-        dump(self.ledger / 'ledger.json', dict(format=1, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR', modules={'fuel': True}))
+        from ledger_manifest import CURRENT_FORMAT
+        dump(self.ledger / 'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR', modules={'fuel': True}))
         dump(self.ledger / 'data/accounts.json', {'commodities': ['INR', 'USD'], 'accounts': {'Assets:Cash': dict(kind='cash', currency='INR'), 'Expenses:Food': {}}})
         dump(self.ledger / 'data/expenses/2026.json', [])
         dump(self.ledger / 'data/forecast.json', [])

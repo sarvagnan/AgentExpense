@@ -13,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tests'))
 from test_ledger import Fixture, entry
 from store import dump, load, read_json
+from ledger_manifest import CURRENT_FORMAT, app_version
 from ledger_manifest import read_manifest
 from compare_outputs import compare, snapshot
 from upgrade_ledger import upgrade, Repository
@@ -62,7 +63,9 @@ class MigrationTests(Fixture):
         repo = Repository(self.root);repo.require_clean()
         checkpoint = repo.checkpoint()
         self.run_upgrade();self.assertEqual(repo.checkpoint()[0], checkpoint[0])
-        self.assertIn('Upgrade ledger format 0 → 1 (app v0.1.0)', self.run_command('jj','log','-r','@-','--no-graph','-T','description'))
+        log = self.run_command('jj','log','-r','::@-','--no-graph','-T','description')
+        for step in range(CURRENT_FORMAT):
+            self.assertIn(f'Upgrade ledger format {step} → {step + 1} (app v{app_version()})', log)
 
     def test_legacy_card_summary_membership_and_all_outputs_survive_unchanged(self):
         from test_ledger import CARD
@@ -175,7 +178,7 @@ class MigrationTests(Fixture):
     def test_dirty_working_copy_and_newer_format_refused(self):
         path=self.root/'data/forecast.json';path.write_text('[ ]\n')
         with self.assertRaisesRegex(ValueError,'clean working copy'): self.run_upgrade()
-        dump(self.root/'ledger.json',dict(format=2))
+        dump(self.root/'ledger.json',dict(format=CURRENT_FORMAT+1))
         with self.assertRaisesRegex(ValueError,'newer AgentExpense'): self.run_upgrade()
 
     def test_expense_category_overrides_preserve_journal_and_reports(self):
@@ -223,7 +226,7 @@ class MigrationTests(Fixture):
         shutil.rmtree(self.root/'.jj')
         # Colocated git HEAD still points to the imported checkpoint.
         self.run_upgrade()
-        self.assertEqual(read_manifest(self.root)['format'],1)
+        self.assertEqual(read_manifest(self.root)['format'],CURRENT_FORMAT)
         self.assertEqual(self.run_command('git','status','--porcelain'),'')
 
     def test_multiple_account_commodities_refused(self):

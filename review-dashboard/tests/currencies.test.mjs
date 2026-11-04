@@ -10,6 +10,7 @@ import {sumCurrencies} from '../scripts/currency.mjs';
 import {accountActivity, balanceAccounts, priceOn, valueSeries} from '../app/account-balances.ts';
 import {parsePrices} from '../scripts/expense-store.mjs';
 import {currentAccounts,setCurrentAccounts} from '../scripts/account-metadata.mjs';
+import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
 
 const sam = await personaData('sam');
 const jordan = await personaData('jordan');
@@ -156,7 +157,7 @@ test('USD income, investment funding, reimbursement and EUR forecasts stay in th
  await mkdir(join(root,'data/expenses'),{recursive:true});await mkdir(join(root,'data/prices'));
  const write=(file,data)=>writeFile(join(root,file),JSON.stringify(data));
  const accounts={Pocket:{kind:'bank',currency:'USD'},Travel:{kind:'bank',currency:'EUR'},Units:{kind:'investment',currency:'USD'},Friend:{kind:'person',currency:'USD'},'Equity:Opening Balances':{},'Expenses:Food':{},'Income:Salary':{}};
- await write('ledger.json',{format:1,id:'00000000-0000-4000-8000-000000000005',name:'Currency fixture',defaultCurrency:'USD',locale:'en-US',modules:{investments:{prices:'mutual-fund-nav'}}});
+ await write('ledger.json',{format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000005',name:'Currency fixture',defaultCurrency:'USD',locale:'en-US',modules:{investments:{prices:'mutual-fund-nav'}}});
  await write('data/accounts.json',{commodities:['USD','EUR','FUND'],accounts});
  const p=(account,amount,commodity,cost)=>({account,amount:String(amount),commodity,...(cost?{cost}: {})});
  let id=0;const entry=(date,description,postings)=>({id:(++id).toString(16).padStart(16,'0'),date,status:'confirmed',description,postings});

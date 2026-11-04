@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
+import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
 
 const savings = 'Assets:Checking:Day', card = 'Liabilities:Plastic:Main';
 const posting = (account, amount) => ({ account, amount: String(amount), commodity: 'INR' });
@@ -33,7 +34,7 @@ test('generated payment accounts follow the paying side with unchanged expense a
   const ledger = join(work, 'ledger');
   await mkdir(join(ledger, 'data/expenses'), { recursive: true });
   await mkdir(join(ledger, 'data/prices'), { recursive: true });
-  await writeFile(join(ledger, 'ledger.json'), JSON.stringify({format:1,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
+  await writeFile(join(ledger, 'ledger.json'), JSON.stringify({format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
   await writeFile(join(ledger, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:{[savings]:{kind:'bank',currency:'INR',label:'Savings Account'},[card]:{kind:'card',currency:'INR',label:'Rewards Card'},'Casey:Accounts Payable:Morgan:Water Tax:Flat':{kind:'person',currency:'INR'},'Stored:Lunch':{kind:'wallet',currency:'INR',label:'Shopping Wallet'},'Stored:Software':{kind:'wallet',currency:'INR',label:'App Store Balance'},'Assets:Investments:Test':{kind:'investment',currency:'INR'}}}));
   await writeFile(join(ledger, 'data/prices/mutual-funds.prices'), '');
   // Both posting orders must choose the same payer; IDs remain explicit store IDs.

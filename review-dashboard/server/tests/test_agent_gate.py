@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import sys
 import subprocess
@@ -507,28 +508,39 @@ class GateTests(unittest.TestCase):
             self.assertEqual(client.get('/api/health').json()['agent'],
                              {'state': 'unavailable', 'reason': str(error.exception)})
 
-    def test_make_installs_only_for_missing_or_newer_lockfile(self):
+    def test_make_installs_only_when_packages_differ_from_the_lockfile(self):
         work = self.work / 'make-fixture'
         dashboard = work / 'review-dashboard'
         dashboard.mkdir(parents=True)
+        (work / 'scripts').mkdir()
+        shutil.copy(APPLICATION / 'scripts/dependencies.py', work / 'scripts')
         lock = dashboard / 'package-lock.json'
-        lock.write_text('{}')
+        def locked(own, dependency):
+            lock.write_text(json.dumps({'version': own, 'packages': {'': {'version': own}, 'node_modules/a': {'version': dependency}}}))
+        locked('0.1.0', '1.0.0')
         binary = work / 'bin'
         binary.mkdir()
         npm = binary / 'npm'
-        npm.write_text(f'#!{sys.executable}\nfrom pathlib import Path\n'
+        # A fake npm ci installs exactly the locked packages.
+        npm.write_text(f'#!{sys.executable}\nimport json\nfrom pathlib import Path\n'
                        'p=Path("ci-calls"); p.write_text(p.read_text()+"ci\\n" if p.exists() else "ci\\n")\n'
-                       'p=Path("review-dashboard/node_modules/.package-lock.json"); p.parent.mkdir(exist_ok=True); p.touch()\n')
+                       'packages={k:v for k,v in json.loads(Path("review-dashboard/package-lock.json").read_text())["packages"].items() if k}\n'
+                       'p=Path("review-dashboard/node_modules/.package-lock.json"); p.parent.mkdir(exist_ok=True); p.write_text(json.dumps({"packages":packages}))\n')
         npm.chmod(0o755)
         env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'])
-        command = ['make', '-f', str(APPLICATION / 'Makefile'), 'NODE_BIN=' + str(binary), 'review-dashboard/node_modules/.package-lock.json']
+        command = ['make', '-f', str(APPLICATION / 'Makefile'), 'NODE_BIN=' + str(binary), 'node-modules']
+        calls = lambda: (work / 'ci-calls').read_text().count('ci\n')
         for _ in range(2):
             subprocess.run(command, cwd=work, env=env, check=True, capture_output=True)
-        self.assertEqual((work / 'ci-calls').read_text(), 'ci\n')
-        installed = dashboard / 'node_modules/.package-lock.json'
-        os.utime(installed, (1, 1))
+        self.assertEqual(calls(), 1)
+        # Timestamps and the application's own version don't matter; package versions do.
+        os.utime(dashboard / 'node_modules/.package-lock.json', (1, 1))
+        locked('0.2.0', '1.0.0')
         subprocess.run(command, cwd=work, env=env, check=True, capture_output=True)
-        self.assertEqual((work / 'ci-calls').read_text(), 'ci\nci\n')
+        self.assertEqual(calls(), 1)
+        locked('0.2.0', '1.1.0')
+        subprocess.run(command, cwd=work, env=env, check=True, capture_output=True)
+        self.assertEqual(calls(), 2)
 
     def test_runner_gates_both_add_and_statements_before_prompt_or_exec(self):
         self.configure(signed_out=True)

@@ -21,7 +21,9 @@ means and what a change to it asks of you.
 `make check-version` fails when any of them differs, or when `.node-version` lies
 outside `package.json` `engines.node`; `make test` and `make doctor` include it.
 Releases are tagged `vX.Y.Z` and described in [CHANGELOG.md](../CHANGELOG.md),
-whose **Upgrade notes** list the steps for each release.
+whose **Upgrade notes** list the steps for each release. `make update` moves an
+installation between release tags and never downgrades; [RELEASING.md](RELEASING.md)
+describes it and how a release is cut.
 
 What a release number promises:
 

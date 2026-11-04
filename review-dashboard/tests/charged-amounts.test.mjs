@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {disposableDashboard, temporaryDirectory} from './test-isolation.mjs';
 import {toTransaction} from '../scripts/expense-store.mjs';
 import {balanceAccounts} from '../app/account-balances.ts';
+import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
 
 const posting = (account, amount, commodity, cost) => ({account, amount: String(amount), commodity, ...(cost ? {cost} : {})});
 const cost = (amount, commodity) => ({amount: String(amount), commodity, per: 'unit'});
@@ -21,7 +22,7 @@ async function build(t, postings, {accounts = {}, rules = [], status = 'pending'
   const copy = await disposableDashboard(join(work, 'copy')), root = join(work, 'ledger');
   await mkdir(join(root, 'data/expenses'), {recursive: true});
   const write = (file, value) => writeFile(join(root, file), JSON.stringify(value));
-  await write('ledger.json', {format: 1, id: '00000000-0000-4000-8000-000000000006', name: 'Charged amount fixture', defaultCurrency: 'INR', locale: 'en-IN'});
+  await write('ledger.json', {format: CURRENT_FORMAT, id: '00000000-0000-4000-8000-000000000006', name: 'Charged amount fixture', defaultCurrency: 'INR', locale: 'en-IN'});
   await write('data/accounts.json', {commodities: ['INR', 'USD', 'GBP', 'EUR', 'CHF'], accounts: {
     Pocket: {kind: 'card', currency: 'INR'}, Friend: {kind: 'person', currency: 'INR'},
     'Expenses:Food': {}, 'Expenses:Software': {}, 'Expenses:Other': {}, ...accounts,

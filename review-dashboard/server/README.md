@@ -4,6 +4,11 @@ For fictional local checks, select `LEDGER_DIR="$PWD/fixtures/ledgers/asha"` fro
 
 Build the existing dashboard with `make dashboard` at the application root.
 From this directory run `EXPENSES_DEV=1 uv run app.py`; it binds to 127.0.0.1.
+Application `local.json` may also name the service for `make update` to restart
+(`{"service": {"systemd": "expense-dashboard.service"}}` or `{"service": {"launchd": "<label>"}}`)
+and turn on the update notice (`{"updates": {"notice": true, "remote": "origin"}}`). With the
+notice on, the worker lists the remote's tags with `git ls-remote` at most once a day, keeping
+the time in `<state>/update-check.json`; see [releasing](../../docs/RELEASING.md).
 On the server host, `make service` installs the tracked `expense-dashboard.service` when changed, reloads systemd and restarts it. It stops with an explanation on hosts without a user systemd session. Customize the service template paths and access settings for your installation before using it.
 The template sets `EXPENSES_STATE_DIR=%S/agentexpense`, using systemd's user state
 root. Override that setting in the unit if you need another dedicated directory.
@@ -43,6 +48,7 @@ ledger locations are refused.
 | Method and path | Body / effect |
 | --- | --- |
 | GET `api/health` | Health, worker status and `agent: {state, reason}` |
+| GET `api/update` | `{enabled, current}`; when `local.json` sets `updates.notice`, also `latest` (a newer release or null), `checkedAt`, `failed` and `command`. Never contacts the remote |
 | POST `api/drafts` | Optional JSON `{text, pieces, client_updated_at, client_time, client_zone}`; returns editing draft (201) |
 | GET `api/drafts` | Active drafts; `?include_added=true` includes retained results |
 | GET `api/drafts/{id}` | Full record, including runs, questions, result and error |
@@ -117,7 +123,7 @@ have the same version-1 contract. See [ADAPTERS.md](../../docs/ADAPTERS.md) for 
 pins, flags, machine/API configuration, login, offline evidence and custom registration.
 All CLI copies are pinned in the dashboard npm lockfile, never taken from PATH.
 `make dashboard`, `make test-server` and `make agent-check` run npm ci only when
-installation is absent or the tracked lockfile is newer.
+installation is absent or an installed package version differs from the lockfile.
 
 Adapters run in an empty disposable workspace and their own dedicated home under
 `EXPENSES_STATE_DIR`; other agent authentication/configuration is never copied or
