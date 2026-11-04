@@ -23,9 +23,9 @@ from store import load, entries, dump, new_id, store_paths
 from add_entry import add_entry
 from audit import event, append, audit_path
 sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
-from statement_pdf import parse_text, extract_text, checks, recognised, card_identifier, printed_currency, account_currency
+from statement_pdf import extract_text, recognised, card_identifier, printed_currency, account_currency
 from statement_rules import plan, convert
-from reconcile_statement import select_account, statement_accounts, reconciliation_path
+from reconcile_statement import select_account, reconciliation_path
 from statement_readers import Registry, check_statement, signed, money_text
 from ledger_manifest import read_manifest
 
@@ -243,6 +243,8 @@ class Statements:
             return
         suffix = session.get('file_suffix', '.pdf')
         path = self.folder(session['id']) / ('read' + suffix)
+        from statement_reading import safe_source
+        safe_source(self.ledger, path)
         registry = Registry(self.ledger)
         metadata = load(self.ledger)[self.ledger/'data/accounts.json']['accounts']
         assigned = session.get('assigned_account')
@@ -252,11 +254,11 @@ class Statements:
             if expected:
                 config['identifier'] = expected
             metadata[assigned] = {**metadata[assigned], 'statement':config}
-        if session.get('agent_requested') and suffix=='.pdf':
-            return self.read_card(session,cancel=cancel)
+        if session.get('agent_requested'):
+            return self.read_agent(session, cancel=cancel)
         if suffix == '.pdf' and (not assigned or metadata[assigned].get('statement', {}).get('reader', 'example-card-pdf') == 'example-card-pdf'):
-            # Keep the example PDF's identifier/mismatch/checked-second-reading
-            # behavior. Personal PDF readers take precedence only when recognised.
+            # Keep the example PDF's identifier and mismatch behavior. Personal
+            # PDF readers take precedence only when configured and recognised.
             configured = {m.get('statement',{}).get('reader') for m in metadata.values()}
             personal = [r for r in registry.readers.values() if not assigned and r.personal and r.id in configured and r.recognise(path)['confidence'] > 0]
             if not personal:
@@ -274,9 +276,9 @@ class Statements:
             if recognised_file['confidence']:
                 candidates.append((account, reader, recognised_file))
         if not candidates:
-            session.update(state='wrong_file', error='No configured reader recognises this file. Configure statement.reader and statement.options for its account.')
-            self.put(session)
-            return
+            if session.get('recognised_reader'):
+                raise ValueError('The recognised reader needs a compatible account mapping; nothing was read by the agent')
+            return self.read_agent(session, cancel=cancel)
         if len(candidates) > 1:
             identified = []
             for candidate, candidate_reader, recognition in candidates:
@@ -307,6 +309,9 @@ class Statements:
                            error='Choose an account in the statement currency before continuing.')
             self.put(session)
             return
+        self.finish_read(session, statement, account, documents, meta)
+
+    def finish_read(self, session, statement, account, documents, meta):
         statements = documents[self.ledger/'data/card-statements.json']
         filed = next((s for s in statements if s['account'] == account and s['end'] == statement['periodEnd']), None)
         if filed:
@@ -334,12 +339,73 @@ class Statements:
             statement.update(previousBalance=statement['openingBalance'], totalDue=statement['closingBalance'], purchasesCharges=statement['debits'], paymentsCredits=statement['credits'])
         opening_entry = statement_opening(documents, self.ledger, statement)
         checklist = plan(documents, statement, self.ledger)
-        session.update(state='found', statement=statement, checks=tested, extraction='reader', parser_error=None,
+        session.update(state='found', statement=statement, checks=tested, extraction='agent' if session.get('agent_verified') else 'reader', parser_error=None,
                        opening=opening_entry, plan=checklist, fingerprint=fingerprint(self.ledger))
         duplicates = [other for other in self.all() if other['id'] != session['id'] and not other.get('discarded_until') and other['state'] in ('found','review') and other.get('statement',{}).get('account') == account and other['statement']['periodEnd'] == statement['periodEnd']]
         if duplicates:
             session['duplicate_of'] = min(duplicates, key=lambda s:s['created_at'])['id']
         self.put(session)
+
+    def read_agent(self, session, *, cancel=None):
+        """Unknown formats use the same FIFO/pause, with no parser repair fallback."""
+        import agent
+        session['agent_requested'] = True
+        from statement_reading import verify, learn_mapping
+        documents = load(self.ledger)
+        metadata = documents[self.ledger/'data/accounts.json']['accounts']
+        account = session.get('assigned_account')
+        candidates = [a for a,m in metadata.items() if m.get('kind') in ('bank','card')]
+        if not account:
+            session.update(state='account_needed', candidate_accounts=candidates,
+                           error='Choose the account before the agent reads this statement.')
+            self.put(session)
+            return
+        meta = metadata.get(account, {})
+        if meta.get('kind') not in ('bank','card'):
+            raise ValueError('Choose a bank or card account for this statement')
+        if getattr(self, 'agent_pause', None) and self.agent_pause.blocked():
+            session.update(state='agent_waiting');self.put(session);return
+        path = self.folder(session['id'])/('read'+session.get('file_suffix','.pdf'))
+        locale = meta.get('locale') or read_manifest(self.ledger).get('locale','en')
+        task = dict(statement_reading=dict(path=str(path),account=meta,locale=locale))
+        try:
+            answer, record = agent.run(self.settings, task, self.folder(session['id']), cancel=cancel)
+        except agent.AgentFailure as exc:
+            session['runs'].append(exc.record)
+            if exc.kind != 'bad_answer' and getattr(self, 'agent_pause', None):
+                self.agent_pause.fail(exc.kind, exc.reset_at)
+                session.update(state='agent_waiting');self.put(session);return
+            self.put(session)
+            raise ValueError('The agent could not verify this statement. ' + str(exc)) from None
+        if not self.current_generation(session): return
+        if getattr(self, 'agent_pause', None): self.agent_pause.success()
+        session['runs'].append(record)
+        statement = verify(answer, task['_statement_source'], meta, locale)
+        # A model reading can outlast a cooperating CLI/price writer. Match a
+        # fresh snapshot and bind its fingerprint under the same ledger lock;
+        # never bless an old checklist with the new store's fingerprint.
+        with ledger_lock(self.ledger):
+            if not self.current_generation(session): return
+            documents = load(self.ledger)
+            current = documents[self.ledger/'data/accounts.json']['accounts'].get(account)
+            current_locale = (current or {}).get('locale') or read_manifest(self.ledger).get('locale','en')
+            if current != meta or current_locale != locale:
+                raise ValueError('The statement account or locale changed during the reading. Read this file again before continuing.')
+            mapping = learn_mapping(answer, task['_statement_source'], statement, current, locale)
+            statement.update(account=account,accountLabel=current.get('label') or account.split(':')[-1],accountAssigned=True)
+            session.update(agent_requested=True,agent_verified=True,agent_answer=answer,source_hash=sha256(path.read_bytes()).hexdigest(),
+                           learning=mapping,learn_mapping=False,reader='agent',reader_name='the agent')
+            self.finish_read(session, statement, account, documents, current)
+
+    def learn(self, identity, enabled):
+        with self.mutex:
+            session = self.get(identity)
+            if session['state'] not in ('found','review') or not session.get('agent_verified') or not session.get('learning'):
+                raise ValueError('This statement has no verified reusable mapping')
+            if type(enabled) is not bool: raise ValueError('Choose whether to save this mapping')
+            session['learn_mapping'] = enabled
+            self.put(session)
+            return session
 
     def read_card(self, session, *, cancel=None):
         if not self.current_generation(session):
@@ -353,9 +419,7 @@ class Statements:
         if not self.current_generation(session):
             return
         if text is not None and not recognised(text) and not session.get('agent_requested'):
-            session.update(state='wrong_file', error='This is not a recognisable card statement for the configured card.')
-            self.put(session)
-            return
+            return self.read_agent(session, cancel=cancel)
         documents = load(self.ledger)
         statements = documents[self.ledger / 'data/card-statements.json']
         account = session.get('assigned_account')
@@ -401,43 +465,9 @@ class Statements:
                 session.update(state='couldnt_read', error="The printed totals don't add up, so nothing was saved. " + str(exc), failure_reason='check_failed')
                 self.put(session)
                 return
-            parser_error = str(exc)
-            if not self.current_generation(session):
-                return
-            import agent
-            fallback = dict(id=session['id'], statement_task=True, text='', pieces=None, saved_at=session['created_at'], questions=[], check_errors=[parser_error], statement_accounts=statement_accounts(documents, self.ledger), files=[dict(name='read.pdf', original_name=session['original_name'])])
-            fallback.update({key: ensure_context(session)[key] for key in ('client_time', 'client_zone')})
-            # The runner's attachment layout is drafts/<id>/files. An isolated
-            # temporary folder supplies it without copying the password.
-            import tempfile
-            with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-statement-reader-') as temporary:
-                folder = Path(temporary); (folder/'files').mkdir()
-                shutil.copyfile(path, folder/'files/read.pdf')
-                try:
-                    if getattr(self, 'agent_pause', None) and self.agent_pause.blocked():
-                        session.update(state='agent_waiting');self.put(session);return
-                    answer, record = agent.run(self.settings, fallback, folder, cancel=cancel)
-                except agent.AgentFailure as exc:
-                    session['runs'].append(exc.record)
-                    if exc.kind != 'bad_answer' and getattr(self, 'agent_pause', None):
-                        self.agent_pause.fail(exc.kind, exc.reset_at)
-                        session.update(state='agent_waiting');self.put(session);return
-                    self.put(session)
-                    raise ValueError('The parser and second reading could not read this statement. ' + parser_error + '; ' + str(exc)) from None
-            if getattr(self, 'agent_pause', None): self.agent_pause.success()
-            session['runs'].append(record)
-            statement = agent.statement_result(answer)
-            account = session.get('assigned_account') or select_account(documents, self.ledger, statement.get('card_last4'), account)
-            metadata = documents[self.ledger / 'data/accounts.json']['accounts'][account]
-            account_currency(statement, metadata['currency'])
-            statement.update(account=account, accountLabel=metadata.get('label') or account.split(':')[-1], **({'accountAssigned':True} if session.get('assigned_account') else {}))
-            earlier = [s for s in statements if s['account'] == account and s['end'] < statement['periodEnd']]
-            prior = max(earlier, key=lambda s:s['end']) if earlier else None
-            previous = (prior['total-due'] if 'total-due' in prior else money_text(-Decimal(prior['closing-balance']))) if prior else None
-            tested = checks(statement, previous)
-            if not all(c['ok'] for c in tested):
-                raise ValueError('The parser and the second reading could not validate the statement. ' + parser_error + '; ' + '; '.join(c['text'] for c in tested if not c['ok']))
-            method = 'agent'
+            session.update(state='couldnt_read', error='The recognised reader could not read this statement. ' + str(exc), failure_reason='read_failed')
+            self.put(session)
+            return
         if 'reader' not in statement:
             statement.update(reader='example-card-pdf', readerName='Example card PDF', readerPersonal=False, declaredChecks=['printed_totals'])
         filed = next((s for s in statements if s['account'] == account and s['end'] == statement['periodEnd']), None)
@@ -628,6 +658,21 @@ class StatementTransaction(Transaction):
         if fingerprint(self.root) != s['fingerprint']:
             raise StaleChecklist('The ledger changed. Upload this statement again to rebuild the checklist.')
         statement, checklist = s['statement'], s['plan']['items']
+        if s.get('agent_verified'):
+            import tempfile
+            from statement_reading import safe_source, extract, verify
+            path = safe_source(self.root, self.drafts.folder(s['id'])/('read'+s.get('file_suffix','.pdf')))
+            if sha256(path.read_bytes()).hexdigest() != s['source_hash']:
+                raise ValueError('The statement source changed; read it again before applying')
+            meta = documents[self.root/'data/accounts.json']['accounts'][statement['account']]
+            with tempfile.TemporaryDirectory(dir='/tmp',prefix='expense-statement-check-') as temporary:
+                source = extract(path,Path(temporary),meta.get('statement',{}).get('options'),render_images=False)
+                verified = verify(s['agent_answer'],source,meta,meta.get('locale') or read_manifest(self.root).get('locale','en'))
+            for key in ('rows','periodStart','periodEnd','currency','openingBalance','closingBalance','debits','credits'):
+                if verified[key] != statement[key]:
+                    raise ValueError('The verified statement changed; read it again before applying')
+            if s.get('learn_mapping'):
+                statement['readerConfig'] = deepcopy(s['learning'])
         if statement.get('kind') == 'bank':
             from bank_statements import apply_bank
             return apply_bank(self, documents, lock_fd)

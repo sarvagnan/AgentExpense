@@ -169,10 +169,24 @@ def mapped_rows(table, account, *, sheet):
             except IndexError:
                 raise ValueError('Summary cell is outside the sheet') from None
         values[key] = amount(value, options)
+    def source_cell(value):
+        if not isinstance(value, dict): return value
+        r, c = integer(value.get('row'), 'source row'), integer(value.get('column'), 'source column')
+        try: value = table[r-1][c-1]
+        except IndexError: raise ValueError('Source cell is outside the sheet') from None
+        if isinstance(value,str) and value.startswith('='): raise ValueError('Formula cells cannot supply statement values')
+        return value
+    def period_date(value):
+        value = source_cell(value)
+        if isinstance(value, datetime): return value.date().isoformat()
+        if isinstance(value, date): return value.isoformat()
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(value).strip()):
+            return date.fromisoformat(str(value).strip()).isoformat()
+        return datetime.strptime(str(value).strip(), options.get('date_format', '%Y-%m-%d')).date().isoformat()
     period = options.get('period', {})
-    currency = next(iter(currencies), options.get('currency'))
-    return dict(identifier=next(iter(identifiers), None), kind='bank', periodStart=period.get('start', result[0]['date']),
-                periodEnd=period.get('end', result[-1]['date']), currency=currency, rows=result, **values)
+    currency = next(iter(currencies), source_cell(options.get('currency_cell', options.get('currency'))))
+    return dict(identifier=next(iter(identifiers), None), kind='bank', periodStart=period_date(period.get('start', result[0]['date'])),
+                periodEnd=period_date(period.get('end', result[-1]['date'])), currency=currency, rows=result, **values)
 
 
 def read_csv(file, account):

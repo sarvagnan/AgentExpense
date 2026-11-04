@@ -2,8 +2,8 @@
 
 Readers turn a file into exact decimal rows and a statement summary. The server
 validates the result, checks currency, all declared arithmetic and continuity,
-then builds a checklist. Only the server writes the ledger. Unknown-format agent
-reading is a separate extension; a generic-reader error never falls back to a model.
+then builds a checklist. Only the server writes the ledger. Unknown formats use
+the addressed agent-reading task below; recognised-reader errors stop the file.
 
 Built-ins are standalone Python modules in [`readers/`](../readers/). Trusted personal
 modules go in `<ledger>/readers/*.py`. **Personal readers execute in the server
@@ -247,6 +247,68 @@ summary and membership shape.
 
 Completed statement uploads are removed after Apply or an already-filed result.
 Completed session records expire after 24 hours; source files filed in Bills remain.
+
+## Unknown formats and cited readings
+
+Add interpretation never starts an agent. A PDF explicitly chosen as Statement,
+or a CSV/workbook with no applicable configured column mapping, shows that the
+agent will read it and code will check source values and printed totals. Continue
+queues that file's own statement session on the existing FIFO worker. Choose its
+account before reading. A recognised reader's parse or mandatory-check failure
+stops; it cannot request an agent repair. Built-in readers keep working during
+the shared agent pause. Unknown readings retain their session through outages
+and resume automatically with the same backoff/sign-in notice as Add.
+
+[`statement_reading.py`](../review-dashboard/server/statement_reading.py) owns the
+strict task schema, extraction and verifier. PDFium extracts every page with
+one-based `p3:l17` text addresses and page images. CSV cells use `CSV!B12`;
+workbooks use their exact sheet name, e.g. `Activity!B12`. Every symlink component
+and ledger escape is refused. Extraction fails rather than truncating beyond
+100 PDF pages, 20,000 rows per sheet, 100,000 cells or 4 MB of addressed text.
+Images accompany the source but cannot substitute for citable text. XLSX formula
+cells cannot supply facts; legacy XLS supplies stored cell values without
+executing formulas. Workbook external links are never followed.
+
+The dedicated prompt includes source evidence, selected account and locale,
+without Add policy or write instructions. Known facts are `{value, source}`;
+unknown optional facts are null, and unreadable/uncertain answers stop. Required
+cited facts are period, explicit currency, printed opening/closing, debit/credit
+totals, and every row's date, description, amount and direction. References are
+optional. Bank accounts require each running balance. A direction cites its
+row's printed word or amount cell/line. Code verifies a debit/credit header above
+an unsigned amount cell as column context; signed amounts use the account's
+sign convention. Reusing any field's source address across rows is refused,
+including direction. Tabular row values must share one
+physical source row. PDF descriptions and references match a complete line or
+column segment (pipes, tabs or repeated spaces) after whitespace normalization;
+tabular descriptions and references match their complete cells.
+
+Amounts use exact decimals, native workbook numbers, explicit account number
+settings and evident separators; locale resolves ambiguous grouping and dates.
+Printed positive card debt uses `balanceStyle: "debt"`: code first checks facts
+in their printed units, then converts balances to signed account units for the
+shared arithmetic/membership gate. Other statements use `"account"`. All row
+totals, running balances, account currency, continuity, overlap and startDate
+checks remain mandatory. Failure reports name fields and source addresses,
+without echoing source amounts into logs. Apply rechecks the source hash and
+citations under the ledger lock before the ordinary verified transaction.
+After an agent returns, matching reloads the current ledger and builds the
+checklist/fingerprint under one ledger lock. A concurrent account or locale
+change stops the reading; another ledger addition is included in matching.
+
+Successful sessions show **Read by the agent · source values and totals checked**.
+Their reconciliation sidecar retains per-field `valueSources`; the audit uses
+the existing `agent` extraction kind and adapter run metadata. Source ledgers
+and existing audit lines need no migration.
+
+For a fixed one-sheet signed-amount table, code may offer **Save this column
+mapping for future statements** only after a generic-reader replay matches the
+verified rows and summary. The choice stays in the draft until Apply, which saves
+`statement.options` in the same checked transaction. Discard writes no mapping.
+Period and currency use source cells, avoiding a previous statement's fixed date
+or currency. `period.start` / `period.end` accept `{row, column}` date cells;
+`currency_cell` accepts a `{row, column}` explicit currency cell. Future files
+use the generic reader and its mandatory checks. No reader code is generated.
 
 Personal card readers may return the example card summary fields. The server
 checks that equation first, then normalizes them to signed balances and explicit

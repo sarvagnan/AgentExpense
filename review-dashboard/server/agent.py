@@ -186,6 +186,13 @@ def now():
 
 
 def prompt_for(settings, draft, folder, work):
+    if draft.get('statement_reading'):
+        from statement_reading import extract, prompt, safe_source
+        task = draft['statement_reading']
+        source = extract(safe_source(settings.ledger, Path(task['path'])), work,
+                         task['account'].get('statement', {}).get('options'))
+        draft['_statement_source'] = source
+        return prompt(source, task['account'], task['locale']), source['images']
     images, lines, texts = [], [], []
     receipt=draft.get('receipt_task')
     files=([{'original_name':Path(p).name,'source':p} for p in receipt['sources']] if receipt else draft['files'])
@@ -310,7 +317,8 @@ def run(settings, draft, folder, *, cancel=None):
         with tempfile.TemporaryDirectory(dir='/tmp', prefix='expense-agent-') as tmp:
             work = Path(tmp)
             prompt, images = prompt_for(settings, draft, folder, work)
-            schema = RECEIPT_SCHEMA if draft.get('receipt_task') else STATEMENT_SCHEMA if draft.get('statement_task') else schema_for(settings)
+            from statement_reading import SCHEMA as CITED_STATEMENT_SCHEMA
+            schema = CITED_STATEMENT_SCHEMA if draft.get('statement_reading') else RECEIPT_SCHEMA if draft.get('receipt_task') else STATEMENT_SCHEMA if draft.get('statement_task') else schema_for(settings)
             from adapters import get_adapter
             from adapters.base import Task, LookupTools
             import threading
@@ -320,6 +328,12 @@ def run(settings, draft, folder, *, cancel=None):
             answer = result.answer
             record.update(usage=result.usage, lookups=result.lookups, errors=result.errors, stderr_tail=getattr(result,'stderr_tail',''))
             validate(answer, schema)
+            if draft.get('statement_reading'):
+                from statement_reading import verify
+                task = draft['statement_reading']
+                verify(answer, draft['_statement_source'], task['account'], task['locale'])
+                record.update(outcome='statement')
+                return answer, record
             if draft.get('receipt_task'):
                 from receipts import validate_reading
                 validate_reading(answer)

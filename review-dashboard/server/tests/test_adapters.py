@@ -232,6 +232,29 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             __import__('jsonschema').validate({**answer,'invented':True},RECEIPT_SCHEMA)
 
+    def test_cited_statement_task_through_every_builtin_protocol(self):
+        from cited_statement_fixtures import answer, file_bytes
+        from statement_reading import SCHEMA as CITED_SCHEMA
+        currency=json.loads((self.settings.ledger/'ledger.json').read_text())['defaultCurrency']
+        evidence=self.settings.ledger/'unknown.pdf';evidence.write_bytes(file_bytes(currency,'pdf'))
+        expected=answer(currency,pdf=True)
+        draft=dict(statement_reading=dict(path=str(evidence),account=dict(kind='bank',currency=currency),locale='en'))
+        for name in ('codex','claude','pi','opencode'):
+            if name=='codex':
+                self.config.write_text(json.dumps({'steps':[{'answer':expected}]}))
+                settings=replace(self.settings,adapter=name,codex=str(self.fake))
+            else: settings=self.adapter(name,steps=[{'answer':expected}]).settings
+            with self.subTest(adapter=name),patch('agent_gate.get_gate'):
+                result,record=run(settings,draft,self.work)
+                self.assertEqual(result,expected);self.assertEqual(record['outcome'],'statement')
+        for name in ('openai','anthropic'):
+            with self.subTest(adapter=name),self.http_server(name,final_answer=expected) as (url,received,_,_),patch('agent_gate.get_gate'):
+                result,record=run(self.api_adapter(name,url).settings,draft,self.work)
+                self.assertEqual(result,expected);self.assertEqual(record['outcome'],'statement')
+                self.assertIn('periodStart',json.dumps(received[0][1]))
+        with self.assertRaises(ValidationError):
+            __import__('jsonschema').validate({**expected,'invented':True},CITED_SCHEMA)
+
     def test_status_endpoint_reports_each_adapter_without_starting_a_read_check(self):
         from app import create_app
         from fastapi.testclient import TestClient

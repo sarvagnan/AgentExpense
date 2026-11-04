@@ -603,7 +603,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                         else:
                             session=statements.create((drafts.folder(identity)/'files'/file['name']).read_bytes(),file['original_name'],
                                 client_time=draft['client_time'],client_zone=draft['client_zone'])
-                            session.update(intake_draft=identity,intake_file=file['id'],assigned_account=account,agent_requested=not bool(preview.get('reader')))
+                            session.update(intake_draft=identity,intake_file=file['id'],assigned_account=account,agent_requested=not bool(preview.get('reader')),recognised_reader=preview.get('reader'))
                             if preview.get('reader'):
                                 from store import load
                                 metadata=load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts']
@@ -886,6 +886,15 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             raise HTTPException(404, 'Unknown statement session') from None
         worker.wake.set()
         return session
+
+    @app.post('/api/statements/{identity}/mapping')
+    def learn_statement(identity: str, body: dict):
+        try:
+            return statements.learn(identity, body.get('enabled'))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        except FileNotFoundError:
+            raise HTTPException(404, 'Unknown statement session') from None
 
     @app.post('/api/statements/{identity}/retry')
     def retry_statement(identity: str):

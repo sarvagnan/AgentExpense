@@ -253,7 +253,9 @@ pending in the draft, with `audit_error`, for the worker to retry. See
 Statements uses the same FIFO worker and ledger lock. A version-1 reader registry
 loads built-ins from the application and trusted personal readers from the ledger.
 The [example card PDF layout](../../scripts/statements/README.md) retains PDFium
-extraction and its checked second reading. Generic CSV, XLSX and XLS readers use
+extraction. Unknown formats use a dedicated cited-reading adapter task; code
+checks each source value, printed total and required running balance before
+matching. Recognised reader failures never fall through to an agent. Generic CSV, XLSX and XLS readers use
 explicit account mappings, exact decimals, printed totals where available, running
 balances and continuity; their errors never invoke an agent. No system PDF
 executable is needed. A wrong-file result never imports rows. Already-filed
@@ -269,6 +271,7 @@ source citations, signed bank summaries, overlap and start-date rules.
 | GET `api/statements/{id}` | Durable state, checks, checklist and result |
 | POST `api/statements/{id}/unlock` | JSON `{password}`; memory only, never echoed |
 | POST `api/statements/{id}/account` | Select a compatible account for `account_needed` or `currency_mismatch` |
+| POST `api/statements/{id}/mapping` | `{enabled:boolean}` stages a verified reusable mapping until Apply |
 | POST `api/statements/{id}/review` | Found statement → checklist |
 | PATCH `api/statements/{id}/rows/{serial}` | `{action:"match",entry_id}`, `{action:"account",account}`, `{action:"pending"}` or `{action:"reset"}` |
 | POST `api/statements/{id}/apply` | Queue checked apply, 202; all needs-you rows must be decided |

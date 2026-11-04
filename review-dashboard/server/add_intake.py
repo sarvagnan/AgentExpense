@@ -61,12 +61,18 @@ def interpret(settings, drafts, draft, choices=None, passwords=None):
                             with source.open('wb') as handle: writer.write(handle)
             hits = [(r,r.recognise(source)) for r in registry.readers.values() if suffix in r.extensions] if not result['locked'] else []
             hits = sorted([(r,recognition) for r,recognition in hits if recognition['confidence']>0],key=lambda x:x[1]['confidence'],reverse=True)
+            # Generic extension recognition is usable only with an account's
+            # existing column mapping. A broken configured mapping still stops.
+            hits = [(r,h) for r,h in hits if r.id not in ('generic-csv','generic-sheet') or any(
+                m.get('statement',{}).get('reader')==r.id and m.get('statement',{}).get('options',{}).get('columns')
+                for a,m in metadata.items() if not result['account'] or a==result['account'])]
+            hits = [(r,h) for r,h in hits if not r.personal or any(m.get('statement',{}).get('reader')==r.id for m in metadata.values())]
             recognised = hits[0][0] if hits else None
             kind = choice.get('kind')
             if kind not in (None,'statement','receipt'): raise ValueError('Choose Statement or Receipt')
             if kind=='receipt' and suffix in ('.csv','.xlsx','.xls'):
                 raise ValueError('CSV and spreadsheet files are statements. Choose their statement account.')
-            result['kind'] = kind or ('statement' if recognised or result['locked'] or words['kind']=='statement' and suffix=='.pdf' else 'ambiguous' if suffix=='.pdf' else 'receipt')
+            result['kind'] = kind or ('statement' if recognised or suffix in ('.csv','.xlsx','.xls') or result['locked'] or words['kind']=='statement' and suffix=='.pdf' else 'ambiguous' if suffix=='.pdf' else 'receipt')
             if result['kind']!='statement':
                 results.append(result);continue
             if recognised:

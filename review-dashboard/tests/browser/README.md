@@ -171,3 +171,12 @@ now use that same Upload input and Continue. Account creation is staged until
 Continue. Password and checked-failure paths retain their file. Desktop captures
 now use 1440×1000; phones remain 412×915. `BROWSER_FOCUS=add` selects this suite for
 focused development; default matrix runs retain every prior suite.
+
+Step 7B extends the default reader suite with an unmapped CSV interpreted in Add,
+a cited reading through the offline fake adapter, source/totals checks, checked
+Apply and opt-in mapping saved in the same transaction. It also verifies the next
+upload recognises that generic mapping without an agent. Captures add
+`draft-agent-statement` and `applied-agent-statement` for every persona, engine,
+theme and size. `BROWSER_FOCUS=readers` selects the complete reader suite during
+development. PDF/XLSX/XLS inputs are generated in memory by the maintained
+`server/tests/cited_statement_fixtures.py`; no binary fixture is checked in.

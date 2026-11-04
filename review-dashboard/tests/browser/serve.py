@@ -331,6 +331,32 @@ def reader_file(extension: str):
 
 
 
+@app.post('/__test/agent-statement-scenario')
+def agent_statement_scenario(body: dict):
+    sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+    from cited_statement_fixtures import answer
+    currency=read_json(settings.ledger/'ledger.json')['defaultCurrency']
+    tag=body['tag']
+    assert isinstance(tag,str) and len(tag)<100 and all(c.isalnum() or c=='-' for c in tag)
+    account='Assets:Deposits:Agent Export '+tag
+    documents=read_json(settings.ledger/'data/accounts.json')
+    documents['accounts'][account]=dict(kind='bank',currency=currency,label='Agent Export')
+    manifest=read_json(settings.ledger/'ledger.json');manifest['startDate']='2026-01-01'
+    update_settings(settings,lambda:{settings.ledger/'data/accounts.json':documents,settings.ledger/'ledger.json':manifest},dict(reader=True),'Fictional unmapped statement account')
+    data=json.loads(config.read_text());data['steps']=[dict(answer=answer(currency))]
+    config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+    app.state.worker.pause.success()
+    return dict(account=account,currency=currency)
+
+
+@app.post('/__test/agent-statement-file')
+def agent_statement_file():
+    sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+    from cited_statement_fixtures import file_bytes
+    currency=read_json(settings.ledger/'ledger.json')['defaultCurrency']
+    return Response(file_bytes(currency,'csv'),media_type='text/csv')
+
+
 @app.post('/__test/finish')
 def finish_controls(body: dict):
     worker=app.state.worker

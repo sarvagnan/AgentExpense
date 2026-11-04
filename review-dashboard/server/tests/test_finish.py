@@ -203,25 +203,27 @@ class FinishTests(Fixture):
             self.assertEqual(len(draft['runs']),1);self.assertEqual(draft['check_errors'],[])
             self.assertIn('kind',draft['questions'][-1]['question'])
 
-    def test_statement_second_read_waits_and_resumes_while_parser_work_proceeds(self):
+    def test_unknown_statement_waits_and_resumes_while_parser_work_proceeds(self):
         from statements import Statements
-        from statement_fixtures import statement_pdf,statement_answer
+        from statement_fixtures import statement_pdf
+        from cited_statement_fixtures import answer, file_bytes
         from store import dump,load
         card='Liabilities:Plastic:Main'
+        currency=json.loads((self.ledger/'ledger.json').read_text())['defaultCurrency']
         documents=load(self.ledger)
-        documents[self.ledger/'data/accounts.json']['accounts'][card]=dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
+        documents[self.ledger/'data/accounts.json']['accounts'][card]=dict(kind='card',currency=currency,statement=dict(reader='example-card-pdf',identifier='5678'))
         dump(self.ledger/'data/accounts.json',documents[self.ledger/'data/accounts.json'])
         sessions=Statements(self.settings);sessions.agent_pause=AgentPause(self.ledger);sessions.agent_pause.fail('usage_limit')
-        session=sessions.create(statement_pdf(),'Fictional.pdf')
-        with patch('statement_readers.Reader.read',side_effect=ValueError('Second reading needed')),patch('agent.run') as run:
+        session=sessions.create(file_bytes(currency,'csv'),'Unknown.csv')
+        session.update(agent_requested=True,assigned_account=card);sessions.put(session)
+        with patch('agent.run') as run:
             sessions.work(threading.Event());self.assertEqual(sessions.get(session['id'])['state'],'agent_waiting');run.assert_not_called()
-        # A different, readable file is parsed during the same pause.
         other=sessions.create(statement_pdf(),'Fictional-parser.pdf')
-        sessions.work(threading.Event());self.assertEqual(sessions.get(other['id'])['state'],'found')
-        sessions.agent_pause.success()
-        record=dict(start='2026-11-02T00:00:00+00:00',end='2026-11-02T00:00:01+00:00',model='fake',effort='low',outcome='statement',usage={},lookups=[],error=None)
-        with patch('statement_readers.Reader.read',side_effect=ValueError('Second reading needed')),patch('agent.run',return_value=(statement_answer(),record)) as run:
-            sessions.work(threading.Event());self.assertEqual(sessions.get(session['id'])['state'],'found');run.assert_called_once()
+        with patch('agent.run') as run:
+            sessions.work(threading.Event());self.assertEqual(sessions.get(other['id'])['state'],'found');run.assert_not_called()
+        sessions.agent_pause.success();self.set_answers(answer(currency))
+        sessions.work(threading.Event());self.assertEqual(sessions.get(session['id'])['state'],'found')
+        self.assertEqual(len(self.calls()),1)
 
     def test_invalid_hand_forms_persist_and_return_checks(self):
         with self.client(worker=False) as client:

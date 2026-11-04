@@ -110,7 +110,7 @@ def apply_bank(transaction, documents, lock_fd):
                     uncertain.append((identity,item))
             members.append(member)
         declarations = documents[root/'data/accounts.json']
-        if not metadata.get('statement') and statement.get('readerConfig'):
+        if (not metadata.get('statement') or session.get('learn_mapping')) and statement.get('readerConfig'):
             metadata['statement'] = deepcopy(statement['readerConfig'])
         if any(p['account']=='Expenses:Uncategorized' for e in actual.values() for p in e['postings']):
             declarations['accounts'].setdefault('Expenses:Uncategorized', {})
