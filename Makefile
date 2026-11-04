@@ -2,11 +2,14 @@
 export PYTHONDONTWRITEBYTECODE = 1
 export npm_config_update_notifier = false
 # Resolve the installed project Node once; helpers never install or download it.
+# doctor and check-version need no Node, so they work before it is installed.
+ifneq ($(MAKECMDGOALS),$(filter doctor check-version,$(MAKECMDGOALS)))
 NODE_BIN := $(shell python3 "$(dir $(abspath $(firstword $(MAKEFILE_LIST))))scripts/node_toolchain.py")
 ifeq ($(strip $(NODE_BIN)),)
 $(error Cannot resolve .node-version; install its version with fnm install $$(cat .node-version))
 endif
 export PATH := $(NODE_BIN):$(PATH)
+endif
 ifneq ($(origin m),undefined)
 export EXPENSES_COMMIT_MESSAGE = $(m)
 endif
@@ -25,7 +28,15 @@ endif
 ledger:
 	uv run --with jsonschema python scripts/ledger/generate_ledger.py
 
-test-inside: test-ledger test-migrations test-server
+test-inside: check-version test-ledger test-migrations test-server
+
+.PHONY: doctor check-version
+# Offline prerequisites table; exits non-zero only for blocking problems.
+doctor:
+	@HLEDGER="$(HLEDGER)" python3 scripts/doctor.py
+
+check-version:
+	@python3 scripts/check_version.py
 
 review-dashboard/node_modules/.package-lock.json: review-dashboard/package-lock.json
 	npm --prefix review-dashboard ci
@@ -76,8 +87,9 @@ scan:
 	@test -n "$(LIST)" || (echo "Usage: make scan LIST=/path/to/private-list.tsv" >&2; exit 2)
 	python3 scripts/check_private.py --list "$(LIST)"
 
+# SCANNER_TESTS optionally selects tests by unittest -k pattern.
 test-scanner-inside:
-	python3 scripts/test_python.py -m unittest discover -s scripts/tests -v
+	python3 scripts/test_python.py -m unittest discover -s scripts/tests $(if $(SCANNER_TESTS),-k "$(SCANNER_TESTS)") -v
 
 .PHONY: upgrade-ledger personas
 upgrade-ledger:

@@ -15,6 +15,21 @@ from project_paths import APPLICATION_ROOT
 from node_toolchain import node_environment
 
 BASELINE_FILE = 'outputs.json'
+BUILDER_FAILURE = 'AGENTEXPENSE_BUILDER_FAILURE '
+
+
+def builder_failure(stderr, builders):
+    """One line naming the failed builder and its own error message."""
+    for line in reversed(stderr.splitlines()):
+        if line.startswith(BUILDER_FAILURE):
+            try:
+                failure = json.loads(line[len(BUILDER_FAILURE):])
+            except ValueError:
+                break
+            name = failure.get('name') if failure.get('name') in builders else 'builders'
+            message = ' '.join(str(failure.get('message') or '').split())
+            return f'Unable to generate dashboard output ({name}): {message}' if message else f'Unable to generate dashboard output ({name}).'
+    return 'Unable to generate dashboard output (builders): Node exited before a builder reported.'
 
 
 def strip_header(journal):
@@ -78,13 +93,15 @@ def snapshot(root, *, format_zero_settings=None):
         # its imported modules instead of starting it four times per comparison.
         builders = ['copy-fuel-log', 'build-dashboard-data', 'build-review-data', 'build-add-patterns']
         urls = {name: (scripts / (name + '.mjs')).as_uri() for name in builders}
-        code = "for (const [name, url] of Object.entries(JSON.parse(process.argv[1]))) { try { await import(url); } catch { process.stderr.write(name); process.exit(1); } }"
-        run = subprocess.run(['node', '--input-type=module', '-e', code, json.dumps(urls)],
+        # A failure ends stderr with one marked JSON line naming the builder and
+        # the first line of its error message; builders' own output stays out.
+        code = ("for (const [name, url] of Object.entries(JSON.parse(process.argv[1]))) { try { await import(url); } catch (error) { "
+                "const message = String(error?.message ?? error).split('\\n')[0].trim(); "
+                "process.stderr.write('\\n' + process.argv[2] + JSON.stringify({name, message}) + '\\n'); process.exit(1); } }")
+        run = subprocess.run(['node', '--input-type=module', '-e', code, json.dumps(urls), BUILDER_FAILURE],
                              env={**node_environment(), 'LEDGER_DIR': str(ledger), 'DASHBOARD_DATA_DIR': str(application / 'review-dashboard')}, capture_output=True)
         if run.returncode:
-            failed = run.stderr.decode(errors='replace')
-            name = failed if failed in builders else 'builders'
-            raise ValueError(f'Unable to generate dashboard output ({name}).')
+            raise ValueError(builder_failure(run.stderr.decode(errors='replace'), builders))
         for file in sorted((application / 'review-dashboard/app/data').glob('*.json')):
             if file.name.startswith('.'):
                 continue  # Private provenance is not a financial/browser output.

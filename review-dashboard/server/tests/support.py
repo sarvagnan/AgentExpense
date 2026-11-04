@@ -76,6 +76,7 @@ class Fixture(unittest.TestCase):
         shutil.copytree(APPLICATION / 'migrations', self.application / 'migrations')
         shutil.copyfile(APPLICATION / 'Makefile', self.application / 'Makefile')
         shutil.copyfile(APPLICATION / '.node-version', self.application / '.node-version')
+        shutil.copyfile(APPLICATION / 'VERSION', self.application / 'VERSION')
         dash = self.application / 'review-dashboard'
         shutil.copytree(APPLICATION / 'review-dashboard/scripts', dash / 'scripts')
         package = json.loads((APPLICATION / 'review-dashboard/package.json').read_text())

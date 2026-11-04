@@ -111,6 +111,51 @@ class ManifestTests(Fixture):
         two['journal'] = one['journal']
         self.assertTrue(compare(one, two, ['rows.*.secret'], emit=False))
 
+    def format_zero_with_fuel(self):
+        """This fixture as format 0 with fuel on, as an upgrade sees it.
+
+        Self-contained: server tests run this suite in staged copies without fixtures/.
+        """
+        settings = {**read_json(self.root / 'ledger.json'), 'modules': {'fuel': True}}
+        (self.root / 'ledger.json').unlink()
+        rule = entry(identity='0000000000000002', schedule={'every': 'month', 'from': '2026-01-02'}, origin={'kind': 'owner'})
+        dump(self.root / 'data/forecast.json', [rule])
+        dump(self.root / 'data/fuel-log.json', {'entries': []})
+        return settings, read_json(self.root / 'data/accounts.json')
+
+    def test_builder_failures_name_the_underlying_error(self):
+        settings = self.format_zero_with_fuel()
+        self.assertIn('dashboard/dashboard.json', snapshot(self.root, format_zero_settings=settings))
+        rules = read_json(self.root / 'data/forecast.json')
+        rules[0]['origin']['kind'] = 'unknown-origin'
+        dump(self.root / 'data/forecast.json', rules)
+        with self.assertRaises(ValueError) as caught:
+            snapshot(self.root, format_zero_settings=settings)
+        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): Invalid rule.origin.kind.')
+
+    def test_fuel_log_failures_name_the_problem_without_contents(self):
+        settings = self.format_zero_with_fuel()
+        log = self.root / 'data/fuel-log.json'
+        log.write_text('{"entries": [{"note": "fictional private words"}')
+        with self.assertRaises(ValueError) as caught:
+            snapshot(self.root, format_zero_settings=settings)
+        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): Fuel is enabled; supply a valid data/fuel-log.json: it is not valid JSON.')
+        log.unlink()
+        with self.assertRaises(ValueError) as caught:
+            snapshot(self.root, format_zero_settings=settings)
+        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): Fuel is enabled; supply a valid data/fuel-log.json: the file is missing.')
+
+    def test_builder_failure_report_is_one_line(self):
+        from compare_outputs import BUILDER_FAILURE, builder_failure
+        builders = ['copy-fuel-log', 'build-dashboard-data']
+        line = BUILDER_FAILURE + json.dumps(dict(name='build-dashboard-data', message='Invalid  rule.origin.kind.'))
+        self.assertEqual(builder_failure('warning from a builder\n' + line + '\n', builders),
+                         'Unable to generate dashboard output (build-dashboard-data): Invalid rule.origin.kind.')
+        self.assertEqual(builder_failure(BUILDER_FAILURE + json.dumps(dict(name='other', message='')), builders),
+                         'Unable to generate dashboard output (builders).')
+        self.assertEqual(builder_failure('Segmentation fault\n', builders),
+                         'Unable to generate dashboard output (builders): Node exited before a builder reported.')
+
     def test_expense_display_category_validation(self):
         from check_store import check
         path = self.root / 'data/accounts.json'

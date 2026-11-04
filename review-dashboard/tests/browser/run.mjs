@@ -57,7 +57,7 @@ async function port() {
 async function staging(persona) {
   const root=join(artifacts,persona),app=join(root,'application'),dash=join(app,'review-dashboard'),ledger=join(app,'ledger');
   await mkdir(app,{recursive:true});
-  for(const path of ['scripts','schema','migrations','readers','Makefile','.node-version'])await cp(join(source,path),join(app,path),{recursive:true,filter,preserveTimestamps:true});
+  for(const path of ['scripts','schema','migrations','readers','Makefile','.node-version','VERSION'])await cp(join(source,path),join(app,path),{recursive:true,filter,preserveTimestamps:true});
   for(const path of ['app','public','scripts','server','tests','index.html','package.json','package-lock.json','tsconfig.json','vite.config.ts'])await cp(join(source,'review-dashboard',path),join(dash,path),{recursive:true,filter,preserveTimestamps:true});
   // Private dependency directory; package links are read-only inputs. Vite caches stay local.
   const {readdir,symlink}=await import('node:fs/promises');

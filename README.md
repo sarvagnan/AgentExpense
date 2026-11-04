@@ -12,7 +12,7 @@ Keep the application and personal ledger in two separate repositories. The defau
 
 ## Fictional example and checks
 
-Install Python 3.11+, uv, fnm and hledger on PATH. The project selects the installed Node version in `.node-version` (supported versions remain in `review-dashboard/package.json`). Run `fnm install $(cat .node-version)` once. Without fnm, launchers warn and use Node on PATH. To update Node, run `fnm install <v>`, change `.node-version`, and run `make personas` while nothing else is running. Every value in `fixtures/ledgers/asha/` is invented. From the application root:
+Install Python 3.11+, uv, fnm, hledger 1.25+ and jj or git on PATH, then run `make doctor`: it checks these offline, including installed dependencies and the selected ledger's format, and prints a fix for each problem. The project selects the installed Node version in `.node-version` (supported versions remain in `review-dashboard/package.json`). Run `fnm install $(cat .node-version)` once. Without fnm, launchers warn and use Node on PATH. To update Node, run `fnm install <v>`, change `.node-version`, and run `make personas` while nothing else is running. Every value in `fixtures/ledgers/asha/` is invented. From the application root:
 
 ```sh
 export PYTHONDONTWRITEBYTECODE=1
@@ -26,6 +26,8 @@ npm --prefix review-dashboard run build
 python3 -m unittest discover -s scripts/tests -v
 ```
 
+With no ledger selected (no `ledger/` and no `LEDGER_DIR`), the test targets and `npm --prefix review-dashboard test` use `fixtures/ledgers/asha/` and say so in one line, so a fresh clone passes its own tests.
+
 `fixtures/ledgers/jordan/` demonstrates USD spending, an opening-only EUR travel account and an EUR dinner charged in USD. `fixtures/ledgers/sam/` demonstrates a move from GBP to EUR in July; `fixtures/ledgers/empty/` is a fresh ledger. Run `make personas` to verify, build and test every fixture. See [Account currencies](docs/CURRENCIES.md) for formatting, separate totals and currency-change commands.
 
 `make commit m="…"` holds the ledger lock while running `make verify-data`: journal generation, schema/store/audit/evidence/statement checks and strict hledger validation. `make verify` also runs ledger code tests; `make dashboard` retains them.
@@ -35,6 +37,10 @@ python3 -m unittest discover -s scripts/tests -v
 `make dashboard` installs the pinned npm dependencies when needed, generates dashboard data and builds static views. Server tests use disposable repositories and a fake agent; they run no model. Browser suites are separate and are not part of the commands above. See [dashboard documentation](review-dashboard/README.md) and [server documentation](review-dashboard/server/README.md).
 
 Before committing, run `make scan LIST=/path/to/private-identifiers.tsv`. Keep that list outside the repository. Each line is `label<TAB>value`; output contains only labels and locations. Binary files are reported for manual inspection. Review the scanner's limits in `scripts/check_private.py`.
+
+## Versions
+
+The application version is in `VERSION`; `make check-version` confirms the package files follow it. [CHANGELOG.md](CHANGELOG.md) describes each release with upgrade steps, and [docs/VERSIONS.md](docs/VERSIONS.md) explains the ledger format, interface and audit versions.
 
 ## Licence
 

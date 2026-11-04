@@ -82,10 +82,22 @@ test('fuel on builds existing readings and refuses missing or invalid fuel data'
   const env={...copy.env,LEDGER_DIR:root},script=join(copy.dash,'scripts/copy-fuel-log.mjs');
   execFileSync(process.execPath,[script],{env,stdio:'pipe'});
   assert.deepEqual(JSON.parse(await readFile(join(copy.dash,'app/data/fuel-log.json'),'utf8')),asha.fuel);
+  const refuses=(pattern,absent)=>assert.throws(()=>execFileSync(process.execPath,[script],{env,stdio:'pipe'}),error=>{
+    const stderr=String(error.stderr);assert.match(stderr,pattern);if(absent)assert.doesNotMatch(stderr,absent);return true;});
+  const log=await readFile(join(root,'data/fuel-log.json'),'utf8');
   await rm(join(root,'data/fuel-log.json'));
-  assert.throws(()=>execFileSync(process.execPath,[script],{env,stdio:'pipe'}),/Command failed/);
+  refuses(/Fuel is enabled; supply a valid data\/fuel-log\.json: the file is missing\./);
   await writeFile(join(root,'data/fuel-log.json'),'{}');
-  assert.throws(()=>execFileSync(process.execPath,[script],{env,stdio:'pipe'}),/Command failed/);
+  refuses(/Fuel is enabled; supply a valid data\/fuel-log\.json: entries must be a list of objects\./);
+  // Parse errors name the problem without quoting the log's contents.
+  await writeFile(join(root,'data/fuel-log.json'),'{"entries": [{"note": "fictional private words"}');
+  refuses(/Fuel is enabled; supply a valid data\/fuel-log\.json: it is not valid JSON\./,/fictional private words/);
+  // A store problem names itself rather than blaming a valid fuel log.
+  await writeFile(join(root,'data/fuel-log.json'),log);
+  const rules=JSON.parse(await readFile(join(root,'data/forecast.json'),'utf8'));
+  rules.find(rule=>rule.origin).origin.kind='unknown-origin';
+  await writeFile(join(root,'data/forecast.json'),JSON.stringify(rules,null,2)+'\n');
+  refuses(/Invalid rule\.origin\.kind\./,/supply a valid/);
 });
 
 test('fuel switches gate composer pieces, recovered edits and confirmed links', () => {

@@ -12,15 +12,19 @@ await mkdir(path.dirname(destination), { recursive: true });
 if (!moduleSettings(manifest).fuel) {
   await rm(destination, {force: true});
 } else {
-try {
-  const source = await readFile(path.join(ledgerRoot(), 'data/fuel-log.json'), 'utf8');
-  const log = JSON.parse(source);
-  const {loadExpenseStore} = await import('./expense-store.mjs');
-  const {transactionCurrency} = await import('./currency.mjs');
-  const {transactions, accounts} = await loadExpenseStore();
-  log.entries = log.entries.map(item => ({...item, currency: item.currency || transactionCurrency(transactions.find(entry => entry.id === item.entryId) || {postings: []}, accounts, manifest.defaultCurrency)}));
-  await writeFile(destination, log.entries.length ? JSON.stringify(log, null, 2) + '\n' : source);
-}
-catch (error) { throw new Error('Fuel is enabled; supply a valid data/fuel-log.json.', {cause: error}); }
+// Store errors name their own cause; only problems with the fuel log itself are
+// reported as fuel-log problems.
+const {loadExpenseStore} = await import('./expense-store.mjs');
+const {transactionCurrency} = await import('./currency.mjs');
+const {transactions, accounts} = await loadExpenseStore();
+const invalid = (reason, cause) => new Error(`Fuel is enabled; supply a valid data/fuel-log.json: ${reason}`, {cause});
+let source, log;
+try { source = await readFile(path.join(ledgerRoot(), 'data/fuel-log.json'), 'utf8'); }
+catch (error) { throw invalid(error.code === 'ENOENT' ? 'the file is missing.' : error.message, error); }
+// V8's parse messages quote file contents; name only the problem.
+try { log = JSON.parse(source); } catch (error) { throw invalid('it is not valid JSON.', error); }
+if (!Array.isArray(log?.entries) || log.entries.some(item => item === null || typeof item !== 'object' || Array.isArray(item))) throw invalid('entries must be a list of objects.');
+log.entries = log.entries.map(item => ({...item, currency: item.currency || transactionCurrency(transactions.find(entry => entry.id === item.entryId) || {postings: []}, accounts, manifest.defaultCurrency)}));
+await writeFile(destination, log.entries.length ? JSON.stringify(log, null, 2) + '\n' : source);
 }
 console.log('Copied the ledger fuel log into generated dashboard data.');

@@ -8,7 +8,11 @@ from datetime import date
 from project_paths import APPLICATION_ROOT, ledger_root
 
 CURRENT_FORMAT = 1
-APP_VERSION = '0.1.0'
+
+
+def app_version():
+    """The application version; its one source is the root VERSION file."""
+    return (APPLICATION_ROOT / 'VERSION').read_text().strip()
 
 
 def ordered_manifest(value):

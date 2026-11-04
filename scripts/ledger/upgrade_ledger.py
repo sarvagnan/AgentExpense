@@ -11,7 +11,7 @@ import tempfile
 
 from store import dump, read_json, validate
 from project_paths import APPLICATION_ROOT, ledger_root
-from ledger_manifest import CURRENT_FORMAT, APP_VERSION, ordered_manifest, read_manifest
+from ledger_manifest import CURRENT_FORMAT, app_version, ordered_manifest, read_manifest
 from ledger_lock import ledger_lock
 from compare_outputs import snapshot, compare
 
@@ -119,7 +119,7 @@ def upgrade(root, options):
         step = steps[version]
         result = step.plan(root, options)
         validate_plan(result)
-        print(f'Plan: format {version} -> {step.TARGET_FORMAT} (app v{APP_VERSION})')
+        print(f'Plan: format {version} -> {step.TARGET_FORMAT} (app v{app_version()})')
         print(json.dumps(ordered_manifest(result[0]), indent=2, ensure_ascii=False))
         report_stale_rules(root, result[1])
         return
@@ -150,7 +150,7 @@ def upgrade(root, options):
                 verify(root)
                 if not compare(baseline, snapshot(root)):
                     raise ValueError('Generated outputs changed; migration declares no output changes.')
-                repo.commit(f'Upgrade ledger format {version} → {step.TARGET_FORMAT} (app v{APP_VERSION})')
+                repo.commit(f'Upgrade ledger format {version} → {step.TARGET_FORMAT} (app v{app_version()})')
                 version = step.TARGET_FORMAT
             print(f'Upgraded ledger to format {version}.')
         except BaseException:

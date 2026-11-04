@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timezone
 
 APPLICATION = Path(__file__).resolve().parents[1]
+DEFAULT_TEST_LEDGER = 'fixtures/ledgers/asha'
 _configured_root=None
 _temporary_cleanup=tempfile.TemporaryDirectory._rmtree
 _temporary_archive_installed=False
@@ -29,8 +30,25 @@ def archive_temporary_directory(name):
     shutil.copytree(path,destination,symlinks=True)
 
 
+def select_test_ledger(environ=os.environ, application=APPLICATION):
+    """Without a selected ledger, tests use the default fictional fixture.
+
+    LEDGER_DIR unset, or naming the application's absent default ledger/, means no
+    ledger is selected. An explicit other selection is never replaced.
+    """
+    default=Path(application)/'ledger'
+    configured=environ.get('LEDGER_DIR')
+    if configured and Path(configured).expanduser().resolve()!=default.resolve():return None
+    if default.exists():return None
+    fixture=Path(application)/DEFAULT_TEST_LEDGER
+    environ['LEDGER_DIR']=str(fixture)
+    print(f'No ledger selected: tests use the fictional fixture {DEFAULT_TEST_LEDGER} (set LEDGER_DIR to choose another).',flush=True)
+    return fixture
+
+
 def configure(root):
     global _configured_root,_temporary_archive_installed
+    select_test_ledger()
     root = Path(root).resolve()
     _configured_root=root
     root.mkdir(parents=True, exist_ok=True)
@@ -86,20 +104,40 @@ def cleanup(root, failed=False):
             time.sleep(.05)
 
 
+def group_has_live_members(group):
+    """Whether any process other than a zombie still belongs to this group."""
+    rows=subprocess.run(['ps','-axo','pgid=,stat='],capture_output=True,text=True,check=True).stdout
+    for row in rows.splitlines():
+        fields=row.split()
+        if len(fields)>=2 and fields[0].lstrip('-').isdigit() and int(fields[0])==group and not fields[1].startswith('Z'):return True
+    return False
+
+
+def signal_group(group,signum):
+    """Signal a process group; False when it has already gone.
+
+    macOS answers EPERM, not ESRCH, for a group whose members have all exited but
+    are not yet reaped. Only a group that still has a live member re-raises it.
+    """
+    try:os.killpg(group,signum)
+    except ProcessLookupError:return False
+    except PermissionError:
+        if group_has_live_members(group):raise
+        return False
+    return True
+
+
 def stop_group(root):
     path=Path(root)/'process-group.json'
     if not path.exists():return
     group=json.loads(path.read_text())['pgid']
     if group==os.getpgrp():raise RuntimeError('A test cleanup group must be isolated')
-    try:os.killpg(group,signal.SIGTERM)
-    except ProcessLookupError:return
+    if not signal_group(group,signal.SIGTERM):return
     deadline=time.monotonic()+2
     while time.monotonic()<deadline:
-        try:os.killpg(group,0)
-        except ProcessLookupError:return
+        if not signal_group(group,0):return
         time.sleep(.05)
-    try:os.killpg(group,signal.SIGKILL)
-    except ProcessLookupError:pass
+    signal_group(group,signal.SIGKILL)
 
 
 def ensure_root():
@@ -143,7 +181,7 @@ def main():
         if child and child.poll() is None:
             try: child.wait(timeout=8)
             except subprocess.TimeoutExpired:
-                if owns_session:os.killpg(child.pid,signal.SIGKILL)
+                if owns_session:signal_group(child.pid,signal.SIGKILL)
                 else:child.kill()
                 child.wait()
         for pid in descendants:
