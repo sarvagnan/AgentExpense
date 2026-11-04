@@ -1,4 +1,4 @@
-import {mainPostings,payer as rulePayer} from './recurring-ui.mjs';
+import {mainPostings,payer as rulePayer,varyingDetails,varyingPayments} from './recurring-ui.mjs';
 import { moduleSettings } from './ledger-modules.mjs';
 import { accountLabel, expenseCategory, hasSegment, paymentAccounts } from './account-metadata.mjs';
 // Category/pattern words describe an expense, not the merchant that chose a payment.
@@ -66,9 +66,10 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}, foreca
   const rules = rawRules.map(rule => {
     const main = [...new Set(mainPostings(rule).map(p=>p.account))].sort().join();
     const payer = rulePayer(rule,metadata);
-    const paid = transactions.filter(e=>!ignored.has(e.id) && (e.rule?.id===rule.id || rulePayer(e,metadata) && [...new Set(mainPostings(e).map(p=>p.account))].sort().join()===main && (!payer || rulePayer(e,metadata).account===payer.account)));
+    const actual=transactions.filter(e=>!ignored.has(e.id));
+    const paid = rule.amount==='varies'?varyingPayments(rule,actual,metadata):actual.filter(e=>(e.rule?.id===rule.id || rulePayer(e,metadata) && [...new Set(mainPostings(e).map(p=>p.account))].sort().join()===main && (!payer || rulePayer(e,metadata).account===payer.account)));
     const last_payment = [...paid].sort((a,b)=>b.date.localeCompare(a.date))[0] || null;
-    return {...rule, next_due:rule.date, last_payment, review:reviews[rule.id]||null, review_state:reviewStates[rule.id]||'waiting', payments:paid.map(e=>({id:e.id,date:e.date,...(e.rule?{rule:e.rule}:{})}))};
+    return {...rule, next_due:rule.bill?.pay_by||rule.date, last_payment, review:reviews[rule.id]||null, review_state:reviewStates[rule.id]||'waiting', payments:paid.map(e=>({id:e.id,date:e.date,...(e.rule?{rule:e.rule}:{})})),...(rule.amount==='varies'?{varying:varyingDetails(rule,actual,metadata)}:{})};
   });
   return {patterns, people, accounts, payments, merchants, rules};
 }

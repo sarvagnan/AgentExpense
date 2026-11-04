@@ -193,3 +193,10 @@ contact sheets and captures stay in `BROWSER_SHOTS`, outside the staging root.
 duplicate link, retained words, absent Retry, correction locks and same-day boundary.
 The default matrix includes it too. Its seven capture states use a disposable
 monthly bank statement in each persona's own currency; no source ledger changes.
+
+Step 6f B adds `varying.mjs`: amount-required estimates, explicit paid/unpaid
+choice, saved bills, unusual-amount acknowledgement, Rules history/editor and
+exact bill versus estimated Forecast rows. `BROWSER_FOCUS=varying` runs this
+workflow alone; the default suite includes it for every persona/engine/size.
+Sam's workflow uses the secondary account currency. Use `THEMES=light` for the
+required assertion matrix, and Chromium Dark captures at both sizes.

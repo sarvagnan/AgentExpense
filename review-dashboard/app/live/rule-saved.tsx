@@ -9,7 +9,7 @@ export function RuleSaved({draft,online,compact=false,onUndo}:{draft:Draft;onlin
   const op=useRuleOperation(refresh),r=draft.result;
   useEffect(()=>{const timer=setInterval(()=>setNow(performance.now()),1000);return()=>clearInterval(timer);},[]);
   const deadline=useMemo(()=>r?.undo_until?performance.now()+Math.max(0,Math.min(30*60*1000,Date.parse(r.undo_until)-(r.undo_checked_at?Date.parse(r.undo_checked_at):Date.now()))):null,[r?.undo_until,r?.undo_checked_at]);
-  if(!r?.audit_id||undone||r.undone)return null;
+  if(!r?.audit_id||r.outcome==='bill'||undone||r.undone)return null;
   const canUndo=r.can_undo&&(deadline===null||deadline>=now);
   const made=data.rules.filter(rule=>r.made_rules?.includes(rule.id)&&rule.lifecycle!=='removed');
   const resumes=r.resume_rules?.filter(rule=>!keptPaused.includes(rule.id)&&data.rules.some(x=>x.id===rule.id&&x.lifecycle==='paused'))||[];

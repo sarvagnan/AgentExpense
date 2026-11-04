@@ -27,6 +27,7 @@ export class ApiError extends Error {
 export function errorMessage(status: number, body: unknown) {
   const detail = typeof body === 'object' && body !== null && 'detail' in body ? (body as {detail: unknown}).detail : null;
   if (typeof detail === 'object' && detail!==null && 'kind' in detail && detail.kind==='confirmed_balance') return 'Not saved: a confirmed balance would change.';
+  if (typeof detail === 'object' && detail!==null && 'kind' in detail && detail.kind==='amount_check') return 'The recent payment range changed. Check the amount and explicitly add it anyway.';
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) return 'Please check the entered values and try again.';
   return `The server could not complete this action (HTTP ${status}). Try again.`;

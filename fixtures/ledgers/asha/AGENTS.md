@@ -15,3 +15,9 @@ Record physical readings separately from monetary cost. Match a fuel log by expl
 ## Rebuild and verify
 
 Run make verify and make dashboard from the application with LEDGER_DIR set to this directory. This example has no repository history; initialize a separate personal ledger only when intentionally adopting it.
+
+## Varying recurring rules and bills
+
+A varying rule's postings hold the median of its last three payments. Save an
+unpaid bill on the rule with its evidence; add an expense only when it is paid.
+Retain amount-check doubts and require explicit acceptance of unusual amounts.

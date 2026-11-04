@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationRoot, ledgerRoot } from '../../scripts/project-paths.mjs';
 import { moduleSettings, readManifest, validate } from './ledger-manifest.mjs';
+import {complexRule,mainPostings,payer,varyingDetails,periodFor} from './recurring-ui.mjs';
 
 const storeRoot = ledgerRoot();
 export const compact = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -105,10 +106,14 @@ export function expandForecast(rules, start, end) {
     const monthDifference = (Number(start.slice(0, 4)) - Number(from.slice(0, 4))) * 12
       + Number(start.slice(5, 7)) - Number(from.slice(5, 7));
     const result = [];
+    if(rule.bill) {
+      const date=rule.bill.pay_by||rule.bill.occurrence;
+      if(date>=start&&date<end)result.push({...rule,date,rule:text,sources:rule.bill.sources,billOccurrence:true,postings:rule.postings.map(p=>({...p,amount:Math.sign(p.amount)*Number(rule.bill.amount)}))});
+    }
     for (let index = Math.max(0, Math.floor(monthDifference / step)); ; index++) {
       const date = occurrenceDate(from, index * step, rule.schedule['anchor-day']);
       if (date >= end) break;
-      if (date >= start) result.push({ ...rule, date, rule: text });
+      if (date >= start && (!rule.bill||date>rule.bill.occurrence)) result.push({ ...rule, date, rule: text, ...(rule.bill?{billOccurrence:false}: {}) });
     }
     return result;
   });
@@ -137,10 +142,15 @@ export async function loadExpenseStore(root = storeRoot) {
   if (years.some((year) => !Array.isArray(year)) || !Array.isArray(rawRules)) throw new Error('Store entries must be arrays');
   if (rawRules.some(rule => Object.hasOwn(rule, 'possible-duplicate-of'))) throw new Error('Forecasts cannot contain possible duplicate links');
   for (const rule of rawRules) {
-    for (const field of ['lifecycle', 'origin', 'created', 'removal', 'schedule']) {
+    for (const field of ['lifecycle', 'origin', 'created', 'removal', 'schedule','amount','bill']) {
       if (Object.hasOwn(rule, field)) validate(rule[field], schema.$defs.rule.properties[field], `rule.${field}`, schema);
     }
     if (Object.hasOwn(rule, 'rule')) throw new Error('Forecasts cannot link rule occurrences');
+    if(rule.amount==='varies') {
+      const main=mainPostings(rule)[0],pay=payer(rule,declarations.accounts);
+      if(complexRule(rule)||!pay||rule.postings.some(p=>p.assert)||main.commodity!==pay.commodity||decimalNumber(main.amount)!==-decimalNumber(pay.amount))throw new Error('Only simple two-posting payments in one currency can vary');
+    }
+    if(rule.bill&&(rule.amount!=='varies'||decimalNumber(rule.bill.amount)<=0||rule.bill.occurrence!==rule.date||periodFor(rule,rule.bill.occurrence)!==rule.bill.occurrence))throw new Error('Bill must name the current occurrence of a varying rule');
   }
   const actuals = years.flat();
   const ids = new Set();
@@ -168,7 +178,7 @@ export async function loadExpenseStore(root = storeRoot) {
     if (occurrenceDate(rule.schedule.from, 0, rule.schedule['anchor-day']) !== rule.date) throw new Error('Rule anchor and date disagree');
     if (rule.lifecycle === 'removed' && !rule.removal) throw new Error('Removed rule needs removal evidence');
     if ([...(rule.origin?.evidence ?? []), ...(rule.removal?.evidence ?? [])].some(id => !actualIds.has(id))) throw new Error('Unknown rule evidence');
-    return toTransaction(rule, declarations.accounts);
+    return {...toTransaction(rule, declarations.accounts),...(rule.amount==='varies'?{varying:varyingDetails(rule,actuals,declarations.accounts)}:{})};
   });
   return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
 }

@@ -7,7 +7,7 @@ import {readVisit,forgetResult,type VisitResult} from './add-visit';
 import {RuleSaved} from './rule-saved';
 import ReceiptReading from './receipt-reading';
 import type {LiveDrafts} from './use-drafts';
-export function draftStatus(d:Draft){return d.receipt_reading?.state==='question'?'Needs an answer':d.state==='added'?(d.result?.outcome==='not_expense'?'Not an expense':'Added'):d.state==='question'?'Needs an answer':d.state==='failed'?'Failed':'Working';}
+export function draftStatus(d:Draft){return d.receipt_reading?.state==='question'?'Needs an answer':d.state==='added'?(d.result?.outcome==='not_expense'?'Not an expense':d.result?.outcome==='bill'?'Bill saved':'Added'):d.state==='question'?'Needs an answer':d.state==='failed'?'Failed':'Working';}
 export function statementStatus(s:StatementSession){return s.state==='applied'?'Applied':['found','review'].includes(s.state)?'Needs decisions':s.state==='applying'?'Applying':s.state==='agent_waiting'?'Waiting for agent':s.state==='reading'?'Reading':s.state==='already_filed'?'Already filed':['locked','account_needed','currency_mismatch'].includes(s.state)?'Needs an answer':'Failed';}
 export function useAddResults(live:LiveDrafts){
  const [ids,setIds]=useState(readVisit),[saved,setSaved]=useState<Record<string,Draft|StatementSession>>({});

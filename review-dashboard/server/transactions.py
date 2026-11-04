@@ -22,7 +22,7 @@ from settings import APPLICATION
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
 from confirmed_balances import BalanceRefusal
-from store import dump, load, store_paths
+from store import dump, load, store_paths, entries
 from ledger_manifest import read_manifest, module_settings
 from account_metadata import infer_kind, is_balance_sheet
 from ledger_lock import ledger_lock, LOCK_FD_ENV
@@ -385,6 +385,7 @@ class Transaction:
             identity = add_entry(entry, root=self.root)
             from rules_service import addition_effects
             recurring = addition_effects(self.root, identity, self.draft)
+            entry=next(e for e in entries(load(self.root)) if e['id']==identity)
             result = dict(outcome='ready', entry_id=identity, description=entry['description'],
                           new_accounts=new, sources=entry.get('sources', []), **payment(entry,declarations['accounts']))
             if recurring['rule'] or recurring['resume_rules']:
@@ -398,6 +399,13 @@ class Transaction:
             audit_record['entry_id'] = identity
             audit_record['files'] = [dict(original_name=f['original_name'], **({'filed_path': result['sources'][i]} if i < len(result['sources']) else {})) for i, f in enumerate(self.draft['files'])]
             append(self.root, audit_record)
+            if recurring.get('paid_bill'):
+                from audit import event
+                from rules_service import digest
+                append(self.root,event('rule',rule_action='bill-paid',rule_id=recurring['rule']['id'],
+                    request_id=self.draft['id'],request_hash=digest(dict(draft=self.draft['id'],bill=recurring['paid_bill'])),
+                    rule_changes=recurring['rule_changes'],bill=recurring['paid_bill'],text=self.draft['text'],
+                    files=audit_record['files'],doubts=audit_record['doubts'],entry_id=identity))
             journal['result'] = result
             self.save_journal(journal)
             result['commit_id'] = self.verified_commit(lock_fd, message_for(self.settings, self.draft, entry, new, answer))

@@ -6,6 +6,7 @@ remain exact decimals in their posting commodities; preferences come from the le
 from copy import deepcopy
 from datetime import date, timedelta
 from decimal import Decimal
+from statistics import median
 from calendar import monthrange
 from math import gcd
 from functools import lru_cache
@@ -66,6 +67,76 @@ def within_ten(one, two):
 
 def payee_match(one, two):
     return bool((words(one['description']) - GENERIC) & (words(two['description']) - GENERIC))
+
+
+def simple_payment(rule, accounts):
+    """Varying amounts need exactly one expense and one payer in one currency."""
+    main, payer = main_postings(rule), paying(rule, accounts)
+    return (len(rule['postings']) == 2 and len(main) == 1 and payer is not None
+            and all(not p.get('cost') and not p.get('assert') for p in rule['postings'])
+            and main[0]['commodity'] == payer['commodity']
+            and Decimal(main[0]['amount']) == -Decimal(payer['amount']))
+
+
+def payment_history(rule, actual, accounts):
+    """Linked payments plus compatible, unlinked payee history, newest first.
+
+    No amount tolerance here: outliers are still payments. Automatic detection
+    and the typed-word ranking keep their existing tolerance.
+    """
+    currency = main_postings(rule)[0]['commodity']
+    def matches(entry):
+        link = entry.get('rule')
+        return ((entry.get('status') == 'confirmed' or link and link.get('id') == rule['id']) and simple_payment(entry, accounts)
+                and main_postings(entry)[0]['commodity'] == currency
+                and (link.get('id') == rule['id'] if link else
+                     same_payment(entry, rule, accounts) and payee_match(entry, rule)))
+    # Stable reverse order also respects ledger ordering for same-day payments.
+    return [e for i,e in sorted(((i,e) for i,e in enumerate(actual) if matches(e)), key=lambda pair: (pair[1]['date'],pair[0]), reverse=True)]
+
+
+def recompute_estimate(rule, actual, accounts):
+    """Shared mutation for link/correction/switch and future Delete/Restore callers.
+
+    The store postings are the estimate's sole financial source of truth.
+    Call with the transaction's final actual set, excluding undone payments.
+    """
+    if rule.get('amount') != 'varies': return
+    if not simple_payment(rule, accounts):
+        raise ValueError('Only simple two-posting payments in one currency can vary')
+    history = payment_history(rule, actual, accounts)[:3]
+    if not history: return
+    value = median([Decimal(main_postings(e)[0]['amount']) for e in history])
+    # A two-payment median can need one additional decimal place; retain it
+    # exactly rather than choosing a currency or silently rounding it.
+    value = format(value, 'f')
+    if '.' not in value: value += '.00'
+    main_postings(rule)[0]['amount'] = value
+    paying(rule, accounts)['amount'] = '-' + value
+
+
+def varying_details(rule, actual, accounts):
+    if rule.get('amount') != 'varies': return {}
+    history = payment_history(rule, actual, accounts)[:12]
+    recent = [Decimal(main_postings(e)[0]['amount']) for e in history[:3]]
+    return dict(varying=dict(history=[dict(id=e['id'], date=e['date'], amount=main_postings(e)[0]['amount']) for e in history],
+                             min=format(min(recent), 'f') if recent else None,
+                             max=format(max(recent), 'f') if recent else None))
+
+
+def amount_check(rule, value, actual, accounts):
+    if rule.get('amount') != 'varies': return None
+    recent = [Decimal(main_postings(e)[0]['amount']) for e in payment_history(rule, actual, accounts)[:6]]
+    value = Decimal(value)
+    if recent and (value > 2 * max(recent) or value < min(recent) / 2):
+        return dict(amount=format(value, 'f'), min=format(min(recent), 'f'), max=format(max(recent), 'f'),
+                    currency=main_postings(rule)[0]['commodity'])
+    return None
+
+
+def amount_doubt(check):
+    return (f"Amount check: {check['amount']} {check['currency']} is outside half the lowest "
+            f"to twice the highest of the last 6 payments ({check['min']}–{check['max']} {check['currency']}); explicitly accepted.")
 
 
 def step_months(rule):

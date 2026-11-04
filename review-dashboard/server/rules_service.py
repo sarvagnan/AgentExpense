@@ -6,12 +6,14 @@ from hashlib import sha256
 import json
 import re
 import secrets
+import shutil
 
-from transactions import BalanceRefusal, Transaction, clean, jj, refresh
+from transactions import BalanceRefusal, LedgerBusy, Transaction, clean, jj, refresh
 from currency_settings import SettingsRecords
 from store import load, entries, dump, validate, store_paths, new_id
 from recurring import (active, advance, candidate, detect, identity, main_postings,
-                       match_text, paying, payee_match, period_for, same_payment, stale_rules)
+                       match_text, paying, payee_match, period_for, same_payment, stale_rules,
+                       simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt)
 from audit import records, append, event, audit_path
 from ledger_lock import ledger_lock
 from ledger_manifest import read_manifest
@@ -19,6 +21,12 @@ from ledger_manifest import read_manifest
 
 def digest(value):
     return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+class AmountCheck(ValueError):
+    def __init__(self, check):
+        super().__init__('This amount is outside the recent payment range; explicitly add it anyway')
+        self.check=check
 
 
 def today(clock=None):
@@ -53,7 +61,7 @@ def addition_effects(root, entry_id, draft):
     actual=[e for e in entries(documents) if e['id'] not in ignored]
     entry=next(e for e in actual if e['id']==entry_id)
     accounts=documents[root/'data/accounts.json']['accounts']
-    link=None; resumed=[]; usual=draft.get('usual_payment')
+    link=None; resumed=[]; paid_bill=None; usual=draft.get('usual_payment')
     declined=set(draft.get('declined_rules', []))
     if usual:
         rule=next((r for r in rules if r['id']==usual['rule_id']),None)
@@ -65,7 +73,7 @@ def addition_effects(root, entry_id, draft):
                     not e.get('rule') and same_payment(e,rule,accounts) and period_for(rule,e['date'])==period)]
         if duplicates and not usual['another_anyway']: raise ValueError('This period already has a payment; choose Add another anyway')
         link=rule
-        if usual['update_rule']:
+        if usual['update_rule'] and rule.get('amount') != 'varies':
             updated = deepcopy(entry['postings'])
             if not usual['remember_account']:
                 original_payer = paying(rule,accounts) or next((p for p in rule['postings'] if Decimal(p['amount'])<0),None)
@@ -81,15 +89,26 @@ def addition_effects(root, entry_id, draft):
             if placeholder['commodity']!=selected['commodity']: raise ValueError('The saved paying account needs a conversion; edit the rule postings first')
             placeholder['account']=selected['account']
     else:
-        matches=[r for r in rules if r['id'] not in declined and active(r) and same_payment(entry,r,accounts)]
+        matches=[r for r in rules if r['id'] not in declined and active(r) and same_payment(entry,r,accounts)
+                 and (r.get('amount') != 'varies' or simple_payment(entry,accounts) and payee_match(entry,r)
+                      and main_postings(entry)[0]['commodity']==main_postings(r)[0]['commodity'])]
         if len(matches)==1: link=matches[0]
     if link:
         occurrence=usual['occurrence'] if usual else period_for(link,entry['date'])
         entry['rule']=dict(id=link['id'],occurrence=occurrence)
+        if link.get('bill',{}).get('occurrence') == occurrence:
+            paid_bill=deepcopy(link.pop('bill'))
+            sources=list(dict.fromkeys([*entry.get('sources',[]),*paid_bill['sources']]))
+            if sources: entry['sources']=sources
         # The explicitly paid occurrence is consumed even when paid a little early.
         latest=max((e['date'] for e in actual if e['id']!=entry_id and (e.get('rule',{}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
-        if entry['date']>=latest and max(entry['date'],occurrence)>=link['date']:
-            rules[rules.index(link)]=advance(link,max(entry['date'],occurrence))
+        if paid_bill:
+            # A saved bill identifies exactly one occurrence, even if its
+            # payment is backdated or arrives after the following due date.
+            index=rules.index(link);rules[index]=link=advance(link,occurrence)
+        elif entry['date']>=latest and max(entry['date'],occurrence)>=link['date']:
+            index=rules.index(link);rules[index]=link=advance(link,max(entry['date'],occurrence))
+        recompute_estimate(link,actual,accounts)
     else:
         resumed=[dict(id=r['id'],description=r['description']) for r in rules if r['id'] not in declined and r.get('lifecycle')=='paused' and same_payment(entry,r,accounts)]
     settings=documents.get(root/'data/recurring-settings.json',{'never-automatic':[]})
@@ -102,7 +121,8 @@ def addition_effects(root, entry_id, draft):
     validate(documents,root)
     for path,value in documents.items(): dump(path,value)
     return dict(rule_changes=rule_changes(before,rules), made_rules=[r['id'] for r in made],
-                rule=entry.get('rule'), next_due=next((r['date'] for r in rules if entry.get('rule',{}).get('id')==r['id']),None), resume_rules=resumed)
+                rule=entry.get('rule'), next_due=next((r['date'] for r in rules if entry.get('rule',{}).get('id')==r['id']),None), resume_rules=resumed,
+                **({'paid_bill':paid_bill} if paid_bill else {}))
 
 
 def wire_proposal(rule, day, filenames, root, body):
@@ -127,14 +147,19 @@ def wire_proposal(rule, day, filenames, root, body):
         original=sum((Decimal(p['amount']) for p in main_postings(rule)),Decimal(0))
         currencies={p['commodity'] for p in main_postings(rule)}
         if not original or len(currencies)!=1: raise ValueError('Edit the postings for this complex rule')
-        scale=Decimal(value)/original
-        minor=json.loads((__import__('settings').APPLICATION/'schema/currency-minor-units.json').read_text())
-        from decimal import ROUND_HALF_UP
-        for p in postings:
-            precision=int(minor.get(p['commodity'],2))
-            p['amount']=format((Decimal(p['amount'])*scale).quantize(Decimal(10)**-precision,rounding=ROUND_HALF_UP),'f')
-            if p.get('cost') and p['cost']['per']=='total':
-                p['cost']['amount']=format((Decimal(p['cost']['amount'])*scale).quantize(Decimal(10)**-int(minor.get(p['cost']['commodity'],2)),rounding=ROUND_HALF_UP),'f')
+        if rule.get('amount')=='varies':
+            if not simple_payment(rule,accounts): raise ValueError('Only simple two-posting payments in one currency can vary')
+            for p in postings:
+                p['amount']=('-' if Decimal(p['amount'])<0 else '')+value
+        else:
+            scale=Decimal(value)/original
+            minor=json.loads((__import__('settings').APPLICATION/'schema/currency-minor-units.json').read_text())
+            from decimal import ROUND_HALF_UP
+            for p in postings:
+                precision=int(minor.get(p['commodity'],2))
+                p['amount']=format((Decimal(p['amount'])*scale).quantize(Decimal(10)**-precision,rounding=ROUND_HALF_UP),'f')
+                if p.get('cost') and p['cost']['per']=='total':
+                    p['cost']['amount']=format((Decimal(p['cost']['amount'])*scale).quantize(Decimal(10)**-int(minor.get(p['cost']['commodity'],2)),rounding=ROUND_HALF_UP),'f')
     estimated=any(p.get('cost') and p['commodity']!=p['cost']['commodity'] for p in postings)
     notes=list(rule.get('notes',[]))
     if estimated: notes.append('Currency estimate: planned conversion; statement reconciliation will correct it.')
@@ -152,9 +177,10 @@ def wire_proposal(rule, day, filenames, root, body):
 
 def queue_usual(settings, drafts, draft, body):
     if draft.get('correction'): raise ValueError('A correction form cannot add another usual payment')
-    allowed={'rule_id','date','amount','update_rule','account','remember_account','another_anyway','client_time','client_zone'}
+    if draft.get('bill_request'): raise ValueError('This item is saving a bill')
+    allowed={'rule_id','date','amount','update_rule','account','remember_account','another_anyway','amount_anyway','client_time','client_zone'}
     if not isinstance(body,dict) or set(body)-allowed: raise ValueError('Unknown usual payment field')
-    for key in ('update_rule','remember_account','another_anyway'):
+    for key in ('update_rule','remember_account','another_anyway','amount_anyway'):
         if key in body and type(body[key]) is not bool: raise ValueError(key+' must be boolean')
     request_hash=digest(body)
     if draft.get('refusal'): raise ValueError('Change the account or date before resubmitting this refused payment')
@@ -172,7 +198,17 @@ def queue_usual(settings, drafts, draft, body):
     context = client_context(body.get('client_time'),body.get('client_zone')) if 'client_time' in body or 'client_zone' in body else None
     day=body.get('date') or (draft.get('pieces') or {}).get('fields',{}).get('date',{}).get('value') or (context or draft)['client_time'][:10]
     if not isinstance(day,str) or date.fromisoformat(day).isoformat()!=day: raise ValueError('Choose a calendar payment date')
-    proposal,estimated=wire_proposal(rule,day,[f['original_name'].rsplit('.',1)[0] for f in draft['files']],settings.ledger,body)
+    effective=deepcopy(body);check=None
+    if rule.get('amount') == 'varies':
+        if rule.get('bill'):
+            effective['amount']=rule['bill']['amount']
+        elif not body.get('amount'): raise ValueError('Needs an amount')
+        if body.get('update_rule'): raise ValueError('Varying rules recompute their estimate from payments')
+        actual=[e for e in entries(documents) if e['id'] not in ignored_entries(records(settings.ledger))]
+        check=amount_check(rule,effective['amount'],actual,documents[settings.ledger/'data/accounts.json']['accounts'])
+        if check and not body.get('amount_anyway'): raise AmountCheck(check)
+    proposal,estimated=wire_proposal(rule,day,[f['original_name'].rsplit('.',1)[0] for f in draft['files']],settings.ledger,effective)
+    if check: proposal['doubts'].append(amount_doubt(check))
     try:
         Transaction(settings,drafts,draft).prepare(proposal)
     except BalanceRefusal as exc:
@@ -183,7 +219,7 @@ def queue_usual(settings, drafts, draft, body):
         queue_outcome(draft,'failed')
         drafts.put(draft)
         raise
-    period=period_for(rule,day)
+    period=rule['bill']['occurrence'] if rule.get('bill') else period_for(rule,day)
     ignored=ignored_entries(records(settings.ledger))
     already=[e for e in entries(documents) if e['id'] not in ignored and e.get('rule')==dict(id=rule['id'],occurrence=period)]
     # Also recognise old unlinked payments in this bucket, so stale rules cannot double-book.
@@ -193,6 +229,40 @@ def queue_usual(settings, drafts, draft, body):
     if draft.get('saved_at') is None: drafts.save_time(draft,body.get('client_time'),body.get('client_zone'))
     draft.update(usual_payment=dict(rule_id=rule['id'],occurrence=period,request_hash=request_hash,estimated=estimated,update_rule=body.get('update_rule',False),another_anyway=body.get('another_anyway',False),remember_account=body.get('remember_account',False)),
                  usual_rule_hash=digest(rule),state='queued',queued_at=draft.get('queued_at') or now(),proposal=proposal,error=None,waiting=None)
+    drafts.put(draft)
+    return draft
+
+
+def queue_bill(settings, drafts, draft, body):
+    """Freeze an unpaid bill in the existing durable FIFO, without an agent."""
+    allowed={'rule_id','amount','date','pay_by','amount_anyway','client_time','client_zone'}
+    if not isinstance(body,dict) or set(body)-allowed: raise ValueError('Unknown bill field')
+    prior=draft.get('bill_request')
+    if prior:
+        if prior['body']!=body: raise ValueError('This bill item already has a different request')
+        if draft['state']=='failed':
+            draft.update(state='queued',error=None,waiting=None);drafts.put(draft)
+        return draft
+    if draft['state']!='editing' or draft.get('claim') or draft.get('correction'): raise ValueError('This item cannot save a bill now')
+    if 'amount_anyway' in body and type(body['amount_anyway']) is not bool: raise ValueError('amount_anyway must be boolean')
+    from draft_time import client_context
+    context=client_context(body.get('client_time'),body.get('client_zone'))
+    policy(settings);root=settings.ledger;documents=load(root)
+    rule=next((r for r in documents[root/'data/forecast.json'] if r['id']==body.get('rule_id')),None)
+    if not rule or not active(rule) or rule.get('amount')!='varies' or rule.get('bill'): raise ValueError('Choose an active varying rule without a saved bill')
+    version=digest(rule)
+    from transactions import amount as store_amount
+    value=body.get('amount');value=store_amount(value) if isinstance(value,str) else value
+    bill=dict(amount=value,received=body.get('date') or context['client_time'][:10],occurrence=rule['date'],sources=[],**({'pay_by':body['pay_by']} if body.get('pay_by') else {}))
+    rule['bill']=bill;validate(documents,root)
+    actual=[e for e in entries(documents) if e['id'] not in ignored_entries(records(root))]
+    check=amount_check(rule,bill['amount'],actual,documents[root/'data/accounts.json']['accounts'])
+    if check and not body.get('amount_anyway'): raise AmountCheck(check)
+    if draft.get('saved_at') is None: drafts.save_time(draft,body.get('client_time'),body.get('client_zone'))
+    operation=dict(action='bill-saved',rule_id=rule['id'],version=version,draft_id=draft['id'],bill=bill,
+                   **context,**({'amount_anyway':body['amount_anyway']} if 'amount_anyway' in body else {}))
+    from agent import now
+    draft.update(bill_request=dict(body=deepcopy(body),operation=operation),state='queued',queued_at=draft.get('queued_at') or now(),error=None,waiting=None)
     drafts.put(draft)
     return draft
 
@@ -230,11 +300,11 @@ def snapshot(settings, clock=None):
     _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
     public=[]
     for rule in rules:
-        paid=[e for e in actual if e.get('rule',{}).get('id')==rule['id'] or same_payment(e,rule,accounts)]
+        paid=payment_history(rule,actual,accounts) if rule.get('amount')=='varies' else [e for e in actual if e.get('rule',{}).get('id')==rule['id'] or same_payment(e,rule,accounts)]
         last=max(paid,key=lambda e:e['date']) if paid else None
         life=rule.get('lifecycle','active')
-        status=life if life!='active' else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<today(clock) else 'due' if rule['date']==today(clock) else 'on-track'
-        public.append(dict(rule, lifecycle=life,version=digest(rule),last_payment=last,next_due=rule['date'],payments=[dict(id=e['id'],date=e['date'],**({'rule':e['rule']} if e.get('rule') else {})) for e in paid],rule_status=status,review=proposals.get(rule['id']),review_state=review_states.get(rule['id'],'waiting')))
+        status=life if life!='active' else 'bill-received' if rule.get('bill') else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<today(clock) else 'due' if rule['date']==today(clock) else 'on-track'
+        public.append(dict(rule, lifecycle=life,version=digest(rule),last_payment=last,next_due=rule.get('bill',{}).get('pay_by',rule['date']),payments=[dict(id=e['id'],date=e['date'],**({'rule':e['rule']} if e.get('rule') else {})) for e in paid],rule_status=status,review=proposals.get(rule['id']),review_state=review_states.get(rule['id'],'waiting'),**varying_details(rule,actual,accounts)))
     return dict(rules=public,suggestions=suggestions,history=[line for line in lines if line['kind'] in ('rule','rule-review')],
                 undo=[dict(audit_id=line['id'],entry_id=line['entry_id'],eligible=undo_eligibility(settings,line,clock)) for line in lines if line['kind']=='draft' and line.get('entry_id') and (line.get('usual_payment') or 'rule_changes' in line)])
 
@@ -257,8 +327,9 @@ def from_entry(settings,identity):
 def operate(settings, op_id, body, *, clock=None):
     if not re.fullmatch(r'[0-9a-f]{32}',op_id): raise ValueError('Use a unique 32-hex operation id')
     if not isinstance(body,dict): raise ValueError('Supply an operation object')
-    allowed={'action','rule_id','rule','version','undoes','entry_id','client_time','client_zone'}
+    allowed={'action','rule_id','rule','version','undoes','entry_id','client_time','client_zone','bill','text','draft_id','amount_anyway'}
     if set(body)-allowed: raise ValueError('Unknown rule operation field')
+    if 'amount_anyway' in body and type(body['amount_anyway']) is not bool: raise ValueError('amount_anyway must be boolean')
     from draft_time import client_context
     context = client_context(body.get('client_time'),body.get('client_zone')) if 'client_time' in body or 'client_zone' in body else {}
     action_day = context['client_time'][:10] if context else today(clock)
@@ -267,23 +338,28 @@ def operate(settings, op_id, body, *, clock=None):
         policy(settings)
         for folder in store.root.iterdir():
             if (folder/'transaction.json').exists():
-                draft=json.loads((folder/'record.json').read_text());tx=Transaction(settings,store,draft);tx.marker='Rule operation: '+draft['id'];tx.recover()
+                draft=json.loads((folder/'record.json').read_text());tx=Transaction(settings,store,draft);tx.marker=draft.get('marker','Rule operation: '+draft['id']);tx.recover()
         lines=records(root); prior=next((r for r in lines if r.get('request_id')==op_id),None)
         if prior:
             if prior['request_hash']!=request_hash: raise ValueError('This operation id was used for a different payload')
-            return dict(audit_id=prior['id'],replayed=True)
+            result=dict(audit_id=prior['id'],replayed=True)
+            if prior['rule_action']=='bill-saved':
+                after=next(c['after'] for c in prior['rule_changes'] if c['id']==prior['rule_id'])
+                bill=prior['bill']
+                result.update(outcome='bill',description=after['description'],bill=bill,sources=bill['sources'],total=f"{bill['amount']} {main_postings(after)[0]['commodity']}")
+            return result
         receipt_path = store.folder(op_id) / 'record.json'
         receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else {}
         if receipt.get('request_hash') and receipt['request_hash'] != request_hash:
             raise ValueError('This operation id was used for a different payload')
         if receipt.get('committed_result'):
             return {**receipt['committed_result'], 'replayed': True}
-        if not clean(root): raise ValueError('The ledger has uncommitted changes; finish them before changing rules')
+        if not clean(root): raise LedgerBusy('Waiting for a clean ledger before changing rules')
         documents=load(root); rules=documents[root/'data/forecast.json']; before=deepcopy(rules)
         actual=[e for e in entries(documents) if e['id'] not in ignored_entries(lines)]
         accounts=documents[root/'data/accounts.json']['accounts']; action=body.get('action');rule=next((r for r in rules if r['id']==body.get('rule_id')),None)
         if body.get('version') and (not rule or digest(rule)!=body['version']): raise ValueError('The rule changed; reload it')
-        reversal=None;undone=None
+        reversal=None;undone=None;bill_draft=None;copies=[];check=None;bill_record=None
         if action=='made':
             proposed=deepcopy(body.get('rule')) if body.get('rule') else from_entry(settings,body['entry_id'])['rule'] if body.get('entry_id') else None
             if not isinstance(proposed,dict): raise ValueError('Supply a complete rule')
@@ -292,6 +368,7 @@ def operate(settings, op_id, body, *, clock=None):
             elif proposed['id'] in used: raise ValueError('Rule id already exists')
             proposed.setdefault('lifecycle','active');proposed.setdefault('created',action_day);proposed.setdefault('origin',dict(kind='owner'))
             rules.append(proposed)
+            recompute_estimate(proposed,actual,accounts)
         elif action in ('backfill','catch-up'):
             if action=='backfill':
                 made,_=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
@@ -341,12 +418,43 @@ def operate(settings, op_id, body, *, clock=None):
                 rules.append(rule)
             if not rule: raise ValueError('Unknown rule')
             life=rule.get('lifecycle','active')
-            if action=='edited':
+            if action in ('bill-saved','bill-removed'):
+                if rule.get('amount')!='varies': raise ValueError('Bills need a varying rule')
+                if action=='bill-removed':
+                    if not rule.get('bill'): raise ValueError('There is no saved bill')
+                    bill_record=rule.pop('bill')
+                else:
+                    if rule.get('bill'): raise ValueError('Remove the saved bill before replacing it')
+                    bill=deepcopy(body.get('bill'))
+                    if not isinstance(bill,dict): raise ValueError('Supply a bill')
+                    # Validate the entire candidate before arithmetic or filing.
+                    rule['bill']=bill;validate(documents,root)
+                    check=amount_check(rule,bill['amount'],actual,accounts)
+                    if check and body.get('amount_anyway') is not True: raise AmountCheck(check)
+                    if body.get('draft_id'):
+                        from drafts import Drafts
+                        drafts=Drafts(root)
+                        with drafts.mutex:
+                            bill_draft=drafts.get(body['draft_id'])
+                            if bill_draft['state'] not in ('queued','working') or bill_draft.get('bill_request',{}).get('operation')!=body or bill_draft.get('claim') or bill_draft.get('correction'): raise ValueError('This item cannot save a bill now')
+                            if bill['sources']: raise ValueError('Uploaded bills use their filed evidence')
+                            if bill_draft.get('saved_at') is None: drafts.save_time(bill_draft,body.get('client_time'),body.get('client_zone'))
+                            from transactions import evidence_paths
+                            answer={'entry':{'date':bill['received']},'attachment_names':[f['original_name'].rsplit('.',1)[0] for f in bill_draft['files']]}
+                            targets=evidence_paths(answer,bill_draft,root)
+                            copies=[(drafts.folder(bill_draft['id'])/'files'/f['name'],target) for f,target in zip(bill_draft['files'],targets)]
+                            bill['sources']=[str(p.relative_to(root)) for p in targets]
+                    rule['bill']=bill;bill_record=bill
+            elif action=='edited':
                 patch=deepcopy(body.get('rule'))
-                if not isinstance(patch,dict) or set(patch)-{'description','postings','schedule','date','status'}: raise ValueError('Edit description, postings, schedule, date or status')
+                if not isinstance(patch,dict) or set(patch)-{'description','postings','schedule','date','status','amount'}: raise ValueError('Edit description, postings, schedule, date, status or amount')
+                if patch.get('amount','varies') is None:
+                    if rule.get('bill'): raise ValueError('Remove the saved bill before making the amount fixed')
+                    patch.pop('amount');rule.pop('amount',None)
                 rule.update(patch)
                 if 'schedule' in patch: rule['date']=rule['schedule']['from']
                 elif 'date' in patch: rule['schedule']['from']=rule['date']
+                recompute_estimate(rule,actual,accounts)
             elif action=='removed':
                 evidence = {e['id'] for e in actual if same_payment(e,rule,accounts)} | set(rule.get('origin',{}).get('evidence',[]))
                 rule.update(lifecycle='removed',removal=dict(date=action_day,evidence=sorted(evidence)))
@@ -363,14 +471,35 @@ def operate(settings, op_id, body, *, clock=None):
                      **context,
                      **({'rule_id':rule['id']} if rule else {}),
                      **({'undoes':undone['id'],'reversal_id':reversal['id']} if undone else {}))
-        draft=dict(id=op_id,request_hash=request_hash);store.put(draft);tx=Transaction(settings,store,draft);tx.marker='Rule operation: '+op_id
-        journal=tx.snapshot([*documents,root/'expense_ledger.ledger',audit_path(root,record)])
+        if bill_record is not None:
+            record.update(bill=deepcopy(bill_record),text=bill_draft['text'] if bill_draft else body.get('text',''),
+                          files=[dict(original_name=f['original_name'],filed_path=source) for f,source in zip(bill_draft['files'],bill_record['sources'])] if bill_draft else [dict(original_name=source,filed_path=source) for source in bill_record['sources']],
+                          doubts=[amount_doubt(check)] if check else [])
+            if check: record['amount_check']=check
+        draft=dict(id=op_id,request_hash=request_hash,marker=('Draft: ' if action=='bill-saved' else 'Rule operation: ')+op_id);store.put(draft);tx=Transaction(settings,store,draft);tx.marker=draft['marker']
+        journal=tx.snapshot([*documents,root/'expense_ledger.ledger',audit_path(root,record),*[target for source,target in copies]])
         try:
+            from transactions import compress
+            for source,target in copies:
+                target.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(source,target);compress(target)
             for path,value in documents.items(): dump(path,value)
             append(root,record)
             result=dict(audit_id=record['id'],action=action,changes=changes,changed=len(changes),**({'reversal_id':reversal['id']} if reversal else {}))
+            if action=='bill-saved':
+                result.update(outcome='bill',description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['sources'],total=f"{bill_record['amount']} {main_postings(rule)[0]['commodity']}")
             journal['result']=result;tx.save_journal(journal)
-            result['commit_id']=tx.verified_commit(fd,f'Rules: {action}\n\n{tx.marker}\nAudit: {record["id"]}\nAdded-by: user (rule operation)')
+            message=f'Rules: {action}\n\n{tx.marker}\nAudit: {record["id"]}\nAdded-by: user (rule operation)'
+            if action=='bill-saved':
+                from draft_time import saved_local, client_context
+                local=bill_draft or {**(context or client_context()),'created_at':record['time']}
+                message='\n'.join([f"Record {rule['description']} bill via dashboard",'',
+                    'Typed: '+json.dumps(record['text'],ensure_ascii=False),'Saved: '+saved_local(local),
+                    f"Bill: {result['total']}, pay by {bill_record.get('pay_by','none')}",
+                    'Evidence: '+(', '.join(bill_record['sources']) or 'none'),
+                    'Agent doubts: '+('; '.join(record['doubts']) or 'none'),f'Draft: {op_id}',
+                    f"Added-by: user (bill, rule {rule['id']})"])
+            result['commit_id']=tx.verified_commit(fd,message)
             draft['committed_result']=result;store.put(draft);tx.journal.unlink()
         except BaseException:
             tx.rollback(journal);raise

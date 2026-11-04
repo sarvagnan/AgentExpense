@@ -44,5 +44,26 @@
       {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "INR"},
       {"account": "Assets:Cash", "amount": "-8.00", "commodity": "INR"}
     ]
+  },
+  {
+    "id": "f000000000000004",
+    "date": "2026-11-12",
+    "status": "confirmed",
+    "description": "Willow Energy",
+    "schedule": {
+      "every": "month",
+      "from": "2026-11-12"
+    },
+    "origin": {
+      "kind": "owner"
+    },
+    "notes": [
+      "Amounts vary with household use."
+    ],
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "650.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-650.00", "commodity": "INR"}
+    ],
+    "amount": "varies"
   }
 ]

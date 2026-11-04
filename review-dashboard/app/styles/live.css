@@ -421,3 +421,16 @@ html:has(.add-page){overflow-anchor:none}
 .hand-finish .hand-fields label > .live-hint { display: block; margin-top: 6px; }
 
 .hand-posting[data-balance-locked="true"] input[readonly] { background: var(--surface-sunken); color: var(--text-secondary); opacity: 1; }
+
+/* Varying recurring payments and saved bills. */
+.bill-badge { display:inline-block; padding:.12em .45em; border:1px solid var(--separator); border-radius:var(--radius-control); color:var(--text-secondary); font-size:.75em; font-weight:600; vertical-align:middle; }
+.rule-varying-range { display:block; color:var(--text-secondary); font:var(--text-caption); font-weight:400; }
+.rule-amount-notice { padding:var(--space-3); border:1px solid var(--warning); background:var(--surface-sunken); border-radius:var(--radius-control); }
+.rule-amount-notice label { display:flex; align-items:center; gap:var(--space-2); }
+.rule-estimate-block, .rule-bill-block { padding:var(--space-3); border:1px solid var(--separator); border-radius:var(--radius-control); }
+.rule-payment-bars svg { display:block; width:100%; max-height:130px; }
+.rule-payment-bars .estimate-payment { fill:var(--series-focus); }
+.rule-payment-bars .older-payment { fill:var(--series-compare); }
+.rule-payment-values { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-4); margin:var(--space-2) 0; padding:0; list-style:none; font:var(--text-caption); color:var(--text-secondary); }
+.rule-editor input[readonly] { background:var(--surface-sunken); color:var(--text-secondary); }
+.rule-status.bill-received { color:var(--accent); }

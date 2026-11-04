@@ -526,4 +526,27 @@ def confirmed_receipt(body: dict):
     return dict(id=draft['id'])
 
 
+@app.post('/__test/varying')
+def varying_rules(body: dict):
+    from copy import deepcopy
+    from ledger_manifest import read_manifest
+    from store import dump
+    manifest=read_manifest(settings.ledger)
+    currency=manifest['defaultCurrency']
+    declarations=deepcopy(original[settings.ledger/'data/accounts.json'])
+    if os.environ['BROWSER_PERSONA']=='sam':
+        currency=next(m['currency'] for m in declarations['accounts'].values() if m.get('currency') and m['currency']!=currency)
+    pay='Assets:Bank:Willow Bills';category='Expenses:Utilities:Willow Bills'
+    declarations['accounts'].update({pay:dict(kind='bank',currency=currency,label='Willow Bills'),category:{}})
+    rule=dict(id='f00000000000e001',date='2026-11-15',status='confirmed',description='Willow Energy',amount='varies',schedule={'every':'month','from':'2026-11-15'},notes=['Keep original rule notes.'],postings=[dict(account=category,amount='110.00',commodity=currency),dict(account=pay,amount='-110.00',commodity=currency)])
+    rows=deepcopy(original[settings.ledger/'data/expenses/2026.json'])
+    for i,(day,value) in enumerate([('2026-07-15','90.00'),('2026-08-15','100.00'),('2026-09-15','600.00'),('2026-10-15','110.00')],1):
+        postings=[dict(p,amount=('-' if p['amount'].startswith('-') else '')+value) for p in rule['postings']]
+        rows.append(dict(id=f'000000000000e00{i}',date=day,status='confirmed',description=rule['description'],postings=postings))
+    rows.sort(key=lambda e:e['date'])
+    documents={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/forecast.json':[rule],settings.ledger/'data/expenses/2026.json':rows}
+    update_settings(settings,lambda:documents,dict(varying=True),'Fictional varying bill history')
+    return dict(rule_id=rule['id'],currency=currency)
+
+
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

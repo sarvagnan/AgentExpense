@@ -46,11 +46,28 @@ export function periodFor(rule,day) {
 }
 export const paymentInPeriod = (rule,day) => !/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day))?undefined:(rule.payments||[rule.last_payment].filter(Boolean)).find(p=>p.rule?.id===rule.id?p.rule.occurrence===periodFor(rule,day):periodFor(rule,p.date)===periodFor(rule,day));
 export const complexRule = rule => rule.postings.length!==2 || rule.postings.some(p=>p.cost) || mainPostings(rule).length!==1;
+export function varyingPayments(rule,actual,accounts) {
+  const main=mainPostings(rule)[0],pay=payer(rule,accounts),code=main.commodity||main.currency;
+  return [...actual].reverse().filter(e=>{
+    const m=mainPostings(e),p=payer(e,accounts);
+    return (e.status==='confirmed'||e.rule?.id===rule.id)&&e.postings.length===2&&m.length===1&&p&&!e.postings.some(p=>p.cost||p.costCurrency||p.assert)
+      &&(m[0].commodity||m[0].currency)===code&&(p.commodity||p.currency)===code&&Number(m[0].amount)===-Number(p.amount)
+      &&(e.rule?e.rule.id===rule.id:m[0].account===main.account&&p.account===pay?.account&&[...tokens(e.description)].some(w=>!generic.has(w)&&tokens(rule.description).has(w)));
+  }).sort((a,b)=>b.date.localeCompare(a.date));
+}
+export function varyingDetails(rule,actual,accounts) {
+  const history=varyingPayments(rule,actual,accounts).slice(0,12).map(e=>({id:e.id,date:e.date,amount:String(mainPostings(e)[0].amount)})),last=history.slice(0,3).map(e=>Number(e.amount));
+  return {history,min:last.length?String(Math.min(...last)):null,max:last.length?String(Math.max(...last)):null};
+}
+export function varyingAmountCheck(rule,value) {
+  const values=(rule.varying?.history||[]).slice(0,6).map(p=>Number(p.amount));
+  return values.length&&(value>2*Math.max(...values)||value<Math.min(...values)/2)?{min:Math.min(...values),max:Math.max(...values)}:null;
+}
 export function ruleStatus(rule,today) {
   const paid=(rule.payments||[rule.last_payment].filter(Boolean)).some(p=>(p.rule?.id===rule.id&&p.rule.occurrence>p.date?p.rule.occurrence:p.date)>=rule.date);
-  return rule.lifecycle&&rule.lifecycle!=='active'?rule.lifecycle:paid?'stale':rule.date<today?'overdue':rule.date===today?'due':'on-track';
+  return rule.lifecycle&&rule.lifecycle!=='active'?rule.lifecycle:rule.bill?'bill-received':paid?'stale':rule.date<today?'overdue':rule.date===today?'due':'on-track';
 }
-export const statusLabel = status => ({'on-track':'On track',due:'Due',overdue:'Overdue',stale:'Stale',paused:'Paused',ended:'Ended',removed:'Removed'}[status]||status);
+export const statusLabel = status => ({'on-track':'On track','bill-received':'Bill received',due:'Due',overdue:'Overdue',stale:'Stale',paused:'Paused',ended:'Ended',removed:'Removed'}[status]||status);
 export const originReason = origin => ({'subscription-words':'From subscription or membership words.','monthly-history':'Two consecutive monthly payments.','history-pass':'Two consecutive monthly payments found in history.'}[origin?.kind]||'Made by you.');
 
 /** First due date after this chosen payment, using its cadence bucket. */

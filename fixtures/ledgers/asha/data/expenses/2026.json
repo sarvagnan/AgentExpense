@@ -368,6 +368,26 @@
     ]
   },
   {
+    "id": "0000000000000049",
+    "date": "2026-08-12",
+    "status": "confirmed",
+    "description": "Willow Energy bill payment",
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "600.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-600.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000004c",
+    "date": "2026-08-12",
+    "status": "confirmed",
+    "description": "Fictional utility allowance",
+    "postings": [
+      {"account": "Assets:Cash", "amount": "600.00", "commodity": "INR"},
+      {"account": "Income:Utility Allowance", "amount": "-600.00", "commodity": "INR"}
+    ]
+  },
+  {
     "id": "0000000000000018",
     "date": "2026-08-14",
     "status": "confirmed",
@@ -525,6 +545,26 @@
     "postings": [
       {"account": "Assets:Bank:Saffron Reserve", "amount": "640.00", "commodity": "INR"},
       {"account": "Assets:Reimbursements:Dev Sen", "amount": "-640.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000004a",
+    "date": "2026-09-12",
+    "status": "confirmed",
+    "description": "Willow Energy bill payment",
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "2400.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-2400.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000004d",
+    "date": "2026-09-12",
+    "status": "confirmed",
+    "description": "Fictional utility allowance",
+    "postings": [
+      {"account": "Assets:Cash", "amount": "2400.00", "commodity": "INR"},
+      {"account": "Income:Utility Allowance", "amount": "-2400.00", "commodity": "INR"}
     ]
   },
   {
@@ -795,6 +835,26 @@
     "postings": [
       {"account": "Expenses:Uncategorized", "amount": "582.00", "commodity": "INR"},
       {"account": "Assets:Bank:Nila Current", "amount": "-582.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000004b",
+    "date": "2026-10-12",
+    "status": "confirmed",
+    "description": "Willow Energy bill payment",
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "650.00", "commodity": "INR"},
+      {"account": "Assets:Cash", "amount": "-650.00", "commodity": "INR"}
+    ]
+  },
+  {
+    "id": "000000000000004e",
+    "date": "2026-10-12",
+    "status": "confirmed",
+    "description": "Fictional utility allowance",
+    "postings": [
+      {"account": "Assets:Cash", "amount": "650.00", "commodity": "INR"},
+      {"account": "Income:Utility Allowance", "amount": "-650.00", "commodity": "INR"}
     ]
   },
   {

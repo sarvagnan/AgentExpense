@@ -110,3 +110,12 @@ Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` fr
    reviewed, what was fine, each issue needing the user with what you suggest,
    recurring patterns, the verdict commit ID and the verification result. Clearly
    name unavailable evidence.
+
+## Varying recurring rules and bills (6f B)
+
+Review `bill-saved`, `bill-removed` and `bill-paid` rule events with their typed
+words, evidence and amount-check doubts. A saved bill is unpaid and contributes
+only to forecasts. Verify its payment retains its sources and clears the bill in
+the same commit. Check the estimate against the latest three payments including
+outliers, and accepted unusual amounts against the latest six. Record a verdict
+or propose a rule change; a verdict authorizes no entry or bill correction.

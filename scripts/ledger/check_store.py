@@ -155,11 +155,11 @@ def check_forecasts(documents: dict, root: Path = ROOT) -> None:
     Check each first occurrence in isolation so historical forecasts cannot
     interfere with actual statement assertions. All input comes from the store.
     """
-    from generate_ledger import render_entry
+    from generate_ledger import render_entry, forecast_templates
     hledger = os.environ.get("HLEDGER_BIN") or shutil.which("hledger") or "/opt/homebrew/bin/hledger"
     declarations = documents[root / "data/accounts.json"]
     prefix = [*("commodity " + c for c in declarations["commodities"]), *("account " + a for a in declarations["accounts"]), ""]
-    for rule in documents[root / "data/forecast.json"]:
+    for rule in [template for rule in documents[root / "data/forecast.json"] for template in forecast_templates(rule)]:
         start = rule["schedule"]["from"]
         end = (date.fromisoformat(start) + timedelta(days=1)).isoformat()
         journal = "\n".join([*prefix, *render_entry(rule)]) + "\n"
@@ -190,7 +190,7 @@ def check(root: Path = ROOT) -> None:
         if path.name in ("accounts.json", "recurring-settings.json"):
             continue
         for entry in document:
-            sources = [entry["source"]] if path.name == "card-statements.json" else entry.get("sources", [])
+            sources = [entry["source"]] if path.name == "card-statements.json" else [*entry.get("sources", []), *entry.get('bill', {}).get('sources', [])]
             for source in sources:
                 if source.startswith("Bills/"):
                     if ".." in Path(source).parts or not (root / source).is_file():

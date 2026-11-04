@@ -150,3 +150,19 @@ asserted/calculated/difference amounts and commodity, structured source,
 possible duplicate entry summaries and hledger detail. Correction restrictions
 add an optional `restriction` code. Old events remain valid and unchanged.
 No financial store field, new card assertion, format bump or migration is added.
+
+### Format 1: varying recurring rules and bills (6f B)
+
+Unreleased format 1 adds optional rule `amount: "varies"` and
+`bill: {amount, received, pay_by?, occurrence, sources}`. Absence of `amount` stays
+fixed. The Python store and Node reader enforce simple two-posting, balanced,
+one-currency payments; bills require a positive amount and the current occurrence.
+The stored postings hold the median estimate, so journal generation needs only
+the store. Bill evidence is checked like entry evidence. No migration is added.
+
+Version-1 additions audit extends rule actions with `bill-saved`, `bill-removed`
+and `bill-paid`, optional bill snapshots and structured `amount_check` with
+amount/min/max/currency. Existing text/files/doubts retain typed words and
+accepted checks. Existing draft audit doubts now also retain checked usual-payment
+proposal doubts. Link/correction/switching share the estimate recompute; Delete
+and Restore callers belong to Part C. Existing payment Undo is preserved.

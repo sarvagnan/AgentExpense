@@ -11,3 +11,9 @@ Maple Workshop's weaker irregular pattern, a paused Cedar Archive rule and an
 already-paid rent rule. `data/recurring-settings.json` excludes this fixture's
 variable food/fuel categories from automatic rules. These four added fictional
 history payments total INR 64; backfill proposes one automatic Cedar Studio rule.
+
+The varying Willow Energy rule uses fictional INR 600, 2,400 and 650 payments
+(August 12, September 12 and October 12), with median estimate INR 650 and next
+occurrence November 12. The September outlier remains in its history. Fictional
+utility allowances totaling INR 3,650 on those dates preserve daily account
+balances. November stays empty for the existing empty-current-month workflow.

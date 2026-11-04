@@ -5,7 +5,7 @@ import { dashboard as data, type DashboardData } from './data';
 import { moneyWhole as formatWhole, axisMoney as formatAxis } from './formatting';
 import {cumulative, forecastProjection, variableAfter as estimateAfter, type Point} from './forecast-projection';
 import {previousMonth as calendarPreviousMonth} from '../scripts/month-summary.mjs';
-import { Delta, Icon, PageHeader, useColumnWidths, useQueryState, useRowNavigation, PanelHeader, dayShort, daysInMonth, monthAbbr, monthLong, monthShort, plural } from './ui';
+import { Delta, Icon, PageHeader, money, useColumnWidths, useQueryState, useRowNavigation, PanelHeader, dayShort, daysInMonth, monthAbbr, monthLong, monthShort, plural } from './ui';
 
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 // Earlier months take a fixed slot while selected, so adding or removing another month never repaints them.
@@ -247,7 +247,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
           <dt>Against the {compare}-month average</dt><dd className="num"><Delta value={focusTotal} base={average}/></dd>
         </dl>
         <ol className="ranked-list forecast-items">{focusRows.map((item, index) =>
-          <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{moneyWhole(item.amount)}</span></li>)}
+          <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}{item.varying?.bill&&<> <span className="bill-badge">bill</span></>}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{item.varying&&!item.varying.bill?'≈ ':''}{item.varying?money(item.amount,forecast.currency):moneyWhole(item.amount)}{item.varying&&!item.varying.bill&&item.varying.min!=null&&<span className="row-sub">{money(Number(item.varying.min),forecast.currency)}–{money(Number(item.varying.max),forecast.currency)} last 3</span>}</span></li>)}
           {includeVariable && <li className="estimate"><span className="date">{monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">{!isCurrent || remainingDays === focusDays ? 'The whole month' : `The ${remainingDays} days left`} · {variable.months.length}-month average {moneyWhole(averageVariable)} a month</span></span><span className="num">{moneyWhole(focusVariable)}</span></li>}
         </ol>
         {!focusItems.length && <p className="panel-note">No recurring commitments fall in this month.</p>}

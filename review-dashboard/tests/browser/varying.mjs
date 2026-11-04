@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+
+export async function runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}) {
+  await page.clock.setFixedTime(new Date('2026-11-02T12:00:00Z'));
+  await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});
+  const seed=await control('varying',{}),code=seed.currency;
+  const get=async path=>{const r=await fetch(base+'api/'+path);assert.ok(r.ok,await r.clone().text());return r.json();};
+  const rule=async()=>(await get('rules')).rules.find(r=>r.id===seed.rule_id);
+  const guess=()=>page.getByRole('complementary',{name:'Usual payment'}),words=()=>page.locator('#expense-words');
+  const type=async text=>{await words().fill(text);await expect(guess()).toBeVisible();await expect(guess()).toContainText('Willow Energy');};
+  const clickSave=async(name,endpoint)=>{
+    const [response]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/'+endpoint)&&r.request().method()==='POST'),guess().getByRole('button',{name,exact:true}).click()]);
+    assert.ok(response.ok(),await response.text());const draft=await response.json();await expect(words()).toHaveValue('');
+    await expect.poll(async()=>(await get('drafts/'+draft.id)).state,{timeout:180000}).toBe('added');
+    await refresh();await page.waitForLoadState('networkidle');return get('drafts/'+draft.id);
+  };
+  const clickOp=async button=>{const [r]=await Promise.all([page.waitForResponse(r=>r.url().includes('/api/rules/operations/')&&r.request().method()==='POST',{timeout:180000}),button.click()]);assert.ok(r.ok(),await r.text());await page.waitForLoadState('networkidle');};
+  const openRules=async()=>{await go('forecast/?section=rules');await expect(page.getByRole('button',{name:'New rule',exact:true})).toBeEnabled();return page.getByRole('article',{name:'Willow Energy',exact:true});};
+  await go('add/');await type('Willow Energy');
+  await expect(guess()).toContainText('estimate');await expect(page.locator('.expense-interpretation')).toHaveCount(0);await expect(guess().getByRole('button',{name:'Add',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();await snap('varying-needs-amount');
+  await type('Willow Energy 125.25 '+code);await expect(guess()).toContainText('Have you paid it?');await expect(guess().locator('input[type=radio]:checked')).toHaveCount(0);await expect(guess()).not.toContainText('This payment only');await expect(guess()).not.toContainText('Update the rule too');await snap('varying-typed-undecided');
+  await guess().getByLabel('Paid ',{exact:false}).first().check();await snap('varying-paid-choice');
+  await type('Willow Energy 2000 '+code);await expect(guess()).toContainText('more than twice');await guess().getByLabel('Bill only. Not paid yet',{exact:true}).check();await expect(guess().getByRole('button',{name:'Save bill',exact:true})).toBeDisabled();await snap('varying-amount-check');
+  await type('Willow Energy 125.25 '+code);await guess().getByLabel('Bill only. Not paid yet',{exact:true}).check();await guess().getByLabel('Pay by (optional)',{exact:true}).fill('2026-11-20');await expect(guess().getByRole('button',{name:'Save bill',exact:true})).toBeEnabled();await snap('varying-bill-only');
+  const countBefore=(await get('rules')).rules[0].varying.history.length;
+  const saved=await clickSave('Save bill','bill');assert.equal(saved.result.outcome,'bill');assert.equal(saved.result.can_undo,false);assert.equal((await rule()).varying.history.length,countBefore);await expect(page.locator('.just-added-row').first()).toContainText('Bill saved');await expect(page.locator('.just-added-row').first().getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);await snap('varying-bill-saved-result');
+  record('6f B amount-required estimate, explicit paid/bill choice and non-expense bill save without Undo');
+  await go('drafts/?draft='+saved.id);await expect(page.getByRole('region',{name:'Saved bill',exact:true})).toContainText('not paid yet');await expect(page.getByRole('button',{name:'Correct this entry',exact:true})).toHaveCount(0);await snap('varying-draft-bill');await go('add/');
+  await type('Willow Energy');await expect(guess()).toContainText('November 2026 bill');await expect(guess()).not.toContainText('Have you paid it?');await expect(guess().getByRole('button',{name:/^Add /})).toBeEnabled();await snap('varying-saved-bill-add');
+  let row=await openRules();await expect(row).toContainText('Bill received');await expect(row).toContainText('varies');await overflow('varying bill rules');await snap('varying-rules-bill');
+  await row.getByRole('button',{name:'Edit rule',exact:true}).click();let editor=page.getByRole('dialog',{name:'Edit rule',exact:true});await expect(editor.getByLabel('Varies',{exact:true})).toBeChecked();await expect(editor.locator('rect.estimate-payment')).toHaveCount(3);await expect(editor.locator('rect.older-payment')).toHaveCount(1);await snap('varying-editor-history');
+  await editor.getByRole('region',{name:'Saved bill',exact:true}).scrollIntoViewIfNeeded();await snap('varying-editor-bill');await page.keyboard.press('Escape');
+  await go('forecast/?focus=2026-11');let item=page.locator('.forecast-items li').filter({hasText:'Willow Energy'});await expect(item).toHaveCount(1);await expect(item.locator('.bill-badge')).toHaveText('bill');await expect(item.locator('.num')).toContainText(new Intl.NumberFormat({asha:'en-IN',jordan:'en-US',sam:'en-GB',empty:'en-US'}[persona],{style:'currency',currency:code}).format(125.25));await item.scrollIntoViewIfNeeded();await snap('varying-forecast-bill');
+  await go('forecast/?focus=2026-12');item=page.locator('.forecast-items li').filter({hasText:'Willow Energy'});await expect(item).toContainText('≈');await expect(item).toContainText('last 3');await expect(item.locator('.bill-badge')).toHaveCount(0);await item.scrollIntoViewIfNeeded();await snap('varying-forecast-estimate');
+  record('6f B Rules bill status/pay-by, last-three chart/range and distinct exact/estimate Forecast rows');
+  row=await openRules();await row.getByRole('button',{name:'Edit rule',exact:true}).click();editor=page.getByRole('dialog',{name:'Edit rule',exact:true});await clickOp(editor.getByRole('button',{name:'Remove November 2026 bill',exact:true}));await expect(editor).toHaveCount(0);assert.equal((await rule()).bill,undefined);await snap('varying-rules-estimate');
+  row=page.getByRole('article',{name:'Willow Energy',exact:true});await row.getByRole('button',{name:'Edit rule',exact:true}).click();editor=page.getByRole('dialog',{name:'Edit rule',exact:true});await editor.getByLabel('Same each time',{exact:true}).check();await editor.getByLabel(/^Amount \(/).fill('110');await clickOp(editor.getByRole('button',{name:'Save rule',exact:true}));await expect(editor).toHaveCount(0);assert.equal((await rule()).amount,undefined);await row.getByRole('button',{name:'Edit rule',exact:true}).click();await snap('varying-editor-fixed');await page.keyboard.press('Escape');
+  await row.getByRole('button',{name:'Edit rule',exact:true}).click();editor=page.getByRole('dialog',{name:'Edit rule',exact:true});await editor.getByLabel('Varies',{exact:true}).check();await expect(editor.locator('rect.estimate-payment')).toHaveCount(3);await snap('varying-switch-preview');await clickOp(editor.getByRole('button',{name:'Save rule',exact:true}));await expect(editor).toHaveCount(0);assert.equal((await rule()).amount,'varies');assert.equal((await rule()).postings[0].amount,'110.00');
+  await go('add/');await type('Willow Energy 125.25 '+code);await guess().getByLabel('Bill only. Not paid yet',{exact:true}).check();await clickSave('Save bill','bill');
+  await type('Willow Energy');const button=guess().getByRole('button',{name:/^Add /});await expect(button).toBeEnabled();const name=await button.innerText();const paid=await clickSave(name,'usual');assert.equal(paid.result.outcome,'ready');const current=await rule();assert.equal(current.bill,undefined);assert.equal(current.postings[0].amount,'125.25');assert.equal(current.date,'2026-12-15');assert.deepEqual(current.notes,['Keep original rule notes.']);await expect(page.locator('.just-added-row').first()).toContainText('Added');await expect(page.locator('.just-added-row').first().getByRole('button',{name:/^Undo/})).toBeVisible();await snap('varying-bill-paid-result');
+  record('6f B remove bill, fixed/varies switching and exact bill payment with median recompute');
+  await quiesce();await resetDrafts({persona,empty:true});await control('reset-review',{});
+}

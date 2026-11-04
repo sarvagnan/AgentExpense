@@ -1,3 +1,4 @@
+import {runVarying} from './varying.mjs';
 import {runConfirmedBalances} from './confirmed-balances.mjs';
 import {runAdd} from './add.mjs';
 import {runCorrections} from './corrections.mjs';
@@ -103,6 +104,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='varying') {
+        await runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='confirmed-balances') {
         await runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
@@ -442,6 +448,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

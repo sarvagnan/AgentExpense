@@ -18,7 +18,7 @@ def draft_event(draft, outcome, result=None):
                  **{key:deepcopy(draft[key]) for key in ('finished_by','account_consent','usual_payment','refusal') if key in draft},
                  pieces=deepcopy(draft.get('pieces')), files=[dict(original_name=f['original_name'], **({'filed_path': sources[i]} if i < len(sources) else {})) for i, f in enumerate(draft['files'])],
                  questions=deepcopy(draft['questions']), runs=deepcopy(draft['runs']), proposal=deepcopy(draft.get('proposal')),
-                 doubts=list(dict.fromkeys(x for r in draft['runs'] for x in r.get('doubts', []))),
+                 doubts=list(dict.fromkeys([*(x for r in draft['runs'] for x in r.get('doubts', [])),*(draft.get('proposal') or {}).get('doubts',[])])),
                  check_errors=list(draft['check_errors']), error=draft.get('error'), entry_id=result.get('entry_id'))
 
 

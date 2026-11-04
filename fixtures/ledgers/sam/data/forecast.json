@@ -33,5 +33,26 @@
       {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "EUR"},
       {"account": "Assets:Bank:Birken Current", "amount": "-8.00", "commodity": "EUR"}
     ]
+  },
+  {
+    "id": "f000000000000003",
+    "date": "2026-11-12",
+    "status": "confirmed",
+    "description": "Willow Energy",
+    "schedule": {
+      "every": "month",
+      "from": "2026-11-12"
+    },
+    "origin": {
+      "kind": "owner"
+    },
+    "notes": [
+      "Amounts vary with household use."
+    ],
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "48.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-48.00", "commodity": "GBP"}
+    ],
+    "amount": "varies"
   }
 ]

@@ -36,13 +36,44 @@ def amount(value: dict) -> str:
 
 def period(schedule: dict) -> str:
     unit, interval = schedule["every"], schedule.get("interval", 1)
-    cadence = {"week": "weekly", "month": "monthly", "year": "yearly"}[unit] if interval == 1 else f"every {interval} {unit}s"
+    cadence = {"day": "daily", "week": "weekly", "month": "monthly", "year": "yearly"}[unit] if interval == 1 else f"every {interval} {unit}s"
     anchor = schedule.get('anchor-day')
     if unit == 'month' and interval == 1 and anchor and anchor != int(schedule['from'][-2:]):
         # Explicit day-of-month syntax keeps an advanced February occurrence's
         # boundary and restores its 29th–31st anchor in following months.
         cadence = f'every {anchor}th day of month'
-    return f"{cadence} from {schedule['from']}"
+    return f"{cadence} from {schedule['from']}" + (f" to {schedule['to']}" if 'to' in schedule else '')
+
+
+def forecast_templates(rule):
+    """The bill replaces one occurrence; later occurrences keep the estimate."""
+    from recurring import advance, occurrence, periodic_schedules, step_months
+    from copy import deepcopy
+    from datetime import date, timedelta
+    current = rule
+    if rule.get('bill'):
+        bill = rule['bill']; day = bill.get('pay_by', bill['occurrence'])
+        one = deepcopy(rule)
+        for p in one['postings']:
+            p['amount'] = ('-' if p['amount'].startswith('-') else '') + bill['amount']
+        one['sources'] = bill['sources']
+        one['schedule'] = {'every': 'day', 'from': day, 'to': (date.fromisoformat(day) + timedelta(days=1)).isoformat()}
+        yield one
+        current = advance(rule, bill['occurrence'])
+    schedules=periodic_schedules(current)
+    if rule.get('bill') and any(s['from'] < current['date'] for s in schedules):
+        # A clamped multi-month cadence ordinarily uses an earlier reference
+        # date. A saved bill must never re-emit that paid/replaced occurrence.
+        # Use unbounded calendar phases, all starting at or after the next date.
+        from math import gcd
+        step=step_months(current);phases=12//gcd(step,12)
+        schedules=[]
+        for index in range(phases):
+            phase={**current,'date':occurrence(current,index),'schedule':{'every':'year','interval':step*phases//12,
+                'from':occurrence(current,index),'anchor-day':current['schedule'].get('anchor-day',int(current['date'][-2:]))}}
+            schedules.extend(periodic_schedules(phase))
+    for schedule in schedules:
+        yield {**current, 'schedule': schedule}
 
 
 def comments(entry: dict) -> list[str]:
@@ -99,10 +130,10 @@ def render(documents: dict, root: Path = ROOT) -> str:
         "; These are forecast-only commitments, not historical transactions.", "",
     ])
     for rule in documents[root / "data/forecast.json"]:
-        from recurring import active, periodic_schedules
+        from recurring import active
         if active(rule):
-            for schedule in periodic_schedules(rule):
-                lines.extend(render_entry({**rule, 'schedule': schedule}))
+            for template in forecast_templates(rule):
+                lines.extend(render_entry(template))
     return "\n".join(lines).rstrip() + "\n"
 
 

@@ -61,3 +61,26 @@ Read the ledger policy at run time. Commands remain disabled for the agent; only
 Statements reconciles card statement PDFs using the example layout in `scripts/statements/README.md`: passwords stay in memory, PDFium extracts text and printed totals must agree before rules run. `statement_rules.py` settles safe matches; users decide the remainder. Apply files the PDF, membership, summary and rows, appends an audit line and commits through `make commit`, including membership checks. Manual reconciliation follows the selected ledger's policy.
 
 Follow `review-dashboard/server/WEEKLY-REVIEW.md` for periodic reviews. Record verdicts with `audit.py review` as one locked, verified commit, or change nothing. A verdict never authorizes an entry correction without user agreement.
+
+## Varying recurring rules and bills (6f B)
+
+Use `"amount": "varies"` only for a simple two-posting payment in one currency.
+The postings hold the median of its last three payments, including matching older
+history. Read [docs/RULES.md](docs/RULES.md) before changing varying rules or bills.
+A saved bill is unpaid: save it on the rule and retain its evidence; record an
+expense only after payment. An amount-check doubt needs the owner's explicit
+acceptance and remains in the audit. Bill saves have no Undo.
+
+Dashboard bill commits use the draft's recorded local time, with Typed JSON-quoted:
+
+```text
+Record <rule description> bill via dashboard
+
+Typed: "<typed words>"
+Saved: <YYYY-MM-DD HH:MM> <±HH:MM> <IANA zone>
+Bill: <amount and commodity>, pay by <YYYY-MM-DD or none>
+Evidence: <filed paths, or none>
+Agent doubts: <amount-check doubt, or none>
+Draft: <draft id>
+Added-by: user (bill, rule <rule id>)
+```

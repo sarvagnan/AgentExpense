@@ -233,7 +233,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     def queue(draft, proposal=None):
         draft.pop('refusal', None)
-        draft.update(state='queued', queued_at=(draft.get('queued_at') or now()) if draft.get('usual_payment') else now(), error=None, waiting=None, proposal=proposal, answer_failures=0)
+        draft.update(state='queued', queued_at=(draft.get('queued_at') or now()) if draft.get('usual_payment') or draft.get('bill_request') else now(), error=None, waiting=None, proposal=proposal, answer_failures=0)
         drafts.put(draft)
         worker.wake.set()
         return public(draft)
@@ -313,9 +313,25 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
             raise HTTPException(409, error_detail(exc)) from exc
 
+    @app.post('/api/drafts/{identity}/bill')
+    def save_bill(identity: str, body: dict):
+        from rules_service import queue_bill, AmountCheck
+        from ledger_lock import ledger_lock
+        with ledger_lock(settings.ledger), drafts.mutex:
+            draft=get(identity)
+            if draft['state']=='editing':
+                from add_intake import interpret
+                if any(f['kind']=='statement' for f in interpret(settings,drafts,draft)['files']):
+                    raise HTTPException(409,'Read this statement through Continue')
+            try: queue_bill(settings,drafts,draft,body)
+            except AmountCheck as exc: raise HTTPException(409,dict(kind='amount_check',**exc.check)) from exc
+            except (ValueError, TypeError, KeyError, ArithmeticError) as exc: raise HTTPException(409,error_detail(exc)) from exc
+            worker.wake.set()
+            return public(draft)
+
     @app.post('/api/drafts/{identity}/usual')
     def usual_payment(identity: str, body: dict):
-        from rules_service import queue_usual
+        from rules_service import queue_usual, AmountCheck
         from ledger_lock import ledger_lock
         with ledger_lock(settings.ledger), drafts.mutex:
             draft = get(identity)
@@ -323,6 +339,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             if any(f['kind']=='statement' for f in interpret(settings,drafts,draft)['files']):
                 raise HTTPException(409,'Use Continue to read this statement before applying its rows')
             try: queue_usual(settings, drafts, draft, body)
+            except AmountCheck as exc:
+                raise HTTPException(409,dict(kind='amount_check',**exc.check)) from exc
             except BalanceRefusal:
                 worker.wake.set()
                 return public(draft)
@@ -710,6 +728,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from hand_finish import prefill
         with drafts.mutex:
             draft = get(identity)
+            if draft.get('bill_request'): raise HTTPException(409,'This item is saving a bill; retry the bill or discard the item')
             try: token = drafts.claim(draft, body.get('claim_token'))
             except ValueError as exc: raise HTTPException(409,str(exc))
             draft.setdefault('hand_reason', (worker.pause.status() or {}).get('reason') or (draft.get('runs') or [{}])[-1].get('failure_kind') or {'queued':'waiting for the agent','question':'agent question','failed':'agent could not finish'}[draft['state']])

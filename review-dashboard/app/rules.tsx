@@ -6,7 +6,7 @@ import {mainPostings,originReason,payer,ruleAmounts,ruleStatus,statusLabel} from
 import {RuleEditor} from './rule-editor';
 import {type Rule,type RulePosting,useRules,useRuleOperation} from './live/rules-api';
 export const entryHref=(id:string)=>{const row=dashboard.transactions.find(e=>e.id===id||e.storeId===id);return `${import.meta.env.BASE_URL}explorer/?month=${row?.date.slice(0,7)||localDate().slice(0,7)}&entry=${encodeURIComponent(row?.id||id)}`;};
-export function RuleAmounts({rule}:{rule:Rule}) {return <>{Object.entries(ruleAmounts(rule)).map(([currency,amount],i)=><span key={currency}>{i?' + ':''}{money(Number(amount),currency)}</span>)}</>;}
+export function RuleAmounts({rule}:{rule:Rule}) {return <>{Object.entries(ruleAmounts(rule)).map(([currency,amount],i)=><span key={currency}>{i?' + ':''}{rule.amount==='varies'&&!rule.bill?'≈ ':''}{money(Number(rule.bill?.amount??amount),currency)}{rule.bill&&<> <span className="bill-badge">bill</span></>}</span>)}{rule.amount==='varies'&&<small className="rule-varying-range">varies · {rule.varying?.min!=null&&rule.varying?.max!=null?`${money(Number(rule.varying.min),Object.keys(ruleAmounts(rule))[0])}–${money(Number(rule.varying.max),Object.keys(ruleAmounts(rule))[0])} last 3`:'No payments yet'}</small>}</>;}
 export function RuleSummary({rule}:{rule:Rule}) {const pay=payer(rule,dashboard.meta.accounts);return <><strong><RuleAmounts rule={rule}/></strong><span>{mainPostings(rule).map((p:RulePosting)=>p.account.split(':').slice(1).join(' › ')).join(', ')}</span><span>{pay?(dashboard.meta.accounts[pay.account]?.label||pay.account):'Choose a paying account when adding'}</span></>;}
 export const scheduleLabel=(rule:Rule)=>`${(rule.schedule.interval||1)===1?(rule.schedule.every==='month'?'Monthly':'Yearly'):`Every ${rule.schedule.interval} ${rule.schedule.every}s`} · day ${rule.schedule['anchor-day']||Number(rule.date.slice(8))}`;
 export default function Rules({online}:{online:boolean|null}) {
@@ -24,7 +24,7 @@ export default function Rules({online}:{online:boolean|null}) {
 }
 
 export function RuleRow({rule,readonly,busy,onEdit,operate}:{rule:Rule;readonly:boolean;busy:boolean;onEdit:(rule:Rule)=>void;operate:(body:object)=>Promise<boolean>}) {
-  const life=rule.lifecycle||'active',status=life==='active'&&rule.rule_status==='stale'?'stale':ruleStatus(rule,localDate());
+  const life=rule.lifecycle||'active',status=life==='active'&&!rule.bill&&rule.rule_status==='stale'?'stale':ruleStatus(rule,localDate());
   return <article className="panel rule-row" aria-label={rule.description}>
       <header><h2>{rule.description}</h2><span className={`rule-status ${status}`}>{statusLabel(status)}</span></header><div className="rule-summary"><RuleSummary rule={rule}/></div>
       <dl className="rule-dates"><div><dt>Schedule</dt><dd>{scheduleLabel(rule)}</dd></div><div><dt>Next due</dt><dd>{dayLabel(rule.next_due||rule.date)}</dd></div><div><dt>Last paid</dt><dd>{rule.last_payment?<a href={entryHref(rule.last_payment.id)}>{dayLabel(rule.last_payment.date)}</a>:'No payment recorded'}</dd></div></dl>

@@ -124,9 +124,10 @@ const isoDay = (date) => date.toISOString().slice(0, 10);
 const forecastStart = `${currentMonth}-01`;
 const forecastEnd = new Date(Date.UTC(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)) + 12, 1));
 const transactionsRule = new WeakMap();
+const varyingForecast = new WeakMap();
 const forecastRecords = expandForecast(rules, forecastStart, isoDay(forecastEnd))
   .flatMap(transaction => fundedTransactions(transaction, accounts))
-  .map((transaction, index) => { const record = toRecord(transaction, records.length + index); transactionsRule.set(record, transaction.rule); return record; });
+  .map((transaction, index) => { const record = toRecord(transaction, records.length + index); transactionsRule.set(record, transaction.rule); if(transaction.amount==='varies')varyingForecast.set(record,{bill:!!transaction.billOccurrence,min:transaction.varying?.min??null,max:transaction.varying?.max??null}); return record; });
 const recurringAccounts = new Set(forecastRecords.flatMap((record) => expenseValues.get(record).map((posting) => posting.account)));
 const recurringSpend = (record) => expenseValues.get(record)
   .filter((posting) => recurringAccounts.has(posting.account))
@@ -248,6 +249,7 @@ const forecast = {
     signedExpense: record.signedExpense,
     paymentLabel: record.paymentLabel,
     sources: record.sources,
+    ...(varyingForecast.has(record)?{varying:varyingForecast.get(record)}:{}),
   })),
 };
 

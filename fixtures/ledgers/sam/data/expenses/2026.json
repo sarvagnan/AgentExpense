@@ -1090,6 +1090,26 @@
     ]
   },
   {
+    "id": "00000000000000e3",
+    "date": "2026-05-12",
+    "status": "confirmed",
+    "description": "Willow Energy bill payment",
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "42.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-42.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "00000000000000e6",
+    "date": "2026-05-12",
+    "status": "confirmed",
+    "description": "Fictional utility allowance",
+    "postings": [
+      {"account": "Assets:Bank:Bramble Current", "amount": "42.00", "commodity": "GBP"},
+      {"account": "Income:Utility Allowance", "amount": "-42.00", "commodity": "GBP"}
+    ]
+  },
+  {
     "id": "0000000000000056",
     "date": "2026-05-31",
     "status": "confirmed",
@@ -2577,6 +2597,26 @@
     ]
   },
   {
+    "id": "00000000000000e4",
+    "date": "2026-09-12",
+    "status": "confirmed",
+    "description": "Willow Energy bill payment",
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "180.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-180.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "00000000000000e7",
+    "date": "2026-09-12",
+    "status": "confirmed",
+    "description": "Fictional utility allowance",
+    "postings": [
+      {"account": "Assets:Bank:Bramble Current", "amount": "180.00", "commodity": "GBP"},
+      {"account": "Income:Utility Allowance", "amount": "-180.00", "commodity": "GBP"}
+    ]
+  },
+  {
     "id": "00000000000000e0",
     "date": "2026-09-15",
     "status": "confirmed",
@@ -2857,6 +2897,26 @@
     "postings": [
       {"account": "Expenses:Food:Groceries", "amount": "68.34", "commodity": "EUR"},
       {"account": "Assets:Bank:Birken Current", "amount": "-68.34", "commodity": "EUR"}
+    ]
+  },
+  {
+    "id": "00000000000000e5",
+    "date": "2026-10-12",
+    "status": "confirmed",
+    "description": "Willow Energy bill payment",
+    "postings": [
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "48.00", "commodity": "GBP"},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-48.00", "commodity": "GBP"}
+    ]
+  },
+  {
+    "id": "00000000000000e8",
+    "date": "2026-10-12",
+    "status": "confirmed",
+    "description": "Fictional utility allowance",
+    "postings": [
+      {"account": "Assets:Bank:Bramble Current", "amount": "48.00", "commodity": "GBP"},
+      {"account": "Income:Utility Allowance", "amount": "-48.00", "commodity": "GBP"}
     ]
   },
   {

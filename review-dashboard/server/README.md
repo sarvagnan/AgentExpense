@@ -531,6 +531,23 @@ the normal checked operation; no caller-supplied postings are trusted.
 Data refresh and `/data/` use the `DASHBOARD_DATA_DIR` captured at server startup (default `review-dashboard/`). Refresh selects the installed `.node-version` through fnm, disables npm update notifications, and reports provenance refusal as a refresh failure. It preserves the existing output. The private source stamp is never served. The daily check uses this same output root and provenance. The service installer writes the resolved Node binary directory into its PATH.
 
 
+### Varying recurring rules and bills (6f B)
+
+See [Recurring rules](../../docs/RULES.md#varying-recurring-rules-and-saved-bills-6f-b)
+for store/API/CLI and audit contracts. `POST api/drafts/{id}/bill` uses the same
+FIFO worker, lock, rollback journal and verified commit as rule operations, filing
+uploads as evidence. It saves no actual entry and offers no Undo. Paying a bill
+uses the usual transaction, retaining its sources and appending `bill-paid` in
+the addition commit. The stored postings are the median estimate; link,
+correction and a switch to Varies share `recurring.recompute_estimate`, ready for
+Part C's Delete/Restore callers. Those operations are not implemented here.
+
+Amount checks use the last six matching payments without discarding outliers.
+An unusual amount requires explicit `amount_anyway: true`; its structured check
+and accepted doubt remain auditable. Calendar dates and commodity are passed as
+data for page-local formatting. Automatic detection, tolerance and existing
+payment Undo remain unchanged.
+
 ### Correcting entries and reading filed receipts
 
 `POST /api/entries/{id}/correction-form` opens a hand form with a saved entry hash.

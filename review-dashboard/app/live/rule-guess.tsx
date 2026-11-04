@@ -2,7 +2,7 @@ import {useEffect,useMemo,useState} from 'react';
 import {dashboard} from '../data';
 import {localDate} from '../date-time';
 import {dayLabel,money,monthLong} from '../ui';
-import {matchRules,payer,paymentInPeriod,ruleAmounts,textAmounts,nextDueForPayment} from '../../scripts/recurring-ui.mjs';
+import {matchRules,payer,paymentInPeriod,ruleAmounts,textAmounts,nextDueForPayment,varyingAmountCheck} from '../../scripts/recurring-ui.mjs';
 import {RuleSummary,entryHref} from '../rules';
 import type {Composer} from './composer';
 import {type MatchResult,type Rule,rulesApi,useRules} from './rules-api';
@@ -22,10 +22,12 @@ export function RuleGuess({composer:c,online}:{composer:Composer;online:boolean|
   const result=authoritative?live!.result:instant;
   const matches=result.matches.filter(m=>!c.form.declined_rules?.includes(m.id));
   const match=matches.find(m=>m.id===selected)||(!result.pick_list||matches.length===1?matches[0]:undefined),rule=rules.find(r=>r.id===match?.id);
+  useEffect(()=>{c.setRuleDecisionNeeded?.(!!rule&&rule.amount==='varies');return()=>c.setRuleDecisionNeeded?.(false);},[rule?.id,rule?.amount]);
   if(!matches.length||!c.form.text.trim() || c.form.declined_rules?.includes(selected||result.rule_id||''))return null;
   return <aside className="rule-guess" aria-label="Usual payment"><p className="eyebrow">A usual payment?</p>{!rule?<><label><span className="field-label">Which rule did you mean?</span><select className="field" value="" onChange={e=>setSelected(e.target.value)}><option value="">Choose a rule</option>{matches.map(m=><option key={m.id} value={m.id}>{m.description}{(()=>{const r=rules.find(r=>r.id===m.id);if(!r)return '';const p=payer(r,metadata);return ' · '+Object.entries(ruleAmounts(r)).map(([code,value])=>money(Number(value),code)).join(' + ')+(p?' · '+(metadata[p.account]?.label||p.account):'');})()}</option>)}</select></label><p className="live-hint">Several rules match these words.</p><button className="button" onClick={()=>c.update({...c.form,declined_rules:[...new Set([...(c.form.declined_rules||[]),...matches.map(m=>m.id)])]})}>Not this</button></>:<RuleGuessChoice key={rule.id} rule={rule} match={match!} text={c.form.text} initialDate={c.built.fields.date?.value} disabled={!authoritative||online!==true||!source.ready||c.saving||c.recovering||c.interpretation.busy||!filesReady||c.pending.some(p=>p.busy||!!p.error)} onAdd={body=>c.save(body)} onDecline={()=>{c.update({...c.form,declined_rules:[...(c.form.declined_rules||[]),rule.id]});}}/>}{matchError&&<p className="live-hint">Live matching is unavailable. {matchError}</p>}</aside>;
 }
-export function RuleGuessChoice({rule,match,text,initialDate,disabled,onAdd,onDecline}:{rule:Rule;match:MatchResult['matches'][number];text:string;initialDate?:string;disabled:boolean;onAdd:Composer['save'];onDecline:()=>void}) {
+export function RuleGuessChoice(props:Parameters<typeof FixedRuleChoice>[0]) {return props.rule.amount==='varies'?<VaryingRuleChoice {...props}/>:<FixedRuleChoice {...props}/>;}
+function FixedRuleChoice({rule,match,text,initialDate,disabled,onAdd,onDecline}:{rule:Rule;match:MatchResult['matches'][number];text:string;initialDate?:string;disabled:boolean;onAdd:Composer['save'];onDecline:()=>void}) {
   const accounts=dashboard.meta.accounts,amounts=ruleAmounts(rule),code=Object.keys(amounts)[0],value=amounts[code],pay=payer(rule,accounts);
   const quantities=textAmounts(text,dashboard.meta.ledger.locale||navigator.language);
   const explicit=(text.match(/\b[A-Za-z]{3}\b/g)||[]).map(c=>c.toUpperCase()).filter(c=>Intl.supportedValuesOf('currency').includes(c));
@@ -43,5 +45,27 @@ export function RuleGuessChoice({rule,match,text,initialDate,disabled,onAdd,onDe
     {conversions.length>0&&<p className="rule-conversion">Planned conversion: {conversions.map(p=>`${money(Number(p.amount),p.commodity)} at ${money(Number(p.cost!.amount),p.cost!.commodity)} ${p.cost!.per==='total'?'total':'per unit'}`).join('; ')}. Statement reconciliation will correct it.</p>}
     {paid&&<div className="rule-already"><p>Already added for {monthLong(date)} on {dayLabel(paid.date)}.</p><a className="button" href={entryHref(paid.id)}>View entry</a><label className="rule-check"><input type="checkbox" checked={another} onChange={e=>setAnother(e.target.checked)}/>Add another anyway</label></div>}
     <div className="rule-actions"><button className="button primary" disabled={disabled||!date||!pay&&!account||!!paid&&!another} onClick={()=>void onAdd({rule_id:rule.id,date,...(different?{amount:String(typed),update_rule:update}:{}),...(!pay?{account,remember_account:remember}:{}),another_anyway:another})}>Add as usual</button><button className="button" onClick={onDecline}>Not this</button></div>
+  </>;
+}
+
+function VaryingRuleChoice({rule,match,text,initialDate,disabled,onAdd,onDecline}:Parameters<typeof FixedRuleChoice>[0]) {
+  const amounts=ruleAmounts(rule),code=Object.keys(amounts)[0],estimate=amounts[code],bill=rule.bill;
+  const quantities=textAmounts(text,dashboard.meta.ledger.locale||navigator.language);
+  const explicit=(text.match(/\b[A-Za-z]{3}\b/g)||[]).map(c=>c.toUpperCase()).filter(c=>Intl.supportedValuesOf('currency').includes(c));
+  const typed=(!explicit.length?code===dashboard.meta.ledger.defaultCurrency:explicit.includes(code))?quantities[0]:undefined;
+  const [choice,setChoice]=useState<'paid'|'bill'|null>(null),[date,setDate]=useState(initialDate||localDate()),[payBy,setPayBy]=useState(''),[anyway,setAnyway]=useState(false),[another,setAnother]=useState(false);
+  useEffect(()=>{setChoice(null);setAnyway(false);setAnother(false);},[text,bill?.amount]);
+  useEffect(()=>setDate(initialDate||localDate()),[initialDate]);
+  const amount=bill?Number(bill.amount):typed,valid=amount!==undefined&&amount>0,check=valid?varyingAmountCheck(rule,amount):null,paid=paymentInPeriod(rule,bill?.occurrence||date);
+  const label=valid?money(amount!,code):'',paying=bill||choice==='paid';
+  const add=()=>onAdd({rule_id:rule.id,date,amount:String(amount),...(choice==='bill'&&!bill?{bill_only:true,...(payBy?{pay_by:payBy}:{})}:{}),...(check?{amount_anyway:anyway}:{}),...(paying?{another_anyway:another}:{})});
+  return <><h3>{rule.description}</h3><p className="rule-match-reason">Matched {match.matched_words.map(w=>`‘${w}’`).join(', ')}</p>
+    <div className="rule-summary"><span>{bill?<><strong>{label}</strong> <span className="bill-badge">{monthLong(bill.occurrence)} bill</span></>:valid?<>about {money(estimate,code)}</>:<>≈ {money(estimate,code)} estimate</>}</span><span>{payer(rule,dashboard.meta.accounts)?.account&&dashboard.meta.accounts[payer(rule,dashboard.meta.accounts)!.account]?.label}</span></div>
+    {bill?<p>Pay by {dayLabel(bill.pay_by||bill.occurrence)}</p>:valid?<fieldset className="rule-amount-choice"><legend>Have you paid it?</legend><label><input type="radio" name={`paid-${rule.id}`} checked={choice==='paid'} onChange={()=>setChoice('paid')}/>Paid {label}</label><label><input type="radio" name={`paid-${rule.id}`} checked={choice==='bill'} onChange={()=>setChoice('bill')}/>Bill only. Not paid yet</label></fieldset>:<p className="live-hint">Needs an amount</p>}
+    {(bill||choice)&&<label><span className="field-label">{choice==='bill'&&!bill?'Received':'Payment date'}</span><input type="date" className="field" value={date} onChange={e=>{setDate(e.target.value);setAnother(false);}} required/></label>}
+    {!bill&&valid&&<label><span className="field-label">Pay by (optional)</span><input type="date" className="field" value={payBy} onChange={e=>setPayBy(e.target.value)}/></label>}
+    {check&&<aside className="rule-amount-notice" role="status"><p>{label} is {amount!>2*check.max?'more than twice the highest':'less than half the lowest'} of the last 6 payments ({money(check.min,code)}–{money(check.max,code)}).</p><label><input type="checkbox" checked={anyway} onChange={e=>setAnyway(e.target.checked)}/>Add {label} anyway</label></aside>}
+    {paying&&paid&&<div className="rule-already"><p>Already added for {monthLong(bill?.occurrence||date)}.</p><a className="button" href={entryHref(paid.id)}>View entry</a><label className="rule-check"><input type="checkbox" checked={another} onChange={e=>setAnother(e.target.checked)}/>Add another anyway</label></div>}
+    <div className="rule-actions"><button className="button primary" disabled={disabled||!valid||!date||!bill&&!choice||!!check&&!anyway||!!paying&&!!paid&&!another} onClick={()=>void add()}>{choice==='bill'&&!bill?'Save bill':bill?`Add ${label}`:choice==='paid'?`Paid ${label}`:'Add'}</button><button className="button" onClick={onDecline}>Not this</button></div>
   </>;
 }

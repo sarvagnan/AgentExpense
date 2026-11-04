@@ -172,3 +172,71 @@ The built snapshot also derives review state and paid periods from the append-on
 audit: undone payments/reversals cannot appear as paid, and an owner's Keep/Remove
 answer survives offline viewing. A completed payment's paused-match prompt is
 settled by its subsequent audited Resume/Keep answer, including after a reload.
+
+## Varying recurring rules and saved bills (6f B)
+
+A rule may have `"amount": "varies"`; absence means fixed. Only balanced simple
+two-posting expenses in one currency with one paying account can vary. Costs,
+split postings and assertions are refused. Automatic detection and matching
+rank/tolerance remain unchanged. Existing rule notes remain untouched.
+
+The estimate is stored in the postings. `recurring.recompute_estimate` computes
+the exact Decimal median of the latest three payments (or all available payments;
+none keeps the existing amount). Explicit links count; older unlinked history
+requires the same main category, payer, commodity and shared payee words. Entries
+linked to another rule and explicitly undone payments are excluded. No amount
+tolerance excludes an outlier. Link, correction and switching to Varies call the
+same service in the checked transaction. Part C can call it with its final actual
+set for Delete and Restore; those operations are not added here.
+
+An optional `bill` is `{amount, received, pay_by?, occurrence, sources}`. Amount is
+a positive decimal string in the rule's currency; dates are calendar dates.
+Occurrence must be the rule's current occurrence. Sources are retained evidence.
+Saving a bill leaves actual entries, totals and the schedule unchanged. The
+hledger generator emits one bounded daily periodic rule at `pay_by` (otherwise
+`occurrence`) and continues the main estimate from the following occurrence.
+The Node forecast expands the same dates. A clamped multi-month cadence uses
+unbounded calendar phases when needed to keep all main dates after the bill. Even a pay-by date after the following
+occurrence does not consume that following estimate.
+
+`POST /api/drafts/{id}/bill` accepts `rule_id`, `amount`, optional `date` (received),
+`pay_by`, `amount_anyway`, `client_time` and `client_zone`. The draft ID is the
+operation ID. Its files use ordinary evidence filing/compression. The FIFO runs
+`operate`, the ledger lock, rollback journal, strict checks and `make commit`.
+Identical retries recover the same bill result even after it is paid; changed
+payloads are refused. There is no bill Undo. Completed bill items expire like
+other completed drafts, without expiring the stored bill.
+
+The CLI uses the same `operations` command with `action: bill-saved`, `rule_id`,
+`bill`, optional `text`, `amount_anyway` and local context; sources must already
+exist in the ledger. `action: bill-removed` removes a saved bill and retains its
+filed evidence. `edited` accepts `amount: varies` or `amount: null` (fixed);
+remove an existing bill before switching to fixed or changing its occurrence.
+
+The usual-payment endpoint requires an explicit amount for Varies unless a bill
+is saved. With a bill, its exact amount and occurrence own the payment; paying it
+clears the bill, retains sources on the entry, advances exactly its recorded
+occurrence and recomputes the median. An early or late payment date does not
+repeat that occurrence or skip the following estimate. Corrections retain the
+saved bill’s occurrence, including when the payment date crosses a month. The existing payment Undo continues to restore its before snapshot.
+Varying payments keep the exact typed/bill decimal amount and never accept
+`update_rule: true`; fixed rules retain their existing scaling/rounding path.
+
+An amount above twice the highest or below half the lowest of the last six
+payments returns structured HTTP 409 `{kind: amount_check, amount, min, max,
+currency}` until `amount_anyway: true`. Equality at either boundary is allowed.
+Acceptance records the doubt in the audit and commit. It does not change the
+matching tolerance or permanently block saving. With no history there is no check.
+
+Version-1 `kind: rule` adds `bill-saved`, `bill-removed`, `bill-paid` actions,
+optional `bill` and `amount_check`. Bill events retain typed words, evidence and
+doubts. Paying appends its bill event in the same verified commit as the existing
+addition audit. Rule changes retain complete before/after snapshots. Existing
+audit lines remain valid.
+
+Add shows about/estimate values and requires Paid or Bill only, neither selected
+by default; no-amount estimates cannot be added. Saved bills offer one payment
+action. Rules shows bill status/pay-by or the estimate and recent range. Its
+editor switches fixed/varying mode and charts up to 12 payments, highlighting the
+three used for the estimate with existing chart tokens. Forecast badges exact
+bills and marks varying estimates/ranges separately from variable spending.

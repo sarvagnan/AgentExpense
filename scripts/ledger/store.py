@@ -210,11 +210,19 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
             elif entry["date"] != entry["schedule"]["from"]:
                 raise ValueError(f"{identity}: forecast date must equal schedule.from")
             elif kind == 'forecast':
-                from recurring import occurrence
+                from recurring import occurrence, simple_payment, period_for
                 if occurrence(entry) != entry['date']:
                     raise ValueError(f'{identity}: schedule.from must agree with anchor-day')
                 if entry.get('lifecycle') == 'removed' and not entry.get('removal'):
                     raise ValueError(f'{identity}: removed rule needs removal evidence')
+                if entry.get('amount') == 'varies' and not simple_payment(entry, declarations):
+                    raise ValueError(f'{identity}: only simple two-posting payments in one currency can vary')
+                if 'bill' in entry:
+                    bill = entry['bill']
+                    if entry.get('amount') != 'varies' or Decimal(bill['amount']) <= 0:
+                        raise ValueError(f'{identity}: a positive bill needs a varying rule')
+                    if bill['occurrence'] != entry['date'] or period_for(entry, bill['occurrence']) != bill['occurrence']:
+                        raise ValueError(f'{identity}: bill must name the current occurrence')
 
     actual = {e['id']: e for e in entries(documents)}
     rules = {r['id']: r for r in documents.get(root / 'data/forecast.json', [])}

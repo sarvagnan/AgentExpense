@@ -82,7 +82,7 @@ class Worker:
             self.pause.tick(get_gate(self.settings))
             self.flush_audits()
             with self.drafts.mutex:
-                queued = sorted((d for d in self.drafts.all() if d['state'] == 'queued' and not d.get('claim') and (d.get('finished_by') or d.get('proposal') or not self.pause.blocked())),
+                queued = sorted((d for d in self.drafts.all() if d['state'] == 'queued' and not d.get('claim') and (d.get('bill_request') or d.get('finished_by') or d.get('proposal') or not self.pause.blocked())),
                                 key=lambda d: (d['queued_at'], d['id']))
                 draft = queued[0] if queued else None
                 job = self.calls[0] if self.calls else None
@@ -205,6 +205,18 @@ class Worker:
         result = draft.get('committed_result') or recovered
         if result:
             self.drafts.completed(draft, refresh(self.settings, result))
+            return
+        if draft.get('bill_request'):
+            from rules_service import operate
+            while not self.stop_event.is_set():
+                try:
+                    result=operate(self.settings,draft['id'],draft['bill_request']['operation'])
+                except LedgerBusy:
+                    draft['waiting']='Waiting for a clean ledger before saving the bill'
+                    self.drafts.put(draft);self.stop_event.wait(self.retry_interval)
+                    continue
+                self.drafts.completed(draft,refresh(self.settings,result) if result.get('replayed') else result)
+                return
             return
         if not draft.get('proposal'):
             from statements import recognised

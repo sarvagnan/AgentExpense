@@ -115,7 +115,7 @@ def move_evidence(documents, root, before, after):
 
 
 def correction_rules(documents, root, before, after):
-    from recurring import same_payment, advance, period_for
+    from recurring import same_payment, advance, period_for, simple_payment, main_postings, recompute_estimate
     rules=documents[root/'data/forecast.json'];accounts=documents[root/'data/accounts.json']['accounts']
     link=before.get('rule')
     if not link: return dict(status='none',description=None,next_due=None)
@@ -123,16 +123,28 @@ def correction_rules(documents, root, before, after):
     # Match the complete payment, including costs and every allocation leg.
     def signature(entry):
         return sorted((p['account'],p['commodity'],Decimal(p['amount']), (p['cost']['commodity'],Decimal(p['cost']['amount']),p['cost']['per']) if p.get('cost') else ('',Decimal(0),'')) for p in entry['postings'])
-    kept=same_payment(after,rule,accounts) and signature(after)==signature(rule)
-    if kept: after['rule']=dict(id=rule['id'],occurrence=period_for(rule,after['date']))
+    varying=rule.get('amount')=='varies'
+    bill_payments=set();lines=[]
+    if varying:
+        from audit import records
+        lines=records(root)
+        bill_payments={r.get('entry_id') for r in lines if r['kind']=='rule' and r['rule_action']=='bill-paid'}
+    kept=same_payment(after,rule,accounts) and (simple_payment(after,accounts) and main_postings(after)[0]['commodity']==main_postings(rule)[0]['commodity'] if varying else signature(after)==signature(rule))
+    if kept: after['rule']=dict(id=rule['id'],occurrence=link['occurrence'] if before['id'] in bill_payments else period_for(rule,after['date']))
     else: after.pop('rule',None)
     actual=[e for e in entries(documents) if e.get('rule',{}).get('id')==rule['id'] and e['id']!=after['id']]
-    latest_before=max([before,*actual],key=lambda e:(e['date'],e['id']))
+    def paid_through(entry):
+        return entry['rule']['occurrence'] if entry['id'] in bill_payments else max(entry['date'],entry['rule']['occurrence'])
+    latest_before=max([before,*actual],key=lambda e:(paid_through(e) if varying else e['date'],e['id']))
     # An older correction never shifts the current schedule.
     if latest_before['id']==before['id']:
         if kept: actual.append(after)
         if actual:
-            latest=max(actual,key=lambda e:(e['date'],e['id']))
+            latest=max(actual,key=lambda e:(paid_through(e) if varying else e['date'],e['id']))
             start=deepcopy(rule);start['date']=start['schedule']['from']=latest['rule']['occurrence']
-            rules[rules.index(rule)]=rule=advance(start,max(latest['date'],latest['rule']['occurrence']))
+            rules[rules.index(rule)]=rule=advance(start,paid_through(latest))
+    if varying:
+        from rules_service import ignored_entries
+        ignored=ignored_entries(lines)
+        recompute_estimate(rule,[e for e in entries(documents) if e['id']!=after['id'] and e['id'] not in ignored]+[after],accounts)
     return dict(status='kept' if kept else 'dropped',description=rule['description'],next_due=rule['date'])
