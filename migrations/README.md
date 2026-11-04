@@ -141,3 +141,12 @@ run and the compared entry totals). Existing lines are never rewritten. The audi
 retains operation replay after temporary correction drafts expire. No store fields,
 ledger format bump or migration are needed. Correction sources and receipt queue
 state are ignored runtime records in `drafts/`.
+
+### Unreleased format 1: confirmed-balance refusals (6f A)
+
+Version-1 draft audit events optionally retain `refusal`: a closed structured
+confirmed-balance reason, with account/label, assertion entry/date, exact
+asserted/calculated/difference amounts and commodity, structured source,
+possible duplicate entry summaries and hledger detail. Correction restrictions
+add an optional `restriction` code. Old events remain valid and unchanged.
+No financial store field, new card assertion, format bump or migration is added.

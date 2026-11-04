@@ -19,6 +19,8 @@ const require=createRequire(join(cache,'package.json'));
 const pw=require('playwright'),{expect}=require('playwright/test');
 assert.equal(require('playwright/package.json').version,'1.64.1','Use the pinned headless browser package');
 const engines=(process.env.ENGINES || 'chromium,firefox,webkit').split(',');
+const themes=(process.env.THEMES || 'light,dark').split(',');
+for(const theme of themes)assert.ok(['light','dark'].includes(theme),'THEMES must be light and/or dark');
 const personas=(process.env.PERSONA || 'asha,empty,jordan,sam').split(',');
 for(const engine of engines)assert.ok(['chromium','firefox','webkit'].includes(engine));
 for(const persona of personas)assert.ok(['asha','empty','jordan','sam'].includes(persona));
@@ -99,7 +101,31 @@ async function launch(engine,root) {
   }
   return pw[engine].launch(options);
 }
-for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{await activeBrowser?.close();await stop(activeServer);process.exit(130);});
+async function clearPrivateHomeACLs(path) {
+  // CoreFoundation creates protected Documents/Downloads folders even in the
+  // redirected disposable home. Remove their macOS deny-delete ACLs only inside
+  // this run's private home; never follow a symlink into a real home.
+  const {lstat,readdir}=await import('node:fs/promises');
+  let info;try{info=await lstat(path);}catch(error){if(error.code==='ENOENT')return;throw error;}
+  if(info.isSymbolicLink())return;
+  if(info.isDirectory())for(const name of await readdir(path))await clearPrivateHomeACLs(join(path,name));
+  execFileSync('chmod',['-N',path]);
+}
+async function cleanupArtifacts(passed) {
+  if(process.env.KEEP_ARTIFACTS!=='1' && process.platform==='darwin')for(const persona of personas)await clearPrivateHomeACLs(join(artifacts,persona,'firefox-app-data'));
+  if(process.env.KEEP_ARTIFACTS==='1')console.log(`Browser results: ${join(artifacts,'results.json')}`);
+  else if(passed){await rm(artifacts,{recursive:true,force:true});console.log('Passing browser artifacts removed');}
+  else {
+    const {readdir,lstat}=await import('node:fs/promises');
+    const failures=[];
+    async function retain(folder){for(const name of await readdir(folder)){const path=join(folder,name);if((await lstat(path)).isDirectory())await retain(path);else if(name.startsWith('failure-')&&name.endsWith('.zip'))failures.push(path);}}
+    await retain(artifacts);
+    const saved=[];for(const [i,path] of failures.entries()){const bytes=await readFile(path);saved.push([`${i}-${path.split('/').at(-1)}`,bytes]);}
+    await rm(artifacts,{recursive:true,force:true});
+    if(saved.length){await mkdir(artifacts);for(const [name,bytes] of saved)await writeFile(join(artifacts,name),bytes);console.log(`Failing traces: ${artifacts}`);}
+  }
+}
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{await activeBrowser?.close();await stop(activeServer);await cleanupArtifacts(false);process.exit(130);});
 try {
   for(const persona of personas) {
     stage=await staging(persona);
@@ -112,7 +138,7 @@ try {
         assert.ok((await page.title()).includes('mockup'));
         await context.close();
       }
-      await runSuite({browser:activeBrowser,engine,stage,expect,results,checkpoint,capture:process.env.CAPTURE==='0'?async()=>{}:async(page,info)=>capture(page,manifest,{...info,engine,persona})});
+      await runSuite({browser:activeBrowser,engine,stage,expect,results,checkpoint,themes,capture:process.env.CAPTURE==='0'?async()=>{}:async(page,info)=>capture(page,manifest,{...info,engine,persona})});
       await activeBrowser.close();activeBrowser=null;
       console.log(`PASS ${persona} ${engine}`);
     }
@@ -125,6 +151,7 @@ try {
   await activeBrowser?.close();await stop(activeServer);
   if(process.env.CAPTURE!=='0')await contactSheet(manifest);
   await checkpoint();
-  console.log(`Browser results: ${join(artifacts,'results.json')}`);
+  console.log('BROWSER_RESULTS '+JSON.stringify({engines,personas,themes,results,captures:manifest.length}));
+  await cleanupArtifacts(!process.exitCode);
   console.log(`Screenshot contact sheet: ${shots}/index.html`);
 }

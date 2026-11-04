@@ -1,12 +1,13 @@
+import type {BalanceRefusal,BalanceLock} from './balance-refusal';
 import type { Piece } from './builder';
 import {clientTime} from '../date-time';
 export type Attachment = { id: string; original_name: string; media_type: string; size: number };
 export type Proposal = {account_metadata?:Record<string,{kind:string;currency:string}>;status:string;question:string|null;explanation:string|null;entry:{date:string;status:string;description:string;notes:string[];postings:{account:string;amount:string;commodity:string;cost:{amount:string;commodity:string}|null}[];[key:string]:unknown};new_accounts:string[];doubts:string[];attachment_names:string[]};
 export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;resumes_at:string;attempt:number};
-export type HandChecks = {unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
-export type Draft = {
+export type HandChecks = {refusal?:BalanceRefusal;unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
+export type Draft = {refusal?:BalanceRefusal;
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
-  correction?:{entry_id:string;version:string;locked:boolean;reason?:string;before:{description:string;postings:Proposal['entry']['postings']};sources:string[]}; receipt_reading?:{state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
+  correction?:{entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings']};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
   declined_rules?:string[]; id: string; description?:string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
   pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
@@ -20,10 +21,12 @@ export type CorrectionResult={entry_id:string;description:string;changed:string[
 export const apiUrl = (path: string, base = import.meta.env.BASE_URL) => `${base.replace(/\/?$/, '/')}api/${path.replace(/^\//, '')}`;
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) { super(message); this.status=status; this.name='ApiError'; }
+  readonly refusal?:BalanceRefusal;
+  constructor(status: number, message: string, body?:unknown) { super(message); const detail=(body as {detail?:BalanceRefusal}|null)?.detail;this.refusal=detail?.kind==='confirmed_balance'?detail:undefined;this.status=status; this.name='ApiError'; }
 }
 export function errorMessage(status: number, body: unknown) {
   const detail = typeof body === 'object' && body !== null && 'detail' in body ? (body as {detail: unknown}).detail : null;
+  if (typeof detail === 'object' && detail!==null && 'kind' in detail && detail.kind==='confirmed_balance') return 'Not saved: a confirmed balance would change.';
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) return 'Please check the entered values and try again.';
   return `The server could not complete this action (HTTP ${status}). Try again.`;
@@ -61,7 +64,7 @@ export async function request<T>(path: string, options: RequestInit = {}, timeou
     const operation=(async()=>{
       try {
         const response = await fetch(apiUrl(path), { ...options, keepalive, signal:controller.signal, cache:'no-store' });
-        if (!response.ok) {const body=await response.json().catch(()=>null);throw new ApiError(response.status,errorMessage(response.status,body));}
+        if (!response.ok) {const body=await response.json().catch(()=>null);throw new ApiError(response.status,errorMessage(response.status,body),body);}
         return response.status===204 ? undefined as T : await response.json() as T;
       } finally {clearTimeout(timer);}
     })();
@@ -92,6 +95,7 @@ export const api = {
   handAdd:(id:string,claim_token:string,proposal_hash:string,approved_accounts:string[])=>request<Draft>(`drafts/${id}/hand-add`,json('POST',{claim_token,proposal_hash,approved_accounts})),
   release:(id:string,claim_token:string,proposal?:Proposal)=>request<Draft>(`drafts/${id}/release`,json('POST',{claim_token,proposal})),
   approveAccounts:(id:string,proposal_hash:string)=>request<Draft>(`drafts/${id}/approve-accounts`,json('POST',{proposal_hash})),
+  resolveRefusal:(id:string,action:'edit'|'answer')=>request<Draft>(`drafts/${id}/resolve-refusal`,json('POST',{action})),
   retry: (id: string) => request<Draft>(`drafts/${id}/retry`, json('POST')),
   keepAnswer: (id: string, question_index: number, answer: string, updated_at=0) => request<Draft>(`drafts/${id}/unsent-answer`, json('PATCH', {question_index, answer, updated_at})),
   restore: (id: string) => request<Draft>(`drafts/${id}/restore`, json('POST')),

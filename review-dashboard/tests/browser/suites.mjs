@@ -1,3 +1,4 @@
+import {runConfirmedBalances} from './confirmed-balances.mjs';
 import {runAdd} from './add.mjs';
 import {runCorrections} from './corrections.mjs';
 import {runRules} from './rules.mjs';
@@ -17,7 +18,7 @@ const sizes=[{width:1440,height:1000},{width:412,height:915}];
 const locale={asha:'en-IN',jordan:'en-US',sam:'en-GB',empty:'en-US'};
 const zone={asha:'Asia/Kolkata',jordan:'America/Chicago',sam:'Europe/Berlin',empty:'America/Chicago'};
 
-export async function runSuite({browser,engine,stage,expect,results,capture,checkpoint=async()=>{}}) {
+export async function runSuite({browser,engine,stage,expect,results,capture,checkpoint=async()=>{},themes=['light','dark']}) {
   const {base,persona,ledger}=stage;
   // macOS WebKit follows the system keyboard-access preference. Option-Tab
   // includes links and buttons even when full keyboard access is off.
@@ -30,7 +31,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const response=await fetch(base+'__test/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     assert.ok(response.ok,`${path}: ${await response.clone().text()}`);return response.json();
   };
-  for(const theme of ['light','dark'])for(const size of sizes) {
+  for(const theme of themes)for(const size of sizes) {
     const {width,height}=size;
     if(process.env.BROWSER_CASE && process.env.BROWSER_CASE!==`${theme}-${width}`)continue;
     const context=await browser.newContext({viewport:size,colorScheme:theme,locale:locale[persona],timezoneId:zone[persona],reducedMotion:'reduce',acceptDownloads:true});
@@ -102,6 +103,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='confirmed-balances') {
+        await runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='corrections') {
         await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
@@ -435,6 +441,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

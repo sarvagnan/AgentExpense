@@ -38,11 +38,11 @@ agent home is used. Requests outside the fixture's loopback server are blocked.
 
 Profiles, downloads, build logs, server logs, traces, failure images, fake CLI and
 agent state all stay under `/tmp`. Each server uses a free loopback port and is
-terminated in `finally`; browsers and contexts are also closed on failure. Artifacts
-are retained for diagnosis, including a `results.json` assertion matrix.
-After each complete case, the harness atomically checkpoints that matrix and
-its capture metadata. A hard interruption therefore preserves completed cases;
-the final gallery is still produced during normal cleanup.
+terminated in `finally`; browsers and contexts are also closed on failure. Passing runs remove their staging folder; failed runs keep only failing-case
+trace ZIPs. `BROWSER_RESULTS` in stdout retains the assertion matrix.
+`KEEP_ARTIFACTS=1` keeps the full folder, including the atomically checkpointed
+`results.json` matrix and capture metadata after each complete case, which can
+help diagnose interruptions. The final gallery is produced during normal cleanup.
 
 Screenshots and their contact sheet are written to
 `/tmp/agentexpense-5-shots/index.html`. `manifest.json` records engine, persona,
@@ -180,3 +180,16 @@ upload recognises that generic mapping without an agent. Captures add
 theme and size. `BROWSER_FOCUS=readers` selects the complete reader suite during
 development. PDF/XLSX/XLS inputs are generated in memory by the maintained
 `server/tests/cited_statement_fixtures.py`; no binary fixture is checked in.
+
+`THEMES=light` or `THEMES=dark` selects themes beside `ENGINES` and `PERSONA`;
+the default remains `light,dark`. `BROWSER_CASE` can still select one size/theme.
+The implementation-step matrix uses `THEMES=light`; inspect Chromium Dark captures
+for changed states at both sizes. Passing runs remove their complete staging root.
+Failed runs retain only failing-case trace ZIPs. `KEEP_ARTIFACTS=1` retains the full
+staging root for debugging. Machine-readable `BROWSER_RESULTS` stays in stdout;
+contact sheets and captures stay in `BROWSER_SHOTS`, outside the staging root.
+
+`BROWSER_FOCUS=confirmed-balances` runs Part A's usual/agent/hand/receipt refusals,
+duplicate link, retained words, absent Retry, correction locks and same-day boundary.
+The default matrix includes it too. Its seven capture states use a disposable
+monthly bank statement in each persona's own currency; no source ledger changes.

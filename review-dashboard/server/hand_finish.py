@@ -1,7 +1,7 @@
 """Claim-protected human proposals. The FIFO worker performs the checked write."""
 from copy import deepcopy
 from agent import now, schema_for
-from transactions import Transaction
+from transactions import Transaction, BalanceRefusal
 from proposal_consent import proposal_hash
 
 
@@ -37,6 +37,8 @@ def preview(settings, drafts, draft, form):
         prepared = Transaction(settings, drafts, draft).prepare(form)
         unchanged=draft.get('correction') and form==__import__('corrections').wire_entry(settings,draft['correction']['before']) and draft['correction'].get('sources',[])==draft['correction']['before'].get('sources',[])
         result = dict(ok=not unchanged, unchanged=bool(unchanged), checks=['No changes yet'] if unchanged else ['The entry balances and its accounts and amounts are valid'], new_accounts=prepared['new_accounts'], proposal_hash=prepared['proposal_hash'])
+    except BalanceRefusal as exc:
+        result = dict(ok=False, checks=[str(exc)], refusal=exc.refusal, new_accounts=form.get('new_accounts',[]), proposal_hash=proposal_hash(form))
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
         result = dict(ok=False, checks=[str(exc)], new_accounts=form.get('new_accounts',[]), proposal_hash=proposal_hash(form))
     draft['hand_checks'] = result

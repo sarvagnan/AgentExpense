@@ -92,22 +92,28 @@ export function useComposer(active:boolean){
   function retry(item:Pending){if(item.cancelled){void cancel(item);return;}if(!item.file)return;changeUploads(xs=>xs.filter(p=>p.key!==item.key));pick([item.file]);}
   async function remove(file:Attachment){const id=current.current.id!;await api.remove(id,file.id);await refreshFiles(id);}
   const usualRetry=useRef<{id:string;signature:string;body:object}|null>(null);
+  async function saveUsual(id:string,body:object){
+    const result=await request<Draft>(`drafts/${id}/usual`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(result.refusal)throw new ApiError(409,'A confirmed balance would change.',{detail:result.refusal});
+    return result;
+  }
   async function save(usual?:{rule_id:string;date:string;amount?:string;update_rule?:boolean;account?:string;remember_account?:boolean;another_anyway?:boolean}){
     if(savingRef.current||uploads.current.some(p=>p.busy))return;
     savingRef.current=true;setSaving(true);setError('');
     try{await syncing.current;const d=await ensureDraft();if(d.state==='editing'){await api.edit(d.id,current.current.text,draftPieces(builtRef.current,current.current.edits),current.current.updatedAt||0,current.current.declined_rules);
-        if(usual){const signature=JSON.stringify(usual);if(usualRetry.current?.id!==d.id||usualRetry.current.signature!==signature)usualRetry.current={id:d.id,signature,body:{...usual,...clientTime()}};await request<Draft>(`drafts/${d.id}/usual`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usualRetry.current.body)});}else if(d.files.length){
+        if(usual){const signature=JSON.stringify(usual);if(usualRetry.current?.id!==d.id||usualRetry.current.signature!==signature)usualRetry.current={id:d.id,signature,body:{...usual,...clientTime()}};await saveUsual(d.id,usualRetry.current.body);}else if(d.files.length){
           const result=await request<{blocked:boolean;statements:StatementSession[];drafts:Draft[]}>(`drafts/${d.id}/continue`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({choices:current.current.fileChoices||{},passwords,...clientTime()})},120000);
           if(result.blocked)throw Error('Check the file choices, account and password before continuing.');
           rememberResults([...result.statements.map(s=>({id:s.id,type:'statement' as const})),...result.drafts.map(x=>({id:x.id,type:'draft' as const}))].reverse());
           setPasswords({});
-        }else {await api.save(d.id);rememberResults([{id:d.id,type:'draft'}]);}}else if(usual && usualRetry.current?.id===d.id){await request<Draft>(`drafts/${d.id}/usual`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usualRetry.current.body)});}else throw Error('This draft has already been sent. Open Drafts to see it.');if(usual)rememberResults([{id:d.id,type:'draft'}]);update(blank());setDraft(null);setPasswords({});changeUploads(()=>[]);setSynced('');setLastSavedId(d.id);setSuccess(usual?'Saved. Adding your usual payment.':'Saved. The agent is working on it in Drafts.');draftsChanged();announce('Saved to Drafts. Ready for the next expense.');return true;}
-    catch(e){setError(`Could not save. ${(e as Error).message}`);return false;}
+        }else {await api.save(d.id);rememberResults([{id:d.id,type:'draft'}]);}}else if(usual && usualRetry.current?.id===d.id){await saveUsual(d.id,usualRetry.current.body);}else throw Error('This draft has already been sent. Open Drafts to see it.');if(usual)rememberResults([{id:d.id,type:'draft'}]);update(blank());setDraft(null);setPasswords({});changeUploads(()=>[]);setSynced('');setLastSavedId(d.id);setSuccess(usual?'Saved. Adding your usual payment.':'Saved. The agent is working on it in Drafts.');draftsChanged();announce('Saved to Drafts. Ready for the next expense.');return true;}
+    catch(e){if(e instanceof ApiError&&e.refusal)draftsChanged();setError(`Could not save. ${(e as Error).message}`);return false;}
     finally{savingRef.current=false;setSaving(false);}
   }
   const serverSaved=!!form.id&&fingerprint(form)===synced;
   useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if((!localOK&&!serverSaved&&!!form.text)||pending.some(p=>p.busy)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[localOK,serverSaved,form.text,pending]);
+  function forgetDiscarded(id:string){if(current.current.id!==id)return;update(blank());setDraft(null);setPasswords({});setError('');setSyncError('');setSynced('');}
   function retryStorage(){persist();void sync();}
-  return {form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};
+  return {form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,forgetDiscarded,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};
 }
 export type Composer=ReturnType<typeof useComposer>;

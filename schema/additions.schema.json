@@ -611,6 +611,120 @@
     },
     "receipt": {
       "type": "object"
+    },
+    "refusal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "account",
+        "account_label",
+        "date",
+        "entry_id",
+        "source",
+        "commodity",
+        "asserted",
+        "calculated",
+        "difference",
+        "possible_duplicates",
+        "detail"
+      ],
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "account_label": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "entry_id": {
+          "type": "string"
+        },
+        "commodity": {
+          "type": "string"
+        },
+        "asserted": {
+          "type": "string"
+        },
+        "calculated": {
+          "type": "string"
+        },
+        "difference": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "confirmed_balance"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "label",
+            "date"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "statement",
+                "balance"
+              ]
+            },
+            "label": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "possible_duplicates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entry_id",
+              "date",
+              "description",
+              "amount",
+              "commodity"
+            ],
+            "properties": {
+              "entry_id": {
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "string"
+              },
+              "commodity": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "restriction": {
+          "enum": [
+            "locked_posting",
+            "date_window",
+            "same_day_order"
+          ]
+        }
+      }
     }
   },
   "allOf": [

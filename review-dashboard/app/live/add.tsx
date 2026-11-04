@@ -1,12 +1,13 @@
 import {useEffect,useRef,useState} from 'react';
 import {Icon,PageHeader,PanelHeader,Dialog,copyAndAnnounce,money} from '../ui';
-import {fileUrl,type Attachment} from './api';
+import {api,fileUrl,type Attachment} from './api';
 import {dashboard} from '../data';
 import {formatTimestamp} from '../date-time';
 import type {LiveDrafts} from './use-drafts';
 import type {Composer} from './composer';
 import {AddUnderstood} from './add-understood';
 import {AddResults,useAddResults,draftStatus,statementStatus} from './add-results';
+import {BalanceNotice} from './balance-refusal';
 import type {Draft} from './api';
 import type {StatementSession} from './statements-api';
 import {statementWords} from './add-intake';
@@ -29,6 +30,9 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
  const builtin=files.length>0&&files.every(f=>f.kind==='statement'&&!!f.reader)&&!(!statement&&form.text.trim());
  const blockedAgent=live.agent.state==='signed out'||live.agent.state==='paused'||!!live.agent.agent_pause;
  const blockedFiles=files.some(f=>f.kind==='ambiguous'||f.locked||f.mismatch)||statement&&!draft?.files.length;
+ const refused=live.drafts.find(d=>d.state==='failed'&&d.refusal);
+ const [refusalError,setRefusalError]=useState('');
+ async function resolveRefusal(action:'edit'|'keep'|'discard'){if(!refused)return;try{if(action==='discard'){await live.discard(refused.id);c.forgetDiscarded(refused.id);}else{await api.resolveRefusal(refused.id,'edit');if(action==='edit')await c.restore(refused.id);}await live.refresh();}catch(e){setRefusalError((e as Error).message);}}
  const latest=rows[0],barResult=latest?(latest.type==='draft'?draftStatus(latest.value as Draft):statementStatus(latest.value as StatementSession)):'';
  const empty=!form.text&&!draft?.files.length&&!pending.length;
  useEffect(()=>{void c.restore(new URLSearchParams(window.location.search).get('draft'));},[]);
@@ -50,6 +54,7 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
 
  </div></section><div className="add-interpretation"><AddUnderstood composer={c} online={live.online}/></div></div>
  <section className="add-savebar" aria-label="Save entry"><div><strong>{saving?'Saving…':busyFiles?'Uploading…':empty&&barResult?barResult:empty?'Ready when you are':statement?'Continue to read the statement':'Ready to continue'}</strong><p className="live-hint">{empty&&latest?'The input is ready for your next entry.':statement?'Checks come before applying any rows.':'Words or a file are enough to start.'}</p>{error&&<p className="live-error" role="alert">{error}</p>}</div><button type="button" className="button primary" disabled={live.online!==true||blockedAgent&&!builtin||saving||recovering||busyFiles||c.interpretation.busy||blockedFiles||pending.some(p=>!!p.error)||(!form.text.trim()&&!draft?.files.length)} onClick={()=>void save()}>Continue</button></section>
+ {refused?.refusal&&<BalanceNotice refusal={refused.refusal}><p>{refused.text}</p><button className="button" onClick={()=>void resolveRefusal('edit')}>Change account or date</button><button className="button" onClick={()=>void resolveRefusal('keep')}>Keep as draft</button><button className="button destructive" onClick={()=>void resolveRefusal('discard')}>Discard</button>{refusalError&&<p>{refusalError}</p>}</BalanceNotice>}
  <AddResults live={live} rows={rows}/>
  {showExamples&&<Dialog title="Examples" subtitle="Pick one, then change it to your own words." labelId="add-examples-title" onClose={()=>setShowExamples(false)}><div className="add-examples">{examples.map(example=><button className="example-button" key={example} onClick={()=>chooseExample(example)}>{example}</button>)}</div></Dialog>}
  </section>;

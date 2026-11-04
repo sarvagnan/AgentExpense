@@ -8,6 +8,7 @@ import subprocess
 
 from transactions import ProposalError
 from store import entries, validate
+from confirmed_balances import correction_locks, enforce_locks, enforce_order, raise_failure
 
 
 def entry_hash(entry):
@@ -41,6 +42,7 @@ def replace_entry(documents, root, before, after, *, expected, remove=None, remo
         require_version(next((e for e in entries(documents) if e['id']==remove['id']),None), removed_expected)
     after = deepcopy(after)
     after['id'] = before['id']
+    locks = enforce_locks(before, after, documents, root)
     enforce_statement(before, after, documents, root)
     old_rows=documents[root/'data/expenses'/f"{before['date'][:4]}.json"]
     old_index=next(i for i,e in enumerate(old_rows) if e['id']==before['id'])
@@ -55,10 +57,11 @@ def replace_entry(documents, root, before, after, *, expected, remove=None, remo
     if before['date']==after['date']:
         index=sum(e['id'] not in {before['id'],(remove or {}).get('id')} for e in old_prefix)
     rows.insert(index,after)
+    enforce_order(before, after, documents, root, locks)
     return after
 
 
-def check_documents(documents, root):
+def check_documents(documents, root, candidate=None):
     from generate_ledger import render_entry
     validate(documents, root)
     declarations=documents[root/'data/accounts.json']
@@ -66,7 +69,9 @@ def check_documents(documents, root):
     for entry in entries(documents): lines.extend(render_entry(entry))
     hledger=os.environ.get('HLEDGER_BIN') or shutil.which('hledger') or '/opt/homebrew/bin/hledger'
     checked=subprocess.run([hledger,'-f','-','check','-s','ordereddates'],input='\n'.join(lines)+'\n',capture_output=True,text=True)
-    if checked.returncode: raise ProposalError('Proposed correction fails strict hledger validation:\n'+checked.stderr)
+    if checked.returncode:
+        raise_failure(documents, root, candidate=candidate, detail=checked.stderr)
+        raise ProposalError('Proposed correction fails strict hledger validation:\n'+checked.stderr)
 
 
 def safe_evidence(root, relative):

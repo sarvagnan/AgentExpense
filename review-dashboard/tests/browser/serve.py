@@ -475,4 +475,55 @@ def correction_statement(body: dict):
     update_settings(settings,install,dict(seeded=True),'Fictional statement correction baseline')
     return dict(entry_id=entry['id'])
 
+
+
+@app.post('/__test/confirmed-balances')
+def confirmed_balances(body: dict):
+    """Fictional monthly bank statement and usual payment in this persona's currency."""
+    from copy import deepcopy
+    from ledger_manifest import read_manifest, module_settings
+    currency=read_manifest(settings.ledger)['defaultCurrency']
+    account='Assets:Bank:Cedar Confirmation'
+    category='Expenses:Learning:Cedar Confirmation'
+    declarations=read_json(settings.ledger/'data/accounts.json')
+    declarations['accounts'].update({account:dict(kind='bank',currency=currency,label='Cedar Current'),category:{},'Equity:Opening Balances':{}})
+    p=lambda a,n:dict(account=a,amount=n,commodity=currency)
+    source='Bills/2026-10-31/cedar-statement.csv'
+    opening=dict(id='000000000000b001',date='2026-09-30',status='confirmed',description='Cedar opening balance',postings=[p(account,'1000.00'),p('Equity:Opening Balances','-1000.00')])
+    opening['postings'][0]['assert']=dict(amount='1000.00',commodity=currency)
+    paid=dict(id='000000000000b002',date='2026-10-29',status='confirmed',description='Cedar learning payment',postings=[p(category,'100.00'),p(account,'-100.00')],sources=[source])
+    closing=dict(id='000000000000b003',date='2026-10-31',status='confirmed',description='Cedar monthly balance',postings=[dict(p(account,'0.00'),**{'assert':dict(amount='900.00',commodity=currency)})],sources=[source])
+    summary=dict(id='000000000000b004',kind='bank',account=account,start='2026-10-01',end='2026-10-31',source=source,reader='generic-csv',**{'opening-balance':'1000.00','closing-balance':'900.00','assertion-id':closing['id']},debits='100.00',credits='0.00',rows=1,members=[dict(date=paid['date'],serial='1',description=paid['description'],amount='100.00',direction='Debit',citation=dict(sheet='CSV',row=2),disposition='recorded',**{'entry-id':paid['id']})])
+    rows=read_json(settings.ledger/'data/expenses/2026.json')+[opening,paid,closing];rows.sort(key=lambda e:e['date'])
+    rule=dict(id='f00000000000b001',date='2026-11-29',status='confirmed',description='Cedar learning',postings=deepcopy(paid['postings']),schedule={'every':'month','from':'2026-11-29'})
+    changes={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':rows,settings.ledger/'data/card-statements.json':read_json(settings.ledger/'data/card-statements.json')+[summary],settings.ledger/'data/forecast.json':[rule]}
+    # The normal settings fixture writer owns the lock and verified commit.
+    def install():
+        path=settings.ledger/source;path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text('Date,Description,Amount\n2026-10-29,Cedar learning payment,-100.00\n')
+        return changes
+    update_settings(settings,install,dict(confirmed=True),'Fictional monthly bank statement')
+    from corrections import wire_entry
+    proposal=wire_entry(settings,paid);proposal['entry']['date']='2026-10-30';proposal['attachment_names']=[]
+    data=json.loads(config.read_text());data['steps']=[dict(answer=proposal)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+    return dict(account=account,currency=currency,entry_id=paid['id'],rule_id=rule['id'],proposal=proposal)
+
+
+@app.post('/__test/confirmed-receipt')
+def confirmed_receipt(body: dict):
+    from copy import deepcopy
+    from replacements import entry_hash
+    rows=read_json(settings.ledger/'data/expenses/2026.json')
+    entry=deepcopy(next(e for e in rows if e['id']=='000000000000b002'))
+    entry.update(id='000000000000b005',date='2026-11-02');entry.pop('sources',None)
+    rows.append(entry);rows.sort(key=lambda e:e['date'])
+    update_settings(settings,lambda:{settings.ledger/'data/expenses/2026.json':rows},dict(receipt=True),'Fictional later bank payment')
+    code=entry['postings'][0]['commodity']
+    draft=app.state.drafts.create('Cedar later payment with a receipt')
+    answer=dict(read_ok=True,references=[],payment_datetime=None,payee=None,date='2026-10-30',amount=None,currency=None,paying_account=None,notes=[])
+    draft.update(state='added',completed_at=now(),result=dict(outcome='ready',entry_id=entry['id'],description=entry['description'],total='100.00 '+code,payment_account=entry['postings'][1]['account']),receipt_reading=dict(state='question',entry=entry,entry_id=entry['id'],version=entry_hash(entry),answer=answer,operation_id=secrets.token_hex(16),entry_totals={code:'100.00'}))
+    app.state.drafts.put(draft)
+    return dict(id=draft['id'])
+
+
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

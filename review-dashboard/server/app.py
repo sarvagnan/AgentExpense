@@ -27,7 +27,12 @@ from settings import Settings
 from dashboard_data import public_data
 from ledger_manifest import read_manifest
 from worker import Worker
+from transactions import BalanceRefusal
 from statements import Statements
+
+def error_detail(exc):
+    return getattr(exc, 'refusal', None) or str(exc)
+
 
 MAX_BYTES = 25 * 1024 * 1024
 MAX_FILES = 10
@@ -227,6 +232,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             raise HTTPException(409, f"Draft is {draft['state']}; expected {', '.join(states)}")
 
     def queue(draft, proposal=None):
+        draft.pop('refusal', None)
         draft.update(state='queued', queued_at=(draft.get('queued_at') or now()) if draft.get('usual_payment') else now(), error=None, waiting=None, proposal=proposal, answer_failures=0)
         drafts.put(draft)
         worker.wake.set()
@@ -305,7 +311,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from rules_service import operate
         try: return worker.call(lambda: operate(settings, identity, body, clock=agent_clock))
         except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
-            raise HTTPException(409, str(exc)) from exc
+            raise HTTPException(409, error_detail(exc)) from exc
 
     @app.post('/api/drafts/{identity}/usual')
     def usual_payment(identity: str, body: dict):
@@ -317,8 +323,11 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             if any(f['kind']=='statement' for f in interpret(settings,drafts,draft)['files']):
                 raise HTTPException(409,'Use Continue to read this statement before applying its rows')
             try: queue_usual(settings, drafts, draft, body)
+            except BalanceRefusal:
+                worker.wake.set()
+                return public(draft)
             except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
-                raise HTTPException(409, str(exc)) from exc
+                raise HTTPException(409, error_detail(exc)) from exc
             worker.wake.set()
             return public(draft)
 
@@ -332,14 +341,20 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def correct_entry(entry_id: str, operation_id: str, body: dict):
         from corrections import apply
         try: return worker.call(lambda: apply(settings,entry_id,operation_id,body,drafts=drafts))
-        except (ValueError,TypeError,KeyError,ArithmeticError) as exc: raise HTTPException(409,str(exc)) from exc
+        except (ValueError,TypeError,KeyError,ArithmeticError) as exc: raise HTTPException(409,error_detail(exc)) from exc
 
     @app.post('/api/drafts/{identity}/receipt-choice')
     def receipt_choice(identity: str, body: dict):
         from receipts import choose
         draft=get(identity)
         try: return public(worker.call(lambda: choose(settings,drafts,draft,body.get('choice'))))
-        except (ValueError,TypeError,KeyError,ArithmeticError,FileNotFoundError) as exc: raise HTTPException(409,str(exc)) from exc
+        except BalanceRefusal as exc:
+            with drafts.mutex:
+                latest=get(identity)
+                latest['receipt_reading']['refusal']=exc.refusal
+                drafts.put(latest)
+                return public(latest)
+        except (ValueError,TypeError,KeyError,ArithmeticError,FileNotFoundError) as exc: raise HTTPException(409,error_detail(exc)) from exc
 
     @app.get('/api/health')
     def health():
@@ -684,7 +699,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 raise HTTPException(409, 'The proposal changed; review it again')
             from transactions import Transaction
             try: prepared = Transaction(settings,drafts,draft).prepare(proposal)
-            except (ValueError, TypeError, ArithmeticError) as exc: raise HTTPException(409,str(exc))
+            except (ValueError, TypeError, ArithmeticError) as exc: raise HTTPException(409,error_detail(exc))
             draft['account_consent'] = dict(proposal_hash=prepared['proposal_hash'], accounts=prepared['new_roots'], method='create-and-add')
             draft.pop('account_question', None)
             draft['questions'][-1].update(answer='Create and add', answered_at=now())
@@ -724,12 +739,12 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         with drafts.mutex:
             draft=get(identity)
             try: drafts.require_claim(draft,body.get('claim_token',''))
-            except ValueError as exc: raise HTTPException(409,str(exc))
+            except ValueError as exc: raise HTTPException(409,error_detail(exc))
             proposal=draft.get('hand_form')
             if not proposal or body.get('proposal_hash') != proposal_hash(proposal):
                 raise HTTPException(409,'The form changed; check it again')
             checked=preview(settings,drafts,draft,proposal)
-            if not checked['ok']: raise HTTPException(422,checked['checks'][0])
+            if not checked['ok']: raise HTTPException(422,checked.get('refusal') or checked['checks'][0])
             accounts=body.get('approved_accounts',[])
             if not isinstance(accounts,list) or set(accounts)!=set(checked['new_accounts']):
                 raise HTTPException(409,'Tick every new account before adding')
@@ -740,6 +755,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             draft['account_consent']=dict(proposal_hash=checked['proposal_hash'],accounts=accounts,method='hand-ticks')
             draft.pop('account_question', None)
             draft.pop('currency_request', None)
+            draft.pop('refusal', None)
             # Retain the original FIFO position. Human proposals bypass agent pauses.
             draft.update(state='queued',queued_at=draft.get('queued_at') or now(),proposal=proposal,error=None,waiting=None)
             drafts.put(draft);worker.wake.set()
@@ -755,11 +771,33 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             drafts.release_claim(draft);drafts.put(draft);worker.wake.set()
             return public(draft)
 
+    @app.post('/api/drafts/{identity}/resolve-refusal')
+    def resolve_refusal(identity: str, body: dict):
+        with drafts.mutex:
+            draft = get(identity)
+            require(draft, 'failed')
+            if not draft.get('refusal'): raise HTTPException(409, 'This draft has no confirmed-balance refusal')
+            if body.get('action') == 'answer':
+                for key in ('usual_payment','usual_rule_hash','finished_by','account_consent'):
+                    draft.pop(key, None)
+                draft['proposal'] = None
+                draft['questions'].append(dict(question='Which account or date should be used instead?', answer=None, asked_at=now()))
+                draft['state'] = 'question'
+            elif body.get('action') == 'edit':
+                draft.update(state='editing', proposal=None, hand_form=None, error=None)
+                for key in ('usual_payment','usual_rule_hash','usual_request','finished_by','account_consent','intake_result'):
+                    draft.pop(key, None)
+                draft.pop('refusal', None)
+            else: raise HTTPException(422, 'Choose edit or answer')
+            drafts.put(draft)
+            return public(draft)
+
     @app.post('/api/drafts/{identity}/retry')
     def retry(identity: str):
         with drafts.mutex:
             draft = get(identity)
             require(draft, 'failed')
+            if draft.get('refusal'): raise HTTPException(409, 'Change the account or date, or answer the agent before sending this draft again')
             draft['check_errors'] = []
             return queue(draft, draft.get('proposal') if draft.get('usual_payment') else draft.get('hand_form') if draft.get('finished_by') else None)
 

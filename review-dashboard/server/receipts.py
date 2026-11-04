@@ -103,7 +103,7 @@ def choose(settings, drafts, draft, choice):
     body=dict(version=reading['version'],proposal=proposal,sources=before.get('sources',[]),reason='Receipt details',approved_accounts=[],receipt=dict(answer=answer,choice=choice,run=reading.get('run'),entry_totals=reading['entry_totals']))
     result=apply(settings,before['id'],reading['operation_id'],body,drafts=drafts,actor='receipt reader',trailer=f'Added-by: {settings.adapter}/{settings.model} (receipt details for {before["id"]})')
     # Fetch the latest draft so a failed response cannot erase a retained answer.
-    draft=drafts.get(draft['id'],include_discarded=True);draft['receipt_reading'].update(state='done',choice=choice,result=result,message='Receipt details saved.' if choice!='keep' else 'Entry kept. Receipt notes saved.')
+    draft=drafts.get(draft['id'],include_discarded=True);draft['receipt_reading'].pop('refusal',None);draft['receipt_reading'].update(state='done',choice=choice,result=result,message='Receipt details saved.' if choice!='keep' else 'Entry kept. Receipt notes saved.')
     draft['waiting']=None
     drafts.put(draft)
     return draft

@@ -582,3 +582,27 @@ It fetches those records explicitly, including applied statements omitted by nor
 queues. Result rows use the records' actual states. Undo uses the server's
 eligibility and expiry; `undo_checked_at` lets its 30-minute countdown tolerate a
 browser clock that differs from the server's. More never pauses that timer.
+
+### Statement-confirmed balances (6f A)
+
+All additions (usual, hand-finished and agent proposals) and replacements (including
+receipt choices) retain the final strict hledger check. `scripts/ledger/confirmed_balances.py`
+computes partial assertions directly from ordered store postings. A refused save
+returns `kind: confirmed_balance`, account/label, assertion date and entry ID,
+asserted/calculated/difference decimal amounts with their commodity, a structured
+statement or confirmed-balance source, nearby possible duplicates and diagnostic
+`detail`. The browser formats every financial date and amount. Correction-boundary
+refusals also name `restriction` (`locked_posting`, `date_window`, `same_day_order`).
+No override is offered. Words, proposals and attachments remain available.
+
+Failed agent drafts retain the same reason in their version-1 draft audit event.
+This refusal never triggers a repair run or a provider pause; Retry is refused.
+`POST /api/drafts/{id}/resolve-refusal` accepts `action: edit` (retain words/files in
+an editing draft) or `answer` (ask the owner for a changed account or date).
+Hand-form preview returns the structured reason alongside its failed checks.
+Correction forms expose `balance_locks` with posting indices and neighbouring
+assertion boundaries; the server recomputes them under the ledger lock. Locked
+postings keep amounts/accounts/currencies/costs, while description, category and
+notes stay editable. Dates must preserve their position between the assertions,
+including same-day order. Existing filed-card wording and membership locks remain.
+All built-in adapters share the confirmed-balance instruction in `agent.prompt_for`.

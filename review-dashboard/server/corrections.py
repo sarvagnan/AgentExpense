@@ -5,7 +5,7 @@ import re
 
 from transactions import Transaction, LedgerBusy, clean, refresh, evidence_paths
 from replacements import (entry_hash, require_version, replace_entry, statement_locked,
-                          check_documents, move_evidence, safe_evidence, correction_rules)
+                          correction_locks, check_documents, move_evidence, safe_evidence, correction_rules)
 from currency_settings import SettingsRecords
 from rules_service import policy, digest, rule_changes
 from ledger_lock import ledger_lock
@@ -39,8 +39,10 @@ def open_form(settings, drafts, entry_id):
         documents=load(settings.ledger)
         entry=next((e for e in entries(documents) if e['id']==entry_id),None)
         if not entry: raise ValueError('Unknown entry')
+        locks=correction_locks(documents,settings.ledger,entry)
+        card_member=bool(entry.get('statement-end') or any(documents[settings.ledger/'data/accounts.json']['accounts'].get(s['account'],{}).get('kind')=='card' and (s.get('assertion-id')==entry_id or any(m.get('entry-id')==entry_id for m in s.get('members',[]))) for s in documents[settings.ledger/'data/card-statements.json']))
         draft=drafts.create('')
-        draft.update(state='question',correction=dict(entry_id=entry_id,version=entry_hash(entry),before=deepcopy(entry),sources=entry.get('sources',[]),locked=statement_locked(documents,settings.ledger,entry)),hand_form=wire_entry(settings,entry),hand_reason='correction')
+        draft.update(state='question',correction=dict(entry_id=entry_id,version=entry_hash(entry),before=deepcopy(entry),sources=entry.get('sources',[]),locked=card_member,balance_locks=locks),hand_form=wire_entry(settings,entry),hand_reason='correction')
         drafts.put(draft)
         return draft
 
@@ -75,7 +77,7 @@ def prepare_replacement(settings, draft, editable, declarations):
     documents[root/'data/accounts.json']=declarations
     after=replace_entry(documents,root,before,after,expected=info['version'])
     rule_result=correction_rules(documents,root,before,after)
-    check_documents(documents,root)
+    check_documents(documents,root,candidate=after)
     return documents,before,after,rule_result
 
 

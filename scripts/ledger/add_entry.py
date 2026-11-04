@@ -46,6 +46,8 @@ def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
     checked = subprocess.run([hledger, '-f', '-', 'check', '-s', 'ordereddates'],
                              input='\n'.join(lines) + '\n', text=True, capture_output=True)
     if checked.returncode:
+        from confirmed_balances import raise_failure
+        raise_failure(documents, root, candidate=entry, detail=checked.stderr)
         raise ValueError('Proposed entry fails strict hledger validation:\n' + checked.stderr)
     # All input checks precede writes, including dry runs. Same-day order remains stable.
     if not dry_run:

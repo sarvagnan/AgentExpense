@@ -228,7 +228,7 @@ def prompt_for(settings, draft, folder, work):
               + f"Pieces: {json.dumps(draft.get('pieces'), ensure_ascii=False)}\nAttachments:\n"
               + '\n'.join(lines) + '\n\n' + '\n\n'.join(texts)
               + '\n\n# Earlier questions and answers\n' + json.dumps(draft['questions'], ensure_ascii=False)
-              + '\n\n# Server check failures to correct\n' + json.dumps(draft.get('check_errors', []), ensure_ascii=False))
+              + '\n\n# Server check failures to correct\nA statement-confirmed balance cannot be overridden. Never retry the same refused amount, account or date or try to bypass the check. Ask the owner to resolve the account or date.\n' + json.dumps(draft.get('check_errors', []), ensure_ascii=False))
     return prompt, images
 
 

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, mkdtempSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readdir, symlink } from 'node:fs/promises';
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,9 @@ export function temporaryPath(path) {
   return target;
 }
 
-export const testArtifacts = temporaryPath(process.env.EXPENSES_TEST_TMP || '/tmp/expense-dashboard-tests');
+const ownRoot=!process.env.EXPENSES_TEST_TMP;
+export const testArtifacts = temporaryPath(process.env.EXPENSES_TEST_TMP || mkdtempSync('/tmp/expense-dashboard-tests-'));
+if(ownRoot)process.once('exit',()=>rmSync(testArtifacts,{recursive:true,force:true}));
 mkdirSync(testArtifacts, { recursive: true });
 function cachePath(name, fallback) {
   // npm may inject its ordinary home cache into lifecycle scripts. Redirect it;
@@ -44,7 +46,13 @@ Object.assign(process.env, {
 });
 
 export const artifactPath = name => temporaryPath(join(testArtifacts, name));
-export const temporaryDirectory = prefix => mkdtemp(artifactPath(prefix));
+const ownedDirectories = new Set();
+export const temporaryDirectory = async prefix => {
+  const folder = await mkdtemp(artifactPath(prefix));
+  ownedDirectories.add(folder);
+  return folder;
+};
+process.once('exit', () => {for (const folder of ownedDirectories) rmSync(folder,{recursive:true,force:true});});
 
 export function snapshotData(application = sourceApplication) {
   const files = new Map();

@@ -85,7 +85,7 @@ upgrade-ledger:
 
 personas:
 	@node --version
-	@set -e; output=$$(mktemp -d /tmp/expense-personas-data-XXXXXX); for persona in fixtures/ledgers/*; do \
+	@set -e; output=$$(mktemp -d /tmp/expense-personas-data-XXXXXX); trap 'rm -rf "$$output"' EXIT HUP INT TERM; for persona in fixtures/ledgers/*; do \
 	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) dashboard test-server; \
 	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" npm --prefix review-dashboard test; \
 	  DASHBOARD_DATA_DIR="$$output/$${persona##*/}" LEDGER_DIR="$(CURDIR)/$$persona" $(MAKE) test-scanner; \

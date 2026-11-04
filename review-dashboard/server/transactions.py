@@ -21,6 +21,7 @@ from settings import APPLICATION
 
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
+from confirmed_balances import BalanceRefusal
 from store import dump, load, store_paths
 from ledger_manifest import read_manifest, module_settings
 from account_metadata import infer_kind, is_balance_sheet
@@ -159,6 +160,8 @@ def check(entry, declarations, root):
         candidate = {k: v for k, v in entry.items() if k != 'sources'}
         try:
             add_entry(candidate, root=fixture, dry_run=True)
+        except BalanceRefusal:
+            raise
         except (ValueError, TypeError, KeyError) as exc:
             raise ProposalError(str(exc)) from exc
 

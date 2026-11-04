@@ -7,7 +7,7 @@ import json
 import re
 import secrets
 
-from transactions import Transaction, clean, jj, refresh
+from transactions import BalanceRefusal, Transaction, clean, jj, refresh
 from currency_settings import SettingsRecords
 from store import load, entries, dump, validate, store_paths, new_id
 from recurring import (active, advance, candidate, detect, identity, main_postings,
@@ -157,6 +157,7 @@ def queue_usual(settings, drafts, draft, body):
     for key in ('update_rule','remember_account','another_anyway'):
         if key in body and type(body[key]) is not bool: raise ValueError(key+' must be boolean')
     request_hash=digest(body)
+    if draft.get('refusal'): raise ValueError('Change the account or date before resubmitting this refused payment')
     if draft.get('usual_payment'):
         if draft['usual_payment']['request_hash']!=request_hash: raise ValueError('This draft already has a different usual payment')
         if draft['state']=='failed' and draft.get('proposal'):
@@ -172,7 +173,16 @@ def queue_usual(settings, drafts, draft, body):
     day=body.get('date') or (draft.get('pieces') or {}).get('fields',{}).get('date',{}).get('value') or (context or draft)['client_time'][:10]
     if not isinstance(day,str) or date.fromisoformat(day).isoformat()!=day: raise ValueError('Choose a calendar payment date')
     proposal,estimated=wire_proposal(rule,day,[f['original_name'].rsplit('.',1)[0] for f in draft['files']],settings.ledger,body)
-    Transaction(settings,drafts,draft).prepare(proposal)
+    try:
+        Transaction(settings,drafts,draft).prepare(proposal)
+    except BalanceRefusal as exc:
+        if draft.get('saved_at') is None: drafts.save_time(draft,body.get('client_time'),body.get('client_zone'))
+        draft.update(state='failed',refusal=exc.refusal,error=str(exc),last_proposal=proposal,proposal=None)
+        draft['check_errors'].append(str(exc))
+        from outcomes import queue_outcome
+        queue_outcome(draft,'failed')
+        drafts.put(draft)
+        raise
     period=period_for(rule,day)
     ignored=ignored_entries(records(settings.ledger))
     already=[e for e in entries(documents) if e['id'] not in ignored and e.get('rule')==dict(id=rule['id'],occurrence=period)]

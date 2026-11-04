@@ -7,7 +7,7 @@ import agent
 from daily_refresh import DailyRefresh
 from outcomes import queue_outcome, OutcomeTransaction
 from agent import now
-from transactions import Transaction, AccountError, ProposalError, LedgerBusy, clean, ledger_lock, refresh
+from transactions import BalanceRefusal, Transaction, AccountError, ProposalError, LedgerBusy, clean, ledger_lock, refresh
 
 
 class Worker:
@@ -157,6 +157,8 @@ class Worker:
                     draft.update(state='queued', error=None, waiting=None)
                     self.drafts.put(draft)
                     continue
+                if isinstance(exc, BalanceRefusal):
+                    draft['refusal'] = exc.refusal
                 draft.update(state='failed', error=str(exc), waiting=None)
                 queue_outcome(draft, 'failed')
                 self.drafts.put(draft)
@@ -282,6 +284,11 @@ class Worker:
                 if draft['waiting']:
                     self.stop_event.wait(self.retry_interval)
                     continue
+            except BalanceRefusal as exc:
+                draft['refusal'] = exc.refusal
+                draft['check_errors'].append(str(exc))
+                if draft['runs']: draft['runs'][-1].update(outcome='check_failed', error=str(exc))
+                raise
             except AccountError as exc:
                 draft.update(state='question', last_proposal=answer, proposal=None)
                 from store import load

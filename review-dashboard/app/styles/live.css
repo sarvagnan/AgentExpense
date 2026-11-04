@@ -413,3 +413,11 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 html:has(.add-page){overflow-anchor:none}
 /* Keep hidden announcements out of the grid's implicit positioning area. */
 .navigation-status{position:fixed;top:0;left:0}
+
+.balance-refusal { margin-block: 16px; }
+.balance-refusal > div { min-width: 0; width: 100%; }
+.balance-refusal pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.balance-refusal .facts dd { font-variant-numeric: tabular-nums; }
+.hand-finish .hand-fields label > .live-hint { display: block; margin-top: 6px; }
+
+.hand-posting[data-balance-locked="true"] input[readonly] { background: var(--surface-sunken); color: var(--text-secondary); opacity: 1; }
