@@ -1,7 +1,7 @@
 import { moduleSettings } from '../../scripts/ledger-modules.mjs';
 import { money, currencySymbol, moneySettings } from '../../scripts/formatting.mjs';
 import type { Accounts } from '../account-metadata';
-import { localDate } from '../../scripts/date-time.mjs';
+import { formatCalendarDate, localDate } from '../../scripts/date-time.mjs';
 import { accountLabel, paymentAccounts } from '../../scripts/account-metadata.mjs';
 /** Pure sentence builder. Values are suggestions for the draft agent, never ledger writes. */
 export type Source = 'typed' | 'usual' | 'agent' | 'missing';
@@ -110,6 +110,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   for (const [key, piece] of Object.entries(fields)) if (piece.value) {
     piece.shown = key === 'amount' ? fields.currency.value ? money(Number(piece.value), fields.currency.value) : piece.value
       : key === 'charged' && payments[fields.pay?.value]?.currency ? money(Number(piece.value), payments[fields.pay.value].currency) : key === 'litres' ? `${piece.value} L` : key === 'km' ? `${piece.value} km` : key === 'pay' ? payLabel(piece.value, payments) : piece.value;
+    if (key === 'date') piece.shown = formatCalendarDate(piece.value);
     if (key === 'category' && piece.source === 'usual') piece.shown = merchant?.category || piece.value;
     if (key === 'date' && piece.source === 'usual' && piece.value === today) piece.shown = 'today';
   }

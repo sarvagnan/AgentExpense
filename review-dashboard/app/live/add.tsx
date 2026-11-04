@@ -23,7 +23,7 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
  const bank=Object.values(dashboard.meta.accounts).find(m=>m.kind==='bank');
  const examples=[`Copper Finch Café, ${money(18.60,currency)}, ${account?.label||'cash'}`,`Bus to work, ${money(2.75,currency)}, cash`,`${bank?.label||'Bank'} statement for ${new Intl.DateTimeFormat(dashboard.meta.ledger.locale||navigator.language,{month:'long'}).format(new Date())}`];
  const [removeErrors,setRemoveErrors]=useState<Record<string,string>>({}),[dragging,setDragging]=useState(false),[showExamples,setShowExamples]=useState(false);
- const input=useRef<HTMLTextAreaElement>(null),picker=useRef<HTMLInputElement>(null);
+ const page=useRef<HTMLElement>(null),input=useRef<HTMLTextAreaElement>(null),picker=useRef<HTMLInputElement>(null);
  const rows=useAddResults(live),current={current:form};
  const busyFiles=pending.some(p=>p.busy),files=c.interpretation.value?.files||[];
  const statement=(c.interpretation.value?.words||statementWords(form.text)).kind==='statement';
@@ -35,12 +35,20 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
  async function resolveRefusal(action:'edit'|'keep'|'discard'){if(!refused)return;try{if(action==='discard'){await live.discard(refused.id);c.forgetDiscarded(refused.id);}else{await api.resolveRefusal(refused.id,'edit');if(action==='edit')await c.restore(refused.id);}await live.refresh();}catch(e){setRefusalError((e as Error).message);}}
  const latest=rows[0],barResult=latest?(latest.type==='draft'?draftStatus(latest.value as Draft):statementStatus(latest.value as StatementSession)):'';
  const empty=!form.text&&!draft?.files.length&&!pending.length;
+ // A shorter background result must not clamp scrollY and move the composer
+ // under the pointer. Release the extra reach as the person scrolls back up.
+ useEffect(()=>{
+  const preserveScroll=()=>{const node=page.current;if(node){const top=node.getBoundingClientRect().top+window.scrollY;node.style.minHeight=`${Math.max(0,window.scrollY+window.innerHeight-top)}px`;}};
+  preserveScroll();window.addEventListener('scroll',preserveScroll,{passive:true});window.addEventListener('resize',preserveScroll);
+  return()=>{window.removeEventListener('scroll',preserveScroll);window.removeEventListener('resize',preserveScroll);};
+ },[]);
+ useEffect(()=>{if(empty)page.current?.style.removeProperty('min-height');},[empty]);
  useEffect(()=>{void c.restore(new URLSearchParams(window.location.search).get('draft'));},[]);
  useEffect(()=>{if(c.lastSavedId&&!saving)input.current?.focus({preventScroll:true});},[c.lastSavedId,saving]);
  async function remove(file:Attachment){setRemoveErrors(xs=>({...xs,[file.id]:''}));try{await c.remove(file);}catch(e){setRemoveErrors(xs=>({...xs,[file.id]:`Could not remove this file. ${(e as Error).message}`}));}}
  async function save(){if(await c.save())input.current?.focus({preventScroll:true});}
  function chooseExample(example:string){setShowExamples(false);update({...form,text:example,edits:{}});requestAnimationFrame(()=>input.current?.focus({preventScroll:true}));}
- return <section className={`page live-page add-page ${dragging?'is-dragging':''}`} onDragEnter={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true);}}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragging(false);}} onDragOver={e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();}} onDrop={e=>{setDragging(false);if(e.dataTransfer.files.length){e.preventDefault();pick(Array.from(e.dataTransfer.files));}}} onPaste={e=>{const files=Array.from(e.clipboardData.files);if(files.length){e.preventDefault();pick(files);}}}>
+ return <section ref={page} className={`page live-page add-page ${dragging?'is-dragging':''}`} onDragEnter={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true);}}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragging(false);}} onDragOver={e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();}} onDrop={e=>{setDragging(false);if(e.dataTransfer.files.length){e.preventDefault();pick(Array.from(e.dataTransfer.files));}}} onPaste={e=>{const files=Array.from(e.clipboardData.files);if(files.length){e.preventDefault();pick(files);}}}>
  <PageHeader title="Add" subtitle="Expenses, receipts and statements. Start with what you have."/>
  {live.online===false&&<aside className="live-notice add-blocking-notice" role="status"><Icon name="alert"/><div><strong>You're offline</strong><p>Your words and files stay here. Reconnect to continue.</p><button className="button" onClick={()=>void live.refresh()}>Check connection</button></div></aside>}
  {live.online!==false&&blockedAgent&&<aside className="agent-notice add-blocking-notice" role="status" data-agent-state={live.agent.agent_pause?'outage':live.agent.state}><Icon name="alert"/><div><strong>{live.agent.state==='signed out'||live.agent.agent_pause?.kind==='auth'?"The agent isn't signed in.":'The agent is paused.'}</strong><p>{live.agent.agent_pause?`Resumes at ${formatTimestamp(live.agent.agent_pause.resumes_at)}.`:live.agent.state==='signed out'?`Run ${live.agent.login_command||'make agent-login'} on the computer running AgentExpense.`:live.agent.reason}</p><p>Statements read by the built-in reader still work.</p></div></aside>}

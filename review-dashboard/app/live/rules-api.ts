@@ -15,12 +15,12 @@ export const rulesApi={
 };
 export function useRules(online:boolean|null) {
   const [data,setData]=useState<RuleData>({rules:[],suggestions:[]}),[error,setError]=useState(''),[ready,setReady]=useState(false);
-  const receivedLive=useRef(false);
-  const refresh=useCallback(async()=>{if(online!==true)return;try{const value=await rulesApi.list();receivedLive.current=true;setData(value);setError('');setReady(true);}catch(e){setError((e as Error).message);setReady(false);}},[online]);
+  const receivedLive=useRef(false),generation=useRef(0);
+  const refresh=useCallback(async()=>{if(online!==true)return;const run=++generation.current;try{const value=await rulesApi.list();if(run!==generation.current)return;receivedLive.current=true;setData(value);setError('');setReady(true);}catch(e){if(run===generation.current){setError((e as Error).message);setReady(false);}}},[online]);
   useEffect(()=>{void refresh();},[refresh]);
   // The built snapshot belongs to this mount; connection changes refresh only live data.
   useEffect(()=>{let alive=true;void fetchGzipJson<{rules?:Rule[]}>('add-patterns').then(value=>{if(alive&&!receivedLive.current)setData(old=>({...old,rules:value.rules||[]}));},()=>{});return()=>{alive=false;};},[]);
-  useEffect(()=>{if(online!==true){setReady(false);return;}const run=()=>void refresh();window.addEventListener('drafts-changed',run);const timer=setInterval(run,30000);return()=>{window.removeEventListener('drafts-changed',run);clearInterval(timer);};},[online,refresh]);
+  useEffect(()=>{if(online!==true){setReady(false);return;}const run=()=>void refresh();window.addEventListener('drafts-changed',run);const timer=setInterval(run,30000);return()=>{generation.current++;window.removeEventListener('drafts-changed',run);clearInterval(timer);};},[online,refresh]);
   return {data,error,ready,refresh};
 }
 /** Preserve operation identity after an uncertain response; a changed payload gets a new identity. */

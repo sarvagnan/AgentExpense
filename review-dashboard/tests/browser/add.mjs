@@ -1,5 +1,7 @@
 // Revision-3 Add: production UI and routing, offline fakes and disposable ledgers.
 import assert from 'node:assert/strict';
+import {runAddTiming,holdAddResponse} from './add-timing.mjs';
+import {runAddPolish} from './add-polish.mjs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 export async function runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}){
@@ -37,10 +39,14 @@ export async function runAdd({page,base,persona,engine,theme,width,height,stage,
   await visibleAboveBar(receiptRow.getByRole('button',{name:'Use the receipt'}));await visibleAboveBar(receiptRow.getByRole('button',{name:'Keep the entry'}));await shots('receipt-question');
   await words.fill('Lunch 14 cash');await expect(understood).toBeVisible();await visibleAboveBar(receiptRow.getByRole('button',{name:'Use the receipt'}));await visibleAboveBar(receiptRow.getByRole('button',{name:'Keep the entry'}));
   await receiptRow.getByRole('button',{name:'More'}).click();await visibleAboveBar(receiptRow.getByRole('button',{name:'Use the receipt'}));await visibleAboveBar(receiptRow.getByRole('button',{name:'Keep the entry'}));await shots('receipt-more');
-  const [choiceResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/receipt-choice')&&r.request().method()==='POST',{timeout:180000}),receiptRow.getByRole('button',{name:answer==='keep'?'Keep the entry':'Use the receipt'}).click()]);assert.ok(choiceResponse.ok(),await choiceResponse.text());
-  await expect.poll(async()=>(await get('drafts/'+added.id)).receipt_reading.state,{timeout:180000}).toBe('done');await expect(receiptRow).toContainText(answer==='keep'?'Entry kept':'Receipt');await expect(words).toHaveValue('Lunch 14 cash');
+  const choice=await holdAddResponse(page,base+'api/drafts/'+added.id+'/receipt-choice','POST');
+  try{
+   await receiptRow.getByRole('button',{name:answer==='keep'?'Keep the entry':'Use the receipt'}).click();await choice.ready;
+   await words.fill('Lunch 16 cash');const target=page.getByRole('button',{name:'Upload',exact:true});await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));await target.hover();const before=await target.boundingBox(),beforeLayout=await target.evaluate(n=>({y:n.getBoundingClientRect().y,scrollY,height:document.documentElement.scrollHeight,content:document.querySelector('.just-added').getBoundingClientRect().height}));await choice.release();
+   await expect.poll(async()=>(await get('drafts/'+added.id)).receipt_reading.state,{timeout:180000}).toBe('done');await expect(receiptRow).toContainText(answer==='keep'?'Entry kept':'Receipt');await expect(words).toHaveValue('Lunch 16 cash');await expect(target).toBeEnabled();const after=await target.boundingBox();const afterLayout=await target.evaluate(n=>({y:n.getBoundingClientRect().y,scrollY,height:document.documentElement.scrollHeight,content:document.querySelector('.just-added').getBoundingClientRect().height}));assert.equal(after.y,before.y,JSON.stringify({beforeLayout,afterLayout}));assert.equal(after.x,before.x);
+  }finally{await choice.release();}
  }
- record('6e entry link stays visible with More open and both receipt choices above phone bar with and without interpretation');
+ record('6e entry link stays visible with More open and both held receipt choices preserve newer words and Upload target above phone bar');
  await quiesce();await control('reset-workflows',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});let config=await control('scenario',{mode:'question'});await go('add/');await words.fill('Question for this payment');await button.click();await expect(words).toBeFocused();await expect(words).toHaveValue('');await expect(list).toContainText('Needs an answer',{timeout:180000});
  // Words-only statement detection must keep Continue blocked until a file arrives.
  await words.fill('bank statement for October');await expect(understood).toContainText('Attach the statement file');await expect(button).toBeDisabled();await words.fill('');
@@ -64,5 +70,7 @@ export async function runAdd({page,base,persona,engine,theme,width,height,stage,
  await page.getByLabel('Upload files',{exact:true}).setInputFiles([{name:'Statement.csv',mimeType:'text/csv',buffer:csv},{name:'Unreadable.csv',mimeType:'text/csv',buffer:Buffer.from('Unmapped\nwrong\n')},{name:'Fictional-receipt.png',mimeType:'image/png',buffer:receipt}]);await expect(page.locator('.pending-upload')).toHaveCount(0);await expect(page.locator('.file-interpretation')).toHaveCount(3);await shots('multi-files');await button.click();
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name==='Unreadable.csv')?.state,{timeout:30000}).toBe('couldnt_read');await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name==='Statement.csv')?.state,{timeout:30000}).toBe('found');await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text==='Lunch 18.60 with receipt')?.state,{timeout:180000}).toBe('added');await refresh();await expect(page.locator('.just-added-row')).toHaveCount(3);
  record('6e several files produce separate statement and receipt-expense drafts while a failed read leaves the others running');
+ await runAddTiming({page,base,stage,persona,expect,control,go,refresh,record,quiesce,resetDrafts});
+ await runAddPolish({page,persona,expect,control,go,snap,record,quiesce,resetDrafts});
  await overflow('6e Add');await quiesce();await control('reset-workflows',{});await resetDrafts({persona,empty:true});
 }

@@ -45,11 +45,12 @@ export function useComposer(active:boolean){
     if(savingRef.current)return;
     if(syncing.current)return syncing.current;
     if(!current.current.id && !current.current.text.trim())return;
+    const run=generation.current;
     syncing.current=(async()=>{try{
       const d=await ensureDraft();if(d.trashed_at){forgetDiscarded(d.id);return;}if(d.state!=='editing')return;
       let copy:Recovery;
       do{copy=current.current;const saved=await api.edit(d.id,copy.text,draftPieces(buildSentence(copy.text,{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},copy.edits,!!d.files.length),copy.edits),copy.updatedAt||0,copy.declined_rules);if(isRemoved(d.id)||current.current.id!==d.id)return;if(saved.declined_rules?.some(id=>!current.current.declined_rules?.includes(id)))update({...current.current,declined_rules:saved.declined_rules});setSynced(fingerprint(copy));setSyncError('');setDraft(old=>old?.id===saved.id?{...saved,files:old.files}:saved);}while(fingerprint(copy)!==fingerprint(current.current) && !savingRef.current);
-    }catch(e){if((e as Error).name!=='AbortError')setSyncError(`Could not save to Queue. ${(e as Error).message}`);}finally{syncing.current=null;}})();
+    }catch(e){if(run===generation.current&&(e as Error).name!=='AbortError')setSyncError(`Could not save to Queue. ${(e as Error).message}`);}finally{syncing.current=null;}})();
     return syncing.current;
   }
   useEffect(()=>{if(recovering||saving)return;const timer=setTimeout(()=>void sync(),350);return()=>clearTimeout(timer);},[form.text,form.edits,form.id,form.declined_rules,patterns,recovering,saving]);
@@ -109,12 +110,12 @@ export function useComposer(active:boolean){
           rememberResults([...result.statements.map(s=>({id:s.id,type:'statement' as const})),...result.drafts.map(x=>({id:x.id,type:'draft' as const}))].reverse());
           setPasswords({});
         }else {await api.save(d.id);rememberResults([{id:d.id,type:'draft'}]);}}else if(usual && usualRetry.current?.id===d.id){await saveUsual(d.id,usualRetry.current.body);}else throw Error('This item has already been sent. Open Queue to see it.');if(usual)rememberResults([{id:d.id,type:'draft'}]);update(blank());setDraft(null);setPasswords({});changeUploads(()=>[]);setSynced('');setLastSavedId(d.id);setSuccess(usual?.bill_only?'Saved. Recording your unpaid bill.':usual?'Saved. Adding your usual payment.':'Saved. The agent is working on it in Queue.');draftsChanged();announce('Saved to Queue. Ready for the next expense.');return true;}
-    catch(e){if(e instanceof ApiError&&e.refusal)draftsChanged();setError(`Could not save. ${(e as Error).message}`);return false;}
+    catch(e){if(e instanceof ApiError&&e.refusal)draftsChanged();else setError(`Could not save. ${(e as Error).message}`);return false;}
     finally{savingRef.current=false;setSaving(false);}
   }
   const serverSaved=!!form.id&&fingerprint(form)===synced;
   useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if((!localOK&&!serverSaved&&!!form.text)||pending.some(p=>p.busy)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[localOK,serverSaved,form.text,pending]);
-  function forgetDiscarded(id:string){if(current.current.id!==id)return;generation.current++;fileRequest.current++;update(blank());setDraft(null);setPasswords({});setError('');setSyncError('');setSynced('');}
+  function forgetDiscarded(id:string){if(current.current.id!==id)return;generation.current++;fileRequest.current++;setRecovering(false);update(blank());setDraft(null);setPasswords({});setError('');setSyncError('');setSynced('');}
   function retryStorage(){persist();void sync();}
   return {ruleDecisionNeeded,setRuleDecisionNeeded,form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,forgetDiscarded,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};
 }

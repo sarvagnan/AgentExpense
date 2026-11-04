@@ -413,6 +413,7 @@ html:has(.add-page){overflow-anchor:none}
 .balance-refusal { margin-block: 16px; }
 .balance-refusal > div { min-width: 0; width: 100%; }
 .balance-refusal pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.balance-refusal section { margin-top: var(--space-4); }
 .balance-refusal .facts dd { font-variant-numeric: tabular-nums; }
 .hand-finish .hand-fields label > .live-hint { display: block; margin-top: 6px; }
 

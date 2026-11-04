@@ -3,6 +3,7 @@ import {runRetentionTiming} from './retention-timing.mjs';
 import {runVarying} from './varying.mjs';
 import {runConfirmedBalances} from './confirmed-balances.mjs';
 import {runAdd} from './add.mjs';
+import {runAddPolish} from './add-polish.mjs';
 import {runCorrections} from './corrections.mjs';
 import {runRules} from './rules.mjs';
 import {runFinish} from './finish.mjs';
@@ -115,6 +116,10 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await timed('runReaderWorkflows',()=>runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='add-polish') {
+        await runAddPolish({page,persona,expect,control,go,snap,record,quiesce,resetDrafts});
+        assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='add') {
         await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
