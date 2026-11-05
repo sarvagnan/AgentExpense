@@ -221,13 +221,14 @@ demo:
 	@uv run --locked --offline --directory review-dashboard/server python ../../scripts/setup/demo.py $(if $(PERSONA),--persona "$(PERSONA)") $(if $(PORT),--port "$(PORT)") $(if $(SMOKE),--smoke)
 
 # The server for the selected ledger on 127.0.0.1:$EXPENSES_PORT (default 8701), serving the
-# dashboard that make build-dashboard built. This machine's own writes are allowed unless
-# EXPENSES_DEV=0; see docs/deploy/local.md.
+# dashboard that make build-dashboard built under /expenses/ (the build's base path).
+# This machine's own writes are allowed unless EXPENSES_DEV=0; see docs/deploy/local.md.
 .PHONY: serve
 serve:
 	@test -f "$(LEDGER_DIR)/ledger.json" || (echo "No ledger at $(LEDGER_DIR); set LEDGER_DIR to your ledger." >&2; exit 2)
 	@test -f review-dashboard/dist/index.html || (echo "No dashboard build; run make build-dashboard first." >&2; exit 2)
-	EXPENSES_DEV="$${EXPENSES_DEV-1}" uv run --locked --offline --directory review-dashboard/server python app.py
+	@echo "Open http://127.0.0.1:$${EXPENSES_PORT-8701}$${EXPENSES_BASE_PATH-/expenses/} (Ctrl-C stops the server)."
+	EXPENSES_DEV="$${EXPENSES_DEV-1}" EXPENSES_BASE_PATH="$${EXPENSES_BASE_PATH-/expenses/}" uv run --locked --offline --directory review-dashboard/server python app.py
 
 # Whatever the selected ledger keeps in checks/: unittest files and executable scripts.
 private-checks:

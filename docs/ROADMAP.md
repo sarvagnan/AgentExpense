@@ -22,7 +22,7 @@ with its checks passing for every fixture ledger.
 | 7 | Statements | Reader interface, generic CSV and spreadsheet readers, bank statement summaries, unknown formats read by the agent and checked by code, `startDate` | Fictional statements pass in every persona | Done |
 | 8 | Releases | `VERSION`, `CHANGELOG.md`, `make doctor`, `make update`, CI | An update between tagged releases, with a migration, works and rolls back | Done (publishing waits for the owner) |
 | 8a | Checks and generated data | Saves run only the data checks (`make verify-data`); code tests stay in `make verify` and `make dashboard`; generated dashboard data records the ledger it came from, `DASHBOARD_DATA_DIR` chooses where it goes, and a build refuses to replace another ledger's data without `DASHBOARD_DATA_REPLACE=1` | Saves skip the code tests, and switching ledgers never overwrites another ledger's data | Done |
-| 9 | Setup | `SETUP.md`, ledger template, demo, first-run screens and both paths, deployment examples | A fresh agent session sets up a ledger from nothing using only the docs | Planned |
+| 9 | Setup | `SETUP.md`, ledger template, demo, first-run screens and both paths, deployment examples | A fresh agent session sets up a ledger from nothing using only the docs | Done |
 
 ## Principles
 

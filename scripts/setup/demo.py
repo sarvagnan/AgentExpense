@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import socket
@@ -18,6 +19,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
 APPLICATION = Path(__file__).resolve().parents[2]
@@ -30,6 +33,7 @@ SKIPPED = {'.git', '.jj', '.venv', 'node_modules', 'dist', '__pycache__', '.sour
 POLL = 0.2               # seconds between health requests while waiting
 START_SECONDS = 60       # the server answers its health check within this
 AGENT_CHECK_SECONDS = 60  # the background agent check settles within this
+BASE_PATH = '/expenses/'  # the dashboard build loads its files from here (`base` in vite.config.ts)
 DEMO_QUESTION = ('This is the demo: no agent model runs here, so nothing reads your words or files and this item '
                  'stays unfinished. Discard it from the Queue when you are done looking. With your own ledger, the '
                  'agent you choose during setup reads items like this one.')
@@ -77,7 +81,7 @@ class Demo:
                 'EXPENSES_STATE_DIR': str(self.root / 'state'), 'EXPENSES_CODEX_HOME': str(self.root / 'agent-home'),
                 'EXPENSES_AGENT': 'codex', 'EXPENSES_CODEX': str(self.root / 'fake-agent'),
                 'EXPENSES_FAKE_CONFIG': str(self.root / 'fake.json'), 'EXPENSES_DEV': '1',
-                'EXPENSES_BASE_PATH': '/', 'EXPENSES_PORT': str(self.port), 'EXPENSES_AGENT_TIMEOUT': '30',
+                'EXPENSES_BASE_PATH': BASE_PATH, 'EXPENSES_PORT': str(self.port), 'EXPENSES_AGENT_TIMEOUT': '30',
                 'JJ_CONFIG': str(jj_config), 'PYTHONDONTWRITEBYTECODE': '1', 'UV_OFFLINE': '1',
                 'npm_config_update_notifier': 'false', 'npm_config_cache': str(self.root / 'npm-cache'),
                 'NODE_COMPILE_CACHE': str(self.root / 'node-cache'), 'TMPDIR': str(self.root / 'tmp')}
@@ -155,7 +159,7 @@ class Demo:
 
     @property
     def url(self):
-        return f'http://127.0.0.1:{self.port}/'
+        return f'http://127.0.0.1:{self.port}{BASE_PATH}'
 
     def stop(self):
         if self.server and self.server.poll() is None:
@@ -176,6 +180,19 @@ def smoke(demo):
         page = response.read().decode()
     if response.status != 200 or 'id="root"' not in page:
         raise RuntimeError('The demo page did not load.')
+    # The page stays blank unless its scripts and styles load too.
+    assets = re.findall(r'(?:src|href)="([^"]+\.(?:js|css))"', page)
+    if not assets:
+        raise RuntimeError('The demo page names no scripts or styles.')
+    for asset in assets:
+        try:
+            with urllib.request.urlopen(urllib.parse.urljoin(demo.url, asset), timeout=10) as response:
+                if response.status != 200:
+                    raise OSError(f'status {response.status}')
+        except OSError as exc:
+            if isinstance(exc, urllib.error.HTTPError):
+                exc.close()
+            raise RuntimeError(f'The demo page could not load {asset} ({exc}).') from exc
     # The agent check runs in the background after start; wait for its result.
     deadline = time.monotonic() + AGENT_CHECK_SECONDS
     while True:

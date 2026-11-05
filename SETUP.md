@@ -21,7 +21,8 @@ amount comes from the person.
     The server keeps them in memory and never stores them. Never ask for a password
     in chat, and never put one in a file, a command or an environment variable;
   - agreeing before anything uses the network (`fnm install`, `make install`) or
-    runs a model (`make agent-check LIVE=1`);
+    runs a model (`make agent-check LIVE=1`, and the first `make serve` after they
+    sign in: see step 6);
   - choosing whether the dashboard is reachable from other devices.
 - Run every command from the **application root**. After step 2, pass the ledger as
   an absolute path in `LEDGER_DIR` on every command (`export` it if your shell keeps
@@ -47,9 +48,22 @@ fnm install "$(cat .node-version)"   # the pinned Node
 make install                         # dashboard and server packages from the lockfiles
 ```
 
+`make install` runs both of the fixes `make doctor` prints for missing packages
+(`npm --prefix review-dashboard ci` and `uv sync --locked --directory review-dashboard/server`).
 Install missing tools (Python, uv, hledger, jj) with the person's usual package
-manager. Run `make doctor` again until it ends with `Ready.` Before setup, the Ledger
-row says no ledger is selected; that is expected.
+manager. Jujutsu (jj) is required even when git is installed: `make commit` and the
+dashboard save through it. Run `make doctor` again until it ends with `Ready.` Before
+setup, the Ledger row says no ledger is selected; that is expected.
+
+The ledger commands (`make new-ledger`, `make verify-data`, `make commit`) run
+`uv run --with jsonschema`, which may ask the package index for `jsonschema`. Once
+`make install` has run, `export UV_OFFLINE=1` keeps them offline for the rest of the
+setup; without it, include them when you ask about the network.
+
+Ledger commits carry the jj user name and email. Check them with
+`jj config get user.name` and `jj config get user.email`; if either prints nothing, ask
+the person what to use and set it with `jj config set --user user.name "…"` (and
+`user.email`). Otherwise every commit is saved with an empty author.
 
 Optionally show the person the app first, on a fictional ledger:
 
@@ -87,7 +101,8 @@ This copies [`templates/ledger/`](templates/ledger/README.md), fills in `ledger.
 first commit in a new Jujutsu (jj) repository colocated with git, so git commands
 work on it too. With `VCS=git` it makes a plain git repository instead; the dashboard
 and `make commit` save through jj, so then run `jj git init --colocate "$LEDGER_DIR"`
-before the first save. The ledger's `README.md` explains its layout.
+before the first save (`make doctor` does not check this). The ledger's `README.md`
+explains its layout.
 
 ## 3. Accounts
 
@@ -133,10 +148,24 @@ Commit the accounts:
 make commit m="Add accounts"
 ```
 
-The person can do this step and the next in the dashboard instead: a ledger with no
-accounts opens the first-run screens (About you, How to start, then either their
-accounts and today's balances or their past statement files), and those screens save
-through the same code and checks as these commands. Start the server first (step 7).
+**Or in the dashboard.** The person can do this step and the next in the dashboard
+instead: a ledger with no accounts opens the first-run screens (About you, How to
+start, then either their accounts and today's balances or their past statement
+files), and those screens save through the same code and checks as these commands.
+In that case:
+
+1. Run step 7 now (`make verify-data`, `make build-dashboard`, `make serve`) and
+   have the person open the address it prints and go through the screens.
+2. The screens ask only each account's kind, name, currency and balance, and always
+   use today's date. Afterwards, add what they leave out by editing the ledger's
+   `data/accounts.json`: `aliases` (lower-case words) and, for a bank or card
+   account, `"statement": {"reader": "…", "identifier": "…"}` (fields as in
+   [docs/READERS.md](docs/READERS.md)). `make add-account` refuses an account that
+   already exists. Commit with `make commit m="Add aliases and statement readers"`.
+   If the person's records start before today, use `make opening-balances` instead
+   of the screens (step 4).
+3. Stop the server (Ctrl-C), continue with steps 5 and 6, then run step 7 again so
+   the dashboard shows the changes and the server reads `local.json`.
 
 ## 4. Choose how to start
 
@@ -153,15 +182,19 @@ make opening-balances ARGS='--date 2026-11-05 "Example Checking=2400.00" "Exampl
 make commit m="Record opening balances"
 ```
 
-Use today's date. Each balance becomes a balance assertion on that date against
+Use today's date, or, if the person will type in expenses from an earlier day (for
+example the first of the month), that day with the balances they had then. Each
+balance becomes a balance assertion on that date against
 `Equity:Opening Balances`, and the date is saved as `startDate` in `ledger.json`.
 Statement rows dated before `startDate` count as covered by the opening balances.
 History imported later ends with an assertion equal to the opening balance, rather
 than changing it.
 
 **Bring in past statements.** Ask how far back they want to go, then have them
-upload the statements on the dashboard's Add page after step 7, typing any
-statement password there themselves. Each statement's printed currency is checked
+upload the statements in the dashboard after step 7, typing any statement password
+there themselves: on the Add page when the accounts are already declared, or in the
+first-run screens' "Bring in past statements", which also creates accounts, when
+there are none yet. Each statement's printed currency is checked
 against its account before anything is saved. In a statement's checklist, one
 answer can settle every row for the same payee, and old rows can stay
 uncategorised: they go in as pending entries for Review. If the person has older
@@ -214,18 +247,27 @@ key in an environment variable or a key file, never in `local.json`. OpenCode ca
 remove its built-in shell tools and is refused unless the person explicitly opts in
 with `"allowUnisolated": true`; explain that before offering it.
 `make agent-check LIVE=1 ADAPTER=…` adds one small live probe, which runs a model
-once: ask first. [docs/ADAPTERS.md](docs/ADAPTERS.md) has every option.
+once: ask first. The server runs the same probe by itself the first time it starts
+with a new adapter, model or effort (it answers one fictional account lookup), so the
+first `make serve` after sign-in also runs a model once; ask before it. A passing
+probe is remembered. Until the person signs in, Add shows a notice with the
+`make agent-login` command and built-in statement readers still work.
+The server reads `local.json` when it starts: restart it after changing the agent.
+[docs/ADAPTERS.md](docs/ADAPTERS.md) has every option.
 
 ## 7. Verify, build and start
 
 ```sh
 make verify-data        # the store, its generated journal and strict hledger checks
 make build-dashboard    # dashboard data and the static build for this ledger
-make serve              # http://127.0.0.1:8701/, Ctrl-C stops it
+make serve              # http://127.0.0.1:8701/expenses/, Ctrl-C stops it
 ```
 
 `make serve` serves only this computer and lets it save changes; see
-[docs/deploy/local.md](docs/deploy/local.md). Show the person around:
+[docs/deploy/local.md](docs/deploy/local.md). If port 8701 is taken, choose another
+with `EXPENSES_PORT=8702 make serve`. After changing ledger files by hand (accounts,
+modules, personal rules), commit them and run `make build-dashboard` again, then
+reload the page. Show the person around:
 
 - **Add**: type a few words, attach receipts or drop a statement. The agent proposes
   an entry and the server checks it; nothing is written until it passes.

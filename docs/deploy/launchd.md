@@ -17,8 +17,9 @@ In the copy, replace:
   root), and the folders holding `hledger`, `jj` and `git`;
 - `/Users/you` with your home folder, for the logs;
 - the access settings, as in [README.md](README.md). The example is local only
-  (`EXPENSES_DEV` is `1`); for a proxy or a tailnet, remove `EXPENSES_DEV` and set
-  `EXPENSES_BASE_PATH`, `EXPENSES_ALLOWED_HOSTS` and `EXPENSES_ALLOWED_LOGINS`.
+  (`EXPENSES_DEV` is `1`) and serves <http://127.0.0.1:8701/expenses/>; for a proxy or a
+  tailnet, remove `EXPENSES_DEV` and set `EXPENSES_ALLOWED_HOSTS` and
+  `EXPENSES_ALLOWED_LOGINS`. Keep `EXPENSES_BASE_PATH` at `/expenses/`.
 
 Build the dashboard and load the agent:
 

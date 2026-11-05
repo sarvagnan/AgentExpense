@@ -15,7 +15,7 @@ systemctl --user enable expense-dashboard.service
 loginctl enable-linger "$USER"     # optional: keep it running while you are logged out
 ```
 
-The unit listens on 127.0.0.1:8701 with base path `/` and **no write access**.
+The unit listens on 127.0.0.1:8701 with base path `/expenses/` and **no write access**.
 Keep your machine settings in a drop-in, which `make service` and `make update`
 never replace. Create it with `systemctl --user edit expense-dashboard.service`, or
 as `~/.config/systemd/user/expense-dashboard.service.d/local.conf`:
@@ -31,7 +31,6 @@ or, behind a proxy or on a tailnet (see [reverse-proxy.md](reverse-proxy.md) and
 
 ```ini
 [Service]
-Environment=EXPENSES_BASE_PATH=/expenses/
 Environment=EXPENSES_ALLOWED_HOSTS=expenses.example.internal
 Environment=EXPENSES_ALLOWED_LOGINS=person@example.invalid
 ```

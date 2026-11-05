@@ -14,7 +14,8 @@ migrations.
 
 ## Quick start
 
-You need Python 3.11+, uv, fnm, hledger 1.25+ and jj (or git). Then:
+You need Python 3.11+, uv, fnm, hledger 1.25+ and Jujutsu (jj), which ledger saves
+commit through (git is optional). Then:
 
 ```sh
 git clone <repository URL> AgentExpense && cd AgentExpense
@@ -27,7 +28,7 @@ Then start your coding agent in this folder and ask it: **"Set up AgentExpense f
 following SETUP.md."** It creates your ledger with `make new-ledger`, asks for your
 name, main currency and accounts, records your starting balances or brings in past
 statements, connects the dashboard's agent, and starts the dashboard at
-<http://127.0.0.1:8701/>.
+<http://127.0.0.1:8701/expenses/>.
 
 ## Documentation
 

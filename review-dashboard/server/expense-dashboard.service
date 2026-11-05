@@ -13,7 +13,7 @@ Type=simple
 WorkingDirectory=@APPLICATION@/review-dashboard/server
 Environment=LEDGER_DIR=@LEDGER_DIR@
 Environment=EXPENSES_PORT=8701
-Environment=EXPENSES_BASE_PATH=/
+Environment=EXPENSES_BASE_PATH=/expenses/
 Environment=EXPENSES_STATE_DIR=%S/agentexpense
 ExecStart=@UV@ run --locked --offline app.py
 Restart=on-failure

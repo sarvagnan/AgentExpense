@@ -25,7 +25,7 @@
     <key>EXPENSES_PORT</key>
     <string>8701</string>
     <key>EXPENSES_BASE_PATH</key>
-    <string>/</string>
+    <string>/expenses/</string>
     <key>EXPENSES_DEV</key>
     <string>1</string>
     <key>npm_config_update_notifier</key>

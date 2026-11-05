@@ -32,3 +32,4 @@ Start with [SETUP.md](../SETUP.md) to set up a ledger with a coding agent, and t
 | [Card statement layout](../scripts/statements/README.md) | The fictional example card statement and its reader |
 | [Price sources](../scripts/prices/README.md) | Investment price source interface |
 | [Browser tests](../review-dashboard/tests/browser/README.md) | Headless browser suites and captures |
+| [Setup walkthrough](../scripts/tests/setup_walkthrough.md) | The acceptance test: a fresh agent sets up a fictional person from the docs alone |

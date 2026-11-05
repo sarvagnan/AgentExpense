@@ -3,6 +3,7 @@ private-checks, make demo, the policy split and the setup documents' commands an
 
 Every ledger here is fictional and lives under the test run folder.
 """
+import io
 import json
 import os
 from pathlib import Path
@@ -11,8 +12,11 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import urllib.error
 
 APPLICATION = Path(__file__).resolve().parents[2]
+PAGE = (b'<div id="root"></div><script type="module" crossorigin src="/expenses/assets/index.js"></script>'
+        b'<link rel="stylesheet" crossorigin href="/expenses/assets/index.css">')
 INHERITED = ('LEDGER_DIR', 'LEDGER', 'DASHBOARD_DATA_DIR', 'MAKEFLAGS', 'MAKELEVEL', 'MFLAGS', 'MAKEOVERRIDES', 'ARGS',
              'PERSONA', 'BROWSER_PERSONA', 'JJ_CONFIG', 'GIT_CONFIG_GLOBAL')
 SETUP_DOCUMENTS = ['SETUP.md', 'README.md', 'AGENTS.md', 'docs/README.md', *sorted(
@@ -211,14 +215,20 @@ class DemoWaitTests(unittest.TestCase):
     def health(self, *states):
         from unittest.mock import MagicMock
         replies = iter(states)
+        self.assets = []
         def urlopen(url, timeout):
+            response = MagicMock(status=200)
+            response.__enter__.return_value = response
+            if url.endswith(('.js', '.css')):
+                self.assets.append(url)
+                if 'missing' in url:
+                    raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO())
+                return response
             state = next(replies)
             if isinstance(state, Exception):
                 raise state
-            response = MagicMock(status=200)
-            response.read.return_value = (b'<div id="root"></div>' if not url.endswith('api/health') else
+            response.read.return_value = (PAGE if state == 'page' else state.encode() if state.startswith('<') else
                                           json.dumps({'ok': True, 'agent': {'state': state}}).encode())
-            response.__enter__.return_value = response
             return response
         return urlopen
 
@@ -260,6 +270,42 @@ class DemoWaitTests(unittest.TestCase):
         with patch.object(self.demo.urllib.request, 'urlopen', side_effect=self.health('page', 'paused')):
             with self.assertRaisesRegex(RuntimeError, 'paused'):
                 self.demo.smoke(self.instance)
+
+    def test_smoke_loads_the_pages_scripts_and_styles_under_the_base_path(self):
+        from unittest.mock import patch
+        with patch.object(self.demo.urllib.request, 'urlopen', side_effect=self.health('page', 'ready')):
+            self.demo.smoke(self.instance)
+        self.assertEqual(self.assets, ['http://127.0.0.1:1/expenses/assets/index.js',
+                                       'http://127.0.0.1:1/expenses/assets/index.css'])
+        # A build served under the wrong base path leaves a blank page: its files answer 404.
+        broken = '<div id="root"></div><script type="module" src="/expenses/assets/missing.js"></script>'
+        with patch.object(self.demo.urllib.request, 'urlopen', side_effect=self.health(broken)):
+            with self.assertRaisesRegex(RuntimeError, 'could not load /expenses/assets/missing.js'):
+                self.demo.smoke(self.instance)
+        with patch.object(self.demo.urllib.request, 'urlopen', side_effect=self.health('<div id="root"></div>')):
+            with self.assertRaisesRegex(RuntimeError, 'names no scripts'):
+                self.demo.smoke(self.instance)
+
+
+class BasePathTests(unittest.TestCase):
+    def test_every_way_of_starting_the_server_uses_the_builds_base_path(self):
+        vite = (APPLICATION / 'review-dashboard/vite.config.ts').read_text()
+        built = re.search(r"base: command === 'build' \|\| isPreview \? '([^']+)'", vite).group(1)
+        self.assertEqual(built, '/expenses/')
+        makefile = (APPLICATION / 'Makefile').read_text()
+        serve = makefile.split('\nserve:\n', 1)[1].split('\n\n', 1)[0]
+        self.assertIn(f'EXPENSES_BASE_PATH="$${{EXPENSES_BASE_PATH-{built}}}"', serve)
+        demo = (APPLICATION / 'scripts/setup/demo.py').read_text()
+        self.assertIn(f"BASE_PATH = '{built}'", demo)
+        self.assertIn("'EXPENSES_BASE_PATH': BASE_PATH", demo)
+        unit = (APPLICATION / 'review-dashboard/server/expense-dashboard.service').read_text()
+        self.assertIn(f'Environment=EXPENSES_BASE_PATH={built}\n', unit)
+        plist = (APPLICATION / 'docs/deploy/org.example.agentexpense.plist').read_text()
+        self.assertRegex(plist, rf'<key>EXPENSES_BASE_PATH</key>\s*<string>{re.escape(built)}</string>')
+        for name in ('README.md', 'SETUP.md', 'docs/deploy/local.md'):
+            text = (APPLICATION / name).read_text()
+            self.assertIn(f'http://127.0.0.1:8701{built}', text, name)
+            self.assertNotRegex(text, r'http://127\.0\.0\.1:8701/(?!expenses/)', name)
 
 
 class DocumentTests(unittest.TestCase):
