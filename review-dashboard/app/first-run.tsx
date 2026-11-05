@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
 import './styles/first-run.css';
-import {dashboard,dataVersion,reloadDataAfterWrite,subscribeData} from './data';
+import {dashboard,dataVersion,reloadData,subscribeData} from './data';
 import {Icon,dayLabel,money,useAppearance} from './ui';
 import {CurrencyOptions} from './settings-dialog';
 import {request} from './live/api';
@@ -119,7 +119,7 @@ function About({title, onNext}: {title: ReactNode; onNext: () => void}) {
     try {
       if (name.trim() !== dashboard.meta.ledger.name || currency !== dashboard.meta.ledger.defaultCurrency) {
         await request('setup/about', post({name:name.trim(), currency}), 120000);
-        await reloadDataAfterWrite().catch(() => undefined);
+        await reloadData().catch(() => undefined);
       }
       setBusy(false); onNext();
     } catch (e) { setBusy(false); setError((e as Error).message); }
@@ -182,7 +182,7 @@ function Today({title, rows, setRows, onBack, onDone}: {title: ReactNode; rows: 
     setBusy(true); setError('');
     try {
       await request('setup/opening', post({start, accounts:checked.map(({row, amount}) => ({kind:row.kind, label:row.label.trim(), currency:row.currency, balance:amount.value}))}), 180000);
-      await reloadDataAfterWrite().catch(() => undefined);
+      await reloadData().catch(() => undefined);
       onDone({path:'today'});
     } catch (e) { setBusy(false); setError((e as Error).message); }
   }
@@ -294,7 +294,7 @@ function Import({title, onBack, onDone}: {title: ReactNode; onBack: () => void; 
   }
   async function createAccount(row: FileRow, spec: {kind:string; label:string; currency:string}) {
     const result = await request<{account:string}>('setup/accounts', post(spec), 120000);
-    await reloadDataAfterWrite().catch(() => undefined);
+    await reloadData().catch(() => undefined);
     if (rowsRef.current.some(x => x.key === row.key)) await choose(row, result.account);
   }
   async function unlock(row: FileRow, password: string) {
@@ -320,7 +320,7 @@ function Import({title, onBack, onDone}: {title: ReactNode; onBack: () => void; 
     const applied = rows.filter(row => row.session?.state === 'applied');
     if (!applied.length) { if (saving.length) { setFinishing(false); setFinishError('No statement could be saved. Check each file’s message.'); } return; }
     let alive = true;
-    void reloadDataAfterWrite().catch(() => undefined).then(() => {
+    void reloadData().catch(() => undefined).then(() => {
       if (alive) onDone({path:'import', entries:applied.reduce((sum, row) => sum + (row.session?.statement?.rows.length || 0), 0), review:applied.reduce((sum, row) => sum + pendingRows(row.session!), 0), unsaved:rows.filter(row => row.session?.state === 'failed').length});
     });
     return () => { alive = false; };

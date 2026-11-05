@@ -3,7 +3,7 @@ import {useCallback,useEffect,useLayoutEffect,useRef,useState,type ReactNode} fr
 import {Dialog,Icon,PanelHeader,announce,evidenceHref,money,useQueryState} from '../ui';
 import {dashboard, reloadData} from '../data';
 import {api,ApiError,isRemoved} from './api';
-import {StatementAccount} from './statement-upload';
+import {StatementAccount} from './statement-account';
 import {statementsApi as apiS,statementHref,filedHref,type StatementSession,type StatementList,type StatementItem,type Decision,type Summary,type StatementRow as Row} from './statements-api';
 
 const accountCurrency=(account:string)=>dashboard.meta.accounts[account]?.currency;

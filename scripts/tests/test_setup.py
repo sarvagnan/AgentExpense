@@ -292,6 +292,10 @@ class BasePathTests(unittest.TestCase):
         vite = (APPLICATION / 'review-dashboard/vite.config.ts').read_text()
         built = re.search(r"base: command === 'build' \|\| isPreview \? '([^']+)'", vite).group(1)
         self.assertEqual(built, '/expenses/')
+        # The server's own default, for a unit or command that sets no base path.
+        settings = (APPLICATION / 'review-dashboard/server/settings.py').read_text()
+        self.assertIn(f"    base_path: str = '{built}'\n", settings)
+        self.assertIn("os.getenv('EXPENSES_BASE_PATH', cls.base_path)", settings)
         makefile = (APPLICATION / 'Makefile').read_text()
         serve = makefile.split('\nserve:\n', 1)[1].split('\n\n', 1)[0]
         self.assertIn(f'EXPENSES_BASE_PATH="$${{EXPENSES_BASE_PATH-{built}}}"', serve)

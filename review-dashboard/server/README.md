@@ -23,7 +23,7 @@ process as well to proxy only `/api/` to the local server. See `../README.md`.
 | Environment | Default |
 | --- | --- |
 | `EXPENSES_PORT` | `8701` |
-| `EXPENSES_BASE_PATH` | `/` (production `/expenses/`) |
+| `EXPENSES_BASE_PATH` | `/expenses/`, where the dashboard build loads its files |
 | `EXPENSES_ALLOWED_HOSTS` | empty, comma-separated extra hostnames |
 | `EXPENSES_ALLOWED_LOGINS` | empty, comma-separated Tailscale logins |
 | `EXPENSES_DEV` | off (`1`, `true`, `yes`, `on` enable local writes) |

@@ -45,7 +45,7 @@ test('Queue initial session loading under the pointer cannot freeze empty rows',
 });
 test('Trash Restore invalidates a held pre-action list error',async()=>{
  let read=0;const old=deferred();
- const h=component('../app/live/retention.tsx','default',{'./api':{request:async path=>path==='trash'?(++read===2?old.promise:{items:read===1?[item]:[]}):({})},'../date-time':{clientTime:()=>({}),formatTimestamp:x=>x},'../data':{reloadDataAfterWrite:async()=>{}},'../ui':ui});
+ const h=component('../app/live/retention.tsx','default',{'./api':{request:async path=>path==='trash'?(++read===2?old.promise:{items:read===1?[item]:[]}):({})},'../date-time':{clientTime:()=>({}),formatTimestamp:x=>x},'../data':{reloadData:async()=>{}},'../ui':ui});
  h.render();await h.settle();h.window.dispatchEvent(new Event('drafts-changed'));await h.settle();
  assert.equal(button(h,'Restore').props.disabled,false,'Background reads cannot disable the action');
  button(h,'Restore').props.onClick();await h.settle();old.reject(Error('Old item disappeared'));await h.settle();
@@ -53,14 +53,14 @@ test('Trash Restore invalidates a held pre-action list error',async()=>{
 });
 test('Trash late list cannot resurrect a restored item',async()=>{
  let read=0;const old=deferred();
- const h=component('../app/live/retention.tsx','default',{'./api':{request:async path=>path==='trash'?(++read===2?old.promise:{items:read===1?[item]:[]}):({})},'../date-time':{clientTime:()=>({}),formatTimestamp:x=>x},'../data':{reloadDataAfterWrite:async()=>{}},'../ui':ui});
+ const h=component('../app/live/retention.tsx','default',{'./api':{request:async path=>path==='trash'?(++read===2?old.promise:{items:read===1?[item]:[]}):({})},'../date-time':{clientTime:()=>({}),formatTimestamp:x=>x},'../data':{reloadData:async()=>{}},'../ui':ui});
  h.render();await h.settle();h.window.dispatchEvent(new Event('drafts-changed'));await h.settle();
  button(h,'Restore').props.onClick();await h.settle();assert.equal(button(h,'Restore'),undefined);
  old.resolve({items:[item]});await h.settle();assert.equal(button(h,'Restore'),undefined,'A stale list must not overwrite the completed Restore');h.unmount();
 });
 test('Trash Restore retries retain operation identity after a lost committed response',async()=>{
  let listed=[item];const operations=[];
- const h=component('../app/live/retention.tsx','default',{'./api':{request:async path=>{if(path==='trash')return {items:listed};operations.push(path);listed=[];if(operations.length===1)throw Error('Fictional response lost after commit');return {};}},'../date-time':{clientTime:()=>({}),formatTimestamp:x=>x},'../data':{reloadDataAfterWrite:async()=>{}},'../ui':ui});
+ const h=component('../app/live/retention.tsx','default',{'./api':{request:async path=>{if(path==='trash')return {items:listed};operations.push(path);listed=[];if(operations.length===1)throw Error('Fictional response lost after commit');return {};}},'../date-time':{clientTime:()=>({}),formatTimestamp:x=>x},'../data':{reloadData:async()=>{}},'../ui':ui});
  h.render();await h.settle();button(h,'Restore').props.onClick();await h.settle();assert.ok(button(h,'Restore'));
  button(h,'Restore').props.onClick();await h.settle();assert.equal(operations.length,2);assert.equal(operations[1],operations[0],'The retry must replay its committed operation rather than trying to restore an item already gone');assert.equal(button(h,'Restore'),undefined);h.unmount();
 });
@@ -79,14 +79,14 @@ test('Trash thirty-second expiry poll holds rows under the pointer until departu
 test('Delete and Restore wait for a new dashboard snapshot after a held pre-write reload',async()=>{
  const old=deferred(),exports={};let reads=0;
  vm.runInNewContext(compile('../app/data.ts'),{exports,Response,ReadableStream,Uint8Array,DecompressionStream,fetch:async url=>url.includes('dashboard')?(++reads===1?old.promise:new Response(JSON.stringify({meta:{ledger:{}},transactions:[]}))):new Response('{}'),require:name=>name.includes('ledger-modules')?{moduleSettings:()=>({fuel:false})}:name.includes('account-metadata')?{setCurrentAccounts(){}}:name.includes('formatting')?{setMoneySettings(){}}:{setDateLocale(){}}});
- const before=exports.reloadData();let completed=false;const after=exports.reloadDataAfterWrite().then(()=>{completed=true;});
+ const before=exports.reloadData();let completed=false;const after=exports.reloadData().then(()=>{completed=true;});
  await new Promise(r=>setImmediate(r));assert.equal(reads,1);assert.equal(completed,false,'A write cannot reuse the pending old snapshot');
  old.resolve(new Response(JSON.stringify({meta:{ledger:{}},transactions:[{id:'removed'}]})));await before;await after;
  assert.equal(reads,2);assert.equal(exports.dashboard.transactions.length,0,'The late pre-Delete snapshot cannot be the final screen');
 });
 test('A committed retention result with stale dashboard data waits for an idempotent retry',async()=>{
  let stale=true,reads=0,changed=0;
- const h=component('../app/live/retention.tsx','default',{'./api':{request:async()=>stale?{data_stale:true}:{}},'../date-time':{clientTime:()=>({})},'../data':{reloadDataAfterWrite:async()=>{reads++;}}});
+ const h=component('../app/live/retention.tsx','default',{'./api':{request:async()=>stale?{data_stale:true}:{}},'../date-time':{clientTime:()=>({})},'../data':{reloadData:async()=>{reads++;}}});
  h.window.addEventListener('drafts-changed',()=>changed++);
  const body={action:'delete',entry_id:'c'.repeat(16)},id='d'.repeat(32);
  await assert.rejects(h.exports.retentionOperation(body,id),/saved.*dashboard.*refresh/i);

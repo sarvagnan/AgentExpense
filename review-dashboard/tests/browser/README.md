@@ -223,6 +223,15 @@ pointer targets and absence of stale rows/errors. A receipt date arrives during
 the Delete confirmation. Node timer doubles cover the 3/30-second Queue intervals
 and 30-second Trash poll; a server clock double checks Saved/Trash expiry boundaries.
 
+The timing sweep adds `view-timing.mjs` to every default case (`BROWSER_FOCUS=view-timing`
+alone). A Queue poll that sees a new addition reloads the dashboard data; each case holds
+that data read open with a route, acts, releases it and checks that nothing was lost:
+the open inspector and its focused Edit button, typing in Explorer's search, back/forward
+to Journal during the read, an open Account details dialog, and a Settings name save
+that must end on the saved name rather than the older held snapshot. It also holds the
+first agent-status read while `?settings=1` has Settings open (nothing under the pointer
+moves) and holds Retry's read after an unreadable first load.
+
 Step 9-2 adds `first-run.mjs` to every default case (`BROWSER_FOCUS=first-run` alone).
 `/__test/first-run` turns the persona's ledger into a fresh template ledger in its own
 currency and locale (and configures the fake agent's cited reading), then

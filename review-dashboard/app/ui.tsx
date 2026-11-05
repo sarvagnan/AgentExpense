@@ -500,6 +500,9 @@ export function useQueryState(name: string, fallback: string, isValid: (value: s
     return fromUrl !== null && isValid(fromUrl) ? fromUrl : fallback;
   }, [name, fallback, isValid]);
   const [value, setValue] = useState(read);
+  // A data reload re-renders a view in place and can change its fallback (the latest
+  // date, say). While the address names no value, follow the new fallback before paint.
+  useLayoutEffect(() => { if (canUseUrl()) setValue(read()); }, [read]);
   useEffect(() => {
     const sync = () => setValue(read());
     window.addEventListener('popstate', sync);

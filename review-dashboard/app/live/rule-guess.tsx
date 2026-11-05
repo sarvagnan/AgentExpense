@@ -13,7 +13,7 @@ export function RuleGuess({composer:c,online}:{composer:Composer;online:boolean|
   const [live,setLive]=useState<{text:string;result:MatchResult}|null>(null),[matchError,setMatchError]=useState('');
   const [selected,setSelected]=useState('');
   useEffect(()=>setSelected(''),[c.form.text]);
-  useEffect(()=>{if(!c.form.text.trim()||online!==true){setLive(null);return;}const controller=new AbortController();const timer=setTimeout(()=>{void rulesApi.match(c.form.text,controller.signal).then(result=>{setLive({text:c.form.text,result});setMatchError('');},e=>{if(!controller.signal.aborted)setMatchError((e as Error).message);});},180);return()=>{clearTimeout(timer);controller.abort();};},[c.form.text,online,rules]);
+  useEffect(()=>{if(!c.form.text.trim()||online!==true){setLive(null);return;}const controller=new AbortController();const timer=setTimeout(()=>{void rulesApi.match(c.form.text,controller.signal).then(result=>{if(!controller.signal.aborted){setLive({text:c.form.text,result});setMatchError('');}},e=>{if(!controller.signal.aborted)setMatchError((e as Error).message);});},180);return()=>{clearTimeout(timer);controller.abort();};},[c.form.text,online,rules]);
   const authoritative=live?.text===c.form.text;
   const attached=c.draft?.files.length||0,interpreted=c.interpretation.value?.files;
   // Recognition can insert file details above this action. Wait for the

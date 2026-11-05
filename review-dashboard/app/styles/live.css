@@ -269,11 +269,6 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .composer-footer .button {flex:none}
 .composer-footer .live-hint {max-width:34ch}
 .add-examples {margin-top:24px}
-.statement-dropzone {display:grid;justify-items:center;gap:8px;padding:24px 12px;border:1px dashed var(--control-border);border-radius:6px;background:var(--surface-sunken);text-align:center}
-.statement-dropzone>.icon {width:24px;height:24px;color:var(--accent)}
-.statement-dropzone p {max-width:34ch}
-.statement-upload-hint {margin-top:16px}
-.uploaded-statement {margin-top:16px;padding-top:16px;border-top:1px solid var(--separator);overflow-wrap:anywhere}
 .statement-currency,.inline-account {display:grid;gap:12px;margin-top:12px}
 .draft-row[aria-current=true] {border-left-color:var(--accent);background:var(--selection-fill)}
 .form-block {display:grid;gap:12px}

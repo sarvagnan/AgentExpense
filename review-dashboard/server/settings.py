@@ -24,7 +24,9 @@ class Settings:
     ledger: Path = field(default_factory=ledger_root)
     dashboard_data: Path | None = None
     port: int = 8701
-    base_path: str = '/'
+    # The dashboard build loads its files from /expenses/ (`base` in vite.config.ts).
+    # Requests whose prefix a proxy removed are accepted too.
+    base_path: str = '/expenses/'
     allowed_hosts: tuple[str, ...] = ()
     allowed_logins: tuple[str, ...] = ()
     dev: bool = False
@@ -74,7 +76,7 @@ class Settings:
     def from_env(cls):
         def items(name):
             return tuple(x.strip() for x in os.getenv(name, '').split(',') if x.strip())
-        base = '/' + os.getenv('EXPENSES_BASE_PATH', '/').strip('/')
+        base = '/' + os.getenv('EXPENSES_BASE_PATH', cls.base_path).strip('/')
         if base != '/':
             base += '/'
         local_path = APPLICATION / 'local.json'

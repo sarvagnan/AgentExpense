@@ -23,7 +23,6 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  await expect(page.locator('.composer-panel h2')).toHaveText('What happened?');await expect(page.locator('.understood-panel h2')).toHaveText('Understood as');
  const boxes=await page.locator('.add-layout .panel').filter({has:page.locator('h2')}).evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,bottom:b.bottom};}));
  if(width>760)assert.ok(boxes[1].x>=boxes[0].x+boxes[0].width,'Add panels sit side by side');
- await expect(page.locator('.statement-upload-panel')).toHaveCount(0);
  if(persona!=='empty')await snap('add-'+persona);
  const addedId=await submit('Copper Finch Café, 18.60, paid with my card','Copper-Finch-Receipt');
  const added=await wait(addedId,'added');assert.equal(added.result.outcome,'ready');assert.ok(added.result.commit_id);assert.equal(added.result.sources.length,1);assert.ok((await readFile(join(stage.ledger,added.result.sources[0]))).length>0);

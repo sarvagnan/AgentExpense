@@ -47,15 +47,12 @@ export async function loadData() {
 }
 
 // Publish only a complete snapshot. Keep the current dashboard usable if any fetch fails.
-let reloading: Promise<void> | null = null;
-export function reloadData() {
-  if (!reloading) reloading = loadData().finally(() => { reloading = null; });
-  return reloading;
-}
-
-// A read begun before a write can contain the previous ledger. Let it finish,
-// then start a new complete snapshot for the committed result.
-export async function reloadDataAfterWrite() {
-  if(reloading)await reloading.catch(()=>undefined);
-  return reloadData();
+// One read runs at a time, so snapshots publish in the order they were read. A read
+// begun before a write can hold the previous ledger, so every caller gets a snapshot
+// whose read began after its call: callers during a read share one follow-up read.
+let reading: Promise<void> | null = null, following: Promise<void> | null = null;
+export function reloadData(): Promise<void> {
+  if (!reading) return reading = loadData().finally(() => { reading = null; });
+  following ??= reading.catch(() => undefined).then(() => { following = null; return reading ?? reloadData(); });
+  return following;
 }

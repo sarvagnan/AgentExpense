@@ -457,6 +457,18 @@ class ApiTests(Fixture):
                          '/bills/%252e%252e/AGENTS.md', '/bills/%5c..%5csecret', '/.git/config'):
                 self.assertIn(client.get(path).status_code, (400, 404), path)
 
+    def test_default_base_path_is_the_builds_and_accepts_stripped_paths(self):
+        from settings import Settings
+        with patch.dict(os.environ, {'EXPENSES_BASE_PATH': ''}):
+            os.environ.pop('EXPENSES_BASE_PATH')
+            self.assertEqual((Settings().base_path, Settings.from_env().base_path), ('/expenses/', '/expenses/'))
+        with patch.dict(os.environ, {'EXPENSES_BASE_PATH': '/'}):
+            self.assertEqual(Settings.from_env().base_path, '/')
+        with self.client(worker=False, base_path=Settings().base_path) as client:
+            for path in ('/expenses/api/health', '/api/health'):
+                self.assertEqual(client.get(path).status_code, 200, path)
+            self.assertEqual(client.get('/expenses/api/health').json()['base_path'], '/expenses/')
+
 class ManifestIntegrationTests(Fixture):
     def test_format_checked_at_startup_and_again_per_request(self):
         from store import dump

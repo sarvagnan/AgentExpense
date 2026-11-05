@@ -48,7 +48,8 @@ The first release. The date is set when the release is tagged.
 - **Optional modules.** Fuel, investments with price sources, an older-ledger
   lookup and the weekly review, each off unless `ledger.json` turns it on.
 - **Tooling.** `VERSION` as the single application version (`make check-version`),
-  `make doctor` for offline prerequisite checks, fictional fixture ledgers
+  `make doctor` for offline prerequisite checks (it warns when jj is missing or the
+  selected ledger is a git repository without jj, since saves need jj), fictional fixture ledgers
   (`make personas`), offline test suites with fake agents, headless browser
   suites, and a personal-data scanner (`make scan`). `npm ci` runs only when the
   installed packages differ from `package-lock.json` by version (`make install`
@@ -68,7 +69,8 @@ The first release. The date is set when the release is tagged.
   verified first commit; `make add-account` and `make opening-balances` declare
   accounts and opening balances under the ledger lock; `make demo` runs a fictional
   ledger from `/tmp` with an offline fake agent; `make serve` starts the dashboard
-  locally at `http://127.0.0.1:8701/expenses/`; `make private-checks` runs a
+  locally at `http://127.0.0.1:8701/expenses/` (`/expenses/`, where the build loads
+  its files, is also the server's own default base path); `make private-checks` runs a
   ledger's own `checks/`. A ledger with no
   accounts opens the first-run screens in the dashboard: About you, then either
   Start from today (accounts and opening balances) or Bring in past statements

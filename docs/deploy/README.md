@@ -27,7 +27,7 @@ application's ignored `local.json` (see [ADAPTERS.md](../ADAPTERS.md) and
 | --- | --- | --- |
 | `LEDGER_DIR` | application `ledger/` | the ledger to serve (absolute path) |
 | `EXPENSES_PORT` | `8701` | port on 127.0.0.1 |
-| `EXPENSES_BASE_PATH` | `/expenses/` in `make serve`, `make demo` and these examples (`/` if unset) | the path the dashboard is served under. The dashboard build loads its files from `/expenses/`, so keep that value; `/` works only behind a proxy that removes the `/expenses` prefix |
+| `EXPENSES_BASE_PATH` | `/expenses/` | the path the dashboard is served under. The dashboard build loads its files from `/expenses/`, so keep that value. Requests whose `/expenses` prefix a proxy removed are served too |
 | `EXPENSES_ALLOWED_HOSTS` | empty | extra host names browsers may use, comma-separated; `127.0.0.1` and `localhost` are always allowed |
 | `EXPENSES_ALLOWED_LOGINS` | empty | sign-in names allowed to change anything, comma-separated (see below) |
 | `EXPENSES_DEV` | off (on for `make serve`) | `1` lets any request that reaches the server save changes, without a sign-in name |

@@ -16,9 +16,9 @@ const FOCUS = 'var(--series-focus)';
 type Portion = DashboardData['forecast']['variable']['portions'][number];
 const portionLabel = (portion: Portion, days = 31) => `${portion.from}–${Math.min(portion.to, days)}`;
 
-export default function Forecast({online,version=0}:{online:boolean|null;version?:number}) {
+export default function Forecast({online}:{online:boolean|null}) {
   const [section,setSection]=useQueryState('section','overview',v=>v==='overview'||v==='rules');
-  return <><nav className="forecast-sections" aria-label="Forecast views"><button className={`button ${section==='overview'?'active':''}`} aria-current={section==='overview'?'page':undefined} onClick={()=>setSection('overview')}>Overview</button><button className={`button ${section==='rules'?'active':''}`} aria-current={section==='rules'?'page':undefined} onClick={()=>setSection('rules')}>Rules</button></nav>{section==='rules'?<Rules online={online}/>:<ForecastOverview key={version}/>}</>;
+  return <><nav className="forecast-sections" aria-label="Forecast views"><button className={`button ${section==='overview'?'active':''}`} aria-current={section==='overview'?'page':undefined} onClick={()=>setSection('overview')}>Overview</button><button className={`button ${section==='rules'?'active':''}`} aria-current={section==='rules'?'page':undefined} onClick={()=>setSection('rules')}>Rules</button></nav>{section==='rules'?<Rules online={online}/>:<ForecastOverview/>}</>;
 }
 function ForecastOverview() {
   if(!data.months.some(month=>month.count>0) && !data.forecasts.some(f=>f.items.length))return <section className="page"><PageHeader title="Forecast"/><div className="panel empty viewing-empty"><strong>No expenses yet.</strong><p>Your forecast will appear as you add expenses.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></div></section>;

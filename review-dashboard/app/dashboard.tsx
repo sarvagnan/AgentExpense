@@ -22,6 +22,8 @@ import { useDrafts } from './live/use-drafts';
 import {LiveDraftsContext} from './live/context';
 import ReceiptReading from './live/receipt-reading';
 import { subscribeData, dataVersion } from './data';
+/** The published data snapshot's number; a view that memoizes ledger data depends on it. */
+const useDataVersion = () => useSyncExternalStore(subscribeData, dataVersion, dataVersion);
 import AccountSummary from './account-summary';
 import { displayAccountLabel, summarizeAccounts } from './account-labels';
 import { paymentSide } from './payment-side';
@@ -340,6 +342,7 @@ function MixedCategories({currents}: {currents:Month[]}) {
 }
 
 export function Explorer({ month, setMonth }: { month: string; setMonth: (month: string, mode?: 'push' | 'replace') => void }) {
+  const version = useDataVersion();
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [query, setQuery] = useQueryState('q', '');
   const [sort, setSort] = useQueryState('sort', 'date-desc', (value) => /^(date|description|category|paymentLabel|status|amount)-(asc|desc)$/.test(value));
@@ -362,7 +365,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   const totals = Object.fromEntries(currents.map(item => [item.currency, item.total]));
   const count = currents.reduce((sum, item) => sum + item.count, 0);
   const pending = currents.reduce((sum, item) => sum + item.pending, 0);
-  const monthTransactions = useMemo(() => data.transactions.filter((item) => item.month === month && !item.postings.some(posting=>posting.account==='Equity:Opening Balances')), [month]);
+  const monthTransactions = useMemo(() => data.transactions.filter((item) => item.month === month && !item.postings.some(posting=>posting.account==='Equity:Opening Balances')), [month, version]);
   const selected = monthTransactions.find((item) => item.id === selectedId) || null;
   const categories = [...new Set(monthTransactions.map((item) => item.category))].sort();
   const needle = query.trim().toLowerCase();
@@ -584,6 +587,7 @@ function routeSide(item: Transaction, sign: 1 | -1) {
 
 type JournalKey = 'description' | 'type' | 'amount';
 export function Journal({ month, setMonth }: { month: string; setMonth: (month: string, mode?: 'push' | 'replace') => void }) {
+  const version = useDataVersion();
   const [query, setQuery] = useQueryState('q', '');
   const [order, setOrder] = useQueryState('order', 'newest', (value) => value === 'newest' || value === 'oldest');
   const [sort, setSort] = useQueryState('sort', 'ledger', (value) => value === 'ledger' || /^(description|type|amount)-(asc|desc)$/.test(value));
@@ -600,7 +604,7 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
     const factor = sortDirection === 'asc' ? 1 : -1;
     return days.map((date) => [date, matches.filter((item) => item.date === date).sort((a, b) => !sortKey ? (order === 'newest' ? b.sequence - a.sequence : a.sequence - b.sequence)
       : factor * (sortKey === 'amount' ? a.currency.localeCompare(b.currency) || a.amount - b.amount : String(sortKey === 'type' ? a.displayType : a.description).localeCompare(String(sortKey === 'type' ? b.displayType : b.description))))] as [string, Transaction[]]);
-  }, [month, needle, order, sortKey, sortDirection]);
+  }, [month, needle, order, sortKey, sortDirection, version]);
   const rows = useMemo(() => grouped.flatMap(([, entries]) => entries), [grouped]);
   const selected = rows.find((item) => item.id === selectedId) || null;
   const idOf = useCallback((item: Transaction) => item.id, []);
@@ -654,7 +658,8 @@ const TITLES: Record<View, string> = { explorer: 'Explorer', atlas: 'Atlas', jou
 
 export default function Dashboard({ view }: { view: View }) {
   const [month, setMonth] = useQueryState('month', defaultMonth(), isMonth);
-  const version = useSyncExternalStore(subscribeData, dataVersion, dataVersion);
+  // A data reload re-renders the open view in place; remounting it would drop focus, open dialogs and typing.
+  useDataVersion();
   const live = useDrafts();
   // Settings shows the update notice, when the server turns it on, from this earlier read.
   useEffect(()=>{if(live.online)void refreshUpdateStatus();},[live.online]);
@@ -714,7 +719,7 @@ export default function Dashboard({ view }: { view: View }) {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onStep); document.removeEventListener('copy', onCopy); };
   }, []);
   return <LiveDraftsContext.Provider value={live}><main className={`app ${view === 'add' || view === 'queue' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} important={important} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)} trashCount={live.trashCount}/><p className="sr-only navigation-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
-    <div className="content" id="main-content" tabIndex={-1}><RetentionNotice/><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'queue' ? <Drafts live={live}/> : view === 'trash' ? <Trash/> : <div key={view==='review'||view==='forecast'?view:version}>{view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? (data.transactions.some(row=>row.month===month) ? <Journal month={month} setMonth={setMonth}/> : <EmptyMonth title="Journal" month={month} setMonth={setMonth}/>) : view === 'forecast' ? <Forecast online={live.online} version={version}/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
+    <div className="content" id="main-content" tabIndex={-1}><RetentionNotice/><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'queue' ? <Drafts live={live}/> : view === 'trash' ? <Trash/> : <div key={view}>{view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? (data.transactions.some(row=>row.month===month) ? <Journal month={month} setMonth={setMonth}/> : <EmptyMonth title="Journal" month={month} setMonth={setMonth}/>) : view === 'forecast' ? <Forecast online={live.online}/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
     <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='queue'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className={`nav-count ${v.id==='review'&&important?'important':''}`} aria-label={v.id==='queue'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='queue'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={view==='trash'||VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
     {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><a className="button" aria-current={view==='trash'?'page':undefined} href={`${import.meta.env.BASE_URL}trash/`}>Trash{live.trashCount?` (${live.trashCount})`:""}</a><button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><button className="button" onClick={closeViews}>Close views</button></div>}
     {settingsOpen && <SettingsDialog agent={live.agent} onClose={()=>{setSettingsOpen(false);setSettingsQuery('','replace');}}/>}

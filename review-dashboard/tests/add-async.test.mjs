@@ -140,6 +140,29 @@ test('Rule guesses wait 180ms, cancel obsolete matches, and retain authoritative
  }finally{h.close();}
 });
 
+// A read's answer can settle before its abort while its continuation runs after it;
+// a match that ignores the signal stands in for that order (carry-over from terra.patch).
+test('A rule match answered after its request was aborted cannot replace the newer match',async()=>{
+ const rule={id:'rent',description:'Birch rent',amount:'fixed'},result={matches:[{id:'rent'}],rule_id:'rent',pick_list:false},requests=[];
+ let composer={form:{text:'Birch rent',declined_rules:[]},built:{fields:{}},draft:null,pending:[],interpretation:{busy:false,value:null},update(){},save(){},setRuleDecisionNeeded(){}};
+ const element=(type,props)=>({type,props});
+ const h=hookHarness('../app/live/rule-guess.tsx',{
+  '../data':{dashboard:{meta:{ledger:{locale:'en-US'},accounts:{}}}},'../date-time':{localDate:()=> '2026-11-02'},'../ui':{},'../rules':{},
+  '../../scripts/recurring-ui.mjs':{matchRules:()=>result},'./rules-api':{useRules:()=>({data:{rules:[rule]},ready:true}),rulesApi:{match:(text,signal)=>{const hold=deferred();requests.push({text,signal,...hold});return hold.promise;}}},
+  'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
+ });
+ function choice(node){if(!node||typeof node!=='object')return;if(node.type?.name==='RuleGuessChoice')return node;for(const child of [node.props?.children].flat()){const found=choice(child);if(found)return found;}}
+ const render=()=>h.render(m=>m.RuleGuess({composer,online:true}));
+ try{
+  render();await h.advance(180);assert.equal(requests.length,1);
+  // Each edit is a new form, as the composer makes it.
+  composer={...composer,form:{...composer.form,text:'Birch rent today'}};render();assert.equal(requests[0].signal.aborted,true);await h.advance(180);assert.equal(requests.length,2);
+  requests[1].resolve(result);await h.settle();assert.equal(choice(h.current).props.disabled,false);assert.equal(choice(h.current).props.text,'Birch rent today');
+  requests[0].resolve(result);await h.settle();
+  assert.equal(choice(h.current).props.disabled,false,'The aborted answer for older words cannot take the newer match’s place');
+ }finally{h.close();}
+});
+
 test('Just added ignores held lookups after a newer visit or removal',async()=>{
  let ids=[{id,type:'draft'}],removed=false;const requests=[];
  const h=hookHarness('../app/live/add-results.tsx',{

@@ -130,7 +130,8 @@ class DoctorTests(DoctorFixture):
         (self.tools / 'hledger').unlink()
         self.assertEqual(self.statuses()['hledger'], 'FAIL')
         (self.tools / 'jj').unlink()
-        self.assertEqual(self.rows()['jj / git'].detail, 'git 2.54.0')
+        row = self.rows()['jj / git']
+        self.assertEqual((row.status, row.detail, row.fix), ('warn', 'git 2.54.0; jj not found, and saves need it', 'Install Jujutsu (jj).'))
         (self.tools / 'git').unlink()
         self.assertEqual(self.statuses()['jj / git'], 'FAIL')
         (self.tools / 'uv').unlink()
@@ -172,6 +173,16 @@ class DoctorTests(DoctorFixture):
         self.assertEqual(row.fix, 'make upgrade-ledger ARGS="--dry-run", then make upgrade-ledger')
         shutil.rmtree(self.base / 'ledger-folder')
         self.assertEqual(self.rows(LEDGER_DIR=self.ledger(dict(format=CURRENT_FORMAT), repository=None))['Ledger'].status, 'warn')
+        shutil.rmtree(self.base / 'ledger-folder')
+
+    def test_git_only_ledger_warns_because_saves_need_jj(self):
+        root = self.ledger(dict(format=CURRENT_FORMAT), repository='.git')
+        row = self.rows(LEDGER_DIR=root)['Ledger']
+        self.assertEqual(row.status, 'warn')
+        self.assertIn('git repository without jj; saves need jj', row.detail)
+        self.assertEqual(row.fix, f'Colocate jj with it: jj git init --colocate {root}')
+        (Path(root) / '.jj').mkdir()
+        self.assertEqual(self.rows(LEDGER_DIR=root)['Ledger'].status, 'ok', 'A colocated ledger is ready')
         self.assertEqual(self.rows(LEDGER_DIR=str(self.base / 'absent'))['Ledger'].status, 'FAIL')
 
     def test_old_format_ledger_alone_does_not_block(self):

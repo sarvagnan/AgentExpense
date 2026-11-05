@@ -101,7 +101,7 @@ This copies [`templates/ledger/`](templates/ledger/README.md), fills in `ledger.
 first commit in a new Jujutsu (jj) repository colocated with git, so git commands
 work on it too. With `VCS=git` it makes a plain git repository instead; the dashboard
 and `make commit` save through jj, so then run `jj git init --colocate "$LEDGER_DIR"`
-before the first save (`make doctor` does not check this). The ledger's `README.md`
+before the first save (`make doctor` warns until you do). The ledger's `README.md`
 explains its layout.
 
 ## 3. Accounts

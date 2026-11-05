@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -119,8 +120,10 @@ def check_tools(environ):
         if text and version_in(text):
             versions[name] = dotted(version_in(text))
     detail = ', '.join(f'{name} {value}' for name, value in versions.items())
-    rows.append(Row('jj / git', OK, detail) if versions else
-                Row('jj / git', FAIL, 'neither found', 'Install Jujutsu (jj) or git; ledgers are version-controlled.'))
+    # Saves and make commit go through jj; git alone can only read a ledger's history.
+    rows.append(Row('jj / git', OK, detail) if 'jj' in versions else
+                Row('jj / git', WARN, f'{detail}; jj not found, and saves need it', 'Install Jujutsu (jj).') if versions else
+                Row('jj / git', FAIL, 'neither found', 'Install Jujutsu (jj); ledgers are version-controlled.'))
     return rows
 
 
@@ -149,6 +152,8 @@ def check_ledger(application, environ):
         return Row('Ledger', WARN, f'format {value} at {where}; this app reads format {CURRENT_FORMAT}', 'Update AgentExpense to a version that reads this format.')
     if not repository:
         return Row('Ledger', WARN, f'format {value} at {root}; not a jj or git repository', 'Saves commit to the ledger: initialise it with jj git init --colocate.')
+    if repository == 'git':
+        return Row('Ledger', WARN, f'format {value} at {where} without jj; saves need jj', f'Colocate jj with it: jj git init --colocate {shlex.quote(str(root))}')
     return Row('Ledger', OK, f'format {value} at {where}')
 
 

@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {request,forgetRemoved} from './api';
 import {clientTime,formatTimestamp} from '../date-time';
-import {reloadDataAfterWrite} from '../data';
+import {reloadData} from '../data';
 import {Dialog,PageHeader,Icon} from '../ui';
 import {useInteractionSnapshot} from './interaction';
 export type Limits={delete_days:number;trash_days:number;saved_hours:number};
@@ -16,7 +16,7 @@ export async function retentionOperation(body:object,id:string=crypto.randomUUID
  if(result.data_stale)throw new Error('The change was saved, but dashboard data could not refresh. Retry this action to refresh it.');
  if((body as {action?:string}).action==='queue-restore'){forgetRemoved((body as {item_id:string}).item_id);window.dispatchEvent(new Event('item-restored'));}
  if(!result.refused&&['restore','remove'].includes((body as {action:string}).action)){const b=body as {item_id?:string;items?:string[]};window.dispatchEvent(new CustomEvent('trash-items-removed',{detail:b.items||[b.item_id]}));}
- retentionChanged();if(!result.refused)await reloadDataAfterWrite();return result;
+ retentionChanged();if(!result.refused)await reloadData();return result;
 }
 export function DeleteEntry({id,onDeleted}:{id:string;onDeleted:()=>void}){
  const [status,setStatus]=useState<Eligibility|null>(null),[confirm,setConfirm]=useState(false),[reason,setReason]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);

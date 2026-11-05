@@ -453,7 +453,7 @@ function DetailedAccounts() {
           </dl>
           {priced && holdings.length ? currencyOrder(holdings.map(item => item.currency)).map(currency => { const items = series(holdings.filter(item => item.currency === currency)); return <div className="account-chart" key={currency}>
             <div className="account-chart-head"><h3>Mutual funds over time · {currency}</h3>{legend}{periodSelect}</div>
-            <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} showCost={holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency))} currency={currency} label={describe('All mutual funds', items, currency, holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency)))} caption="Units at the latest available NAV on each date, against the cost of the units held"/>
+            <ValueChart key={`${accountParam}-${start}-${asOf}-${items.length}`} points={items} showCost={holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency))} currency={currency} label={describe('All mutual funds', items, currency, holdings.filter(item => item.currency === currency).every(item => Object.keys(item.costs).every(code => code === currency)))} caption="Units at the latest available NAV on each date, against the cost of the units held"/>
           </div>; }) : null}
         </section>
         <section className="panel">
@@ -494,7 +494,7 @@ function DetailedAccounts() {
           {holding && !priced && <p className="panel-note">Showing recorded cost. No recorded prices available.</p>}
           {holding ? priced ? (() => { const items = series([holding]); return <div className="account-chart">
             <div className="account-chart-head"><h3>Market value over time</h3>{legend}{periodSelect}</div>
-            <ValueChart key={`${accountParam}-${start}-${asOf}`} points={items} showCost={Object.keys(holding.costs).every(code => code === holding.currency)} currency={holding.currency} label={describe(short(selected.account), items, holding.currency, Object.keys(holding.costs).every(code => code === holding.currency))} caption="Units held at the latest available NAV on each date"/>
+            <ValueChart key={`${accountParam}-${start}-${asOf}-${items.length}`} points={items} showCost={Object.keys(holding.costs).every(code => code === holding.currency)} currency={holding.currency} label={describe(short(selected.account), items, holding.currency, Object.keys(holding.costs).every(code => code === holding.currency))} caption="Units held at the latest available NAV on each date"/>
           </div>; })() : null : <div className="account-chart">
             <div className="account-chart-head"><h3>{card ? (selected.balance <= 0 ? 'Owed' : 'In credit') : selected.group === 'Investments' ? 'Contributions' : 'Balance'} over time</h3>
               {periodSelect}</div>
