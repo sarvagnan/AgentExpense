@@ -22,7 +22,9 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   await resetDrafts({persona,empty:true});await go('add/');await words.fill('Birch rent yesterday');await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await guess.getByRole('button',{name:'Add as usual'}).click();
   let added;await expect.poll(async()=>{added=(await get('drafts?include_added=true')).find(d=>d.text==='Birch rent yesterday');return added?.state;},{timeout:180000}).toBe('added');
   await go('queue/?correct='+added.result.entry_id);await expect(page.getByRole('article',{name:'Edit entry',exact:true})).toBeVisible();
-  const form=page.getByRole('article',{name:'Edit entry',exact:true});await expect(form.getByLabel('Date',{exact:true})).toHaveValue(yesterday);await expect(form).toContainText('No changes yet');
+  const form=page.getByRole('article',{name:'Edit entry',exact:true});await expect(form.getByLabel('Date',{exact:true})).toHaveValue(yesterday);
+  // One "Edit entry" heading (the page's); the panel names the entry. Controls use the system's buttons.
+  await expect(page.getByRole('heading',{name:'Edit entry',exact:true})).toHaveCount(1);await expect(form.getByRole('button',{name:'Attach files',exact:true})).toBeVisible();await expect(form.locator('section[aria-label="Saved sources"]:not(:has(input))')).toHaveCount(0);await expect(form).toContainText('No changes yet');
   await expect(form.getByText('Agent doubts',{exact:true})).toHaveCount(0);await form.getByLabel('Description',{exact:true}).fill('Birch rent corrected');await form.getByLabel('Reason (optional)').fill('Receipt confirmed the description');
   await snap('correction-from-drafts');await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
   await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});await snap('correction-saved');await page.getByRole('button',{name:'Back to Queue',exact:true}).click();

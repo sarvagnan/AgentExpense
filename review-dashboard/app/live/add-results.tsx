@@ -1,8 +1,10 @@
 import {useEffect,useRef,useState} from 'react';
 import {dashboard} from '../data';
-import {announce,money,useQueryState} from '../ui';
+import {announce,money,useQueryState,Icon} from '../ui';
+import {plainReason} from '../first-run';
+import {ruleHref} from '../rules';
 import {api,type Draft,isRemoved} from './api';
-import {statementsApi,statementHref,type StatementSession} from './statements-api';
+import {statementsApi,statementHref,filedHref,type StatementSession} from './statements-api';
 import {readVisit,forgetResult,type VisitResult} from './add-visit';
 import {RuleSaved} from './rule-saved';
 import ReceiptReading from './receipt-reading';
@@ -29,17 +31,44 @@ export function AddResults({live,rows}:{live:LiveDrafts;rows:ReturnType<typeof u
  if(!rows.length)return null;
  return <section className="just-added" aria-labelledby="just-added-title"><h2 id="just-added-title">Just added</h2><div className="just-added-rows">{rows.map(row=><ResultRow key={row.id} type={row.type} value={row.value} live={live} onOpen={id=>setSelected(id)}/>)}</div>{entry&&<TransactionDetails transaction={entry} onClose={()=>setSelected('')}/>}<footer><a href={`${import.meta.env.BASE_URL}queue/`}>Questions and work in Queue</a></footer></section>;
 }
+const queueHref=(id:string)=>`${import.meta.env.BASE_URL}queue/?draft=${id}`;
+/** "18.60 USD" → the app's currency format; account paths → their labels. */
+export function resultFacts(r:NonNullable<Draft['result']>){
+ const total=r.total?.replace(/(-?\d+(?:\.\d+)?) ([A-Z]{3})/g,(all,amount,code)=>dashboard.meta.currencyMinorUnits?.[code]!==undefined?money(Number(amount),code):all)||'';
+ const account=r.payment_account?Object.entries(dashboard.meta.accounts).reduce((text,[path,meta])=>text.replaceAll(path,meta.label||path.split(':').at(-1)||path),r.payment_account):'';
+ return {total,account};
+}
+const statusKind=(status:string)=>['Added','Bill saved','Applied'].includes(status)?'done':['Needs an answer','Needs decisions','Failed'].includes(status)?'attention':status==='Not an expense'?'quiet':'working';
+function Summary({title,status}:{title:string;status:string}){return <div className="result-summary"><h3>{title}</h3><span className={`result-status status-${statusKind(status)}`}>{status}</span></div>;}
 function ResultRow({type,value,live,onOpen}:{onOpen:(id:string)=>void;type:VisitResult['type'];value:Draft|StatementSession;live:LiveDrafts}){
  const [more,setMore]=useState(false),[error,setError]=useState('');
  if(type==='statement'){
-  const s=value as StatementSession,status=statementStatus(s);
-  return <article className="just-added-row" data-result-id={s.id}><header><span className="result-status">{status}</span><a href={statementHref(s.id)}>Open in Queue</a></header><h3>{s.original_name}</h3>{s.statement&&<p>{s.statement.accountLabel} · {s.statement.currency}</p>}{s.error&&<p className="live-error">{s.failure_reason==='check_failed'||s.state==='couldnt_read'?"The file's checks failed, so nothing was saved. ":''}{s.error}</p>}{['wrong_file','couldnt_read'].includes(s.state)&&<button className="button" onClick={()=>void statementsApi.retry(s.id).then(()=>live.refresh(),e=>setError((e as Error).message))}>Retry reading</button>}{error&&<p className="live-error">{error}</p>}<p className="live-hint">{status==='Reading'?'No rows have been applied. You can keep adding.':status==='Needs decisions'?'Settle its rows in Queue before applying.':''}</p></article>;
+  const s=value as StatementSession,status=statementStatus(s),[reason,detail]=plainReason(s.error||'');
+  const href=s.state==='applied'&&s.statement?filedHref(s.statement.periodEnd,s.statement.account):statementHref(s.id);
+  return <article className="just-added-row" data-result-id={s.id}><Summary title={s.original_name} status={status}/>{s.statement&&<p className="result-meta">{s.statement.accountLabel} · {s.statement.currency}</p>}
+  {s.error&&<p className="result-note">{reason}{detail&&<> <button className="text-button" aria-expanded={more} onClick={()=>setMore(!more)}>{more?'Less':'Details'}</button></>}</p>}{more&&detail&&<p className="result-detail">{detail}</p>}
+  {['wrong_file','couldnt_read'].includes(s.state)&&<button className="button" onClick={()=>void statementsApi.retry(s.id).then(()=>live.refresh(),e=>setError((e as Error).message))}>Retry reading</button>}{error&&<p className="live-error">{error}</p>}
+  {status==='Reading'&&<p className="result-meta">No rows have been applied. You can keep adding.</p>}{status==='Needs decisions'&&<p className="result-meta">Settle its rows in Queue before applying.</p>}
+  <a className="result-link" href={href}>{s.state==='applied'?'View the filed statement':status==='Needs decisions'?'Decide in Queue':'Open in Queue'}<Icon name="chevron-right"/></a></article>;
  }
- const d=value as Draft,status=draftStatus(d),r=d.result;
- return <article className="just-added-row" data-result-id={d.id}><header><span className="result-status">{status}</span><a onClick={r?.entry_id?e=>{e.preventDefault();onOpen(r.entry_id!);}:undefined} href={r?.entry_id?`?entry=${r.entry_id}`:`${import.meta.env.BASE_URL}queue/?draft=${d.id}`}>{r?.entry_id?'Open entry':status==='Needs an answer'?'Answer in Queue':status==='Failed'?'Retry in Queue':'Open in Queue'}</a></header><h3>{r?.description||d.text||'Expense with an attachment'}</h3>{r?.total&&<p>{r.total.replace(/(-?\d+(?:\.\d+)?) ([A-Z]{3})/g,(all,amount,code)=>dashboard.meta.currencyMinorUnits?.[code]!==undefined?money(Number(amount),code):all)}{r.payment_account?` · ${Object.entries(dashboard.meta.accounts).reduce((text,[account,meta])=>text.replaceAll(account,meta.label||account.split(':').at(-1)||account),r.payment_account)}`:''}</p>}
+ const d=value as Draft,status=draftStatus(d),r=d.result,facts=r?resultFacts(r):{total:'',account:''};
+ const title=(r?.description||d.text||'Expense with an attachment')+(facts.total?` · ${facts.total}`:'');
+ // Added items and saved bills have left the Queue: link the entry or the rule's bill instead.
+ const link=r?.entry_id?<a className="result-link" href={`?entry=${r.entry_id}`} onClick={e=>{e.preventDefault();onOpen(r.entry_id!);}}>Open entry<Icon name="chevron-right"/></a>
+  :status==='Bill saved'?(r?.rule_id?<a className="result-link" href={ruleHref(r.rule_id)}>Open the rule’s bill<Icon name="chevron-right"/></a>:null)
+  :status==='Needs an answer'&&!d.receipt_reading?<a className="result-link" href={queueHref(d.id)}>{d.questions.at(-1)?.question||'Answer in Queue'}<Icon name="chevron-right"/></a>
+  :status==='Failed'?<a className="result-link" href={queueHref(d.id)}>Retry in Queue<Icon name="chevron-right"/></a>
+  :status==='Working'?<a className="result-link" href={queueHref(d.id)}>Open in Queue<Icon name="chevron-right"/></a>:null;
+ return <article className="just-added-row" data-result-id={d.id}><Summary title={title} status={status}/>
+ {facts.account&&status!=='Not an expense'&&<p className="result-meta">{status==='Bill saved'?'Bill for':'Paid with'} {facts.account}</p>}
+ {status==='Not an expense'&&<p className="result-note">{r?.explanation||'Nothing was added.'}</p>}
+ {status==='Failed'&&<p className="result-note">Your words and files are kept.{d.error&&<> <button className="text-button" aria-expanded={more} onClick={()=>setMore(!more)}>{more?'Less':'More'}</button></>}</p>}
+ {status==='Working'&&<p className="result-meta">The agent is working on it. You can keep adding.</p>}
  {d.receipt_reading&&<ReceiptReading draft={d} onAction={live.refresh} compact/>}
  {d.receipt_reading?.state!=='question'&&<RuleSaved draft={d} online={live.online} compact/>}
- {(r?.explanation||d.error||d.questions.length>0)&&<>{status==='Needs an answer'&&!d.receipt_reading&&<p>{d.questions.at(-1)?.question}</p>}<button className="text-button" aria-expanded={more} onClick={()=>setMore(!more)}>{more?'Less':'More'}</button>{more&&<p>{r?.explanation||d.error}</p>}</>}{error&&<p className="live-error">{error}</p>}
+ {status!=='Failed'&&status!=='Not an expense'&&r?.explanation&&<><button className="text-button" aria-expanded={more} onClick={()=>setMore(!more)}>{more?'Less':'More'}</button></>}
+ {more&&<p className="result-detail">{status==='Failed'?d.error:r?.explanation}</p>}{error&&<p className="live-error">{error}</p>}
+ {link}
  {d.statement_file&&!d.handover_session&&<button className="button" onClick={()=>void statementsApi.handover(d.id).then(()=>live.refresh(),e=>setError((e as Error).message))}>Continue as statement</button>}
  </article>;
 }

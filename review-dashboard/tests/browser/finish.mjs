@@ -56,7 +56,7 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  const draft=await json('drafts',{text:'Fictional shared purchase'});await json('drafts/'+draft.id+'/save',{});await wait(draft.id,'question');
  await go('queue/?draft='+draft.id);await refresh();
  await expect(page.getByRole('heading',{name:'Create these accounts?',exact:true})).toBeVisible();await expect(page.locator('.draft-detail')).toContainText('Shared:Accounts Receivable:Finch');
- await overflow('new account consent');await snap('new-account-question');await page.getByRole('button',{name:'Create and add',exact:true}).click();
+ await expect(page.locator('.draft-detail .queue-pieces:empty')).toHaveCount(0);await overflow('new account consent');await snap('new-account-question');await page.getByRole('button',{name:'Create and add',exact:true}).click();
  await wait(draft.id,'added');record('6a new top-level account question approves exact proposal without a second agent call');
  await quiesce();await control('reset-workflows',{});
 }

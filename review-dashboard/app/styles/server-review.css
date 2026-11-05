@@ -2,3 +2,9 @@
 @media(max-width:760px){.review-comparison{grid-template-columns:1fr}.review-comparison>div+div{border-left:0;border-top:1px solid var(--separator)}.review-rest-row{grid-template-columns:minmax(0,1fr) auto;gap:6px 12px}.review-rest-row .review-date{grid-column:1/-1}.review-rest-row .button{grid-column:1/-1;justify-self:start;margin-top:6px}.review-action-row .button{min-height:44px}.review-server-form .field{min-height:44px}.review-entry-heading{flex-wrap:wrap}.review-entry-heading .money{margin-left:auto}.phone-live-nav .nav-count.important{background:var(--destructive-fill);color:white}.server-review .page-header .button{min-height:44px}}
 
 .dialog:has(.review-merge-body),.dialog:has(.review-server-form){width:min(560px,100%);max-height:min(720px,100%)}.review-server-form,.review-merge-body{overflow:auto}.review-doubt>p:last-child{color:var(--text-secondary)}
+
+.server-review .review-notice{margin:0 0 16px}
+.server-review .review-notice p{margin:0}
+.review-footer-tools{margin-top:20px}
+.server-review .review-footer-tools .button.review-csv{padding-inline:0}
+.server-review .review-notice{border-color:var(--separator)}

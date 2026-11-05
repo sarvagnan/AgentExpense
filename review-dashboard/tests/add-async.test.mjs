@@ -168,7 +168,7 @@ test('Just added ignores held lookups after a newer visit or removal',async()=>{
  let ids=[{id,type:'draft'}],removed=false;const requests=[];
  const h=hookHarness('../app/live/add-results.tsx',{
   '../data':{dashboard:{transactions:[]}},'../ui':{announce(){}},'./api':{isRemoved:()=>removed,api:{get:()=>{const hold=deferred();requests.push(hold);return hold.promise;}}},'./statements-api':{},
-  './add-visit':{readVisit:()=>ids},'./rule-saved':{},'./receipt-reading':{},'../dashboard':{},'react/jsx-runtime':{},
+  './add-visit':{readVisit:()=>ids},'./rule-saved':{},'./receipt-reading':{},'../dashboard':{},'../first-run':{},'../rules':{},'react/jsx-runtime':{},
  });
  const live={drafts:[],statements:[]};const render=()=>h.render(m=>m.useAddResults(live));
  try{

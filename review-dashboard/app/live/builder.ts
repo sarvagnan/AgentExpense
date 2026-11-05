@@ -34,7 +34,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   const payments = paymentAccounts(data.payments);
   // Remove specific payment names before looking for category trigger words.
   let patternText = low;
-  for (const [account, meta] of Object.entries(payments)) for (const word of [accountLabel(account, payments), ...(meta.aliases || [])]) {
+  for (const [account, meta] of Object.entries(payments)) for (const word of [account, accountLabel(account, payments), ...(meta.aliases || [])]) {
     if (!['bank','card','cash','wallet','loan','person'].includes(word.toLowerCase())) patternText = patternText.replace(words(word), ' ');
   }
   const merchant = Object.entries(data.merchants || {}).sort(([a],[b])=>b.length-a.length).find(([name])=>words(name).test(patternText))?.[1];
@@ -64,7 +64,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   const generic = new Set(['card','bank','cash','wallet','loan','person']);
   const matches = new Set<string>();
   let ambiguousPay = false;
-  const named = Object.entries(payments).filter(([, meta]) => pattern.id !== 'payback' || meta.kind !== 'person').flatMap(([account, meta]) => [accountLabel(account, payments), ...(meta.aliases || [])].filter(word => !generic.has(word.toLowerCase())).map(word => ({account, word})));
+  const named = Object.entries(payments).filter(([, meta]) => pattern.id !== 'payback' || meta.kind !== 'person').flatMap(([account, meta]) => [account, accountLabel(account, payments), ...(meta.aliases || [])].filter(word => !generic.has(word.toLowerCase())).map(word => ({account, word})));
   const longest = named.filter(({word}) => words(word).test(rest)).sort((a,b) => b.word.length-a.word.length);
   // Prefer a full label over a shorter alias contained in it.
   for (const {word} of longest) if (words(word).test(rest)) {
@@ -89,6 +89,9 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   if (known) rest = rest.replace(words(known), ' ');
   if (pattern.id === 'ride') take(/\b((?:from\s+.+?\s+)?to\s+.+?)\s*$/, 'route');
   rest = rest.replace(/\b(for|on|via|with|paid|the|a|an|at|my|i|just|got|bought|and|of|in|from)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  // Taken pieces leave their separators behind ("café, , ,"): keep only the words, in the case they were typed.
+  rest = rest.split(/\s*[,;]\s*/).map(part => part.replace(/^[\s.:·–—-]+|[\s.:·–—-]+$/g, '')).filter(Boolean).join(', ')
+    .split(' ').map(word => text.match(words(word))?.[0] ?? word).join(' ').replace(/^(?:to\s+)+|(?:\s+to)+$/gi, '');
   const fields: Record<string, Piece> = {};
   const set = (key: string, value: string, source: Source, shown = value) => { fields[key] = { value, source, shown }; };
   const vary = (key: string, value = '') => value ? set(key, value, 'typed') : set(key, '', hasFiles ? 'agent' : 'missing', hasFiles ? 'from your upload' : `${LABELS[key].toLowerCase()}?`);

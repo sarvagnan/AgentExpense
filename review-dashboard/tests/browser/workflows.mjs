@@ -47,7 +47,7 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  assert.equal(expense.postings[0].cost.amount,'51.48');assert.equal(expense.postings[1].amount,'-51.48');assert.match(expense.notes.join(' '),/estimate/);
  record('4B conversion blank/invalid gating, linked math in both directions, four decimals, estimate and committed total cost');
  config=await control('scenario',{mode:'transfer'});
- const transfer=await submit('Sent 1000 from '+config.source+' to '+config.destination);await wait(transfer,'question');await go('queue/?draft='+transfer);await refresh();
+ const transfer=await submit('Sent 1000 from '+config.sourceLabel+' to '+config.destinationLabel);await wait(transfer,'question');await go('queue/?draft='+transfer);await refresh();
  const received=page.getByLabel('Received in '+config.destinationCurrency,{exact:true}),transferRate=page.getByLabel(config.destinationCurrency+' for 1 '+config.sourceCurrency,{exact:true}),saveTransfer=page.getByRole('button',{name:'Save transfer',exact:true});
  await expect(saveTransfer).toBeDisabled();await snap('draft-transfer');
  for(const value of ['','0','-1','oops']){await received.fill(value);await expect(saveTransfer).toBeDisabled();}
@@ -71,7 +71,11 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
  const identifier=metadata[config.account].statement?.identifier || '5678';
  const pdf=Buffer.from(await (await fetch(base+`__test/statement?currency=${config.currency}&foreign=${config.foreign}&identifier=${identifier}`,{method:'POST'})).arrayBuffer());
  await go('add/');await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:november,mimeType:'application/pdf',buffer:pdf});
- await expect(page.locator('.pending-upload')).toHaveCount(0);await expect(page.locator('.file-interpretation')).toContainText('Statement');await snap('add-r3-statement-detected');await page.getByRole('button',{name:'Continue',exact:true}).click();
+ await expect(page.locator('.pending-upload')).toHaveCount(0);await expect(page.locator('.file-interpretation')).toContainText('Statement');
+ // A statement file gets the statement's own save-bar text, and quiet file actions never run together.
+ await expect(page.locator('.add-savebar strong')).toHaveText('Continue to read the statement');
+ {const quiet=await page.locator('.file-interpretation .quiet-actions .text-button').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().toJSON()));for(let i=1;i<quiet.length;i++)assert.ok(quiet[i].top>=quiet[i-1].bottom-1||quiet[i].left>=quiet[i-1].right+12,`File actions must not touch: ${JSON.stringify(quiet)}`);}
+ await snap('add-r3-statement-detected');await page.getByRole('button',{name:'Continue',exact:true}).click();
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===november&&['found','currency_mismatch'].includes(s.state))?.id,{timeout:30000}).toBeTruthy();
  let session=(await get('statements')).sessions.find(s=>s.original_name===november);
  if(session.state==='currency_mismatch'){await page.getByLabel('Account in '+config.currency).selectOption(config.account);await page.getByRole('button',{name:'Use this account',exact:true}).click();await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:30000}).toBe('found');}
@@ -96,6 +100,8 @@ await expect(page.locator('.statement-conversion')).toContainText('51.48');await
  await expect(page.locator('.statement-currency')).toBeVisible({timeout:30000});await expect(page.locator('.statement-currency')).toContainText('currencies must match');
  await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeDisabled();
  assert.equal((await get('statements')).sessions.some(s=>s.original_name===foreignFile),false,'A mismatch stays staged before Continue');
+ // A disabled Continue says what it needs.
+ await expect(page.locator('.add-savebar strong')).toHaveText(/^Choose an account in [A-Z]{3}$/);
  await snap('statement-mismatch');
  const compatible=Object.entries(metadata).find(([,m])=>['bank','card'].includes(m.kind)&&m.currency===config.foreign)?.[0];assert.ok(compatible);
  await page.getByLabel('Account in '+config.foreign).selectOption(compatible);await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeEnabled();await snap('add-r3-currency-resolved');await page.getByRole('button',{name:'Continue',exact:true}).click();

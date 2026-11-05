@@ -336,7 +336,7 @@ def operate(settings, op_id, body, *, clock=None):
             if prior['rule_action']=='bill-saved':
                 after=next(c['after'] for c in prior['rule_changes'] if c['id']==prior['rule_id'])
                 bill=prior['bill']
-                result.update(outcome='bill',description=after['description'],bill=bill,sources=bill['sources'],total=f"{bill['amount']} {main_postings(after)[0]['commodity']}")
+                result.update(outcome='bill',rule_id=prior['rule_id'],description=after['description'],bill=bill,sources=bill['sources'],total=f"{bill['amount']} {main_postings(after)[0]['commodity']}")
             return result
         receipt_path = store.folder(op_id) / 'record.json'
         receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else {}
@@ -459,7 +459,7 @@ def operate(settings, op_id, body, *, clock=None):
             append(root,record)
             result=dict(audit_id=record['id'],action=action,changes=changes,changed=len(changes))
             if action=='bill-saved':
-                result.update(outcome='bill',description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['sources'],total=f"{bill_record['amount']} {main_postings(rule)[0]['commodity']}")
+                result.update(outcome='bill',rule_id=rule['id'],description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['sources'],total=f"{bill_record['amount']} {main_postings(rule)[0]['commodity']}")
             journal['result']=result;tx.save_journal(journal)
             message=f'Rules: {action}\n\n{tx.marker}\nAudit: {record["id"]}\nAdded-by: user (rule operation)'
             if action=='bill-saved':

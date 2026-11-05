@@ -279,3 +279,15 @@ account currency dialogs), without the workflow suites that follow. It adds the
 `settings-320` capture. `add-timing.mjs` adds a controlled-clock check of the offline
 notice: one timed-out health read schedules one follow-up check two seconds later and
 changes nothing on Add; only a second consecutive failure shows "You’re offline".
+
+UI fix round 1 part 2 (area B) adds assertions to existing suites rather than a new focus.
+`add.mjs` waits for each Just added outcome before its capture and checks that Not an expense
+shows its explanation with no Queue link, that Added rows carry their amount, and the save bar's
+reason for a disabled Continue (ambiguous file); `workflows.mjs` checks the mismatch reason and
+that a statement's quiet file actions never touch; `varying.mjs` checks the varying-card reason
+and that a saved bill links to its rule; `readers.mjs` checks a statement's Queue tag and that an
+applied statement leaves the Queue list while focus stays in its detail; `retention.mjs` checks
+the deleted notice below the H1 (and absent on Trash), readable Queue chips and a one-line phone
+file row; `corrections.mjs` checks one Edit entry heading and the Attach files button; `review.mjs`
+checks the styled result notice. The fixture host's `reset-workflows` now waits for a Discard's
+pending audit commit instead of failing, and transfer words use account labels.

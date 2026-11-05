@@ -21,6 +21,8 @@ code { font: var(--text-code); }
 /* One focus ring for every control: the accent color, outside the control's edge. */
 :focus { outline: none; }
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 1px; border-radius: var(--radius-control); }
+/* Headings and sections that only receive focus to move a reader's place (never a control) show no ring. */
+:is(h1, h2, h3, section, article, div)[tabindex="-1"]:focus-visible { outline: none; }
 
 .icon { width: 16px; height: 16px; flex: none; }
 

@@ -70,11 +70,15 @@ export function Icon({ name, label }: { name: IconName; label?: string }) {
   return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true}>{ICONS[name]}</svg>;
 }
 
+// A page-level notice (Trash's "moved to Trash") sits under every page's heading, in the content column.
+let PageNotice: (() => ReactNode) | null = null;
+export const setPageNotice = (component: () => ReactNode) => { PageNotice = component; };
 export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children?: ReactNode }) {
-  return <header className="page-header">
+  const Notice = PageNotice;
+  return <><header className="page-header">
     <div className="page-heading"><h1 tabIndex={-1}>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
     {children && <div className="page-tools">{children}</div>}
-  </header>;
+  </header>{Notice && <Notice/>}</>;
 }
 
 export function PanelHeader({ title, meta, children, level = 2, headingRef }: { title: ReactNode; meta?: ReactNode; children?: ReactNode; level?: 2 | 3; headingRef?: React.Ref<HTMLHeadingElement> }) {

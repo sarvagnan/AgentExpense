@@ -21,10 +21,10 @@ export function blockedSaveText(agent: AgentStatus, online: boolean | null): [st
  if (agent.state === 'paused') return ['Add is paused', 'Your words stay here until AgentExpense supports the agent update.'];
  return null;
 }
-export function FilePreview({ id, file, completed = false, completedUrl }: {id: string; file: Attachment; completed?: boolean; completedUrl?: string | null}) {
+export function FilePreview({ id, file, completed = false, completedUrl, note }: {id: string; file: Attachment; completed?: boolean; completedUrl?: string | null; note?: string}) {
   const document = !file.media_type.startsWith('image/');
   const kind = document ? file.original_name.split('.').at(-1)?.toUpperCase() || 'File' : 'Image';
-  return <>{!completed || completedUrl ? <a className="attachment-preview" href={completedUrl || fileUrl(id,file.id)} target="_blank" rel="noopener" aria-label={`Open ${file.original_name}`}>{document ? <span className="pdf-page"><Icon name="source"/>{kind}</span> : <img src={completedUrl || fileUrl(id,file.id)} alt=""/>}</a> : <span className="pdf-page"><Icon name="source"/>{document ? 'PDF' : 'Image'}</span>}<span className="attachment-name">{file.original_name}<small>{Math.ceil(file.size / 1024)} KB{completed ? ' · upload filed or removed after completion' : ' · uploaded'}</small></span></>;
+  return <>{!completed || completedUrl ? <a className="attachment-preview" href={completedUrl || fileUrl(id,file.id)} target="_blank" rel="noopener" aria-label={`Open ${file.original_name}`}>{document ? <span className="pdf-page"><Icon name="source"/>{kind}</span> : <img src={completedUrl || fileUrl(id,file.id)} alt=""/>}</a> : <span className="pdf-page"><Icon name="source"/>{document ? 'PDF' : 'Image'}</span>}<span className="attachment-name"><span className="attachment-file" title={file.original_name}>{file.original_name}</span><small>{Math.ceil(file.size / 1024)} KB{completed ? ' · upload filed or removed after completion' : ' · uploaded'}</small>{note && <small>{note}</small>}</span></>;
 }
 export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer}){
  const {form,draft,pending,patternError,error,saving,recovering,update,pick}=c;
@@ -42,14 +42,22 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
  const blockedAgent=live.agent.state==='signed out'||live.agent.state==='paused'||!!live.agent.agent_pause;
  const blockedFiles=files.some(f=>f.kind==='ambiguous'||f.locked||f.mismatch)||statement&&!draft?.files.length;
  const refused=live.drafts.find(d=>d.state==='failed'&&d.refusal);
- const [refusalError,setRefusalError]=useState(''),[refusalBusy,setRefusalBusy]=useState(false);
+ const [refusalError,setRefusalError]=useState(''),[refusalBusy,setRefusalBusy]=useState<''|'edit'|'keep'|'discard'>('');
  // Discard is a verified Trash commit that can take seconds. Release the input first: the
  // refused item keeps its words in Queue until then, and words typed meanwhile are the next
  // expense, not edits of the discarded one. One action at a time.
- async function resolveRefusal(action:'edit'|'keep'|'discard'){if(!refused||refusalBusy)return;const id=refused.id;setRefusalBusy(true);setRefusalError('');try{if(action==='discard'){c.forgetDiscarded(id);await live.discard(id);}else{await api.resolveRefusal(id,'edit');if(action==='edit')await c.restore(id);}await live.refresh();}catch(e){setRefusalError((e as Error).message);}finally{setRefusalBusy(false);}}
+ async function resolveRefusal(action:'edit'|'keep'|'discard'){if(!refused||refusalBusy)return;const id=refused.id;setRefusalBusy(action);setRefusalError('');try{if(action==='discard'){c.forgetDiscarded(id);await live.discard(id);}else{await api.resolveRefusal(id,'edit');if(action==='edit')await c.restore(id);}await live.refresh();}catch(e){setRefusalError((e as Error).message);}finally{setRefusalBusy('');}}
  const latest=rows[0],barResult=latest?(latest.type==='draft'?draftStatus(latest.value as Draft):statementStatus(latest.value as StatementSession)):'';
  const empty=!form.text&&!draft?.files.length&&!pending.length;
  const blockedSave=!empty&&!builtin?blockedSaveText(live.agent,live.online):!empty&&live.online===false?blockedSaveText(live.agent,false):null;
+ // Every other reason Continue is disabled is said in the bar, never "Ready to continue".
+ const waitingSave:[string,string]|null=empty?null:pending.some(p=>!!p.error)?['An upload didn’t finish','Retry or remove it above to continue.']
+  :files.some(f=>f.kind==='ambiguous')?['Choose statement or receipt','Pick one above to continue.']
+  :files.find(f=>f.mismatch)?[`Choose an account in ${files.find(f=>f.mismatch)!.currency}`,'The file and the account must use the same currency.']
+  :files.some(f=>f.locked)?['Type the file’s password','It stays in memory only and opens the file.']
+  :statement&&!draft?.files.length?['Attach the statement file','Its printed figures are checked before anything is applied.']
+  :c.ruleDecisionNeeded?['Choose an action above','Choose the payment or bill action above.']
+  :c.interpretation.busy&&!!draft?.files.length?['Checking the file…','Continue opens when the check finishes.']:null;
  // A shorter background result must not clamp scrollY and move the composer
  // under the pointer. Release the extra reach as the person scrolls back up.
  useEffect(()=>{
@@ -77,8 +85,8 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
       {patternError && <p className="live-hint">{patternError}</p>}
 
  </div></section><div className="add-interpretation"><AddUnderstood composer={c} online={live.online}/></div></div>
- <section className="add-savebar" aria-label="Save entry"><div><strong>{saving?'Saving…':busyFiles?'Uploading…':blockedSave?blockedSave[0]:empty&&barResult?barResult:empty?'Ready when you are':statement?'Continue to read the statement':'Ready to continue'}</strong><p className="live-hint">{blockedSave&&!saving&&!busyFiles?blockedSave[1]:empty&&latest?'The input is ready for your next entry.':statement?'Checks come before applying any rows.':c.ruleDecisionNeeded?'Choose the payment or bill action above.':'Words or a file are enough to start.'}</p>{error&&<p className="live-error" role="alert">{error}</p>}</div><button type="button" className="button primary" disabled={c.ruleDecisionNeeded||live.online!==true||blockedAgent&&!builtin||saving||recovering||busyFiles||c.interpretation.busy||blockedFiles||pending.some(p=>!!p.error)||(!form.text.trim()&&!draft?.files.length)} onClick={()=>void save()}>Continue</button></section>
- {refused?.refusal&&<BalanceNotice refusal={refused.refusal}><p>{refused.text}</p><button className="button" disabled={refusalBusy} onClick={()=>void resolveRefusal('edit')}>Change account or date</button><button className="button" disabled={refusalBusy} onClick={()=>void resolveRefusal('keep')}>Keep in Queue</button><button className="button destructive" disabled={refusalBusy} onClick={()=>void resolveRefusal('discard')}>Discard</button>{refusalError&&<p>{refusalError}</p>}</BalanceNotice>}
+ <section className="add-savebar" aria-label="Save entry"><div><strong>{saving?'Saving…':busyFiles?'Uploading…':blockedSave?blockedSave[0]:empty&&barResult?barResult:empty?'Ready when you are':waitingSave?waitingSave[0]:statement||files.some(f=>f.kind==='statement')?'Continue to read the statement':'Ready to continue'}</strong><p className="live-hint">{blockedSave&&!saving&&!busyFiles?blockedSave[1]:empty&&latest?'The input is ready for your next entry.':waitingSave&&!saving&&!busyFiles?waitingSave[1]:statement||files.some(f=>f.kind==='statement')?'Checks come before applying any rows.':'Words or a file are enough to start.'}</p>{error&&<p className="live-error" role="alert">{error}</p>}</div><button type="button" className="button primary" disabled={c.ruleDecisionNeeded||live.online!==true||blockedAgent&&!builtin||saving||recovering||busyFiles||c.interpretation.busy||blockedFiles||pending.some(p=>!!p.error)||(!form.text.trim()&&!draft?.files.length)} onClick={()=>void save()}>Continue</button></section>
+ {refused?.refusal&&<BalanceNotice refusal={refused.refusal}><p>{refused.text}</p><button className="button" disabled={!!refusalBusy} onClick={()=>void resolveRefusal('edit')}>{refusalBusy==='edit'?'Opening…':'Change account or date'}</button><button className="button" disabled={!!refusalBusy} onClick={()=>void resolveRefusal('keep')}>{refusalBusy==='keep'?'Keeping…':'Keep in Queue'}</button><button className="button destructive" disabled={!!refusalBusy} onClick={()=>void resolveRefusal('discard')}>{refusalBusy==='discard'?'Moving to Trash…':'Discard'}</button>{refusalError&&<p>{refusalError}</p>}</BalanceNotice>}
  <AddResults live={live} rows={rows}/>
  {showExamples&&<Dialog title="Examples" subtitle="Pick one, then change it to your own words." labelId="add-examples-title" onClose={()=>setShowExamples(false)}><div className="add-examples">{examples.map(example=><button className="example-button" key={example} onClick={()=>chooseExample(example)}>{example}</button>)}</div></Dialog>}
  </section>;

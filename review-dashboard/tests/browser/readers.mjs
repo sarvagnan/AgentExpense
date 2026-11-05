@@ -67,6 +67,9 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
  await page.getByRole('button',{name:'Review checklist',exact:true}).click();
  for(const {row} of session.plan.items.filter(i=>i.needs_user))await page.getByRole('combobox',{name:'Decision for '+row.description,exact:true}).selectOption('pending');
  await expect(page.getByRole('button',{name:'Review apply',exact:true})).toBeEnabled();
+ // A statement's Queue row carries a real, styled state tag.
+ const queueRow=page.locator('.draft-queue .draft-row').filter({hasText:name});
+ await expect(queueRow.locator('.draft-status')).toHaveText('Decisions');await expect(queueRow.locator('.draft-status')).toHaveClass(/state-question/);
  await overflow('7B cited agent statement');await snap('draft-agent-statement');
  await page.getByRole('button',{name:'Review apply',exact:true}).click();
  await page.getByRole('button',{name:'Apply statement',exact:true}).click();
@@ -78,6 +81,8 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
  const summary=JSON.parse(await readFile(join(stage.ledger,'data/card-statements.json'))).find(s=>s.account===config.account);
  assert.equal(summary['closing-balance'],'92.00');assert.equal(summary.members.length,2);
  assert.ok((await readFile(join(stage.ledger,summary.source))).equals(buffer));
+ // Applied, the statement leaves Needs you even while focus stays in its detail.
+ await expect(queueRow).toHaveCount(0);
  await snap('applied-agent-statement');
  await quiesce();await go('add/');
  await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:'Next-unmapped.csv',mimeType:'text/csv',buffer});

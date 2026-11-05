@@ -36,7 +36,7 @@ export async function runConfirmedBalances({page,base,persona,expect,control,go,
   try {
     const deleted=page.waitForResponse(r=>r.url().endsWith('/api/drafts/'+refusedId)&&r.request().method()==='DELETE',{timeout:180000});deleted.catch(()=>{});
     await notice.getByRole('button',{name:'Discard',exact:true}).click();await expect.poll(()=>deletes).toBe(1);
-    await expect(words).toHaveValue('');await expect(notice.getByRole('button',{name:'Discard',exact:true})).toBeDisabled();await expect(notice.getByRole('button',{name:'Keep in Queue'})).toBeDisabled();
+    await expect(words).toHaveValue('');await expect(notice.getByRole('button',{name:'Moving to Trash…',exact:true})).toBeDisabled();await expect(notice.getByRole('button',{name:'Keep in Queue'})).toBeDisabled();
     await words.fill('Paper Kite notebook');
     releaseDelete();assert.equal((await deleted).status(),204);
     await expect(notice).toHaveCount(0);await expect(words).toHaveValue('Paper Kite notebook');assert.equal(deletes,1,'One Discard request');

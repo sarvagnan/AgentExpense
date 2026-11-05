@@ -54,9 +54,12 @@ test('dates, payment hints, merchant text and word boundaries handle edge cases'
  assert.equal(build('petrol 27/10/2026 200').fields.date.value,'2026-10-27');assert.equal(build('petrol 200 yesterday').fields.date.value,'2026-10-29');assert.equal(build('petrol 200 today').fields.date.value,'2026-10-30');
  assert.equal(build('petrol 2026-09-03 200').fields.amount.value,'200');assert.equal(build('petrol 5 November 200').fields.date.value,'2026-11-05');assert.equal(build('petrol 2026-02-30 200').fields.date.value,'2026-10-30');
  for(const [hint,pay] of [['card',PAYS.card],['checking',bank],['wallet',wallet],['Lunch balance',wallet],['Travel card',card],['cash',PAYS.cash]]){ const sentence=build(`petrol 300 ${hint}`);assert.equal(sentence.pattern,'fuel',hint);assert.equal(sentence.fields.pay.value,pay,hint); }
- assert.equal(build('chocolate 40').pattern,'new');assert.equal(build('fuel 100 at Fable Fuels').fields.outlet.value,'fable fuels');
+ assert.equal(build('chocolate 40').pattern,'new');assert.equal(build('fuel 100 at Fable Fuels').fields.outlet.value,'Fable Fuels');
  assert.equal(build('cab 96 to office').fields.route.value,'to office');assert.equal(build('Liora paid me back 430 coffee').fields.person.value,'liora');
- assert.equal(build('paper lantern renewed $5').fields.currency.value,'USD');assert.equal(build('lube ₹450 Fablemart card').fields.what.value,'lube fablemart');
+ assert.equal(build('paper lantern renewed $5').fields.currency.value,'USD');assert.equal(build('lube ₹450 Fablemart card').fields.what.value,'lube Fablemart');
+ // Taken pieces leave no separators behind, and typed words keep their case.
+ assert.equal(build('Copper Finch Café, ₹18.60, cash').fields.what.value,'Copper Finch Café');assert.equal(build('Juniper Table, 46.80, cash, today').fields.what.value,'Juniper Table');
+ assert.doesNotMatch(build(`Sent 1000 from ${bank} to ${wallet}`).fields.what.value,/:/,'Typed account paths are payment pieces, not description debris');
 });
 test('pattern statistics use the selected store and are deterministic for fixtures',async()=>{
  const tx=(id,date,amount,pay=bank)=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});

@@ -6,6 +6,7 @@ from pathlib import Path
 import secrets
 import shutil
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 from app import create_app
@@ -126,7 +127,8 @@ def add_result(body: dict):
         assert state in ('working','added','question','failed')
         draft.update(state=state,saved_at=now(),error='The file could not be read. Your draft is kept.' if state=='failed' else None)
         if state=='added':
-            draft.update(completed_at=now(),result=dict(outcome='not_expense' if body.get('not_expense') else 'ready',description='Copper Finch meal',explanation='This file is a note, with no payment.' if body.get('not_expense') else None))
+            currency=read_json(settings.ledger/'ledger.json')['defaultCurrency']
+            draft.update(completed_at=now(),result=dict(outcome='not_expense',description='Copper Finch meal',explanation='This file is a note, with no payment.') if body.get('not_expense') else dict(outcome='ready',description='Copper Finch meal',total=f'18.60 {currency}'))
         if state=='question':draft['questions']=[dict(question='Which account did you pay from?',answer=None)]
         drafts.put(draft)
         return dict(id=draft['id'],type='draft')
@@ -206,12 +208,16 @@ def scenario(body: dict):
         answer['entry']['postings']=[dict(account=source,amount='-1000',commodity=accounts[source]['currency'],cost=None),dict(account=destination,amount='0',commodity=accounts[destination]['currency'],cost=None)]
     data=json.loads(config.read_text());data['steps']=[dict(kind='exit')] if mode=='failure' else [dict(answer=answer)]
     config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
-    return dict(account=account,currency=currency,foreign=foreign,source=source,destination=destination,sourceCurrency=accounts[source]['currency'],destinationCurrency=accounts[destination]['currency'])
+    return dict(account=account,currency=currency,foreign=foreign,source=source,destination=destination,sourceLabel=accounts[source].get('label') or source.split(':')[-1],destinationLabel=accounts[destination].get('label') or destination.split(':')[-1],sourceCurrency=accounts[source]['currency'],destinationCurrency=accounts[destination]['currency'])
 
 
 @app.post('/__test/reset-workflows')
 def reset_workflows():
-    # Called only once all real worker operations/audits have completed.
+    # Called once all real worker operations have completed. A Discard's record-only
+    # audit commit can still be finishing under load, so wait for it instead of failing.
+    deadline=time.monotonic()+120
+    while any(d.get('audit_pending') for d in app.state.drafts.all(include_discarded=True)) and time.monotonic()<deadline:
+        time.sleep(0.2)
     with app.state.drafts.mutex,app.state.statements.mutex:
         assert not any(d.get('audit_pending') for d in app.state.drafts.all(include_discarded=True))
         for d in app.state.drafts.all(include_discarded=True):

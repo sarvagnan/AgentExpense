@@ -26,7 +26,7 @@ export async function runReview({browser,context,page,base,persona,engine,theme,
   try{
    await second.goto(base+'review/');await expect(second.locator('.server-review-content')).toBeVisible();
    await act(cards.first().getByRole('button',{name:'These are separate',exact:true}));await waitCount(23);
-   await expect(page.getByText('Marked as separate.',{exact:true})).toBeVisible();await snap('review-separate');
+   await expect(page.getByText('Marked as separate.',{exact:true})).toBeVisible();await expect(page.locator('.review-notice.live-success')).toContainText('Marked as separate.');await snap('review-separate');
    await expect(second.locator('.server-review .page-header')).toContainText('23 waiting');
    await expect(page.getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);
    record('5 one-click separation history and count synchronized across two devices');

@@ -1,10 +1,12 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {dashboard} from './data';
 import {localDate} from './date-time';
 import {dayLabel,Icon,money,PageHeader} from './ui';
 import {mainPostings,originReason,payer,ruleAmounts,ruleStatus,statusLabel} from '../scripts/recurring-ui.mjs';
 import {RuleEditor} from './rule-editor';
 import {type Rule,type RulePosting,useRules,useRuleOperation} from './live/rules-api';
+/** A rule's row (and its saved bill) on Forecast › Rules. */
+export const ruleHref=(id:string)=>`${import.meta.env.BASE_URL}forecast/?section=rules#rule-${encodeURIComponent(id)}`;
 export const entryHref=(id:string)=>{const row=dashboard.transactions.find(e=>e.id===id||e.storeId===id);return `${import.meta.env.BASE_URL}explorer/?month=${row?.date.slice(0,7)||localDate().slice(0,7)}&entry=${encodeURIComponent(row?.id||id)}`;};
 export function RuleAmounts({rule}:{rule:Rule}) {return <>{Object.entries(ruleAmounts(rule)).map(([currency,amount],i)=><span key={currency}>{i?' + ':''}{rule.amount==='varies'&&!rule.bill?'≈ ':''}{money(Number(rule.bill?.amount??amount),currency)}{rule.bill&&<> <span className="bill-badge">bill</span></>}</span>)}{rule.amount==='varies'&&<small className="rule-varying-range">varies · {rule.varying?.min!=null&&rule.varying?.max!=null?`${money(Number(rule.varying.min),Object.keys(ruleAmounts(rule))[0])}–${money(Number(rule.varying.max),Object.keys(ruleAmounts(rule))[0])} last 3`:'No payments yet'}</small>}</>;}
 export function RuleSummary({rule}:{rule:Rule}) {const pay=payer(rule,dashboard.meta.accounts);return <><strong><RuleAmounts rule={rule}/></strong><span>{mainPostings(rule).map((p:RulePosting)=>p.account.split(':').slice(1).join(' › ')).join(', ')}</span><span>{pay?(dashboard.meta.accounts[pay.account]?.label||pay.account):'Choose a paying account when adding'}</span></>;}
@@ -12,6 +14,8 @@ export const scheduleLabel=(rule:Rule)=>`${(rule.schedule.interval||1)===1?(rule
 export default function Rules({online}:{online:boolean|null}) {
   const {data,error,ready,refresh}=useRules(online),[editing,setEditing]=useState<Rule|true|null>(null),[dismissed,setDismissed]=useState<string[]>([]);
   const op=useRuleOperation(refresh),readonly=online!==true||!ready;
+  // A link to one rule (a saved bill's result) scrolls to it once the rules arrive.
+  useEffect(()=>{const target=decodeURIComponent(location.hash.slice(1));if(!target.startsWith('rule-')||!data.rules.length)return;const row=document.getElementById(target);if(row){row.scrollIntoView({block:'start'});row.setAttribute('tabindex','-1');row.focus({preventScroll:true});}},[data.rules.length]);
   const suggestions=data.suggestions.filter(s=>!dismissed.includes(s.rule.origin?.evidence?.join()||s.rule.id));
   return <section className="page rules-page"><PageHeader title="Rules" subtitle="Regular payments, on your terms."/>
     {readonly&&<p className="live-notice" role="status">Rules are read-only here. {online===false?'Reconnect to the live server to make changes.':error||'Waiting for the live server.'}</p>}
@@ -25,7 +29,7 @@ export default function Rules({online}:{online:boolean|null}) {
 
 export function RuleRow({rule,readonly,busy,onEdit,operate}:{rule:Rule;readonly:boolean;busy:boolean;onEdit:(rule:Rule)=>void;operate:(body:object)=>Promise<boolean>}) {
   const life=rule.lifecycle||'active',status=life==='active'&&!rule.bill&&rule.rule_status==='stale'?'stale':ruleStatus(rule,localDate());
-  return <article className="panel rule-row" aria-label={rule.description}>
+  return <article className="panel rule-row" id={`rule-${rule.id}`} aria-label={rule.description}>
       <header><h2>{rule.description}</h2><span className={`rule-status ${status}`}>{statusLabel(status)}</span></header><div className="rule-summary"><RuleSummary rule={rule}/></div>
       <dl className="rule-dates"><div><dt>Schedule</dt><dd>{scheduleLabel(rule)}</dd></div><div><dt>Next due</dt><dd>{dayLabel(rule.next_due||rule.date)}</dd></div><div><dt>Last paid</dt><dd>{rule.last_payment?<a href={entryHref(rule.last_payment.id)}>{dayLabel(rule.last_payment.date)}</a>:'No payment recorded'}</dd></div></dl>
       {rule.origin&&rule.origin.kind!=='owner'&&<div className="rule-origin"><strong>Made automatically</strong><p>{originReason(rule.origin)}{rule.origin.came_back?' Returned after two new payments.':''}</p><span>{rule.review_state==='owner-kept'?'Kept by you':rule.review_state==='owner-removed'?'Removed by you':rule.review?.rule_verdict==='confirm'?'Confirmed in weekly review':rule.review?.rule_verdict==='propose-removal'?'Removal proposed':'Waiting for weekly review'}</span></div>}
