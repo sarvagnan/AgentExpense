@@ -11,6 +11,7 @@ import {BalanceNotice} from './balance-refusal';
 import type {Draft} from './api';
 import type {StatementSession} from './statements-api';
 import {statementWords} from './add-intake';
+import {firstRunDone} from '../first-run';
 export function FilePreview({ id, file, completed = false, completedUrl }: {id: string; file: Attachment; completed?: boolean; completedUrl?: string | null}) {
   const document = !file.media_type.startsWith('image/');
   const kind = document ? file.original_name.split('.').at(-1)?.toUpperCase() || 'File' : 'Image';
@@ -18,6 +19,7 @@ export function FilePreview({ id, file, completed = false, completedUrl }: {id: 
 }
 export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer}){
  const {form,draft,pending,patternError,error,saving,recovering,update,pick}=c;
+ const [setup]=useState(firstRunDone);
  const currency=dashboard.meta.ledger.defaultCurrency;
  const account=Object.values(dashboard.meta.accounts).find(m=>m.kind==='card'&&m.currency===currency);
  const bank=Object.values(dashboard.meta.accounts).find(m=>m.kind==='bank');
@@ -49,7 +51,8 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
  async function save(){if(await c.save())input.current?.focus({preventScroll:true});}
  function chooseExample(example:string){setShowExamples(false);update({...form,text:example,edits:{}});requestAnimationFrame(()=>input.current?.focus({preventScroll:true}));}
  return <section ref={page} className={`page live-page add-page ${dragging?'is-dragging':''}`} onDragEnter={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true);}}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragging(false);}} onDragOver={e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();}} onDrop={e=>{setDragging(false);if(e.dataTransfer.files.length){e.preventDefault();pick(Array.from(e.dataTransfer.files));}}} onPaste={e=>{const files=Array.from(e.clipboardData.files);if(files.length){e.preventDefault();pick(files);}}}>
- <PageHeader title="Add" subtitle="Expenses, receipts and statements. Start with what you have."/>
+ <PageHeader title="Add" subtitle={setup?'Your ledger is ready. Add your first expense.':'Expenses, receipts and statements. Start with what you have.'}/>
+ {setup&&<aside className="live-notice first-run-done" role="status"><Icon name="check"/><div><strong>{setup.path==='import'?'Statements imported.':'You’re ready to start.'}</strong><p>{setup.path==='import'?<>{setup.entries} {setup.entries===1?'entry':'entries'} found. {setup.review} {setup.review===1?'is':'are'} waiting in <a href={`${import.meta.env.BASE_URL}review/`}>Review</a>.{setup.unsaved?` ${setup.unsaved} ${setup.unsaved===1?'statement':'statements'} couldn’t be saved; ${setup.unsaved===1?'it is':'they are'} in Queue.`:''}</>:<>Your opening balances are in <a href={`${import.meta.env.BASE_URL}account-summary/`}>Accounts</a>.</>}</p></div></aside>}
  {live.online===false&&<aside className="live-notice add-blocking-notice" role="status"><Icon name="alert"/><div><strong>You're offline</strong><p>Your words and files stay here. Reconnect to continue.</p><button className="button" onClick={()=>void live.refresh()}>Check connection</button></div></aside>}
  {live.online!==false&&blockedAgent&&<aside className="agent-notice add-blocking-notice" role="status" data-agent-state={live.agent.agent_pause?'outage':live.agent.state}><Icon name="alert"/><div><strong>{live.agent.state==='signed out'||live.agent.agent_pause?.kind==='auth'?"The agent isn't signed in.":'The agent is paused.'}</strong><p>{live.agent.agent_pause?`Resumes at ${formatTimestamp(live.agent.agent_pause.resumes_at)}.`:live.agent.state==='signed out'?`Run ${live.agent.login_command||'make agent-login'} on the computer running AgentExpense.`:live.agent.reason}</p><p>Statements read by the built-in reader still work.</p></div></aside>}
  <div className="add-layout"><section className="panel composer-panel"><PanelHeader title="What happened?"/><div className="panel-body">

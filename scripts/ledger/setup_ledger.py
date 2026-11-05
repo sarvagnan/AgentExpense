@@ -57,11 +57,15 @@ def check_account_name(name):
 
 
 def account_changes(root, *, kind=None, label=None, currency=None, aliases=(), reader=None, identifier=None,
-                    account=None, readers=None):
-    """The changed accounts document for one new account, validated, not yet written."""
-    documents = load(root)
+                    account=None, readers=None, documents=None, manifest=None):
+    """The changed accounts document for one new account, validated, not yet written.
+
+    `documents` and `manifest` let a caller chain several changes in memory before
+    one write (the first-run screens); by default both are read from the ledger.
+    """
+    documents = load(root) if documents is None else documents
     declared = deepcopy(documents[root / 'data/accounts.json'])
-    manifest = read_json(root / 'ledger.json')
+    manifest = read_json(root / 'ledger.json') if manifest is None else manifest
     if kind is None:
         if not account or label or currency or aliases or reader or identifier:
             raise ValueError('Give --kind and --label for a balance-sheet account, or only --account for a category.')
@@ -137,13 +141,16 @@ def amount_text(value, currency):
     return number, format(number.quantize(Decimal(1).scaleb(-max(places, 2))), 'f')
 
 
-def opening_changes(root, start, balances):
-    """Changed documents for opening balances on `start`; validated, not yet written."""
+def opening_changes(root, start, balances, *, documents=None, manifest=None):
+    """Changed documents for opening balances on `start`; validated, not yet written.
+
+    Each balance is "ACCOUNT=AMOUNT" or an (account, amount) pair.
+    """
     date.fromisoformat(start)
-    documents = deepcopy(load(root))
+    documents = deepcopy(load(root) if documents is None else documents)
     accounts_path = root / 'data/accounts.json'
     declared = documents[accounts_path]
-    manifest = read_json(root / 'ledger.json')
+    manifest = deepcopy(read_json(root / 'ledger.json') if manifest is None else manifest)
     if manifest.get('startDate') not in (None, start):
         raise ValueError(f'This ledger already starts on {manifest["startDate"]}; opening balances use that date.')
     used = {e['id'] for items in documents.values() if isinstance(items, list) for e in items}
@@ -155,9 +162,12 @@ def opening_changes(root, start, balances):
     entries = documents.setdefault(path, [])
     seen = set()
     for item in balances:
-        if '=' not in item:
+        if isinstance(item, tuple):
+            key, value = item
+        elif '=' not in item:
             raise ValueError(f'{item!r}: write ACCOUNT=AMOUNT, for example "Example Checking=2400.00".')
-        key, value = item.rsplit('=', 1)
+        else:
+            key, value = item.rsplit('=', 1)
         name = find_account(declared['accounts'], key.strip())
         meta = declared['accounts'][name]
         if not meta.get('kind'):
@@ -185,6 +195,41 @@ def opening_changes(root, start, balances):
     manifest['startDate'] = start
     from ledger_manifest import ordered_manifest
     return {accounts_path: declared, path: entries, root / 'ledger.json': ordered_manifest(manifest)}
+
+
+def first_run_changes(root, start, accounts, *, name=None, currency=None):
+    """Every change for the first-run "Start from today" screen, validated, not yet written.
+
+    `accounts` holds dicts with kind, label, currency and balance (as the person
+    typed it: owed for cards and loans). Accounts are declared, then opened on
+    `start` in one set of documents, so the caller can commit them together.
+    """
+    documents = deepcopy(load(root))
+    manifest = deepcopy(read_json(root / 'ledger.json'))
+    if name is not None:
+        manifest['name'] = name
+    if currency is not None:
+        manifest['defaultCurrency'] = currency
+    if not accounts:
+        raise ValueError('Add at least one account.')
+    balances = []
+    declared = documents[root / 'data/accounts.json']['accounts']
+    for row in accounts:
+        kind, label = row.get('kind'), (row.get('label') or '').strip()
+        existing = declared.get(account_name(kind, label)) if kind in KINDS and label else None
+        if existing is not None:
+            # An account declared earlier (for example with make add-account) is opened as it is.
+            if existing.get('kind') != kind or existing.get('currency') != (row.get('currency') or manifest['defaultCurrency']):
+                raise ValueError(f'{label} is already a {existing.get("kind")} account in {existing.get("currency")}.')
+            account = account_name(kind, label)
+        else:
+            changed, account = account_changes(root, kind=kind, label=label, currency=row.get('currency'),
+                                               aliases=[label], documents=documents, manifest=manifest)
+            documents.update(changed)
+            declared = documents[root / 'data/accounts.json']['accounts']
+        balances.append((account, str(row.get('balance', ''))))
+    changes = opening_changes(root, start, balances, documents=documents, manifest=manifest)
+    return changes
 
 
 def apply(root, compute):

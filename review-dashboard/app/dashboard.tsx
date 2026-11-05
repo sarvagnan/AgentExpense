@@ -12,6 +12,7 @@ import { dashboard as data, reloadData, review as reviewData, type DashboardData
 import Review from './review/page';
 import {useReview} from './review/api';
 import Add from './live/add';
+import {clearFirstRunDone} from './first-run';
 import {useAnswerGuard} from './live/answers';
 import {useComposer} from './live/composer';
 import {useLiveFocus} from './live/focus';
@@ -681,6 +682,8 @@ export default function Dashboard({ view }: { view: View }) {
   },[more]);
   const [appearance, setAppearance] = useAppearance();
   useEffect(() => setMore(false), [view]);
+  // The first-run confirmation belongs to the first visit to Add only.
+  useEffect(() => { if (view !== 'add') clearFirstRunDone(); }, [view]);
   useWindowActivity();
   useEffect(() => { if (view !== 'accounts') document.title = `${TITLES[view]} — Ledger`; }, [view]);
   useEffect(() => {

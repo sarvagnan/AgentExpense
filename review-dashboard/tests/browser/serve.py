@@ -678,4 +678,98 @@ def retention_saved_statement():
         session.update(state='saved',cancelled=True);statements.put(session)
     return dict(id=session['id'])
 
+
+# First run (9-2): the persona ledger becomes a fresh template ledger in its own
+# currency and locale, then its complete files are restored afterwards.
+first_run_saved = None
+
+
+@app.post('/__test/first-run')
+def first_run_fixture(body: dict):
+    global first_run_saved
+    import subprocess
+    from store import dump
+    from transactions import jj, refresh
+    from ledger_manifest import ordered_manifest
+    root = settings.ledger
+    skip = {'.jj', '.git', 'drafts', '.lock', 'expense_ledger.ledger'}
+    files = lambda: [p for p in root.rglob('*') if p.is_file() and p.relative_to(root).parts[0] not in skip]
+    with app.state.drafts.mutex, app.state.statements.mutex:
+        assert not any(d.get('audit_pending') for d in app.state.drafts.all(include_discarded=True))
+        for d in app.state.drafts.all(include_discarded=True):
+            shutil.rmtree(app.state.drafts.folder(d['id']))
+        for session in app.state.statements.all():
+            shutil.rmtree(app.state.statements.folder(session['id']))
+    from ledger_lock import LOCK_FD_ENV
+    with ledger_lock(root) as fd:
+        if body.get('restore'):
+            if first_run_saved is None:
+                return dict(restored=False)
+            for path in files():
+                path.unlink()
+            for relative, data in first_run_saved.items():
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_bytes(data)
+            first_run_saved = None
+            message = 'Restore fictional browser baseline after first run'
+        else:
+            if first_run_saved is None:
+                first_run_saved = {str(p.relative_to(root)): p.read_bytes() for p in files()}
+            original_manifest = json.loads(first_run_saved['ledger.json'])
+            for path in files():
+                if path.name not in ('AGENTS.md', '.gitignore'):
+                    path.unlink()
+            template = json.loads((settings.application / 'templates/ledger/ledger.json').read_text())
+            fresh = dict(template, format=original_manifest['format'], id=original_manifest['id'], name='New ledger',
+                         defaultCurrency=original_manifest['defaultCurrency'], **({'locale': original_manifest['locale']} if original_manifest.get('locale') else {}))
+            dump(root / 'ledger.json', ordered_manifest(fresh))
+            dump(root / 'data/accounts.json', {'commodities': [], 'accounts': {}})
+            dump(root / 'data/forecast.json', [])
+            dump(root / 'data/card-statements.json', [])
+            dump(root / 'data/expenses/2026.json', [])
+            message = 'Fresh fictional ledger for the first run'
+        subprocess.run([sys.executable, str(settings.application / 'scripts/ledger/generate_ledger.py')], cwd=settings.application,
+                       env={**os.environ, 'LEDGER_DIR': str(root), LOCK_FD_ENV: str(fd)}, pass_fds=(fd,), check=True, capture_output=True)
+        jj(root, 'commit', '-m', message)
+        jj(root, 'bookmark', 'set', 'main', '-r', '@-')
+    restored = bool(body.get('restore'))
+    if not restored:
+        sys.path.insert(0, str(settings.application / 'review-dashboard/server/tests'))
+        from cited_statement_fixtures import answer
+        currency = json.loads(first_run_saved['ledger.json'])['defaultCurrency']
+        data = json.loads(config.read_text())
+        data['steps'] = [dict(answer=answer(body.get('agent_currency') or currency))]
+        config.write_text(json.dumps(data))
+        config.with_suffix('.count').unlink(missing_ok=True)
+        app.state.worker.pause.success()
+    return refresh(settings, dict(fresh=not restored, restored=restored))
+
+
+@app.post('/__test/first-run-file')
+def first_run_file(kind: str, currency: str):
+    assert kind in ('card', 'bad', 'agent') and currency.isalpha() and len(currency) == 3
+    sys.path.insert(0, str(settings.application / 'review-dashboard/server/tests'))
+    if kind == 'agent':
+        from cited_statement_fixtures import file_bytes
+        return Response(file_bytes(currency, 'csv'), media_type='text/csv')
+    from statement_fixtures import statement_pdf
+    prefix = 'FB' if kind == 'bad' else 'FC'
+    text = f"""Example Card Statement
+Statement currency: {currency}
+Statement period: 2026-10-01 to 2026-10-28
+Card last four digits: 2468
+Previous balance: 0.00
+Purchases: {'99.00' if kind == 'bad' else '62.75'}
+Cash advances: 0.00
+Credits: 0.00
+Total due: 62.75
+Minimum due: 6.00
+Due date: 2026-11-15
+Date | Serial | Description | Amount | Direction | Foreign amount | Currency
+2026-10-03 | {prefix}-001 | Paper Kite Market | 24.15 | Debit | |
+2026-10-11 | {prefix}-002 | Copper Finch Cafe | 18.60 | Debit | |
+2026-10-19 | {prefix}-003 | Lantern Printworks | 20.00 | Debit | |
+"""
+    return Response(statement_pdf(text), media_type='application/pdf')
+
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')

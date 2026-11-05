@@ -134,8 +134,9 @@ make commit m="Add accounts"
 ```
 
 The person can do this step and the next in the dashboard instead: a ledger with no
-accounts opens the first-run screens (About you, How to start, then accounts), and
-those screens save through the same checks.
+accounts opens the first-run screens (About you, How to start, then either their
+accounts and today's balances or their past statement files), and those screens save
+through the same code and checks as these commands. Start the server first (step 7).
 
 ## 4. Choose how to start
 

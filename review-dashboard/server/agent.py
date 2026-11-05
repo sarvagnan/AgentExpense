@@ -322,7 +322,7 @@ def run(settings, draft, folder, *, cancel=None):
             if draft.get('statement_reading'):
                 from statement_reading import verify
                 task = draft['statement_reading']
-                verify(answer, draft['_statement_source'], task['account'], task['locale'])
+                verify(answer, draft['_statement_source'], task['account'], task['locale'], currency_check=task.get('currency_check', True))
                 record.update(outcome='statement')
                 return answer, record
             if draft.get('receipt_task'):

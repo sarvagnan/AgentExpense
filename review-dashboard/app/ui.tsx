@@ -30,7 +30,7 @@ export const plural = (count: number, one: string, many = `${one}s`) => `${forma
 export type IconName = 'explorer' | 'atlas' | 'journal' | 'forecast' | 'accounts' | 'review' | 'search' | 'source' | 'calendar'
   | 'chevron-left' | 'chevron-right' | 'close' | 'postings' | 'integrity' | 'copy' | 'pending' | 'flag' | 'check'
   | 'import' | 'export' | 'fuel' | 'keyboard' | 'filter' | 'stack' | 'pencil' | 'alert' | 'help' | 'chevron-up-down'
-  | 'sun' | 'moon' | 'appearance';
+  | 'sun' | 'moon' | 'appearance' | 'plus';
 const ICONS: Record<IconName, ReactNode> = {
   explorer: <><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9 9.5v10"/></>,
   atlas: <><rect x="3" y="2" width="18" height="20" rx="2"/><path d="M3 7h18M9 7v15M15 7v15M3 12h18M3 17h18"/></>,
@@ -63,6 +63,7 @@ const ICONS: Record<IconName, ReactNode> = {
   sun: <><circle cx="12" cy="12" r="3.8"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></>,
   moon: <path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z"/>,
   appearance: <><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor"/></>,
+  plus: <path d="M12 5.5v13M5.5 12h13"/>,
 };
 export function Icon({ name, label }: { name: IconName; label?: string }) {
   return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true}>{ICONS[name]}</svg>;

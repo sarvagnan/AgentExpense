@@ -434,6 +434,63 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.get('/api/setup')
+    def first_run_status():
+        from first_run import status
+        return status(settings)
+
+    @app.post('/api/setup/about')
+    def first_run_about(body: dict = Body(...)):
+        from first_run import save_about
+        try:
+            return save_about(settings, body.get('name'), body.get('currency'))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/setup/accounts', status_code=201)
+    def first_run_account(body: dict = Body(...)):
+        from first_run import add_account
+        try:
+            return add_account(settings, body.get('kind'), body.get('label'), body.get('currency'))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/setup/opening')
+    def first_run_opening(body: dict = Body(...)):
+        from first_run import save_opening
+        try:
+            return save_opening(settings, body.get('start'), body.get('accounts'))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/setup/statements/{identity}/account')
+    def first_run_statement_account(identity: str, body: AccountSelection):
+        from first_run import require_fresh
+        statement_get(identity)
+        try:
+            require_fresh(settings.ledger)
+            session = statements.assign(identity, body.account, first_run=True)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        worker.wake.set()
+        return session
+
+    @app.post('/api/setup/import', status_code=202)
+    def first_run_import(body: dict = Body(...)):
+        from first_run import require_fresh
+        identities = body.get('sessions')
+        if not isinstance(identities, list) or not all(isinstance(i, str) for i in identities):
+            raise HTTPException(422, 'Choose the read statements to import.')
+        for identity in identities:
+            statement_get(identity)
+        try:
+            require_fresh(settings.ledger)
+            queued = statements.first_run_import(identities)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        worker.wake.set()
+        return dict(sessions=queued)
+
     @app.get('/api/review')
     def review_queue():
         from review import snapshot

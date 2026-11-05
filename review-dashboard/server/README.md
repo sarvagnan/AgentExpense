@@ -724,3 +724,30 @@ audit catches unmarked selected-ledger reads hidden behind helpers. The common
 Fixture's one fixed fictional policy input is selection-independent. Guard tests
 verify detection and exact marked-test selection. Timing JSON records mode,
 discovered/executed counts and elapsed seconds.
+
+### First run
+
+A ledger with no entries and no accounts opens the first-run screens
+(`app/first-run.tsx`). Their endpoints live in `first_run.py`; each write is one locked,
+verified commit through the settings transaction, and account names and opening balances
+come from `scripts/ledger/setup_ledger.py` (the same code as `make add-account` and
+`make opening-balances`). Every write refuses once the ledger holds an entry or a filed
+statement.
+
+- `GET /api/setup` returns `fresh` and the declared balance-sheet accounts.
+- `POST /api/setup/about` saves `name` and the main `currency`.
+- `POST /api/setup/opening` takes `start` (the browser's date) and `accounts`
+  (`kind`, `label`, `currency`, `balance` as typed: owed for cards and loans), declares
+  them and records each opening balance as a balance assertion on `start`, which
+  becomes `startDate`. An account declared earlier with the same kind and currency is
+  opened as it is.
+- `POST /api/setup/accounts` adds one bank or card account for a statement file.
+- `POST /api/setup/statements/{id}/account` assigns a file to an account, also after it
+  was read or could not be read; the file is read again. An agent reading of the same
+  file is checked again from its saved, cited answer instead of asking the agent twice.
+  A reading whose printed currency differs from the account waits as
+  `currency_mismatch` with the checked answer kept.
+- `POST /api/setup/import` queues the read files in period order. Rows nobody decided
+  go in as pending entries for Review (their audit decisions say `by: first run`).
+  Before each apply the worker rebuilds a later statement's checklist against the
+  ledger the earlier one changed, from the file or the saved answer, never the agent.

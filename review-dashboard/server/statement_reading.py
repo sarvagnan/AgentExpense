@@ -223,7 +223,9 @@ def dates(raw, options, locale, pdf=False):
     return result
 
 
-def verify(answer, source, account, locale='en'):
+def verify(answer, source, account, locale='en', *, currency_check=True):
+    """Check a cited answer against its source. Without currency_check, a printed
+    currency that differs from the account's is returned for the caller to report."""
     validate(answer, SCHEMA)
     if not answer['read_ok'] or answer['uncertain']:
         raise ValueError('The agent could not read this statement with certainty')
@@ -359,7 +361,7 @@ def verify(answer, source, account, locale='en'):
     if account['kind'] == 'bank' or any(r['balance'] is not None for r in rows):
         statement['declaredChecks'].append('running_balance')
     try:
-        check_statement(statement, account=account)
+        check_statement(statement, account=account if currency_check or not statement.get('currency') else {**account, 'currency': statement['currency']})
     except ValueError as exc:
         addresses = ', '.join(statement['valueSources'].values())
         for row in rows:

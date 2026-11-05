@@ -348,6 +348,8 @@ class Statements:
     def read_agent(self, session, *, cancel=None):
         """Unknown formats use the same FIFO/pause, with no parser repair fallback."""
         import agent
+        if session.get('no_agent'):
+            raise ValueError('This statement needs a new reading. Remove it and add the file again.')
         session['agent_requested'] = True
         from statement_reading import verify, learn_mapping
         documents = load(self.ledger)
@@ -362,24 +364,42 @@ class Statements:
         meta = metadata.get(account, {})
         if meta.get('kind') not in ('bank','card'):
             raise ValueError('Choose a bank or card account for this statement')
-        if getattr(self, 'agent_pause', None) and self.agent_pause.blocked():
-            session.update(state='agent_waiting');self.put(session);return
         path = self.folder(session['id'])/('read'+session.get('file_suffix','.pdf'))
         locale = meta.get('locale') or read_manifest(self.ledger).get('locale','en')
-        task = dict(statement_reading=dict(path=str(path),account=meta,locale=locale))
-        try:
-            answer, record = agent.run(self.settings, task, self.folder(session['id']), cancel=cancel)
-        except agent.AgentFailure as exc:
-            session['runs'].append(exc.record)
-            if exc.kind != 'bad_answer' and getattr(self, 'agent_pause', None):
-                self.agent_pause.fail(exc.kind, exc.reset_at)
+        task = dict(statement_reading=dict(path=str(path),account=meta,locale=locale,currency_check=False))
+        source_hash = sha256(path.read_bytes()).hexdigest()
+        saved = session.get('agent_answer') if session.get('source_hash') == source_hash else None
+        if saved is not None:
+            # The same file for another account: check the saved, cited answer
+            # against the file again rather than asking the agent twice.
+            import tempfile
+            from statement_reading import extract
+            with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP','/tmp'), prefix='expense-statement-reuse-') as temporary:
+                task['_statement_source'] = extract(path, Path(temporary), meta.get('statement', {}).get('options'), render_images=False)
+            answer = saved
+        else:
+            if getattr(self, 'agent_pause', None) and self.agent_pause.blocked():
                 session.update(state='agent_waiting');self.put(session);return
+            try:
+                answer, record = agent.run(self.settings, task, self.folder(session['id']), cancel=cancel)
+            except agent.AgentFailure as exc:
+                session['runs'].append(exc.record)
+                if exc.kind != 'bad_answer' and getattr(self, 'agent_pause', None):
+                    self.agent_pause.fail(exc.kind, exc.reset_at)
+                    session.update(state='agent_waiting');self.put(session);return
+                self.put(session)
+                raise ValueError('The agent could not verify this statement. ' + str(exc)) from None
+            if not self.current_generation(session): return
+            if getattr(self, 'agent_pause', None): self.agent_pause.success()
+            session['runs'].append(record)
+        statement = verify(answer, task['_statement_source'], meta, locale, currency_check=False)
+        if statement.get('currency') and statement['currency'] != meta['currency']:
+            # Keep the checked reading; another account in the file's currency reuses it.
+            session.update(state='currency_mismatch', file_currency=statement['currency'], suggested_account=account,
+                           agent_answer=answer, source_hash=source_hash,
+                           error='Choose an account in the statement currency before continuing.')
             self.put(session)
-            raise ValueError('The agent could not verify this statement. ' + str(exc)) from None
-        if not self.current_generation(session): return
-        if getattr(self, 'agent_pause', None): self.agent_pause.success()
-        session['runs'].append(record)
-        statement = verify(answer, task['_statement_source'], meta, locale)
+            return
         # A model reading can outlast a cooperating CLI/price writer. Match a
         # fresh snapshot and bind its fingerprint under the same ledger lock;
         # never bless an old checklist with the new store's fingerprint.
@@ -505,17 +525,90 @@ class Statements:
         if filed:
             self.remove_files(session)
 
-    def assign(self, identity, account):
+    def assign(self, identity, account, *, first_run=False):
         with self.mutex:
             session = self.get(identity)
-            if session['state'] not in ('currency_mismatch', 'account_needed'):
+            # The first-run screen lets a person move a read or unread file to
+            # another account before anything is saved; it is read again.
+            waiting = ('currency_mismatch', 'account_needed') + (('found', 'review', 'couldnt_read', 'wrong_file') if first_run else ())
+            if session['state'] not in waiting:
                 raise ValueError('This statement is not waiting for an account')
+            if first_run and session.get('assigned_account') == account and session['state'] in ('found', 'review'):
+                return session
+            if first_run:
+                session = {key: value for key, value in session.items()
+                           if key not in ('statement', 'plan', 'checks', 'opening', 'fingerprint', 'reader_config', 'candidate_accounts',
+                                          'suggested_account', 'duplicate_of', 'failure_reason', 'agent_verified', 'learning')}
+                session.update(generation=session.get('generation', 0) + 1, decisions=[])
             metadata = load(self.ledger)[self.ledger / 'data/accounts.json']['accounts'].get(account, {})
             if metadata.get('kind') not in ('bank', 'card') or (session.get('file_currency') and metadata.get('currency') != session['file_currency']) or (session.get('candidate_accounts') and account not in session['candidate_accounts']):
                 raise ValueError('Choose a bank or card account in the statement currency')
             session.update(assigned_account=account, state='reading', queued_at=now(), error=None)
-            self.put(session)
+            self.put(session, force=first_run)
             return session
+
+    def first_run_import(self, identities):
+        """Queue every read first-run statement for one checked apply each, in date order.
+
+        Rows nobody decided go in as pending entries for Review, as the first-run
+        screen says. Each apply rebuilds a later statement's checklist first (see work)."""
+        with self.mutex:
+            if not identities or len(set(identities)) != len(identities):
+                raise ValueError('Choose the read statements to import.')
+            sessions = [self.get(identity) for identity in identities]
+            for s in sessions:
+                if s['state'] not in ('found', 'review') or 'plan' not in s or s.get('duplicate_of'):
+                    raise ValueError(f"{s['original_name']} is not ready to import.")
+            ordered = sorted(sessions, key=lambda s: (s['statement']['periodEnd'], s['statement']['account'], s['created_at'], s['id']))
+            start = datetime.now().astimezone()
+            for index, s in enumerate(ordered):
+                self.first_run_pending(s)
+                s.update(state='applying', first_run=True, queued_at=(start + timedelta(microseconds=index)).isoformat(), error=None, waiting=None)
+                self.put(s)
+            return ordered
+
+    @staticmethod
+    def first_run_pending(s):
+        for item in s['plan']['items']:
+            if item['needs_user'] and not item['decision']:
+                item['decision'] = dict(action='pending', account='Expenses:Uncategorized')
+                s['decisions'].append(dict(serial=item['row']['serial'], time=now(), action='pending', account='Expenses:Uncategorized', by='first run'))
+
+    def first_run_replan(self, s):
+        """Rebuild a first-run checklist after an earlier statement changed the ledger.
+
+        A built-in reader reads the file again. An agent's reading is checked again
+        from its saved, cited answer; the agent is never asked a second time."""
+        account = s['statement']['account']
+        s['no_agent'] = True
+        try:
+            if s.get('agent_verified'):
+                import tempfile
+                from statement_reading import safe_source, extract, verify
+                documents = load(self.ledger)
+                meta = documents[self.ledger/'data/accounts.json']['accounts'][account]
+                locale = meta.get('locale') or read_manifest(self.ledger).get('locale', 'en')
+                path = safe_source(self.ledger, self.folder(s['id'])/('read'+s.get('file_suffix', '.pdf')))
+                with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-statement-replan-') as temporary:
+                    source = extract(path, Path(temporary), meta.get('statement', {}).get('options'), render_images=False)
+                    statement = verify(s['agent_answer'], source, meta, locale)
+                statement.update(account=account, accountLabel=meta.get('label') or account.split(':')[-1], accountAssigned=True)
+                with ledger_lock(self.ledger):
+                    self.finish_read(s, statement, account, load(self.ledger), meta)
+            else:
+                self.read(s)
+        finally:
+            s.pop('no_agent', None)
+        latest = self.get(s['id'], include_discarded=True)
+        if latest.get('generation', 0) != s.get('generation', 0) or latest.get('discarded_until'):
+            return
+        if latest['state'] in ('found', 'review') and 'plan' in latest:
+            self.first_run_pending(latest)
+            latest.update(state='applying', error=None, waiting=None)
+        elif latest['state'] not in ('already_filed',):
+            latest.update(state='failed' if 'plan' in latest else 'couldnt_read', error=latest.get('error') or 'This statement could not be checked again after the one before it.')
+        latest.pop('no_agent', None)
+        self.put(latest)
 
     def decide(self, identity, serial, body):
         with self.mutex:
@@ -593,6 +686,8 @@ class Statements:
         try:
             if s['state']=='reading':
                 self.read(s, cancel=stop_event)
+            elif s.get('first_run') and not s.get('apply_started') and not s.get('committed_result') and fingerprint(self.ledger) != s.get('fingerprint'):
+                self.first_run_replan(s)
             else:
                 with ledger_lock(self.ledger) as fd:
                     with self.mutex:
@@ -633,6 +728,11 @@ class Statements:
         except Exception as exc:
             if stop_event.is_set() and s['state']=='reading':
                 s.update(error=None, waiting=None)
+                self.put(s)
+                return True
+            if isinstance(exc, StaleChecklist) and s.get('first_run') and s.get('first_run_attempts', 0) < 3:
+                # Another writer changed the ledger between the replan and the lock.
+                s.update(state='applying', waiting=None, apply_started=False, first_run_attempts=s.get('first_run_attempts', 0)+1)
                 self.put(s)
                 return True
             s.update(state='failed' if 'plan' in s else 'couldnt_read', error=str(exc), waiting=None, apply_started=False, failure_reason='stale_checklist' if isinstance(exc, StaleChecklist) else 'apply_failed' if 'plan' in s else 'read_failed')

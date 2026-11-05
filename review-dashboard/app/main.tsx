@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import Dashboard, { type View } from './dashboard';
 import { announce, sessionRead, sessionWrite, useAppearance } from './ui';
 import { loadData } from './data';
+import FirstRun, { needsFirstRun } from './first-run';
 import './globals.css';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -33,6 +34,22 @@ function App() {
   if(window.location.pathname.replace(/\/$/,'')===`${basePath}/drafts`)window.history.replaceState({},'',`${basePath}/queue/${window.location.search}`);
   const [view, setView] = useState(() => routeFor(window.location.pathname));
   const [load, setLoad] = useState<{ state: 'loading' } | { state: 'ready' } | { state: 'failed'; message: string }>({ state: 'loading' });
+  // A ledger with no accounts opens the first-run screens instead of the dashboard.
+  const [setup, setSetup] = useState(false);
+  const focusAfterSetup = useRef(false);
+  const finishSetup = useCallback(() => {
+    focusAfterSetup.current = true;
+    setSetup(false);
+    window.history.pushState({}, '', `${basePath}/add/`);
+    setView('add');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
+  // Add has rendered once this runs; its heading takes focus from the removed Finish button.
+  useEffect(() => {
+    if (setup || !focusAfterSetup.current) return;
+    const frame = requestAnimationFrame(() => { focusAfterSetup.current = false; document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); });
+    return () => cancelAnimationFrame(frame);
+  }, [setup]);
   const attempt = useRef(0);
   const previousView = useRef(view);
   const focusAfterRetry = useRef(false);
@@ -59,7 +76,7 @@ function App() {
     focusAfterRetry.current = explicit;
     const current = ++attempt.current;
     setLoad({ state: 'loading' });
-    loadData().then(() => { if (attempt.current === current) setLoad({ state: 'ready' }); }, (error: unknown) => {
+    loadData().then(() => { if (attempt.current === current) { setSetup(needsFirstRun()); setLoad({ state: 'ready' }); } }, (error: unknown) => {
       if (attempt.current === current) setLoad({ state: 'failed', message: error instanceof Error ? error.message : String(error) });
     });
   }, []);
@@ -103,7 +120,7 @@ function App() {
     };
   }, []);
 
-  if (load.state === 'ready') return <Dashboard view={view} />;
+  if (load.state === 'ready') return setup ? <FirstRun onDone={finishSetup}/> : <Dashboard view={view} />;
   return <main className="loading-state" aria-busy={load.state === 'loading'}>
     <div role="status" className={load.state === 'failed' ? 'load-failure' : undefined}><span className="wordmark-badge" aria-hidden="true">A</span>{load.state === 'loading' ? <p>Loading ledger data…</p> : <><h1>Ledger unavailable</h1><p>We couldn’t fetch your ledger data. Check your connection and try again.</p><button type="button" className="button primary" onClick={() => retry(true)}>Retry</button><details><summary>Details</summary><p>{load.message}</p><p>If the data files are missing, run <code>npm run data</code>.</p></details></>}</div>
   </main>;

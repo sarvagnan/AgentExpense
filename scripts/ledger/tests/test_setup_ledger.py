@@ -204,3 +204,37 @@ class OpeningTests(SetupFixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FirstRunChangesTests(SetupFixture):
+    """The first-run screen's single set of changes (review-dashboard/server/first_run.py)."""
+
+    def test_declares_and_opens_every_row_in_memory_until_written(self):
+        before = (self.root / 'data/accounts.json').read_bytes()
+        changes = setup_ledger.first_run_changes(self.root, '2026-11-05', [
+            dict(kind='bank', label='Example Checking', currency='USD', balance='2400.00'),
+            dict(kind='card', label='Example Card', currency='USD', balance='312.40'),
+            dict(kind='bank', label='Travel Account', currency='EUR', balance='650'),
+            dict(kind='person', label='Example Friend', currency='USD', balance='-20')])
+        self.assertEqual((self.root / 'data/accounts.json').read_bytes(), before, 'Nothing is written')
+        declared = changes[self.root / 'data/accounts.json']
+        self.assertEqual(declared['accounts']['Assets:Bank:Travel Account'], dict(kind='bank', currency='EUR', label='Travel Account', aliases=['travel account']))
+        self.assertEqual(sorted(declared['commodities']), ['EUR', 'USD'])
+        entries = changes[self.root / 'data/expenses/2026.json']
+        assertion = {e['postings'][0]['account']: e['postings'][0]['assert'] for e in entries}
+        self.assertEqual(assertion['Liabilities:Credit Cards:Example Card'], dict(amount='-312.40', commodity='USD'))
+        self.assertEqual(assertion['Assets:People:Example Friend'], dict(amount='-20.00', commodity='USD'))
+        self.assertEqual(changes[self.root / 'ledger.json']['startDate'], '2026-11-05')
+        apply(self.root, lambda: changes)
+        load(self.root)
+
+    def test_an_account_declared_earlier_is_opened_once_and_conflicts_are_refused(self):
+        self.add(kind='bank', label='Example Checking', aliases=['checking'])
+        changes = setup_ledger.first_run_changes(self.root, '2026-11-05', [dict(kind='bank', label='Example Checking', currency='USD', balance='5')])
+        self.assertEqual(changes[self.root / 'data/accounts.json']['accounts']['Assets:Bank:Example Checking']['aliases'], ['checking'])
+        with self.assertRaisesRegex(ValueError, 'already a bank account in USD'):
+            setup_ledger.first_run_changes(self.root, '2026-11-05', [dict(kind='bank', label='Example Checking', currency='EUR', balance='5')])
+        with self.assertRaisesRegex(ValueError, 'decimal places'):
+            setup_ledger.first_run_changes(self.root, '2026-11-05', [dict(kind='bank', label='Other', currency='USD', balance='5.001')])
+        with self.assertRaisesRegex(ValueError, 'at least one'):
+            setup_ledger.first_run_changes(self.root, '2026-11-05', [])

@@ -68,7 +68,11 @@ The first release. The date is set when the release is tagged.
   verified first commit; `make add-account` and `make opening-balances` declare
   accounts and opening balances under the ledger lock; `make demo` runs a fictional
   ledger from `/tmp` with an offline fake agent; `make serve` starts the dashboard
-  locally; `make private-checks` runs a ledger's own `checks/`. Deployment examples
+  locally; `make private-checks` runs a ledger's own `checks/`. A ledger with no
+  accounts opens the first-run screens in the dashboard: About you, then either
+  Start from today (accounts and opening balances) or Bring in past statements
+  (files read by built-in readers or the agent, each with its account and currency),
+  then Add. Deployment examples
   for local use, systemd, launchd, a reverse proxy and a tailnet are in
   [docs/deploy/](docs/deploy/README.md).
 - **General policy.** The general bookkeeping policy is

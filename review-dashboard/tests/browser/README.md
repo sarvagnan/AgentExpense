@@ -220,3 +220,19 @@ It acts before releasing them and checks retained words, completed actions, stab
 pointer targets and absence of stale rows/errors. A receipt date arrives during
 the Delete confirmation. Node timer doubles cover the 3/30-second Queue intervals
 and 30-second Trash poll; a server clock double checks Saved/Trash expiry boundaries.
+
+Step 9-2 adds `first-run.mjs` to every default case (`BROWSER_FOCUS=first-run` alone).
+`/__test/first-run` turns the persona's ledger into a fresh template ledger in its own
+currency and locale (and configures the fake agent's cited reading), then
+`{restore:true}` puts every original file back. Both paths run through the real
+endpoints: About you, Start from today with a second currency, More kinds, validation
+and Finish; Bring in past statements with a built-in reading, an agent reading, an
+unread file, inline account creation, a currency mismatch that blocks Finish and its
+resolution, then Finish. Timing tests: a controlled clock (separate context, because
+`page.clock` belongs to the whole context) checks the 1.5-second reading poll; a held
+poll answer never brings back a removed file; a held account creation keeps another
+file's typed account and position; Finish held in flight sends one request on both
+paths. Captures: `first-about`, `first-start`, `first-accounts`,
+`first-accounts-mixed`, `first-accounts-more`, `first-import`,
+`first-import-mismatch`, `first-import-resolved`, `first-done-today`,
+`first-done-import`.

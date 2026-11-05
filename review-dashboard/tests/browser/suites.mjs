@@ -1,4 +1,5 @@
 import {runRetention} from './retention.mjs';
+import {runFirstRun} from './first-run.mjs';
 import {runRetentionTiming} from './retention-timing.mjs';
 import {runVarying} from './varying.mjs';
 import {runUpdateNotice} from './update-notice.mjs';
@@ -136,6 +137,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='first-run') {
+        await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        record('console and page errors');await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='varying') {
         await runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
@@ -489,6 +495,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runRetentionTiming',()=>runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts}));
       await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});
