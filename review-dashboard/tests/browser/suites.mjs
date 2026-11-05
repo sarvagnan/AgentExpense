@@ -1,4 +1,5 @@
 import {runRetention} from './retention.mjs';
+import {runAccountGroups} from './account-groups.mjs';
 import {runFirstRun} from './first-run.mjs';
 import {runRetentionTiming} from './retention-timing.mjs';
 import {runViewTiming} from './view-timing.mjs';
@@ -133,6 +134,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts});
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop();await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='account-groups') {
+        await timed('runAccountGroups',()=>runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        record('console and page errors');await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='view-timing') {
         await runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts});
@@ -501,6 +507,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runRetentionTiming',()=>runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts}));
       await timed('runViewTiming',()=>runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts}));
+      await timed('runAccountGroups',()=>runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money}));
       await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce}));
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');

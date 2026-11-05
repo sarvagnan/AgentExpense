@@ -1,7 +1,8 @@
 import { AccountDialog } from './settings-dialog';
 import { isCurrency } from '../scripts/formatting.mjs';
 import { moduleSettings } from '../scripts/ledger-modules.mjs';
-import {money as formatMoney} from './formatting';
+import {money as formatMoney, moneyCode} from './formatting';
+import { fromMinor, groupSign, groupView, toMinor, type GroupRow } from './account-groups';
 import { displayAccountLabel } from './account-labels';
 import { defaultAccount } from '../scripts/account-metadata.mjs';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
@@ -171,6 +172,50 @@ function ValueChart({ points, label, caption, currency, showCost = true }: { poi
   </div></>;
 }
 
+type GroupColumns = { balance: string; inflow: string; outflow: string; last: string; owed?: boolean };
+/** Group view columns by kind. Cards and loans list what was added to the debt before what paid it. */
+const GROUP_COLUMNS: Record<string, GroupColumns> = {
+  Banks: { balance: 'Balance', inflow: 'Money in', outflow: 'Money out', last: 'Last confirmed balance' },
+  'Credit cards': { balance: 'Owed', inflow: 'Paid', outflow: 'Charged', last: 'Last statement', owed: true },
+  Prepaid: { balance: 'Balance', inflow: 'Added', outflow: 'Spent', last: 'Last used' },
+  People: { balance: 'Balance', inflow: 'Lent or paid for them', outflow: 'Paid back', last: 'Last settled' },
+  Loans: { balance: 'Owed', inflow: 'Repaid', outflow: 'Borrowed', last: 'Last settled', owed: true },
+  Cash: { balance: 'Balance', inflow: 'Added', outflow: 'Spent', last: 'Last used' },
+};
+function groupBalance(group: string, row: GroupRow) {
+  if (GROUP_COLUMNS[group]?.owed) return row.balance < 0 ? `${money(-row.balance, row.currency)} in credit` : money(row.balance, row.currency);
+  if (group === 'People') return row.balance > 0 ? `${money(row.balance, row.currency)} owed to you` : row.balance < 0 ? `You owe ${money(-row.balance, row.currency)}` : 'Settled';
+  return money(row.balance, row.currency);
+}
+function groupLast(group: string, row: GroupRow) {
+  if (group === 'Banks') return row.lastConfirmed ? `${money(row.lastConfirmed.amount, row.currency)} on ${dayLabel(row.lastConfirmed.date)}` : 'None';
+  if (group === 'Credit cards') return row.lastStatement ? `${money(row.lastStatement.totalDue, row.currency)} due, to ${dayLabel(row.lastStatement.end)}` : 'None';
+  const date = group === 'Prepaid' || group === 'Cash' ? row.lastUsed : row.lastSettled;
+  return date ? dayLabel(date) : 'None';
+}
+const signedMoney = (value: number, currency: string) => `${value > 0 ? '+' : ''}${money(value, currency)}`;
+/** A running total that changes only on entry dates, drawn as steps. */
+function StepChart({ points, currency, label, caption, start, end }: { points: { date: string; total: number }[]; currency: string; label: string; caption: string; start: string; end: string }) {
+  const low = Math.min(...points.map((point) => point.total));
+  const high = Math.max(...points.map((point) => point.total));
+  const flat = high === low;
+  const time = (day: string) => new Date(`${day}T12:00:00Z`).getTime();
+  const steps = points.flatMap((point, index) => index ? [{ date: point.date, total: points[index - 1].total }, point] : [point]);
+  const coords = steps.map((point) => `${8 + (time(point.date) - time(start)) / Math.max(1, time(end) - time(start)) * 984},${flat ? 82 : 150 - (point.total - low) / (high - low) * 136}`).join(' ');
+  return <>
+    <div className={`account-chart-plot${flat ? ' account-chart-flat' : ''}`}>
+      <div className="account-chart-scale"><span>{money(high, currency)}</span>{!flat && <span>{money(low, currency)}</span>}</div>
+      <svg viewBox="0 0 1000 160" preserveAspectRatio="none" role="img" aria-label={label}>
+        <path d={flat ? 'M0 82H1000' : 'M0 14H1000 M0 82H1000 M0 150H1000'} className="chart-grid" vectorEffect="non-scaling-stroke"/>
+        <polyline points={coords} fill="none" style={{ stroke: 'var(--series-focus)' }} strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+      </svg>
+    </div>
+    {flat && <p className="chart-flat-note">No change in this period</p>}
+    <div className="account-chart-dates"><span>{dayLabel(start)}</span><span>{caption}</span><span>{dayLabel(end)}</span></div>
+  </>;
+}
+/** List amounts: the main currency needs no code; others show it after the amount (`120.00 USD`). */
+const listAmount = (value: number, currency: string) => currency === data.meta.ledger.defaultCurrency || !isCurrency(currency) ? money(value, currency) : moneyCode(value, currency);
 const openingOnly = () => data.transactions.every(entry=>entry.postings.some(posting=>posting.account==='Equity:Opening Balances'));
 export default function AccountSummary() {
   const [account]=useQueryState('account','');
@@ -225,10 +270,15 @@ function DetailedAccounts() {
   // The address names the account, adding its currency when it differs from the default.
   const [accountParam, setAccountParam] = useQueryState('account', defaultAccount(selectableAccounts));
   const [query, setQuery] = useQueryState('find', '');
-  const [period, setPeriod] = useQueryState('period', 'month', (value) => value in PERIODS);
+  // A group view starts with the last 30 days; an account keeps this month to date.
+  const groupNamed = accountParam !== PORTFOLIO && (groups as string[]).includes(accountParam);
+  const [period, setPeriod] = useQueryState('period', groupNamed ? '30' : 'month', (value) => value in PERIODS);
+  const [transfersParam, setTransfers] = useQueryState('transfers', '', (value) => value === 'shown');
   const [selectedId, setSelectedId] = useQueryState('entry', '');
   const accounts = balanceAccounts(data.transactions, asOf).filter((account) => account.group !== 'Other accounts' && (investmentsEnabled || account.group !== 'Investments'));
   const portfolio = investmentsEnabled && accountParam === PORTFOLIO;
+  const openGroup = groupNamed && visibleGroups.includes(accountParam) && accounts.some((account) => account.group === accountParam) ? accountParam : '';
+  const showTransfers = transfersParam === 'shown';
   const [paramAccount, paramCurrency] = accountParam.split('|');
   const matches = accounts.filter((account) => account.account === paramAccount && (!paramCurrency || account.currency === paramCurrency));
   const selected = !portfolio && matches.length === 1 ? matches[0] : undefined;
@@ -269,6 +319,9 @@ function DetailedAccounts() {
   const activity = holding ? holding.activity : selected ? accountActivity(data.transactions, selected.account, selected.currency, asOf) : [];
   const start = period === 'all' ? earliest : period === 'month' ? `${asOf.slice(0, 7)}-01` : (() => { const date = new Date(`${asOf}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - 29); return date.toISOString().slice(0, 10); })();
   const visible = activity.filter((row) => row.date >= start);
+  const grouped = openGroup ? groupView({ entries: data.transactions, group: openGroup, start, asOf, metadata: data.meta.accounts, confirmedBalances: data.confirmedBalances ?? [], cardStatements: data.cardStatements ?? [] }) : null;
+  const transfers = grouped ? grouped.activity.filter((row) => row.internal).length : 0;
+  const groupRows = grouped ? grouped.activity.filter((row) => showTransfers || !row.internal) : [];
   const showActivityYear = visible.some(row => row.date.slice(0, 4) !== asOf.slice(0, 4));
   const opening = activity.filter((row) => row.date < start).at(-1)?.balance || 0;
   const card = selected?.group === 'Credit cards';
@@ -312,11 +365,21 @@ function DetailedAccounts() {
     setAsOf(next); setSelectedId('');
   };
   const shiftDay = (days: number) => { const date = new Date(`${asOf}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days); const next = date.toISOString().slice(0, 10); if (next >= earliest && next <= latest) { changeDate(next); } };
-  const selectedEntry = rows.find((row) => row.entry.id === selectedId)?.entry as Transaction | undefined;
+  const entryRows: { entry: { id: string; description: string } }[] = openGroup ? groupRows : rows;
+  const selectedEntry = entryRows.find((row) => row.entry.id === selectedId)?.entry as Transaction | undefined;
 
   const accountId = useCallback((account: { key: string }) => account.key, []);
   const chooseAccount = useCallback((account: { account: string; currency: string }, mode: 'push' | 'replace' = 'push') => { setAccountParam(account.currency === data.meta.ledger.defaultCurrency ? account.account : `${account.account}|${account.currency}`, mode); setSelectedId('', 'replace'); }, [setAccountParam, setSelectedId]);
-  const accountNav = useRowNavigation(listed, accountId, selected?.key || null, chooseAccount, 0, (account) => short(account.account));
+  const openGroupView = useCallback((group: string, mode: 'push' | 'replace' = 'push') => { setAccountParam(group, mode); setSelectedId('', 'replace'); }, [setAccountParam, setSelectedId]);
+  // Group headings and their accounts share one list: the arrow keys move through both.
+  type ListItem = { key: string; group: string; account?: (typeof accounts)[number] };
+  const listItems: ListItem[] = visibleGroups.flatMap((group) => {
+    const members = listed.filter((account) => account.group === group);
+    return members.length ? [{ key: `group:${group}`, group }, ...members.map((account) => ({ key: account.key, group, account }))] : [];
+  });
+  const moveInList = useCallback((item: ListItem, mode: 'push' | 'replace' = 'push') => item.account ? chooseAccount(item.account, mode) : openGroupView(item.group, mode), [chooseAccount, openGroupView]);
+  const activeItem = portfolio ? `group:${PORTFOLIO}` : openGroup ? `group:${openGroup}` : selected?.key || null;
+  const accountNav = useRowNavigation(listItems, accountId, activeItem, moveInList, 0, (item) => item.account ? short(item.account.account) : item.group);
   const accountMenu = (account: (typeof accounts)[number]): MenuItem[] => [
     { label: 'Show Activity', action: () => { chooseAccount(account); accountNav.focusRow(account.key); } },
     { label: 'Find Its Entries in Explorer', action: () => navigate(`explorer/?q=${encodeURIComponent(short(account.account).split(' · ').at(-1) || '')}`) },
@@ -330,7 +393,7 @@ function DetailedAccounts() {
   ];
   const rowId = useCallback((row: { entry: { id: string } }) => row.entry.id, []);
   const follow = useCallback((row: { entry: { id: string } }) => { if (selectedId) setSelectedId(row.entry.id, 'replace'); }, [selectedId, setSelectedId]);
-  const entryNav = useRowNavigation(rows, rowId, selectedId || null, follow, 0, (row) => row.entry.description);
+  const entryNav = useRowNavigation(entryRows, rowId, selectedId || null, follow, 0, (row) => row.entry.description);
   const close = useCallback(() => { const id = selectedId; setSelectedId(''); if (id) requestAnimationFrame(() => entryNav.focusRow(id, true)); }, [selectedId, setSelectedId, entryNav]);
   useEscape(!!selectedEntry, close);
 
@@ -369,7 +432,7 @@ function DetailedAccounts() {
       : 'Account not found';
     announce(`Balances as of ${dayLabel(asOf)}; ${balance}.`);
   }, [asOf, portfolio, selected, holding, fundValue, contributions]);
-  const accountTitle = portfolio ? 'Investments' : selected ? short(selected.account) : 'Account not found';
+  const accountTitle = portfolio ? 'Investments' : openGroup || (selected ? short(selected.account) : 'Account not found');
   useEffect(() => { document.title = `${accountTitle} — Accounts — Ledger`; }, [accountTitle]);
   const drillInto = (account: (typeof accounts)[number]) => {
     returnHolding.current = account.key;
@@ -392,7 +455,7 @@ function DetailedAccounts() {
   const navNote = (price: { date: string } | null) => price ? `NAV of ${dayLabel(price.date)}` : 'At recorded cost';
 
   // The account list is already a column, so entry details float over the page instead of adding a third.
-  return <div className="accounts-container">{detailsAccount && <AccountDialog account={detailsAccount} onClose={()=>setDetailsAccount(null)}/>}<div className="split"><section className="page accounts" data-context-expanded={contextExpanded} data-portfolio={portfolio}>
+  return <div className="accounts-container">{detailsAccount && <AccountDialog account={detailsAccount} onClose={()=>setDetailsAccount(null)}/>}<div className="split"><section className="page accounts" data-context-expanded={contextExpanded} data-portfolio={portfolio} data-group={openGroup || undefined}>
     <PageHeader title="Accounts" subtitle={`Balances as of ${dayLabel(asOf)}, from every recorded entry including opening balances and pending entries. ${investmentsEnabled ? priced ? 'Mutual funds are valued at the latest NAV on or before that day. ' : 'Investments show recorded cost; no recorded prices available. ' : ''}Forecasts are left out.`}>
       {selected && <button type="button" className="button" onClick={e=>{e.currentTarget.focus();setDetailsAccount(selected.account);}}>Account details</button>}
       <span className="compact-field" id="as-of-label">Balances as of</span>
@@ -414,9 +477,9 @@ function DetailedAccounts() {
       const note = group === 'Investments' && !priced ? 'Recorded cost and contributions' : group === 'Investments' && !holdings.length ? 'Contributions since the ledger began, not market value' : GROUP_LABEL[group].note;
       return <div className="metric" key={group} data-selected={portfolio && group === PORTFOLIO}><p className="metric-label">{group === 'Credit cards' && Object.values(total).every(value => (value as number) < 0) ? 'Credit on cards' : GROUP_LABEL[group].total}</p><p className="metric-value">{moneyTotal(total)}</p><p className="metric-note" title={note}>{plural(members.length, 'account')} · {note}</p></div>;
     })}</section>
-    <label className="compact-field accounts-picker"><span>Account</span><select className="field" aria-label="Choose account" value={portfolio ? PORTFOLIO : selected ? (selected.currency === data.meta.ledger.defaultCurrency ? selected.account : `${selected.account}|${selected.currency}`) : ''} onChange={(event) => { setAccountParam(event.target.value); setSelectedId('', 'replace'); }}>
-      {!portfolio && !selected && <option value="" disabled>Account not found</option>}
-      {investmentsEnabled && <option value={PORTFOLIO}>Investments · portfolio</option>}
+    <label className="compact-field accounts-picker"><span>Account</span><select className="field" aria-label="Choose account" value={portfolio ? PORTFOLIO : openGroup ? openGroup : selected ? (selected.currency === data.meta.ledger.defaultCurrency ? selected.account : `${selected.account}|${selected.currency}`) : ''} onChange={(event) => { setAccountParam(event.target.value); setSelectedId('', 'replace'); }}>
+      {!portfolio && !openGroup && !selected && <option value="" disabled>Account not found</option>}
+      {visibleGroups.filter(group => (group === PORTFOLIO && investmentsEnabled) || accounts.some(account => account.group === group)).map(group => <option key={`all-${group}`} value={group}>{group} · all accounts</option>)}
       {visibleGroups.map(group => <optgroup key={group} label={group}>{accounts.filter(account => account.group === group).map(account => <option key={account.key} value={account.currency === data.meta.ledger.defaultCurrency ? account.account : `${account.account}|${account.currency}`}>{short(account.account)}{account.currency !== data.meta.ledger.defaultCurrency && !isFund(account.currency) ? ` (${account.currency})` : ''}</option>)}</optgroup>)}
     </select></label>
     <div className="accounts-workspace">
@@ -424,24 +487,37 @@ function DetailedAccounts() {
         <div className="account-list-search"><SearchField id="account-search" value={query} onChange={setQuery} label="Find an account" placeholder="Find" scope="Accounts"/></div>
         <div onKeyDown={accountNav.onKeyDown}>{visibleGroups.map((group) => {
           const members = listed.filter((account) => account.group === group);
-          const totals:Record<string,number>={};
-          for(const account of members){const fund=holdings.find(item=>item.account.key===account.key);if(fund){if(priced)totals[fund.currency]=(totals[fund.currency]||0)+fund.value;else for(const [code,value] of Object.entries(fund.costs))totals[code]=(totals[code]||0)+Number(value);}else totals[account.currency]=(totals[account.currency]||0)+(group==='Credit cards'?Math.abs(account.balance):account.balance);}
-          const heading=<><span className="account-group-name"><strong>{group}</strong><small>{members.length}</small>{group===PORTFOLIO&&<Icon name="chevron-right"/>}</span><span className="account-group-total">{Object.entries(totals).map(([code,value])=>money(value,code)).join(' + ')}{group==='Credit cards'?' owed':''}</span></>;
-          return members.length ? <section key={group} aria-label={group}>{group === PORTFOLIO
-            ? <h3><button type="button" className="account-group-open" aria-current={portfolio ? 'true' : undefined} title="Show every investment together" onClick={() => { setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}>{heading}</button></h3>
-            : <h3>{heading}</h3>}{members.map((account) => {
+          if (!members.length) return null;
+          // Totals per currency, never converted; cards and loans read as the amount owed.
+          const minor: Record<string, number> = {};
+          const fundTotals: Record<string, number> = {};
+          for (const account of members) {
+            const fund = holdings.find(item => item.account.key === account.key);
+            if (fund) { if (priced) fundTotals[fund.currency] = (fundTotals[fund.currency] || 0) + fund.value; else for (const [code, value] of Object.entries(fund.costs)) fundTotals[code] = (fundTotals[code] || 0) + Number(value); }
+            else minor[account.currency] = (minor[account.currency] || 0) + groupSign(group, account.account) * toMinor(account.balance, account.currency);
+          }
+          const totals = { ...fundTotals };
+          for (const [code, value] of Object.entries(minor)) totals[code] = (totals[code] || 0) + fromMinor(value, code);
+          const open = group === PORTFOLIO ? portfolio : openGroup === group;
+          const heading = { key: `group:${group}`, group };
+          return <section key={group} aria-label={group}>
+            <h3><button type="button" className="account-group-open" {...accountNav.rowProps(heading)} aria-current={open ? 'true' : undefined} title={group === PORTFOLIO ? 'Show every investment together' : `Show ${group}: all accounts`} onClick={() => openGroupView(group)}>
+              <span className="account-group-name"><strong>{group}</strong><Icon name="chevron-right"/></span>
+              <span className="account-group-total">{currencyOrder(Object.keys(totals)).map((code) => listAmount(totals[code], code)).join(' · ')}</span>
+            </button></h3>
+            {members.map((account) => {
             const fund = holdings.find((item) => item.account.key === account.key);
-            const amount = fund ? priced ? money(fund.value, fund.currency) : moneyTotal(fund.costs) : money(group === 'Credit cards' ? Math.abs(account.balance) : account.balance, account.currency);
-            return <button key={account.key} type="button" className="account-row" {...accountNav.rowProps(account)} aria-current={account.key === selected?.key ? 'true' : undefined} onClick={() => chooseAccount(account)}
+            const amount = fund ? priced ? listAmount(fund.value, fund.currency) : moneyTotal(fund.costs) : listAmount(groupSign(group, account.account) * account.balance, account.currency);
+            return <button key={account.key} type="button" className="account-row" {...accountNav.rowProps({ key: account.key, group, account })} aria-current={account.key === selected?.key ? 'true' : undefined} onClick={() => chooseAccount(account)}
             data-copy={[short(account.account), amount].join('\t')}
             onContextMenu={(event) => menu.open(event, accountMenu(account), event.currentTarget)} onKeyDownCapture={(event) => { if (menu.keyOpens(event)) menu.open(event, accountMenu(account), event.currentTarget); }}>
-            <span title={account.account}>{short(account.account)}{account.currency !== data.meta.ledger.defaultCurrency && !fund && <span className="row-sub">{account.currency}</span>}</span>
-            <span className="num">{amount}{fund && <span className="row-sub">{units(account.balance)} units</span>}{group === 'Credit cards' && <span className="row-sub">{account.balance <= 0 ? 'Owed' : 'In credit'}</span>}</span>
+            <span className="account-row-name" title={short(account.account)}>{short(account.account)}</span>
+            <span className="num">{amount}</span>
           </button>;
-          })}</section> : null;
+          })}</section>;
         })}{!listed.length && <div className="empty"><strong>No accounts match</strong><span>Check the spelling, or clear the search.</span><button type="button" className="button" onClick={() => { setQuery(''); requestAnimationFrame(() => document.getElementById('account-search')?.focus({ preventScroll: true })); }}>Clear Search</button></div>}</div>
       </nav>
-      {!portfolio && !selected && <section className="panel account-not-found"><PanelHeader title={matches.length > 1 ? 'Choose an account currency' : 'Account not found'}/><div className="empty"><p>{matches.length > 1 ? 'This account has more than one commodity. Choose the account and currency from the list.' : <>No account matches <code>{breakable(accountParam)}</code> on {dayLabel(asOf)}. Choose another account or a later date.</>}</p>{investmentsEnabled && <button type="button" className="button" onClick={() => { focusDrill.current = true; setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}>Back to Investments</button>}</div></section>}
+      {!portfolio && !openGroup && !selected && <section className="panel account-not-found"><PanelHeader title={matches.length > 1 ? 'Choose an account currency' : 'Account not found'}/><div className="empty"><p>{matches.length > 1 ? 'This account has more than one commodity. Choose the account and currency from the list.' : <>No account matches <code>{breakable(accountParam)}</code> on {dayLabel(asOf)}. Choose another account or a later date.</>}</p>{investmentsEnabled && <button type="button" className="button" onClick={() => { focusDrill.current = true; setAccountParam(PORTFOLIO); setSelectedId('', 'replace'); }}>Back to Investments</button>}</div></section>}
       {portfolio && <div className="stack">
         <section className="panel">
           <PanelHeader title="Investments" headingRef={selectionHeading} meta={priced ? "Mutual funds at market value; other investments at what's been paid in since the ledger began" : 'At recorded cost; no recorded prices available'}><span className="summary-total">{moneyTotal(investmentTotals)}</span></PanelHeader>
@@ -482,9 +558,70 @@ function DetailedAccounts() {
           </table></div>
         </section>
       </div>}
+      {grouped && (() => {
+        const columns = GROUP_COLUMNS[openGroup] || GROUP_COLUMNS.Banks;
+        const order: ('inflow' | 'outflow')[] = columns.owed ? ['outflow', 'inflow'] : ['inflow', 'outflow'];
+        const currencies = currencyOrder(grouped.totals.map((total) => total.currency));
+        const showYear = groupRows.some((row) => row.date.slice(0, 4) !== asOf.slice(0, 4));
+        const closing = currencies.map((currency) => money(grouped.totals.find((total) => total.currency === currency)!.closing, currency)).join(' · ');
+        return <div className="stack group-view" data-group={openGroup}>
+          <section className="panel" aria-label="Total over time">
+            <PanelHeader title={openGroup} headingRef={selectionHeading} meta={`${plural(grouped.accounts.length, 'account')} · ${columns.owed ? 'amount owed' : 'total'} on ${dayLabel(asOf)}`}><span className="summary-total">{closing}</span></PanelHeader>
+            {currencies.map((currency, index) => {
+              const total = grouped.totals.find((item) => item.currency === currency)!;
+              const increase = columns.owed ? columns.outflow : columns.inflow, decrease = columns.owed ? columns.inflow : columns.outflow;
+              return <div className="account-chart group-chart" key={currency} data-currency={currency}>
+                <div className="account-chart-head"><h3>Total over time{currencies.length > 1 ? ` · ${currency}` : ''}</h3>{index === 0 && periodSelect}</div>
+                <dl className="fund-stats group-stats">
+                  <div><dt>At the start</dt><dd>{money(total.opening, currency)}</dd></div>
+                  <div><dt>{increase}</dt><dd>{money(total.increase, currency)}</dd></div>
+                  <div><dt>{decrease}</dt><dd>{money(total.decrease, currency)}</dd></div>
+                  <div><dt>On {dayShort(asOf)}</dt><dd>{money(total.closing, currency)}</dd></div>
+                </dl>
+                <StepChart points={total.points} currency={currency} start={start} end={asOf} caption={columns.owed ? 'Amount owed across the group' : 'Running total across the group'}
+                  label={`${openGroup}${currencies.length > 1 ? ` in ${currency}` : ''} from ${dayLabel(start)} to ${dayLabel(asOf)}: ${columns.owed ? 'owed' : 'total'} ${money(total.opening, currency)} at the start, ${money(total.closing, currency)} at the end.`}/>
+              </div>;
+            })}
+            <p className="panel-note">Each currency has its own total; amounts in different currencies are never added. Transfers between {openGroup} leave the total unchanged.</p>
+          </section>
+          <section className="panel" aria-label={`${openGroup} accounts`}>
+            <PanelHeader title="Accounts" meta={`${PERIODS[period]} · balances on ${dayLabel(asOf)}`}/>
+            <div className="table-scroll"><table className="data-table group-accounts-table" role="table">
+              <thead><tr><th scope="col">Account</th><th scope="col" className="th-num">{columns.balance}</th>{order.map((key) => <th scope="col" className="th-num" key={key}>{columns[key]}</th>)}<th scope="col">{columns.last}</th></tr></thead>
+              <tbody>{grouped.accounts.map((row) => <tr key={row.key}>
+                <th scope="row" data-label="Account"><a className="row-open" href={accountHref({ account: row.account, currency: row.currency } as (typeof accounts)[number])} onClick={(event) => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault(); focusDrill.current = true; chooseAccount({ account: row.account, currency: row.currency });
+                }}><span className="row-title">{short(row.account)}</span>{row.currency !== data.meta.ledger.defaultCurrency && <span className="row-sub">{row.currency}</span>}</a></th>
+                <td className="num" data-label={columns.balance}>{groupBalance(openGroup, row)}</td>
+                {order.map((key) => <td className="num" data-label={columns[key]} key={key}>{money(row[key], row.currency)}</td>)}
+                <td className="group-last" data-label={columns.last}>{groupLast(openGroup, row)}</td>
+              </tr>)}</tbody>
+            </table></div>
+          </section>
+          <section className="panel" aria-label={`${openGroup} activity`}>
+            <PanelHeader title="Activity" meta={`${plural(groupRows.length, 'entry', 'entries')} · ${PERIODS[period].toLowerCase()}${!showTransfers && transfers ? ` · ${plural(transfers, 'transfer')} between ${openGroup} hidden` : ''}`}>
+              <label className="checkbox group-transfers"><input type="checkbox" role="switch" checked={showTransfers} onChange={(event) => { setTransfers(event.target.checked ? 'shown' : '', 'replace'); setSelectedId('', 'replace'); }}/>Show transfers between {openGroup}</label>
+            </PanelHeader>
+            {groupRows.length ? <div className="table-scroll"><table className="data-table activity-table group-activity-table" role="table">
+              <colgroup><col style={{ width: showYear ? 108 : 76 }}/><col/><col style={{ width: 168 }}/></colgroup>
+              <thead><tr><th scope="col">Date</th><th scope="col">Description</th><th scope="col" className="th-num">Change</th></tr></thead>
+              <tbody onKeyDown={entryNav.onKeyDown}>{groupRows.map((row) => <tr key={row.entry.id} className="interactive" data-selected={selectedId === row.entry.id} data-internal={row.internal ? 'true' : undefined} onClick={(event) => { if (hasSelectedText(event)) return; setSelectedId(row.entry.id); entryNav.focusRow(row.entry.id); }}
+                onContextMenu={(event) => menu.open(event, entryMenu(row.entry as Transaction, () => setSelectedId(row.entry.id), 'journal', row.entry.date.slice(0, 7)), event.currentTarget)}>
+                <td className="date"><time dateTime={row.date} aria-label={dayLabel(row.date)}>{showYear ? dayLabel(row.date) : dayShort(row.date)}</time></td>
+                <td><EntryLink entryId={row.entry.id} className="row-open" {...entryNav.rowProps(row)} aria-current={selectedId === row.entry.id ? 'true' : undefined} aria-controls="transaction-inspector"
+                  data-copy={[dayLabel(row.date), row.entry.description, ...Object.entries(row.changes).map(([code, value]) => money(value, code))].join('\t')} onOpen={() => { setSelectedId(row.entry.id); entryNav.focusRow(row.entry.id); }}
+                  onKeyDown={(event) => { if (menu.keyOpens(event)) menu.open(event, entryMenu(row.entry as Transaction, () => setSelectedId(row.entry.id), 'journal', row.entry.date.slice(0, 7)), event.currentTarget.closest('tr')); }}>
+                  <span className="row-title">{row.entry.description}</span><span className="row-sub">{row.internal ? `Transfer between ${row.accounts.map((name) => short(name)).join(' and ')}` : row.accounts.map((name) => short(name)).join(', ')}</span></EntryLink></td>
+                <td className="num group-change" data-label="Change">{currencyOrder(Object.keys(row.changes)).map((code) => <span key={code}>{signedMoney(row.changes[code], code)}</span>)}</td>
+              </tr>)}</tbody></table></div>
+              : <div className="empty"><strong>No activity in this period</strong><span>{transfers && !showTransfers ? `Only transfers between ${openGroup} happened in this period.` : 'The totals carry forward from earlier entries.'} Choose a longer period to see more.</span></div>}
+          </section>
+        </div>;
+      })()}
       {selected && <div className="stack">
         <section className="panel">
-          <PanelHeader title={short(selected.account)} headingRef={selectionHeading} meta={<>{holding ? 'Mutual fund' : selected.group} · <code>{breakable(selected.account)}</code></>}><span className={holding ? 'fund-headline-group' : undefined}>{holding && <span className="summary-total-label">{priced ? 'Market value' : 'Recorded cost'}</span>}<span className={`summary-total${holding ? ' fund-headline' : ''}`}>{holding ? priced ? money(holding.value, holding.currency) : moneyTotal(holding.costs) : money(card ? Math.abs(selected.balance) : selected.balance, selected.currency)}</span></span></PanelHeader>
+          <PanelHeader title={short(selected.account)} headingRef={selectionHeading} meta={<>{holding ? 'Mutual fund' : selected.group} · <code>{breakable(selected.account)}</code></>}><span className={holding || card ? 'fund-headline-group' : undefined}>{holding && <span className="summary-total-label">{priced ? 'Market value' : 'Recorded cost'}</span>}{card && <span className="summary-total-label">{selected.balance <= 0 ? 'Owed' : 'In credit'}</span>}<span className={`summary-total${holding ? ' fund-headline' : ''}`}>{holding ? priced ? money(holding.value, holding.currency) : moneyTotal(holding.costs) : money(card ? Math.abs(selected.balance) : selected.balance, selected.currency)}</span></span></PanelHeader>
           {holding && <dl className="fund-stats">
             <div><dt>Units</dt><dd>{units(selected.balance)}</dd></div>
             {priced && <div><dt>NAV</dt><dd>{holding.price ? nav(holding.price.nav, holding.currency) : '—'}<span className="row-sub">{holding.price ? dayLabel(holding.price.date) : 'At recorded cost'}</span></dd></div>}
@@ -539,7 +676,7 @@ function DetailedAccounts() {
       </div>}
     </div>
   </section>
-  <TransactionDetails transaction={selectedEntry || null} onClose={close} entries={rows.map((row) => row.entry as Transaction)} onStep={(id) => setSelectedId(id, 'replace')}/>
+  <TransactionDetails transaction={selectedEntry || null} onClose={close} entries={entryRows.map((row) => row.entry as Transaction)} onStep={(id) => setSelectedId(id, 'replace')}/>
   {menu.element}
   </div></div>;
 }

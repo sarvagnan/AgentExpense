@@ -13,7 +13,7 @@ import path from 'node:path';
 
 const outputPath = dashboardDataPath('app/data/dashboard.json');
 import { moduleSettings } from './ledger-manifest.mjs';
-const { transactions, rules, prices, manifest, accounts } = await loadExpenseStore();
+const { transactions, rules, prices, manifest, accounts, confirmedBalances, cardStatements } = await loadExpenseStore();
 const provenance = await auditProvenance();
 const buildToday = today();
 const currentMonth = buildToday.slice(0, 7);
@@ -282,6 +282,9 @@ const payload = {
   forecasts,
   prices,
   reimbursementGroups,
+  // Filed statement facts for the Accounts group tables (exact decimal strings).
+  confirmedBalances,
+  cardStatements,
   transactions: records,
 };
 

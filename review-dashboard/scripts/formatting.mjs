@@ -28,6 +28,12 @@ export function money(value, currency = defaultCurrency, digits = minorUnits(cur
     .format(Math.abs(value) < 0.5 * 10 ** -digits ? 0 : value));
 }
 export const moneyWhole = (value, currency) => money(value, currency, 0);
+/** An amount with its currency code after it, for lists where the main currency has no code: `120.00 USD`. */
+export function moneyCode(value, currency) {
+  if (!isCurrency(currency)) return `${units(value)} ${currency}`;
+  const digits = minorUnits(currency);
+  return `${minus(new Intl.NumberFormat(locale, {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(Math.abs(value) < 0.5 * 10 ** -digits ? 0 : value))} ${currency}`;
+}
 const lakhLocale = () => new Intl.NumberFormat(locale).format(100000).replace(/\D/g, '').length === 6
   && new Intl.NumberFormat(locale).format(100000).replace(/\d/g, '').length === 2;
 export function compactMoney(value, currency = defaultCurrency) {

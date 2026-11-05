@@ -684,6 +684,61 @@ def retention_saved_statement():
 first_run_saved = None
 
 
+ACCOUNT_GROUP_FILES=('Bills/2026-10-08/rowan-card-statement.pdf','Bills/2026-10-20/rowan-everyday-statement.csv')
+@app.post('/__test/account-groups')
+def account_groups(body: dict):
+    """Fictional accounts for the Accounts group views, in this persona's main currency:
+    a bank with a statement-confirmed balance, a second bank (a transfer between them), a card
+    with a filed statement, a prepaid wallet and a person. `restore` puts the baseline back."""
+    if body.get('restore'):
+        def restore():
+            for name in ACCOUNT_GROUP_FILES:
+                (settings.ledger/name).unlink(missing_ok=True)
+            return original
+        return update_settings(settings,restore,dict(groups=False),'Restore browser account groups baseline')
+    from ledger_manifest import read_manifest
+    currency=read_manifest(settings.ledger)['defaultCurrency']
+    everyday,reserve,card,wallet,person='Assets:Bank:Rowan Everyday','Assets:Bank:Rowan Reserve','Liabilities:Credit Cards:Rowan Card','Assets:Wallets:Rowan Wallet','Assets:Reimbursements:Robin Vale'
+    supplies='Expenses:Groups:Rowan Supplies'
+    declarations=read_json(settings.ledger/'data/accounts.json')
+    declarations['accounts'].update({everyday:dict(kind='bank',currency=currency,label='Rowan Everyday'),reserve:dict(kind='bank',currency=currency,label='Rowan Reserve for the long weekend away fund'),
+        card:dict(kind='card',currency=currency,label='Rowan Card'),wallet:dict(kind='wallet',currency=currency,label='Rowan Wallet'),person:dict(kind='person',currency=currency,label='Robin Vale'),supplies:{},'Equity:Opening Balances':{}})
+    pdf,csv=ACCOUNT_GROUP_FILES
+    p=lambda a,n,**extra:dict(account=a,amount=n,commodity=currency,**extra)
+    e=lambda n,day,text,postings,**extra:dict(id=f'00000000000c6a{n:02x}',date=f'2026-{day}',status='confirmed',description=text,postings=postings,**extra)
+    rows=[
+        e(1,'09-30','Rowan opening balances',[p(everyday,'1000.00'),p(reserve,'500.00'),p(card,'0.00'),p(wallet,'50.00'),p(person,'0.00'),p('Equity:Opening Balances','-1550.00')]),
+        e(2,'10-03','Rowan supplies on the card',[p(supplies,'40.00'),p(card,'-40.00')],sources=[pdf],**{'statement-end':'2026-10-08','serial-number':'ROWAN-1','statement-page':1}),
+        e(3,'10-12','Rowan Card payment',[p(card,'40.00'),p(everyday,'-40.00')],sources=[csv]),
+        e(4,'10-13','Lent to Robin Vale',[p(person,'30.00'),p(everyday,'-30.00')],sources=[csv]),
+        e(5,'10-14','Move to Rowan Reserve',[p(reserve,'100.00'),p(everyday,'-100.00')],sources=[csv]),
+        e(6,'10-15','Rowan Wallet top-up',[p(wallet,'20.00'),p(everyday,'-20.00')],sources=[csv]),
+        e(7,'10-16','Rowan supplies from the wallet',[p(supplies,'15.00'),p(wallet,'-15.00')]),
+        e(8,'10-18','Rowan supplies on the card again',[p(supplies,'25.50'),p(card,'-25.50')]),
+        e(9,'10-20','Robin Vale paid back',[p(everyday,'30.00'),p(person,'-30.00')],sources=[csv]),
+        e(10,'10-20','Rowan Everyday statement balance',[p(everyday,'0.00',**{'assert':dict(amount='840.00',commodity=currency)})],sources=[csv]),
+        e(11,'10-31','Rowan supplies from the bank',[p(supplies,'10.00'),p(everyday,'-10.00')]),
+    ]
+    members=[dict(date=row['date'],serial=str(i),description=row['description'],amount=next(x['amount'] for x in row['postings'] if x['account']==everyday).lstrip('-'),
+                  direction='Credit' if not next(x['amount'] for x in row['postings'] if x['account']==everyday).startswith('-') else 'Debit',
+                  citation=dict(sheet='CSV',row=i+1),disposition='recorded',**{'entry-id':row['id']}) for i,row in enumerate([rows[k] for k in (2,3,4,5,8)],1)]
+    summaries=read_json(settings.ledger/'data/card-statements.json')+[
+        dict(id='00000000000c6b01',account=card,start='2026-10-01',end='2026-10-08',source=pdf,**{'previous-balance':'0.00','purchases':'40.00','credits':'0.00','total-due':'40.00','rows':1}),
+        dict(id='00000000000c6b02',kind='bank',account=everyday,start='2026-10-09',end='2026-10-20',source=csv,reader='generic-csv',**{'opening-balance':'1000.00','closing-balance':'840.00','assertion-id':rows[9]['id']},
+             debits='190.00',credits='30.00',rows=len(members),members=members)]
+    summaries.sort(key=lambda s:s['end'])
+    expenses=read_json(settings.ledger/'data/expenses/2026.json')+rows;expenses.sort(key=lambda r:r['date'])
+    def install():
+        sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+        from statement_fixtures import statement_pdf
+        (settings.ledger/pdf).parent.mkdir(parents=True,exist_ok=True);(settings.ledger/pdf).write_bytes(statement_pdf('Fictional Rowan Card statement: one supplies purchase of 40, zero opening.'))
+        (settings.ledger/csv).parent.mkdir(parents=True,exist_ok=True)
+        (settings.ledger/csv).write_text('Date,Description,Amount\n'+''.join(f"{m['date']},{m['description']},{'-' if m['direction']=='Debit' else ''}{m['amount']}\n" for m in members))
+        return {settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':expenses,settings.ledger/'data/card-statements.json':summaries}
+    update_settings(settings,install,dict(groups=True),'Fictional accounts for group views')
+    return dict(currency=currency,transfer=rows[4]['id'])
+
+
 @app.post('/__test/first-run')
 def first_run_fixture(body: dict):
     global first_run_saved

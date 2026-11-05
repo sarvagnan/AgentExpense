@@ -640,3 +640,39 @@
 .account-list .account-group-open{padding:0;border-radius:0;gap:var(--space-2)}
 .account-list .account-row{width:100%;margin:0;padding:var(--space-3);border-radius:0;border-bottom:1px solid var(--separator)}
 .account-list .account-row[aria-current="true"],.account-list .account-group-open[aria-current="true"]{border-radius:0;box-shadow:inset 3px 0 var(--accent)}
+
+/* 6g: one-line account rows at Explorer's row height (a touch-sized row on phones), group
+   headings that open a group view, and focus rings drawn inside the list's scroll box. */
+.account-list { --account-row-height: var(--row-height); }
+@media (max-width: 760px) { .account-list { --account-row-height: 44px; } }
+.account-list h3, .account-list h3:has(> .account-group-open) { padding: 0; }
+.account-list .account-group-open { height: var(--account-row-height); padding: 0 var(--space-3); }
+.account-list .account-group-name { overflow: hidden; }
+.account-list .account-group-name strong { overflow: hidden; text-overflow: ellipsis; }
+.account-list .account-group-total { overflow: hidden; text-overflow: ellipsis; }
+.account-list .account-row { height: var(--account-row-height); min-height: 0; padding-block: 0; white-space: nowrap; }
+.account-list .account-row > .account-row-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-list .account-row:focus-visible, .account-list .account-group-open:focus-visible { outline-offset: -3px; border-radius: 0; }
+.group-view .group-change > span { display: block; white-space: nowrap; }
+.group-view .group-last { color: var(--text-secondary); white-space: nowrap; }
+.group-view .group-accounts-table th[scope="row"] { font-weight: 400; text-align: left; }
+.group-view .group-accounts-table th[scope="row"] .row-title, .group-view .group-accounts-table th[scope="row"] .row-sub { display: inline; }
+.group-view .group-accounts-table th[scope="row"] .row-sub { margin-left: var(--space-1); }
+.group-view tr[data-internal="true"] .row-sub { font-style: italic; }
+.group-transfers { white-space: nowrap; }
+@media (max-width: 760px) {
+  .group-transfers { min-height: 44px; white-space: normal; }
+  /* Each account becomes stacked label and value rows. */
+  .group-accounts-table, .group-accounts-table tbody, .group-accounts-table tr { display: block; width: 100%; }
+  .group-accounts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .group-accounts-table tr { padding: var(--space-2) 0; border-bottom: 1px solid var(--separator); }
+  .group-accounts-table tr:last-child { border-bottom: 0; }
+  .group-accounts-table th[scope="row"], .group-accounts-table td { display: flex; justify-content: space-between; gap: var(--space-3); height: auto; padding: 2px var(--space-3); border: 0; text-align: right; white-space: normal; }
+  .group-accounts-table th[scope="row"] { padding-block: 4px; }
+  .group-accounts-table td::before { content: attr(data-label); color: var(--text-secondary); font: var(--text-callout); text-align: left; }
+  .group-view .group-last { white-space: normal; color: var(--text); }
+}
+@media (max-width: 600px) {
+  /* The signed change needs no label on a phone row; the column heading stays for assistive technology. */
+  .activity-table.group-activity-table td.num.group-change:not(:empty)::before { content: none; }
+}

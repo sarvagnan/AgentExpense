@@ -25,7 +25,13 @@ The first release. The date is set when the release is tagged.
   `make upgrade-ledger`, which compares outputs and rolls back on failure.
 - **Accounts and currencies.** Each account keeps its own currency; totals and
   charts stay separate per currency, and conversions are asked for only when an
-  expense's currency differs from the paying account's.
+  expense's currency differs from the paying account's. Accounts lists one line per
+  account; each group heading (Banks, Credit cards, Prepaid, People, Loans, Cash)
+  opens a group view with its total over time per currency, a table of the
+  accounts' figures for the period (including the last statement-confirmed balance
+  or filed card statement) and the combined activity, with transfers within the
+  group behind a switch. The dashboard data carries the confirmed balances and card
+  statement summaries this needs.
 - **Dashboard.** Add, Queue, Review, Explorer, Atlas, Journal, Forecast and
   Accounts, with Rules, Trash and Settings, in Light and Dark, built from generated
   data (`DASHBOARD_DATA_DIR` chooses where it goes).

@@ -254,3 +254,19 @@ twice, and words typed meanwhile survive the late completion. Node tests in
 `tests/screen-timing.test.mjs` hold Review's 2-second poll, the Queue statement poll
 (1.5 seconds) across Apply, the hand form's claim, autosave and refusal Discard, the
 correction form and the rule pick list.
+
+Step 6g adds `account-groups.mjs` to every default case (`BROWSER_FOCUS=account-groups`
+alone). `/__test/account-groups` installs fictional Rowan accounts in the persona's main
+currency through the verified settings transaction: two banks (one with a filed bank
+statement and its confirmed closing balance, and a transfer between them), a card with a
+filed statement, a prepaid wallet and a person who is lent money and pays it back;
+`{restore:true}` puts the baseline back and removes the two statement files. The suite
+checks the list's single-line rows at one fixed height (36px desktop, 44px phone),
+truncation with the full name as tooltip and accessible name, currency codes after
+other-currency amounts and inset focus; every heading opening its group (Investments its
+portfolio) with each kind's columns and figures; arrow keys through headings and rows; the
+transfers switch; one chart and total per currency (Sam and Jordan hold two); the phone
+picker's `<Group> · all accounts` options; back and forward; and a data reload held open
+while the period and switch change. Captures: `accounts-list-rows`,
+`accounts-group-{banks,cards,prepaid,people,cash}` (Cash where present), `accounts-group-transfers`,
+`accounts-group-mixed` (Sam) and, on phones, `accounts-group-picker`.

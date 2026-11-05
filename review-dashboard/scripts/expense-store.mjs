@@ -195,5 +195,35 @@ export async function loadExpenseStore(root = storeRoot) {
     if ([...(rule.origin?.evidence ?? []), ...(rule.removal?.evidence ?? [])].some(id => !actualIds.has(id) && !trashedIds.has(id))) throw new Error('Unknown rule evidence');
     return {...toTransaction(rule, declarations.accounts),...(rule.amount==='varies'?{varying:varyingDetails(rule,actuals,declarations.accounts)}:{})};
   });
-  return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest };
+  const statements = await readJson(path.join(root, 'data', 'card-statements.json')).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
+  if (!Array.isArray(statements)) throw new Error('Statements must be an array');
+  return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest, ...statementFacts(actuals, statements, declarations.accounts) };
 }
+
+/**
+ * Filed statement facts for the Accounts group tables. A bank statement confirms its
+ * account's closing balance with an assertion entry; a card statement (or a card's
+ * debt-style balance statement) prints the total due at its period end. Amounts keep
+ * the store's exact decimal strings; readers sum them in minor units.
+ */
+export function statementFacts(actuals, statements, accounts = {}) {
+  const byId = new Map(actuals.map(entry => [entry.id, entry]));
+  const confirmedBalances = [], cardStatements = [];
+  for (const summary of statements) {
+    const debt = summary['source-balance-style'] === 'debt';
+    if (summary.kind !== 'bank' || debt) {
+      cardStatements.push({ account: summary.account, start: summary.start, end: summary.end,
+        totalDue: debt ? negate(summary['closing-balance']) : summary['total-due'], currency: accounts[summary.account]?.currency });
+      continue;
+    }
+    const entry = byId.get(summary['assertion-id']);
+    const posting = entry?.postings.find(item => item.account === summary.account && item.assert);
+    if (!posting) throw new Error(`Statement ${summary.id} has no closing balance assertion`);
+    confirmedBalances.push({ account: summary.account, date: entry.date, amount: posting.assert.amount, currency: posting.assert.commodity, entryId: entry.id });
+  }
+  const order = (a, b) => a.account.localeCompare(b.account) || a.currency.localeCompare(b.currency);
+  confirmedBalances.sort((a, b) => a.date.localeCompare(b.date) || order(a, b));
+  cardStatements.sort((a, b) => a.end.localeCompare(b.end) || order(a, b));
+  return { confirmedBalances, cardStatements };
+}
+const negate = (text) => text.startsWith('-') ? text.slice(1) : /^0(\.0+)?$/.test(text) ? text : `-${text}`;

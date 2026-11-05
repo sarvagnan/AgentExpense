@@ -37,6 +37,9 @@ export type DashboardData = {
   };
   prices: { commodity: string; currency: string; dates: string[]; navs: number[] }[];
   reimbursementGroups: { id: string; currency: string; label: string; purchases: number; received: number; outstanding: number; paymentDate: string }[];
+  /** Statement-confirmed balance assertions and filed card statement summaries, as exact decimal strings. */
+  confirmedBalances: { account: string; date: string; amount: string; currency: string; entryId: string }[];
+  cardStatements: { account: string; start: string; end: string; totalDue: string; currency: string }[];
   transactions: DashboardTransaction[];
 };
 export type ReviewData = {
