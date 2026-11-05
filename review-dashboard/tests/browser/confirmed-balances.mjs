@@ -27,7 +27,21 @@ export async function runConfirmedBalances({page,base,persona,expect,control,go,
   await notice.getByRole('button',{name:'Keep in Queue'}).click();await expect(notice).toHaveCount(0);
   assert.equal((await get('drafts/'+failed.id)).state,'editing');
   await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await guess.getByRole('button',{name:'Add as usual'}).click();await expect(notice).toBeVisible();
-  await notice.getByRole('button',{name:'Discard',exact:true}).click();await expect(notice).toHaveCount(0);await expect(words).toHaveValue('');
+  // Discard moves the item to Trash in a verified commit, which can take seconds under load.
+  // Hold that request: the input is free for the next expense at once, the notice cannot act
+  // twice, and words typed meanwhile survive the late completion.
+  const refusedId=(await get('drafts')).find(d=>d.refusal).id;let releaseDelete,deletes=0;const deleteHeld=new Promise(resolve=>{releaseDelete=resolve;});
+  const holdDelete=async route=>{if(route.request().method()!=='DELETE')return route.fallback();deletes++;await deleteHeld;await route.fallback();};
+  await page.route(`**/api/drafts/${refusedId}`,holdDelete);
+  try {
+    const deleted=page.waitForResponse(r=>r.url().endsWith('/api/drafts/'+refusedId)&&r.request().method()==='DELETE',{timeout:180000});deleted.catch(()=>{});
+    await notice.getByRole('button',{name:'Discard',exact:true}).click();await expect.poll(()=>deletes).toBe(1);
+    await expect(words).toHaveValue('');await expect(notice.getByRole('button',{name:'Discard',exact:true})).toBeDisabled();await expect(notice.getByRole('button',{name:'Keep in Queue'})).toBeDisabled();
+    await words.fill('Paper Kite notebook');
+    releaseDelete();assert.equal((await deleted).status(),204);
+    await expect(notice).toHaveCount(0);await expect(words).toHaveValue('Paper Kite notebook');assert.equal(deletes,1,'One Discard request');
+    await expect.poll(async()=>(await get('drafts')).some(d=>d.id===refusedId)).toBe(false);
+  } finally {releaseDelete();await page.unroute(`**/api/drafts/${refusedId}`,holdDelete);}
   await words.fill('Cedar learning on 30 October');await expect(guess).toBeVisible();await guess.getByLabel('Payment date').fill('2026-10-30');await guess.getByRole('checkbox',{name:/Add another anyway/}).check();
   await guess.getByRole('button',{name:'Add as usual'}).click();await expect(notice).toBeVisible();
   failed=(await get('drafts')).find(d=>d.refusal);assert.ok(failed);

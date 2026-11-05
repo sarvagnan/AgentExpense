@@ -120,6 +120,9 @@ async function cleanupArtifacts(passed) {
   else if(passed){await rm(artifacts,{recursive:true,force:true});console.log('Passing browser artifacts removed');}
   else {
     const {readdir,lstat}=await import('node:fs/promises');
+    // A failed server request is otherwise only a status code: print each server's tail
+    // (fictional fixture data only) into this run's own output before the root is removed.
+    for(const persona of personas){const log=await readFile(join(artifacts,persona,'server.log'),'utf8').catch(()=>null);if(log)console.log(`SERVER_LOG_TAIL ${persona}\n${log.split('\n').slice(-120).join('\n')}\nEND_SERVER_LOG_TAIL ${persona}`);}
     const failures=[];
     async function retain(folder){for(const name of await readdir(folder)){const path=join(folder,name);if((await lstat(path)).isDirectory())await retain(path);else if(name.startsWith('failure-')&&name.endsWith('.zip'))failures.push(path);}}
     await retain(artifacts);

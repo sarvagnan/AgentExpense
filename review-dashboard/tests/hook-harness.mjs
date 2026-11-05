@@ -12,6 +12,7 @@ export function hookHarness(file,dependencies={},globals={}){
   useEffect(fn,deps){const i=index++;if(!slots[i]||changed(slots[i].deps,deps)){const old=slots[i];slots[i]={deps};effects.push(()=>{old?.cleanup?.();slots[i].cleanup=fn();});}},
   useMemo(fn,deps){const i=index++;if(!slots[i]||changed(slots[i].deps,deps))slots[i]={deps,value:fn()};return slots[i].value;},
   useCallback(fn,deps){return hooks.useMemo(()=>fn,deps);},
+  useLayoutEffect(fn,deps){return hooks.useEffect(fn,deps);},
  };
  const schedule=(fn,delay,interval=false)=>{const id=++sequence;timers.set(id,{fn,at:time+delay,delay,interval});return id;};
  const events=new EventTarget(),document=new EventTarget();document.hidden=false;

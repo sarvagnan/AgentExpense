@@ -208,7 +208,9 @@ Each test command creates one `agentexpense-run-*` root, shared by nested make
 commands, Python pools, Node helpers, oracle caches and pinned headless browsers.
 `TMPDIR` and `EXPENSES_TEST_TMP` point inside it. It is removed on success,
 failure, SIGINT, SIGTERM and SIGHUP. Before removal, only failing-case trace ZIPs
-are copied to a printed `/tmp/agentexpense-failures-<timestamp>/` path. Explicit
+are copied to a printed `/tmp/agentexpense-failures-<timestamp>/` path. A failed run also prints the
+last 120 lines of each persona's server log between `SERVER_LOG_TAIL <persona>` and
+`END_SERVER_LOG_TAIL <persona>`, so a failed request's traceback survives the cleanup. Explicit
 `BROWSER_SHOTS` exports captures outside the root; `KEEP_ARTIFACTS=1` retains the
 whole root, with test-helper teardown snapshots under `kept/`. The scanner's cleanup regression runs a small server suite, Node
 suite and deliberately failed/interrupted browser cases and checks only their
@@ -236,3 +238,10 @@ paths. Captures: `first-about`, `first-start`, `first-accounts`,
 `first-accounts-mixed`, `first-accounts-more`, `first-import`,
 `first-import-mismatch`, `first-import-resolved`, `first-done-today`,
 `first-done-import`.
+
+Timing sweep part 1 holds the confirmed-balance refusal's Discard (a verified Trash
+commit) open in `confirmed-balances.mjs`: the input is free at once, the notice cannot act
+twice, and words typed meanwhile survive the late completion. Node tests in
+`tests/screen-timing.test.mjs` hold Review's 2-second poll, the Queue statement poll
+(1.5 seconds) across Apply, the hand form's claim, autosave and refusal Discard, the
+correction form and the rule pick list.

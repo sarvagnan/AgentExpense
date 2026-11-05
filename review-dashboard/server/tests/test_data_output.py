@@ -24,6 +24,25 @@ class DataOutputTests(Fixture):
             self.assertEqual(client.get('/data/dashboard.json.gz').content,b'existing')
             self.assertEqual(client.get('/data/.source-ledger.json').status_code,404)
 
+    def test_data_file_replaced_while_served_is_sent_whole(self):
+        # A save's data rebuild can replace a published file between the size check and
+        # the read. The response must be one whole version with a matching length.
+        output=self.base/'served-output';published=output/'public/data/dashboard.json.gz'
+        published.parent.mkdir(parents=True);published.write_bytes(b'previous version')
+        import starlette.responses
+        real_open=starlette.responses.anyio.open_file
+        async def replace_then_open(path,*args,**kwargs):
+            if str(path)==str(published):
+                fresh=published.with_suffix('.tmp');fresh.write_bytes(b'rebuilt version, which is longer');os.replace(fresh,published)
+            return await real_open(path,*args,**kwargs)
+        # Serving reads one opened version; FileResponse's stat-then-open would not.
+        with self.client(worker=False,dashboard_data=output) as client, patch.object(starlette.responses.anyio,'open_file',replace_then_open):
+            response=client.get('/data/dashboard.json.gz')
+        self.assertEqual(response.status_code,200)
+        self.assertIn(response.content,(b'previous version',b'rebuilt version, which is longer'))
+        self.assertEqual(int(response.headers['content-length']),len(response.content))
+        self.assertEqual(response.headers['cache-control'],'no-store')
+
     def test_refresh_sets_explicit_paths_pinned_node_and_offline_npm_environment(self):
         with patch.dict(os.environ,{'DASHBOARD_DATA_DIR':str(self.base/'redirected')}):
             settings=replace(self.settings,dashboard_data=None)

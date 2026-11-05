@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import {request} from '../live/api';
 export type Decision={status:'resolved'|'followup'|'unreviewed';account:string;label:string;notes:string;updatedAt:string};
 export type Entry={id:string;version:string;date:string;originalDate:string;description:string;amount:string;signedAmount?:string;signedAmounts?:Record<string,string>;amounts?:Record<string,string>;currency:string;account:string;accountLabel:string;currentAccount:string;kind:string;sources:string[];source:string;sourceReference:string;statement:boolean;notes:string[];status:string;postings:{account:string;amount:string;commodity:string}[]};
@@ -9,7 +9,11 @@ export type Snapshot={export_entries:Record<string,Entry>;count:number;important
 export type Preview={drafts:number;valid:number;unknown:number;changed:number;already:number;token:string};
 export function useReview(){
  const [data,setData]=useState<Snapshot|null>(null),[error,setError]=useState('');
- const refresh=useCallback(async(signal?:AbortSignal)=>{try{const next=await request<Snapshot>('review',{signal},120000);if(!signal?.aborted){setData(next);setError('');}return next;}catch(e){if(!signal?.aborted)setError(e instanceof Error?e.message:String(e));return null;}},[]);
+ // Polls and post-action refreshes overlap. Publish only a read issued after the one
+ // already shown, so a poll that read the ledger before a decision committed cannot
+ // bring the decided item, or the old badge count, back.
+ const issued=useRef(0),shown=useRef(0),latest=useRef<Snapshot|null>(null);
+ const refresh=useCallback(async(signal?:AbortSignal)=>{const ticket=++issued.current;try{const next=await request<Snapshot>('review',{signal},120000);if(signal?.aborted)return null;if(ticket<shown.current)return latest.current;shown.current=ticket;latest.current=next;setData(next);setError('');return next;}catch(e){if(!signal?.aborted&&ticket>shown.current)setError(e instanceof Error?e.message:String(e));return null;}},[]);
  useEffect(()=>{const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;const poll=async()=>{await refresh(controller.signal);if(!controller.signal.aborted)timer=setTimeout(poll,2000);};void poll();return()=>{controller.abort();clearTimeout(timer);};},[refresh]);
  return {data,error,refresh};
 }

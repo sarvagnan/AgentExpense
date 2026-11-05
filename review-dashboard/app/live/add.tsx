@@ -33,8 +33,11 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
  const blockedAgent=live.agent.state==='signed out'||live.agent.state==='paused'||!!live.agent.agent_pause;
  const blockedFiles=files.some(f=>f.kind==='ambiguous'||f.locked||f.mismatch)||statement&&!draft?.files.length;
  const refused=live.drafts.find(d=>d.state==='failed'&&d.refusal);
- const [refusalError,setRefusalError]=useState('');
- async function resolveRefusal(action:'edit'|'keep'|'discard'){if(!refused)return;try{if(action==='discard'){await live.discard(refused.id);c.forgetDiscarded(refused.id);}else{await api.resolveRefusal(refused.id,'edit');if(action==='edit')await c.restore(refused.id);}await live.refresh();}catch(e){setRefusalError((e as Error).message);}}
+ const [refusalError,setRefusalError]=useState(''),[refusalBusy,setRefusalBusy]=useState(false);
+ // Discard is a verified Trash commit that can take seconds. Release the input first: the
+ // refused item keeps its words in Queue until then, and words typed meanwhile are the next
+ // expense, not edits of the discarded one. One action at a time.
+ async function resolveRefusal(action:'edit'|'keep'|'discard'){if(!refused||refusalBusy)return;const id=refused.id;setRefusalBusy(true);setRefusalError('');try{if(action==='discard'){c.forgetDiscarded(id);await live.discard(id);}else{await api.resolveRefusal(id,'edit');if(action==='edit')await c.restore(id);}await live.refresh();}catch(e){setRefusalError((e as Error).message);}finally{setRefusalBusy(false);}}
  const latest=rows[0],barResult=latest?(latest.type==='draft'?draftStatus(latest.value as Draft):statementStatus(latest.value as StatementSession)):'';
  const empty=!form.text&&!draft?.files.length&&!pending.length;
  // A shorter background result must not clamp scrollY and move the composer
@@ -65,7 +68,7 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
 
  </div></section><div className="add-interpretation"><AddUnderstood composer={c} online={live.online}/></div></div>
  <section className="add-savebar" aria-label="Save entry"><div><strong>{saving?'Saving…':busyFiles?'Uploading…':empty&&barResult?barResult:empty?'Ready when you are':statement?'Continue to read the statement':'Ready to continue'}</strong><p className="live-hint">{empty&&latest?'The input is ready for your next entry.':statement?'Checks come before applying any rows.':c.ruleDecisionNeeded?'Choose the payment or bill action above.':'Words or a file are enough to start.'}</p>{error&&<p className="live-error" role="alert">{error}</p>}</div><button type="button" className="button primary" disabled={c.ruleDecisionNeeded||live.online!==true||blockedAgent&&!builtin||saving||recovering||busyFiles||c.interpretation.busy||blockedFiles||pending.some(p=>!!p.error)||(!form.text.trim()&&!draft?.files.length)} onClick={()=>void save()}>Continue</button></section>
- {refused?.refusal&&<BalanceNotice refusal={refused.refusal}><p>{refused.text}</p><button className="button" onClick={()=>void resolveRefusal('edit')}>Change account or date</button><button className="button" onClick={()=>void resolveRefusal('keep')}>Keep in Queue</button><button className="button destructive" onClick={()=>void resolveRefusal('discard')}>Discard</button>{refusalError&&<p>{refusalError}</p>}</BalanceNotice>}
+ {refused?.refusal&&<BalanceNotice refusal={refused.refusal}><p>{refused.text}</p><button className="button" disabled={refusalBusy} onClick={()=>void resolveRefusal('edit')}>Change account or date</button><button className="button" disabled={refusalBusy} onClick={()=>void resolveRefusal('keep')}>Keep in Queue</button><button className="button destructive" disabled={refusalBusy} onClick={()=>void resolveRefusal('discard')}>Discard</button>{refusalError&&<p>{refusalError}</p>}</BalanceNotice>}
  <AddResults live={live} rows={rows}/>
  {showExamples&&<Dialog title="Examples" subtitle="Pick one, then change it to your own words." labelId="add-examples-title" onClose={()=>setShowExamples(false)}><div className="add-examples">{examples.map(example=><button className="example-button" key={example} onClick={()=>chooseExample(example)}>{example}</button>)}</div></Dialog>}
  </section>;

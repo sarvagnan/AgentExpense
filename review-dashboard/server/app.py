@@ -11,7 +11,7 @@ import time
 from urllib.parse import unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Body
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -1202,7 +1202,15 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             allowed = allowed and target.resolve().is_relative_to(base.resolve())
         if not allowed or not target.is_file():
             raise HTTPException(404)
-        return FileResponse(target, headers={'Cache-Control': 'no-store'} if path.startswith('data/') else None)
+        if path.startswith('data/'):
+            # A save's rebuild replaces these small files while they are served. Read one
+            # opened version, so its length and bytes always agree (FileResponse stats the
+            # path, then opens it again).
+            import mimetypes
+            try: content = target.read_bytes()
+            except FileNotFoundError: raise HTTPException(404)
+            return Response(content, media_type=mimetypes.guess_type(target.name)[0] or 'text/plain', headers={'Cache-Control': 'no-store'})
+        return FileResponse(target)
 
     return app
 
