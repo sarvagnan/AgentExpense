@@ -8,6 +8,8 @@ export const needsAttention = (d: Draft) => d.receipt_reading?.state==='question
 export const isRunning = (d: Draft) => ['queued','reading','ready'].includes(d.receipt_reading?.state||'') || d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 export const pollDelay = (drafts: Draft[], statements: StatementSession[] = []) => drafts.some(isRunning) || statements.some(s=>['reading','applying','agent_waiting'].includes(s.state)) ? 3000 : 30000;
+/** A failed check is retried this soon; only a second consecutive failure means offline. */
+export const OFFLINE_RETRY_MS = 2000;
 export function useDrafts() {
   const [agent,setAgent] = useState<AgentStatus>({state:'checking',reason:null});
   const [statements,setStatements] = useState<StatementSession[]>([]);
@@ -16,6 +18,9 @@ export function useDrafts() {
   const [reloadError, setReloadError] = useState('');
   const latest = useRef<Draft[]>([]), latestStatements = useRef<StatementSession[]>([]), reloaded = useRef(new Set<string>()), busy = useRef<Promise<void> | null>(null), again = useRef(false), mounted = useRef(false);
   const leaving=useRef(false), controller=useRef<AbortController | null>(null);
+  // One slow or failed read (a loaded remote server, a laptop waking) is not "offline":
+  // the quick follow-up check decides, and nothing on screen changes in between.
+  const failures=useRef(0), retry=useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const refresh = useCallback(async () => {
     if(leaving.current || document.hidden) return;
     if (busy.current) { again.current=true; return busy.current; }
@@ -26,6 +31,8 @@ export function useDrafts() {
       // Let this cheap read finish across navigation. Aborting a health fetch
       // during document teardown can surface a WebKit access-control error.
       const health = await api.health(); if (!health.ok) throw new Error('The live server is unavailable.');
+      // Any answered check ends a run of failures, even when a newer pass supersedes this one.
+      failures.current=0; clearTimeout(retry.current); retry.current=undefined;
       if (!mounted.current || leaving.current || document.hidden || controller.current.signal.aborted) continue;
       const [listed, status, statementList, trash] = await Promise.all([api.list(controller.current.signal), request<AgentStatus>('agent-status', {signal:controller.current.signal}), statementsApi.list(controller.current.signal),request<{items:unknown[]}>('trash',{signal:controller.current.signal})]);
       // A write/focus refresh queued while these reads were in flight. Publish
@@ -42,12 +49,16 @@ export function useDrafts() {
         try { await reloadData(); if (mounted.current) setReloadError(''); additions.forEach(d => reloaded.current.add(d.id)); }
         catch { if (mounted.current) setReloadError('The entry was added, but the dashboard could not refresh. Retry refresh below.'); }
       }
-    } catch (e) { if (mounted.current && !again.current && !controller.current?.signal.aborted) { setOnline(false); setError(e instanceof Error ? e.message : String(e)); } }
+    } catch (e) { if (mounted.current && !again.current && !controller.current?.signal.aborted) {
+      failures.current++;
+      if (failures.current >= 2) { clearTimeout(retry.current); retry.current=undefined; setOnline(false); setError(e instanceof Error ? e.message : String(e)); }
+      else { clearTimeout(retry.current); retry.current=setTimeout(() => { retry.current=undefined; void refresh(); }, OFFLINE_RETRY_MS); }
+    } }
     } while(again.current && mounted.current && !leaving.current && !document.hidden);
     })().finally(()=>{busy.current=null;});
     return busy.current;
   }, []);
-  useEffect(() => { mounted.current = true; leaving.current=false; return () => { mounted.current = false; leaving.current=true; controller.current?.abort(); }; }, [refresh]);
+  useEffect(() => { mounted.current = true; leaving.current=false; return () => { mounted.current = false; leaving.current=true; controller.current?.abort(); clearTimeout(retry.current); retry.current=undefined; }; }, [refresh]);
   const running=drafts.some(isRunning)||statements.some(s=>['reading','applying','agent_waiting'].includes(s.state));
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;

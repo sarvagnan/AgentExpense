@@ -231,6 +231,9 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await expect(row(badName)).toHaveAttribute('data-state', 'couldnt_read', {timeout:60000});
     await expect(row(badName).locator('.setup-tag')).toHaveText('Couldn’t be read');
     await expect(row(badName).locator('.file-detail')).toContainText("printed totals don't add up");
+    // One plain sentence; the checker's figures are behind Details.
+    await expect(row(badName).locator('.file-detail')).toHaveText("The printed totals don't add up, so nothing was saved.");
+    await expect(row(badName).locator('.file-more summary')).toHaveText('Details');
     record('first run timing: a held account creation keeps another file’s typed account and position');
     await cardForm.getByRole('button', {name:'Add account', exact:true}).click();
     await expect(row(cardName)).toHaveAttribute('data-state', 'found', {timeout:60000});
@@ -284,6 +287,13 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     page.off('request', countImports);assert.equal(imports, 1);
     const importNotice = page.locator('.first-run-done');
     await expect(importNotice).toContainText('Statements imported.');await expect(importNotice).toContainText('5 entries found. 5 are waiting in Review.');
+    // The unread file is the Queue badge's one item, and the notice says so.
+    await expect(importNotice).toContainText('1 file couldn’t be read; it is in Queue to try again.');
+    await expect(page.locator(width > 760 ? '.sidebar nav a[href$="queue/"] .nav-count' : '.phone-live-nav a[href$="queue/"] .nav-count')).toContainText('1');
+    // A confirmation: its body is no larger than its title, inside a plain panel border.
+    const scale = await importNotice.evaluate(node => ({title:parseFloat(getComputedStyle(node.querySelector('strong')).fontSize), body:parseFloat(getComputedStyle(node.querySelector('p')).fontSize), border:getComputedStyle(node).borderTopColor, separator:getComputedStyle(document.querySelector('.panel')||node).borderTopColor}));
+    assert.ok(scale.body <= scale.title, `Notice body ${scale.body}px is larger than its title ${scale.title}px`);
+    assert.equal(scale.border, scale.separator, 'The confirmation uses the plain panel border, not the warning outline');
     const review = await get('review');
     assert.equal(review.count, 5);
     const nav = page.locator(width > 760 ? '.sidebar nav' : '.phone-live-nav');

@@ -5,6 +5,7 @@ import {Icon,dayLabel,money,useAppearance} from './ui';
 import {CurrencyOptions} from './settings-dialog';
 import {request} from './live/api';
 import {statementsApi,type StatementSession} from './live/statements-api';
+import {statementNeedsAttention} from './live/use-drafts';
 import {today} from './date-time';
 import {minorUnits} from './formatting';
 
@@ -12,7 +13,7 @@ import {minorUnits} from './formatting';
  * opening balances or past statements → Add. Every save is one locked, verified
  * commit on the server; nothing here writes the ledger directly. */
 export type Step = 'about' | 'start' | 'today' | 'import';
-export type FirstRunDone = {path:'today'|'import'; entries?:number; review?:number; unsaved?:number};
+export type FirstRunDone = {path:'today'|'import'; entries?:number; review?:number; unsaved?:number; unread?:number};
 type Kind = 'bank'|'card'|'cash'|'wallet'|'loan'|'investment'|'person';
 export type AccountRow = {key:string; kind:Kind; label:string; balance:string; currency:string; existing?:boolean};
 
@@ -222,6 +223,8 @@ const bankOrCard = () => Object.entries(dashboard.meta.accounts).filter(([, meta
 const fileCurrency = (row: FileRow) => row.session?.file_currency || (row.session && ['found','review','applying','applied'].includes(row.session.state) ? row.session.statement?.currency : undefined);
 const chosen = (row: FileRow) => row.choice ?? row.session?.statement?.account ?? row.session?.assigned_account ?? row.session?.suggested_account ?? '';
 // A read file stays read while a mismatching account is only chosen on this page (nothing is sent).
+/** The first sentence of a reader's message, and the technical rest. */
+export const plainReason = (text: string): [string, string] => { const end = text.search(/[.!?] /); return end > 0 ? [text.slice(0, end + 1), text.slice(end + 2).trim()] : [text, '']; };
 const read = (row: FileRow) => !!row.session && ['found','review'].includes(row.session.state) && !!row.session.plan && !row.busy;
 const mismatched = (row: FileRow) => { const currency = fileCurrency(row), account = chosen(row); return !!currency && !!account && !!dashboard.meta.accounts[account] && dashboard.meta.accounts[account].currency !== currency; };
 const unread = (row: FileRow) => !!row.error && !row.session || !!row.session && SETTLED.has(row.session.state) && row.session.state !== 'applied';
@@ -321,7 +324,7 @@ function Import({title, onBack, onDone}: {title: ReactNode; onBack: () => void; 
     if (!applied.length) { if (saving.length) { setFinishing(false); setFinishError('No statement could be saved. Check each file’s message.'); } return; }
     let alive = true;
     void reloadData().catch(() => undefined).then(() => {
-      if (alive) onDone({path:'import', entries:applied.reduce((sum, row) => sum + (row.session?.statement?.rows.length || 0), 0), review:applied.reduce((sum, row) => sum + pendingRows(row.session!), 0), unsaved:rows.filter(row => row.session?.state === 'failed').length});
+      if (alive) onDone({path:'import', entries:applied.reduce((sum, row) => sum + (row.session?.statement?.rows.length || 0), 0), review:applied.reduce((sum, row) => sum + pendingRows(row.session!), 0), unsaved:rows.filter(row => row.session?.state === 'failed').length, unread:rows.filter(row => !!row.session && ['couldnt_read','wrong_file'].includes(row.session.state) && statementNeedsAttention(row.session)).length});
     });
     return () => { alive = false; };
   }, [rows, finishing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -372,7 +375,9 @@ function FileItem({row, finishing, onChoose, onCreate, onRemove, onUnlock}: {row
   const detail = row.uploading ? 'Sending the file to this ledger’s server.' : !s ? row.error : ['found','review','applying','applied'].includes(s.state) && statement ? `${count} ${count === 1 ? 'entry' : 'entries'} found · ${agent ? 'source values and totals checked' : 'totals checked'}`
     : s.state === 'reading' ? 'Checking its printed totals before anything is saved.' : s.state === 'agent_waiting' ? (s.waiting || 'The agent reads it as soon as it is available.')
     : s.state === 'account_needed' ? 'Choose the account this statement belongs to; then it is read.' : s.state === 'currency_mismatch' ? (currency ? `Printed in ${currency}.` : 'Choose the account this statement belongs to.')
-    : s.state === 'locked' ? 'Type the file’s password. It stays in memory only.' : s.error || '';
+    : s.state === 'locked' ? 'Type the file’s password. It stays in memory only.' : plainReason(s.error || '')[0];
+  // A file that couldn't be read gets a one-line reason; the checker's figures sit behind Details.
+  const more = s && !row.uploading && !row.busy && ['failed','couldnt_read','wrong_file'].includes(s.state) ? plainReason(s.error || '')[1] : '';
   const warning = mismatched(row) ? `This file is in ${currency}, but ${accountLabel(account)} is in ${dashboard.meta.accounts[account].currency}. Choose ${/^[AEIOU]/.test(currency || '') ? 'an' : 'a'} ${currency} account or remove the file. Nothing has been saved.` : '';
   const selectable = !!s && !row.uploading && !['applying','applied','locked','reading','agent_waiting','already_filed'].includes(s.state) && !finishing;
   const id = `setup-file-${row.key}`;
@@ -385,7 +390,7 @@ function FileItem({row, finishing, onChoose, onCreate, onRemove, onUnlock}: {row
   }
   return <li className="setup-file" data-file={row.name} data-session={row.id} data-state={row.uploading ? 'uploading' : s?.state || 'error'}>
     <span className="file-icon" aria-hidden="true"><Icon name="source"/></span>
-    <div className="file-text"><strong>{row.name}</strong><span className={`setup-tag ${tag[0]}`}><Icon name={tag[1] as 'check'}/>{tag[2]}</span>{detail && <small className="file-detail">{detail}</small>}
+    <div className="file-text"><strong>{row.name}</strong><span className={`setup-tag ${tag[0]}`}><Icon name={tag[1] as 'check'}/>{tag[2]}</span>{detail && <small className="file-detail">{detail}</small>}{more && <details className="file-more"><summary>Details</summary><p>{more}</p></details>}
       {s && !row.uploading && s.state !== 'locked' && <label className="import-account"><span className="field-label">{currency ? `Account · file in ${currency}` : 'Account'}</span>
         <select id={id} className="field file-account" value={account} disabled={!selectable || row.busy} aria-invalid={!!warning || undefined} onChange={e => onChoose(e.target.value)}>
           {!account && <option value="">Choose an account</option>}

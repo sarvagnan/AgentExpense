@@ -270,3 +270,12 @@ picker's `<Group> · all accounts` options; back and forward; and a data reload 
 while the period and switch change. Captures: `accounts-list-rows`,
 `accounts-group-{banks,cards,prepaid,people,cash}` (Cash where present), `accounts-group-transfers`,
 `accounts-group-mixed` (Sam) and, on phones, `accounts-group-picker`.
+
+UI fix round 1 adds `BROWSER_FOCUS=shell`: the default case's own section only
+(navigation and badges, the sidebar footer and phone Views sheet, Settings as it opens,
+its agent status slot for every gate state, the update notice, every route at 320px,
+empty views, the agent notices on Add, Settings and Queue, the empty Queue and the
+account currency dialogs), without the workflow suites that follow. It adds the
+`settings-320` capture. `add-timing.mjs` adds a controlled-clock check of the offline
+notice: one timed-out health read schedules one follow-up check two seconds later and
+changes nothing on Add; only a second consecutive failure shows "You’re offline".

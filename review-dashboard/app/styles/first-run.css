@@ -29,7 +29,7 @@
 .setup-choice > .icon { width: 22px; height: 22px; color: var(--accent); }
 .setup-choice h2 { font: var(--text-headline); }
 .setup-choice p { margin-top: 6px; color: var(--text-secondary); line-height: 1.5; }
-.setup-choice .setup-choice-arrow { margin-left: auto; align-self: flex-start; }
+.setup-choice .setup-choice-arrow { margin-left: auto; align-self: center; color: var(--accent); }
 
 .setup-account { padding: 16px 20px; border-bottom: 1px solid var(--separator); }
 .setup-account:last-child { border-bottom: 0; }
@@ -79,6 +79,12 @@
 .import-summary p { margin-top: 4px; color: var(--text-secondary); font: var(--text-callout); line-height: 1.5; }
 
 .live-notice.first-run-done > .icon { color: var(--positive); }
+/* A reader's technical figures stay behind Details. */
+.file-more { margin-top: 4px; color: var(--text-secondary); font: var(--text-caption); }
+.file-more summary { cursor: pointer; }
+.file-more p { margin-top: 4px; overflow-wrap: anywhere; }
+/* A confirmation, not a warning: the plain panel border. */
+.live-notice.first-run-done { border-color: var(--separator); }
 
 @media (max-width: 760px) {
   .setup-frame { padding: 20px 16px 32px; }

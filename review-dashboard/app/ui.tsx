@@ -30,7 +30,7 @@ export const plural = (count: number, one: string, many = `${one}s`) => `${forma
 export type IconName = 'explorer' | 'atlas' | 'journal' | 'forecast' | 'accounts' | 'review' | 'search' | 'source' | 'calendar'
   | 'chevron-left' | 'chevron-right' | 'close' | 'postings' | 'integrity' | 'copy' | 'pending' | 'flag' | 'check'
   | 'import' | 'export' | 'fuel' | 'keyboard' | 'filter' | 'stack' | 'pencil' | 'alert' | 'help' | 'chevron-up-down'
-  | 'sun' | 'moon' | 'appearance' | 'plus';
+  | 'sun' | 'moon' | 'appearance' | 'plus' | 'trash';
 const ICONS: Record<IconName, ReactNode> = {
   explorer: <><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9 9.5v10"/></>,
   atlas: <><rect x="3" y="2" width="18" height="20" rx="2"/><path d="M3 7h18M9 7v15M15 7v15M3 12h18M3 17h18"/></>,
@@ -56,6 +56,7 @@ const ICONS: Record<IconName, ReactNode> = {
   keyboard: <><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7.5 14h9"/></>,
   filter: <path d="M4 6h16M7 12h10M10 18h4"/>,
   stack: <><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M6 6.5h12M8.5 3.5h7"/></>,
+  trash: <><path d="M4.5 6.5h15M9.5 6.5V4.5h5v2M6.5 6.5l1 13h9l1-13M10.5 10.5v5.5M13.5 10.5v5.5"/></>,
   pencil: <><path d="M15.5 5.5l3 3L9 18l-4 1 1-4z"/><path d="m13.5 7.5 3 3"/></>,
   alert: <><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.2v.3"/></>,
   help: <><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.4M12 16.6v.3"/></>,

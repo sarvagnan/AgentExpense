@@ -49,7 +49,7 @@ export async function runRetentionTiming({page,base,persona,expect,control,go,re
  const preview=await hold(page,base+'api/settings/retention-preview','POST');
  try{
   await settings.getByLabel('Delete an entry',{exact:true}).selectOption('14');await preview.ready;const trash=settings.getByLabel('Keep in Trash',{exact:true});await trash.scrollIntoViewIfNeeded();await trash.hover();const box=await trash.boundingBox();
-  await settings.getByLabel('Name',{exact:true}).fill('Willow timing ledger');await trash.scrollIntoViewIfNeeded();await trash.hover();const next=await trash.boundingBox();await preview.release();await expect(settings).toContainText('older entries become deletable again');await unchanged(trash,next,expect);assert.ok(box);await expect(settings.getByLabel('Name',{exact:true})).toHaveValue('Willow timing ledger');
+  await settings.getByLabel('Name',{exact:true}).fill('Willow timing ledger');await trash.scrollIntoViewIfNeeded();await trash.hover();const next=await trash.boundingBox();await preview.release();await expect(settings).toContainText(/older (entry becomes|entries become) deletable again/);await unchanged(trash,next,expect);assert.ok(box);await expect(settings.getByLabel('Name',{exact:true})).toHaveValue('Willow timing ledger');
   await settings.getByRole('button',{name:'Cancel',exact:true}).click();await expect(settings).toHaveCount(0);
  }finally{await preview.release();}
  record('6f C timing: time-limit preview cannot shift or disable controls or overwrite typed settings');

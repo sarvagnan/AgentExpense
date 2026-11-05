@@ -37,6 +37,10 @@
 .sidebar-button:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
 .sidebar-button .icon { width: 15px; height: 15px; }
 .sidebar-button-value { margin-left: auto; color: var(--text-tertiary); }
+a.sidebar-button:hover { text-decoration: none; }
+.sidebar-button[aria-current="page"] { background: var(--selection-fill); color: var(--text); font-weight: 600; }
+.sidebar-footer .sidebar-button-value { color: var(--text-secondary); font-weight: 400; }
+.data-built-time { white-space: nowrap; }
 .context-menu.checkable [role^="menuitem"] { padding-left: 4px; }
 .menu-check { width: 18px; flex: none; text-align: center; font-weight: 600; }
 
@@ -190,15 +194,14 @@
   .sidebar { padding-inline: 6px; }
   .sidebar-label, .sidebar-button-value { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .sidebar-footer p { display: none; }
-  /* Keep announcements in the accessibility tree when the sidebar is compact. */
-  .sidebar-footer .sidebar-status { display: block; position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .sidebar-button { justify-content: center; padding: 0; }
   .wordmark, .sidebar nav a { justify-content: center; padding: 0; }
   .sidebar nav .nav-count { position: absolute; margin: -18px 0 0 22px; padding: 0 4px; border-radius: 8px; background: var(--surface); font: var(--text-caption); }
   .sidebar nav a { position: relative; }
 }
 @media (max-width: 760px) {
-  .page { padding: var(--space-4) var(--space-3) var(--space-6); }
+  /* The same 16px side gutter as Add, Queue and the phone top bar. */
+  .page { padding: var(--space-4) var(--space-4) var(--space-6); }
   .page-header { flex-direction: column; align-items: stretch; }
   .page-tools { justify-content: flex-start; }
 }
@@ -235,8 +238,6 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .window-inactive .button.primary { background: var(--control-fill); color: var(--text); border-color: var(--control-border); }
 .window-inactive .atlas-card[aria-pressed="true"], .window-inactive .calendar-day[aria-pressed="true"] { border-color: var(--control-border); box-shadow: inset 0 0 0 1px var(--control-border); }
 
-/* Status line in the sidebar: the last confirmation, until the next one. */
-.sidebar-status { min-height: 14px; padding: 0 var(--space-2); color: var(--text-secondary); font: var(--text-caption); }
 
 /* Alerts */
 .dialog.alert { width: min(420px, 100%); grid-template-rows: auto auto; padding: var(--space-5) var(--space-5) var(--space-4); }
@@ -366,6 +367,18 @@ input.field:disabled, textarea.field:disabled, select.field:disabled {
 .agent-notice p,.agent-ready p { margin-top:4px; color:var(--text-secondary); line-height:1.5; }
 .agent-notice code { white-space:normal; }
 .settings-body .agent-notice { margin:0; }
+/* Settings: one panel whose height is reserved for the tallest status (paused, with its
+   details link), so the status arriving from a poll moves nothing below it. */
+.settings-heading-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 12px; min-height:24px; }
+/* The identity line keeps its height while it is still empty, so its arrival moves nothing. */
+.settings-heading-row .agent-identity { min-height:20px; line-height:20px; overflow-wrap:anywhere; }
+/* Phones: the identity takes its own reserved line, whatever its length. */
+@media (max-width:760px) { .settings-heading-row { flex-direction:column; align-items:flex-start; } }
+.agent-status-slot { min-height:var(--agent-slot-height,120px); padding:12px 14px; border:1px solid var(--separator); border-radius:6px; background:var(--surface-sunken); display:grid; align-content:center; gap:6px; }
+.agent-status-slot .agent-notice { padding:0; border:0; border-radius:0; background:transparent; }
+.agent-status-slot > .live-hint, .agent-status-slot .agent-ready > .live-hint { margin:0; }
+@media (max-width:760px) { .agent-status-slot { --agent-slot-height:132px; } }
+@media (max-width:360px) { .agent-status-slot { --agent-slot-height:156px; } }
 .agent-ready strong { display:flex; gap:6px; align-items:center; color:var(--positive); }
 .agent-reason { font:var(--text-caption); }
 .phone-entry-meta { display:none; }
@@ -434,6 +447,13 @@ input.field:disabled, textarea.field:disabled, select.field:disabled {
  .phone-more-views nav a > .icon { color:var(--accent); }
  .phone-more-views { max-height:calc(100dvh - 100px); overflow:auto; }
  .phone-more-views .appearance { min-height:44px; }
+ .phone-more-rows { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; padding-top:6px; border-top:1px solid var(--separator); }
+ .phone-more-rows > * { min-height:44px; }
+ .phone-more-rows .appearance { padding:4px; font:var(--text-body); }
+ .phone-more-views .sheet-row { display:flex; align-items:center; gap:8px; padding:4px; border:0; border-radius:var(--radius-control); background:transparent; color:var(--text-secondary); font:var(--text-body); text-align:left; }
+ .phone-more-views .sheet-row:hover { text-decoration:none; color:var(--text); }
+ .phone-more-views .sheet-row[aria-current="page"] { background:var(--selection-fill); color:var(--text); font-weight:600; }
+ .sheet-count { margin-left:auto; color:var(--text-secondary); font:var(--text-caption); }
  .phone-live-nav > a,.phone-live-nav > button { position:relative; }
  .phone-live-nav .nav-count { position:static; min-width:16px; padding:1px 4px; border-radius:8px; background:var(--selection-fill); color:var(--text); font:600 11px/16px var(--font-sans); text-align:center; }
  .explorer .summary-toggle { position:static; margin:0 6px 8px; grid-column:1/-1; justify-self:start; }

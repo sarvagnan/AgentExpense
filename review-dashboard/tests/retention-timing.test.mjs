@@ -25,8 +25,9 @@ function component(file,name,dependencies={}){
  const all=()=>walk(tree);
  return {window,react,exports,timers,render(value=props){props=value;return render();},all,async settle(){for(let n=0;n<12;n++){await new Promise(r=>setImmediate(r));if(dirty)render();}},unmount(){slots.forEach(s=>s?.cleanup?.());}};
 }
+const walkText=node=>node==null||node===false?'':typeof node!=='object'?String(node):Array.isArray(node)?node.map(walkText).join(''):walkText(node.props?.children);
 const item={id:'a'.repeat(32),kind:'entry',description:'Willow lunch',removed_at:'2026-11-04',expires_at:'2026-11-11',files:[]};
-const ui={PageHeader:'header',Icon:'icon',Dialog:'dialog'};
+const ui={PageHeader:'header',Icon:'icon',Dialog:'dialog',plural:(n,one,many=one+'s')=>`${n} ${n===1?one:many}`};
 const buttons=h=>h.all().filter(n=>n.type==='button');
 const button=(h,text)=>buttons(h).find(n=>n.props.children===text);
 test('Trash initial loading under the pointer cannot freeze an empty list',async()=>{
@@ -95,11 +96,14 @@ test('A committed retention result with stale dashboard data waits for an idempo
 });
 test('Retention preview ignores older replies while edits and the save remain intact',async()=>{
  const previews=[],saved=deferred(),limits={delete_days:7,trash_days:7,saved_hours:24};let closed=0,body;
- const h=component('../app/settings-dialog.tsx','SettingsDialog',{'../../schema/currencies.json':{default:[]},'../scripts/formatting.mjs':{isCurrency:()=>true},'./data':{dashboard:{meta:{ledger:{name:'Willow',defaultCurrency:'EUR'},accounts:{}}},reloadData:async()=>{}},'./ui':{...ui,useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce(){}},'./live/agent-status':{AgentNotice:'agent'},'./live/update-notice':{UpdateNotice:'update-notice',knownUpdateStatus:()=>null,refreshUpdateStatus:async()=>{}},'./live/api':{request:async path=>{if(path==='settings/retention')return limits;const p=deferred();previews.push(p);return p.promise;}},'./live/retention':{retentionOperation:async value=>{body=value;return saved.promise;}}});
+ const h=component('../app/settings-dialog.tsx','SettingsDialog',{'../../schema/currencies.json':{default:[]},'../scripts/formatting.mjs':{isCurrency:()=>true},'./data':{dashboard:{meta:{ledger:{name:'Willow',defaultCurrency:'EUR'},accounts:{}}},reloadData:async()=>{}},'./ui':{...ui,useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce(){}},'./live/agent-status':{AgentNotice:'agent',agentIdentity:()=>''},'./live/update-notice':{UpdateNotice:'update-notice',knownUpdateStatus:()=>null,refreshUpdateStatus:async()=>{}},'./live/api':{request:async path=>{if(path==='settings/retention')return limits;const p=deferred();previews.push(p);return p.promise;}},'./live/retention':{retentionOperation:async value=>{body=value;return saved.promise;}}});
  h.render({onClose:()=>closed++,agent:{state:'ready'}});await h.settle();
  const select=label=>h.all().find(n=>n.type==='select'&&n.props['aria-label']===label);
  select('Delete an entry').props.onChange({target:{value:'14'}});await h.settle();select('Keep in Trash').props.onChange({target:{value:'3'}});await h.settle();
  previews[1].resolve({remove_now:[],move_to_trash:[],deletable_again:[{description:'Current preview'}]});await h.settle();previews[0].resolve({remove_now:[],move_to_trash:[],deletable_again:[{description:'OBSOLETE'}]});await h.settle();
- assert.equal(JSON.stringify(h.all()).includes('OBSOLETE'),false);assert.equal(select('Delete an entry').props.value,14);assert.equal(select('Keep in Trash').props.value,3);
+ assert.equal(JSON.stringify(h.all()).includes('OBSOLETE'),false);assert.equal(select('Delete an entry').props.value,14);
+ // Each changed limit says what it does directly under its own selector, in the singular for one item.
+ const row=label=>h.all().find(n=>n.props?.className==='time-limit'&&walkText(n).includes(label)),effect=label=>row(label).props.children.find(c=>c&&c.props?.className==='limit-effect live-hint');
+ assert.match(walkText(effect('Delete an entry')),/^1 older entry becomes deletable again\./);assert.match(walkText(effect('Keep in Trash')),/^No Trash items would be removed for good now\./);assert.ok(!effect('Keep saved for later'),'An unchanged limit shows no effect');assert.equal(select('Keep in Trash').props.value,3);
  h.all().find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await h.settle();assert.equal(closed,0);assert.equal(body.limits.trash_days,3);saved.resolve({});await h.settle();assert.equal(closed,1);h.unmount();
 });

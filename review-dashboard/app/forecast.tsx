@@ -1,6 +1,6 @@
 import Rules from './rules';
 import { moduleSettings } from '../scripts/ledger-modules.mjs';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { dashboard as data, type DashboardData } from './data';
 import { moneyWhole as formatWhole, axisMoney as formatAxis } from './formatting';
 import {cumulative, forecastProjection, variableAfter as estimateAfter, type Point} from './forecast-projection';
@@ -18,10 +18,15 @@ const portionLabel = (portion: Portion, days = 31) => `${portion.from}–${Math.
 
 export default function Forecast({online}:{online:boolean|null}) {
   const [section,setSection]=useQueryState('section','overview',v=>v==='overview'||v==='rules');
-  return <><nav className="forecast-sections" aria-label="Forecast views"><button className={`button ${section==='overview'?'active':''}`} aria-current={section==='overview'?'page':undefined} onClick={()=>setSection('overview')}>Overview</button><button className={`button ${section==='rules'?'active':''}`} aria-current={section==='rules'?'page':undefined} onClick={()=>setSection('rules')}>Rules</button></nav>{section==='rules'?<Rules online={online}/>:<ForecastOverview/>}</>;
+  const sections=(header=false)=><nav className={`forecast-sections ${header?'in-header':''}`} aria-label="Forecast views"><button className={`button ${section==='overview'?'active':''}`} aria-current={section==='overview'?'page':undefined} onClick={()=>setSection('overview')}>Overview</button><button className={`button ${section==='rules'?'active':''}`} aria-current={section==='rules'?'page':undefined} onClick={()=>setSection('rules')}>Rules</button></nav>;
+  // With nothing to forecast, the page uses the standard header, with the sections as its tools.
+  if(section==='overview'&&!data.months.some(month=>month.count>0)&&!data.forecasts.some(f=>f.items.length))return <ForecastEmpty sections={sections(true)}/>;
+  return <>{sections()}{section==='rules'?<Rules online={online}/>:<ForecastOverview/>}</>;
+}
+function ForecastEmpty({sections}:{sections:ReactNode}) {
+  return <section className="page"><PageHeader title="Forecast" subtitle="Where this month’s spending is heading.">{sections}</PageHeader><div className="panel empty viewing-empty"><Icon name="forecast"/><strong>No expenses yet.</strong><p>Your forecast will appear as you add expenses.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></div></section>;
 }
 function ForecastOverview() {
-  if(!data.months.some(month=>month.count>0) && !data.forecasts.some(f=>f.items.length))return <section className="page"><PageHeader title="Forecast"/><div className="panel empty viewing-empty"><strong>No expenses yet.</strong><p>Your forecast will appear as you add expenses.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></div></section>;
   const active = data.forecasts.filter(forecast => forecast.items.length || data.months.some(month => month.currency === forecast.currency && month.count));
   return <>{(active.length ? active : [data.forecast]).map(forecast => <CurrencyForecast key={forecast.currency} forecast={forecast} mixed={active.length > 1}/>)}</>;
 }
@@ -188,7 +193,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
       {isCurrent ? <div className="metric"><p className="metric-label">Recorded through {dayShort(data.meta.today)}</p><p className="metric-value">{moneyWhole(focusRecordedTotal)}</p><p className="metric-note">{!hasCurrentRecords ? 'Nothing recorded this month yet' : previousMonth ? <Delta value={focusRecordedTotal} base={previousAtDay} suffix={`vs ${monthAbbr(previousMonth.month)} by day ${asOfDay}`}/> : 'No earlier month'}</p></div>
         : <div className="metric"><p className="metric-label">Committed in {monthShort(focus)}</p><p className="metric-value">{moneyWhole(focusCommitted)}</p><p className="metric-note">{plural(focusItems.length, 'forecast entry', 'forecast entries')}</p></div>}
       <div className="metric"><p className="metric-label">{compare}-month average</p><p className="metric-value">{moneyWhole(average)}</p><p className="metric-note">{window.length ? `${monthShort(window[0].month)} – ${monthShort(window.at(-1)!.month)}, recorded` : 'No full months yet'}</p></div>
-      <div className="metric"><p className="metric-label">Variable spending still to come</p><p className="metric-value">{includeVariable ? moneyWhole(focusVariable) : 'Not included'}</p><p className="metric-note">Based on {variable.months.length} full months · {moneyWhole(averageVariable)} in a typical month</p></div>
+      <div className="metric"><p className="metric-label">Variable spending still to come</p><p className="metric-value">{includeVariable ? moneyWhole(focusVariable) : 'Not included'}</p><p className="metric-note">Based on {plural(variable.months.length, 'full month')} · {moneyWhole(averageVariable)} in a typical month</p></div>
     </section>
 
     <section className="panel forecast-chart-panel">
@@ -234,7 +239,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
           {visibleLines.map((line) => { const value = valueAt(line.points, hoverDay); return value === undefined ? null : <p key={line.month}><svg className="compare-key" data-compare-slot={line.slot} width="30" height="8" aria-hidden="true"><path d="M1 4H29" style={{ stroke: line.color }} strokeWidth="2" strokeLinecap="round"/></svg><strong>{moneyWhole(value)}</strong><span>{slotName(line.slot)} · {monthShort(line.month)}{endNote(line.points, hoverDay)}</span></p>; })}
         </div>}
       </div></div>
-      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with foreign-currency commitments at their recorded planning cost{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({moneyWhole(averageVariable)} a month on average across {variable.months.length} full months)</> : '. Variable spending is not included, so the line rises only on commitment dates'}. Overdue expected payments are added at today. {includeVariable && 'Today’s variable estimate remains until an entry dated today is recorded. '}{moduleSettings(data.meta.ledger).investments !== false && 'Investments are left out.'}</p>
+      <p className="panel-note">The solid line is recorded spending. The dotted line adds the recurring commitments the ledger schedules (rent, subscriptions, insurance) on their due dates, with foreign-currency commitments at their recorded planning cost{includeVariable ? <>, and estimated variable spending: what earlier months spent outside those commitments, week by week ({moneyWhole(averageVariable)} a month on average across {plural(variable.months.length, 'full month')})</> : '. Variable spending is not included, so the line rises only on commitment dates'}. Overdue expected payments are added at today. {includeVariable && 'Today’s variable estimate remains until an entry dated today is recorded. '}{moduleSettings(data.meta.ledger).investments !== false && 'Investments are left out.'}</p>
     </section>
 
     <div className="forecast-detail-grid">
@@ -248,7 +253,7 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
         </dl>
         <ol className="ranked-list forecast-items">{focusRows.map((item, index) =>
           <li key={`${item.date}-${index}`} className={item.kind === 'Investment' ? 'excluded' : ''}><span className="date">{dayShort(item.date)}</span><span><span className="row-title">{item.description}{item.varying?.bill&&<> <span className="bill-badge">bill</span></>}</span><span className="row-sub">{item.kind === 'Investment' ? 'Investment, not counted as spending' : `${item.category} · ${item.paymentLabel}`}</span></span><span className="num">{item.varying&&!item.varying.bill?'≈ ':''}{item.varying?money(item.amount,forecast.currency):moneyWhole(item.amount)}{item.varying&&!item.varying.bill&&item.varying.min!=null&&<span className="row-sub">{money(Number(item.varying.min),forecast.currency)}–{money(Number(item.varying.max),forecast.currency)} last 3</span>}</span></li>)}
-          {includeVariable && <li className="estimate"><span className="date">{monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">{!isCurrent || remainingDays === focusDays ? 'The whole month' : `The ${remainingDays} days left`} · {variable.months.length}-month average {moneyWhole(averageVariable)} a month</span></span><span className="num">{moneyWhole(focusVariable)}</span></li>}
+          {includeVariable && <li className="estimate"><span className="date">{monthAbbr(focus)}</span><span><span className="row-title">Estimated variable spending</span><span className="row-sub">{!isCurrent || remainingDays === focusDays ? 'The whole month' : remainingDays === 1 ? 'The last day' : `The ${remainingDays} days left`} · {variable.months.length}-month average {moneyWhole(averageVariable)} a month</span></span><span className="num">{moneyWhole(focusVariable)}</span></li>}
         </ol>
         {!focusItems.length && <p className="panel-note">No recurring commitments fall in this month.</p>}
       </section>
@@ -274,14 +279,14 @@ function CurrencyForecast({forecast, mixed}: {forecast: DashboardData['forecast'
         <thead><tr><th>Days</th><th><span className="sr-only">Each month's spending in these days</span><span aria-hidden="true">Each dot is one month · <i className="forecast-variable-key"/> average</span></th><th className="th-num">Average</th><th className="th-num">Median</th><th className="th-num">Lowest – Highest</th><th className="th-num">Share</th></tr></thead>
         <tbody>{variable.portions.map((portion) => <tr key={portion.from}>
           <td>{portionLabel(portion)}{portion.to === 31 && <span className="row-sub">to month end</span>}</td>
-          <td><div className="forecast-strip" role="img" aria-label={`Days ${portionLabel(portion)}: ${variable.months.length} months from ${moneyWhole(portion.min)} to ${moneyWhole(portion.max)}, average ${moneyWhole(portion.average)}`}>
+          <td><div className="forecast-strip" role="img" aria-label={`Days ${portionLabel(portion)}: ${plural(variable.months.length, 'month')} from ${moneyWhole(portion.min)} to ${moneyWhole(portion.max)}, average ${moneyWhole(portion.average)}`}>
             {portion.byMonth.map((value, index) => <i key={variable.months[index]} className={value < 0 ? 'net-refund' : undefined} style={{ left: stripPosition(value) }} title={`${monthShort(variable.months[index])}: ${moneyWhole(value)}`}/>)}
             <b style={{ left: stripPosition(portion.average) }}/>
           </div></td>
           <td className="num"><strong>{moneyWhole(portion.average)}</strong></td><td className="num">{moneyWhole(portion.median)}</td><td className="num">{moneyWhole(portion.min)} – {moneyWhole(portion.max)}</td><td className="num">{averageVariable ? `${(portion.average / averageVariable * 100).toFixed(0)}%` : '—'}</td>
         </tr>)}</tbody>
       </table></div>
-      <p className="panel-note">Each week’s average comes from all {variable.months.length} full months and is spread evenly over that week’s days in the forecast month; the last portion runs to the month’s end. Occasional large purchases raise the average, so most months come in below it (compare the median).</p>
+      <p className="panel-note">Each week’s average comes from {variable.months.length === 1 ? 'the one full month' : `all ${plural(variable.months.length, 'full month')}`} and is spread evenly over that week’s days in the forecast month; the last portion runs to the month’s end. Occasional large purchases raise the average, so most months come in below it (compare the median).</p>
       {variable.excluded.length > 0 && <section className="excluded"><h3>Left out of the estimate</h3><p>Card instalment plans, and entries the ledger tags <code>variable-estimate: excluded</code>.</p>
         <div className="table-scroll"><table className="data-table"><thead><tr><th>Entry</th><th>Reason</th><th>Months</th><th className="th-num">Amount</th></tr></thead>
           <tbody>{variable.excluded.map((plan) => <tr key={plan.description}><td>{plan.description}</td><td>{plan.reason.charAt(0).toUpperCase() + plan.reason.slice(1)}</td><td className="date">{plan.from === plan.to ? monthShort(plan.from) : `${monthShort(plan.from)} – ${monthShort(plan.to)}`}</td><td className="num">{moneyWhole(plan.amount)}</td></tr>)}</tbody></table></div></section>}

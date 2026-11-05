@@ -19,7 +19,7 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  // transaction contracts remain available independently of agent readiness.
  const queued=await json('drafts',{text:'Fictional queued through the API during pause'});await json('drafts/'+queued.id+'/save',{});await wait(queued.id,'queued');
  await go('queue/?draft='+seeded.id);await refresh();
- await expect(page.locator('.agent-notice')).toHaveCount(1);await expect(page.locator('.agent-notice')).toContainText('Paused: usage limit');await snap('pause-usage-limit');
+ await expect(page.locator('.agent-notice')).toHaveCount(1);await expect(page.locator('.agent-notice')).toContainText('The agent is paused (usage limit).');await snap('pause-usage-limit');
  await page.getByRole('button',{name:'Finish it yourself',exact:true}).click();
  const form=page.getByRole('article',{name:'Finish it yourself',exact:true});
  await expect(form.getByLabel('Description',{exact:true})).toHaveValue('Copper Finch Café');

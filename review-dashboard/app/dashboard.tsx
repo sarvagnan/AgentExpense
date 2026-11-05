@@ -131,7 +131,8 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
 
 
 function DataBuilt() {
-  return <p className="data-built"><strong>{data.meta.ledger.name}</strong>Data built {formatTimestamp(data.meta.generatedAt)}</p>;
+  // The time never breaks inside itself ("AM" alone on a line); it moves whole to the next line.
+  return <p className="data-built">Data built <span className="data-built-time">{formatTimestamp(data.meta.generatedAt)}</span></p>;
 }
 
 function Identity({onSettings}: {onSettings:()=>void}) {
@@ -148,11 +149,11 @@ function EmptyMonth({title, month, setMonth}: {title:string; month:string; setMo
   return <section className={`page ${title.toLowerCase()}`}><PageHeader title={title} subtitle={monthLong(month)}>
     <MonthStepper months={monthKeys()} value={month} onChange={setMonth}/>
   </PageHeader><div className="panel empty viewing-empty"><Icon name="explorer"/><strong>{month === defaultMonth() ? 'Nothing recorded this month yet' : `Nothing recorded in ${monthLong(month)} yet`}</strong>
-    {fresh ? <><p>Your spending starts here. Once you add an expense, you’ll see totals, categories and transactions here. Your opening balances are in Accounts.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a><a className="button plain" href={`${import.meta.env.BASE_URL}account-summary/`}>See opening balances</a></> : <><p>Add an expense, or go back a month to see earlier entries.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add an expense</a></>}
+    {fresh ? <><p>Your spending starts here. Once you add an expense, you’ll see {title === 'Atlas' ? 'each category month by month' : title === 'Journal' ? 'every entry and the accounts it moved between' : 'totals, categories and transactions'} here. Your opening balances are in Accounts.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a><a className="button plain" href={`${import.meta.env.BASE_URL}account-summary/`}>See opening balances</a></> : <><p>Add an expense, or go back a month to see earlier entries.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add an expense</a></>}
   </div></section>;
 }
 
-function Sidebar({ active, month, attention, status, unreviewed, important, onHelp, onSettings,trashCount }: { trashCount:number; active: View; month: string; attention: number; status: string; unreviewed: number; important: boolean; onHelp: () => void; onSettings: () => void }) {
+function Sidebar({ active, month, attention, unreviewed, important, onHelp, onSettings,trashCount }: { trashCount:number; active: View; month: string; attention: number; unreviewed: number; important: boolean; onHelp: () => void; onSettings: () => void }) {
   const [appearance, setAppearance] = useAppearance();
   const nextAppearance = appearance === 'light' ? 'dark' : 'light';
   const appearanceLabel = `Switch to ${nextAppearance === 'light' ? 'Light' : 'Dark'} appearance`;
@@ -161,10 +162,10 @@ function Sidebar({ active, month, attention, status, unreviewed, important, onHe
     <a className="wordmark" href={`${import.meta.env.BASE_URL}explorer/${query}`} title="Ledger"><span className="wordmark-badge" aria-hidden="true">A</span><span className="sidebar-label">AgentExpense</span></a>
     <Identity onSettings={onSettings}/><nav aria-label="Views">{VIEWS.map((view, index) => <Fragment key={view.id}>{index===3 && <hr/>}<a key={view.id} href={`${import.meta.env.BASE_URL}${view.href}${view.carriesMonth ? query : ''}`} aria-current={view.id === active ? 'page' : undefined} title={view.label}>
       <Icon name={view.icon}/><span className="sidebar-label">{view.label}</span>{view.id === 'review' && unreviewed > 0 && <span className={`nav-count ${important?'important':''}`}><span className="sr-only">, </span>{unreviewed}<span className="sr-only"> to review</span></span>}
-      {view.id === 'queue' && attention > 0 && <span className="nav-count"><span className="sr-only">, </span>{attention}<span className="sr-only"> need attention</span></span>}
+      {view.id === 'queue' && attention > 0 && <span className="nav-count"><span className="sr-only">, </span>{attention}<span className="sr-only"> {attention === 1 ? 'needs' : 'need'} attention</span></span>}
     </a></Fragment>)}</nav>
-    <div className="sidebar-footer"><a href={`${import.meta.env.BASE_URL}trash/`} aria-current={active==='trash'?'page':undefined} className="appearance"><Icon name="stack"/><span className="sidebar-label">Trash{trashCount?` (${trashCount})`:""}</span></a>
-      <button type="button" className="sidebar-button" title="Settings" onClick={onSettings}><Icon name="chevron-up-down"/><span className="sidebar-label">Settings</span></button><p className="sidebar-status" aria-hidden="true">{status}</p>
+    {/* Settings opens from the identity above; announcements go to the page's polite status region. */}
+    <div className="sidebar-footer"><a href={`${import.meta.env.BASE_URL}trash/`} aria-current={active==='trash'?'page':undefined} className="sidebar-button" title="Trash"><Icon name="trash"/><span className="sidebar-label">Trash</span>{trashCount>0&&<span className="sidebar-button-value"><span className="sr-only">, </span>{trashCount}<span className="sr-only"> {trashCount===1?'item':'items'}</span></span>}</a>
       <button type="button" className="sidebar-button" aria-label={appearanceLabel} title={appearanceLabel} onClick={() => setAppearance(nextAppearance)}>
         <Icon name={nextAppearance === 'light' ? 'sun' : 'moon'}/><span className="sidebar-label">{nextAppearance === 'light' ? 'Light' : 'Dark'} appearance</span></button>
       <button type="button" className="sidebar-button" title="Help & Shortcuts" onClick={(event) => { event.currentTarget.focus(); onHelp(); }}><Icon name="help"/><span className="sidebar-label">Help &amp; Shortcuts</span></button>
@@ -404,7 +405,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
       </PageHeader>
       <section className="metrics" data-expanded={summaryExpanded} aria-label={filtersActive ? 'Whole month summary' : 'Month summary'}>
         <div className="metric"><p className="metric-label">{filtersActive ? 'Spent · whole month' : 'Spent'}</p><p className="metric-value">{moneyTotal(totals)}</p><p className="metric-note">{currents.map(item => <span className="currency-comparison" key={item.currency}>{currents.length > 1 && `${item.currency}: `}{item.comparison ? <Delta value={item.total} base={item.comparison.total} suffix={`vs ${monthName(item.comparison.month)}${inProgress ? ' ' : ' · '}${comparisonPeriod}`}/> : 'No previous month in this currency'}</span>)}</p></div>
-        <div className="metric" id="explorer-summary-average"><p className="metric-label">Average per calendar day</p><p className="metric-value">{moneyTotal(Object.fromEntries(currents.map(item => [item.currency, item.total / days])))}</p><p className="metric-note">Total ÷ {days} days</p></div>
+        <div className="metric" id="explorer-summary-average"><p className="metric-label">Average per calendar day</p><p className="metric-value">{moneyTotal(Object.fromEntries(currents.map(item => [item.currency, item.total / days])))}</p><p className="metric-note">Total ÷ {plural(days, 'day')}</p></div>
         <div className="metric" id="explorer-summary-count"><p className="metric-label">Expenses</p><p className="metric-value">{count}</p><p className="metric-note">{pending ? <a href={`${import.meta.env.BASE_URL}review/`}>{pending} unclassified</a> : 'All classified'} · {plural(monthTransactions.length, 'ledger entry', 'ledger entries')}</p></div>
         <div className="metric" id="explorer-summary-largest"><p className="metric-label">Largest expense{currents.length > 1 ? ' · per currency' : ''}</p><p className="metric-value">{largest ? moneyTotal(Object.fromEntries(largestRows.map(item => [item.currency, item.amount]))) : '—'}</p><p className="metric-note" title={largest?.description}>{largestRows.map(item => item.description).join(' + ') || 'No expenses'}</p></div>
         <button type="button" className="button plain summary-toggle" aria-expanded={summaryExpanded} aria-controls="explorer-summary-average explorer-summary-count explorer-summary-largest" onClick={() => setSummaryExpanded(value => !value)}>{summaryExpanded ? 'Fewer month figures' : 'More month figures'}<Icon name="chevron-up-down"/></button>
@@ -525,7 +526,7 @@ function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; c
       </button>;
     })}</div>
     <section className="panel atlas-detail">
-      <PanelHeader title={monthLong(month)} meta={`${plural(current.count, 'expense')} · ${days} days · ${money(average)} per calendar day (total ÷ ${days})`}><span className="atlas-total">{money(current.total)}</span></PanelHeader>
+      <PanelHeader title={monthLong(month)} meta={`${plural(current.count, 'expense')} · ${plural(days, 'day')} · ${money(average)} per calendar day (total ÷ ${days})`}><span className="atlas-total">{money(current.total)}</span></PanelHeader>
       <div className="atlas-detail-grid">
         <section><h3>Daily spending</h3>
           <div className="day-chart" role="img" aria-label={`Daily spending in ${monthLong(month)}; highest ${money(maxDay)}, average ${money(average)}${minDay < 0 ? `; net refunds below zero, lowest ${money(minDay)}` : ''}`}>
@@ -654,6 +655,15 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
   </div>;
 }
 
+/** The view an Edit entry page was opened from, from its back address; Queue otherwise. */
+export function editOrigin(view: View, search = typeof location === 'undefined' ? '' : location.search): View {
+  const params = new URLSearchParams(search);
+  if (view !== 'queue' || !params.get('correct')) return view;
+  const back = params.get('back') || '';
+  const path = back.startsWith(import.meta.env.BASE_URL) ? back.slice(import.meta.env.BASE_URL.length) : '';
+  return VIEWS.find(item => path.split(/[/?]/)[0] === item.href.replace(/\/$/, ''))?.id ?? view;
+}
+
 const TITLES: Record<View, string> = { explorer: 'Explorer', atlas: 'Atlas', journal: 'Journal', forecast: 'Forecast', accounts: 'Accounts', review: 'Review', add: 'Add', queue: 'Queue', trash: 'Trash' };
 
 export default function Dashboard({ view }: { view: View }) {
@@ -675,6 +685,8 @@ export default function Dashboard({ view }: { view: View }) {
   const unreviewed=reviewLive.data?.count || 0;
   const important=!!reviewLive.data?.important;
   useEffect(()=>{const listener=(event:Event)=>setStatus((event as CustomEvent<string>).detail);window.addEventListener('ledger-status',listener);return()=>window.removeEventListener('ledger-status',listener);},[]);
+  // Edit entry lives at queue/?correct=…&back=<origin>; the navigation keeps that origin selected.
+  const navView = editOrigin(view);
   const [more, setMore] = useState(false);
   const viewsButton=useRef<HTMLButtonElement>(null);
   const closeViews=()=>{setMore(false);viewsButton.current?.focus();};
@@ -718,10 +730,13 @@ export default function Dashboard({ view }: { view: View }) {
     document.addEventListener('copy', onCopy);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keydown', onStep); document.removeEventListener('copy', onCopy); };
   }, []);
-  return <LiveDraftsContext.Provider value={live}><main className={`app ${view === 'add' || view === 'queue' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={view} month={month} attention={live.attention} status={status} unreviewed={unreviewed} important={important} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)} trashCount={live.trashCount}/><p className="sr-only navigation-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
+  return <LiveDraftsContext.Provider value={live}><main className={`app ${view === 'add' || view === 'queue' ? 'live-view' : ''}`}><a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); }}>Skip to content</a><Sidebar active={navView} month={month} attention={live.attention} unreviewed={unreviewed} important={important} onHelp={() => setShortcutsOpen(true)} onSettings={()=>setSettingsOpen(true)} trashCount={live.trashCount}/><p className="sr-only navigation-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
     <div className="content" id="main-content" tabIndex={-1}><RetentionNotice/><header className="phone-top"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span><Identity onSettings={()=>setSettingsOpen(true)}/></header>{view === 'add' ? <Add live={live} composer={composer}/> : view === 'queue' ? <Drafts live={live}/> : view === 'trash' ? <Trash/> : <div key={view}>{view === 'explorer' ? <Explorer month={month} setMonth={setMonth}/> : view === 'atlas' ? <Atlas month={month} setMonth={setMonth}/> : view === 'journal' ? (data.transactions.some(row=>row.month===month) ? <Journal month={month} setMonth={setMonth}/> : <EmptyMonth title="Journal" month={month} setMonth={setMonth}/>) : view === 'forecast' ? <Forecast online={live.online}/> : view === 'accounts' ? <AccountSummary/> : <Review live={reviewLive}/>}</div>}</div>
-    <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={view===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='queue'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className={`nav-count ${v.id==='review'&&important?'important':''}`} aria-label={v.id==='queue'?`${live.attention} need attention`:`${unreviewed} to review`}>{v.id==='queue'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={view==='trash'||VIEWS.slice(3).some(v=>v.id===view) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
-    {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === view ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><a className="button" aria-current={view==='trash'?'page':undefined} href={`${import.meta.env.BASE_URL}trash/`}>Trash{live.trashCount?` (${live.trashCount})`:""}</a><button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button><button className="button" onClick={closeViews}>Close views</button></div>}
+    <nav className="phone-live-nav" aria-label="Quick navigation">{VIEWS.slice(0,3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={navView===v.id?'page':undefined}><Icon name={v.icon}/>{v.label}{(v.id==='queue'?live.attention: v.id==='review'?unreviewed:0)>0 && <span className={`nav-count ${v.id==='review'&&important?'important':''}`} aria-label={v.id==='queue'?`${live.attention} ${live.attention===1?'needs':'need'} attention`:`${unreviewed} to review`}>{v.id==='queue'?live.attention:unreviewed}</span>}</a>)}<button ref={viewsButton} type="button" aria-current={navView==='trash'||VIEWS.slice(3).some(v=>v.id===navView) ? 'page' : undefined} aria-expanded={more} aria-controls="phone-more-views" onClick={()=>{setMore(!more);if(!more)requestAnimationFrame(()=>document.querySelector<HTMLElement>('#phone-more-views a')?.focus());}}><Icon name="explorer"/>Views</button></nav>
+    {more && <div className="phone-more-views panel" id="phone-more-views"><nav aria-label="Other views">{VIEWS.slice(3).map(v=><a key={v.id} href={`${import.meta.env.BASE_URL}${v.href}`} aria-current={v.id === navView ? 'page' : undefined}><Icon name={v.icon}/>{v.label}</a>)}</nav>
+      {/* Quiet rows in the links' style; Settings and Close views stay the sheet's two buttons. */}
+      <div className="phone-more-rows"><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button><a className="sheet-row" aria-current={view==='trash'?'page':undefined} href={`${import.meta.env.BASE_URL}trash/`}><Icon name="trash"/>Trash{live.trashCount>0&&<span className="sheet-count"><span className="sr-only">, </span>{live.trashCount}<span className="sr-only"> {live.trashCount===1?'item':'items'}</span></span>}</a><button type="button" className="sheet-row" onClick={() => { closeViews(); setShortcutsOpen(true); }}><Icon name="help"/>Help &amp; Shortcuts</button></div>
+      <button className="button" onClick={() => { closeViews(); setSettingsOpen(true); }}>Settings</button><button className="button" onClick={closeViews}>Close views</button></div>}
     {settingsOpen && <SettingsDialog agent={live.agent} onClose={()=>{setSettingsOpen(false);setSettingsQuery('','replace');}}/>}
     {shortcutsOpen && <HelpDialog onClose={() => setShortcutsOpen(false)}/>}
   </main></LiveDraftsContext.Provider>;

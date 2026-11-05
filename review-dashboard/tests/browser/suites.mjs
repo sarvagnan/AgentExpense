@@ -196,7 +196,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await expect(identity()).toContainText(initialManifest.name);
       const nav=page.locator(width>760?'.sidebar nav':'.phone-live-nav');
       const draftsLink=nav.locator('a[href$="queue/"]');
-      if(seeded.attention)await expect(draftsLink.locator('.nav-count')).toHaveText(new RegExp(`^(?:, )?${seeded.attention}(?: need attention)?$`));
+      if(seeded.attention)await expect(draftsLink.locator('.nav-count')).toHaveText(new RegExp(`^(?:, )?${seeded.attention}(?: needs? attention)?$`));
       else await expect(draftsLink.locator('.nav-count')).toHaveCount(0);
       const reviewData=await (await fetch(base+'api/review')).json();
       const reviewLink=nav.locator('a[href$="review/"]');
@@ -237,12 +237,42 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
           assert.equal(await link.evaluate(node=>getComputedStyle(node).color),await page.locator('body').evaluate(node=>getComputedStyle(node).color));
         }
       }
+      if(width>760) {
+        // Footer: Trash, appearance and Help as one column of ordinary rows, one Settings entry
+        // (the identity), no visible status line, and a build time that never breaks inside.
+        const footer=await page.locator('.sidebar-footer').evaluate(node=>{
+          const rows=[...node.children].filter(child=>getComputedStyle(child).display!=='none');
+          const box=element=>element.getBoundingClientRect();
+          const time=node.querySelector('.data-built-time');
+          return {classes:rows.map(row=>row.className),icons:[...node.querySelectorAll('.sidebar-button > .icon')].map(icon=>Math.round(box(icon).left)),labels:[...node.querySelectorAll('.sidebar-button .sidebar-label')].map(label=>Math.round(box(label).left)),
+            gaps:rows.slice(1).map((row,i)=>Math.round(box(row).top-box(rows[i]).bottom)),colors:[...node.querySelectorAll('.sidebar-button')].map(button=>getComputedStyle(button).color),
+            settings:node.querySelectorAll('[title="Settings"]').length,status:document.querySelectorAll('.sidebar-status').length,timeWrap:getComputedStyle(time).whiteSpace,timeLines:time.getClientRects().length};
+        });
+        assert.deepEqual(footer.classes,['sidebar-button','sidebar-button','sidebar-button','data-built'],'Trash is an ordinary footer row and nothing else sits in the footer');
+        assert.equal(new Set(footer.icons).size,1,`Footer icons share one column: ${footer.icons}`);assert.equal(new Set(footer.labels).size,1,`Footer labels share one column: ${footer.labels}`);
+        assert.equal(new Set(footer.gaps).size,1,`Footer rows are evenly spaced: ${footer.gaps}`);assert.equal(new Set(footer.colors).size,1,'Trash is not accent-coloured');
+        const navIcon=await page.locator('.sidebar nav a .icon').first().evaluate(icon=>Math.round(icon.getBoundingClientRect().left));assert.ok(Math.abs(navIcon-footer.icons[0])<=1,`Footer icons align with the view icons (${navIcon} vs ${footer.icons[0]})`);
+        assert.equal(footer.settings,0,'Settings has one entry: the identity');assert.equal(footer.status,0,'No visible status line in the sidebar');
+        assert.equal(footer.timeWrap,'nowrap');assert.equal(footer.timeLines,1,'The build time stays on one line');
+      } else {
+        // Phone Views sheet (still open): view links, then quiet rows (appearance, Trash, Help), then Settings and Close views.
+        await expect(page.locator('#phone-more-views')).toBeVisible();
+        assert.deepEqual(await page.locator('#phone-more-views .phone-more-rows > *').evaluateAll(nodes=>nodes.map(node=>node.textContent.replace(/[,\d]|items?$/g,'').trim())),[(theme==='light'?'Dark':'Light')+' appearance','Trash','Help & Shortcuts']);
+        assert.deepEqual(await page.locator('#phone-more-views > .button').allTextContents(),['Settings','Close views']);
+        for(const row of await page.locator('#phone-more-views .phone-more-rows > *').all())assert.equal(await row.evaluate(node=>getComputedStyle(node).borderTopWidth),'0px','Sheet rows are text rows, not outlined buttons');
+      }
       await overflow('navigation');await snap('nav-'+persona);record('navigation order, actionable badges and plain Review count');
       if(width<760)await page.keyboard.press('Escape');
       await page.keyboard.press('Tab');
       await openSettings();
       await expect(page.getByLabel('Main currency',{exact:true})).toBeEnabled();
       await expect(page.locator('.agent-ready')).toBeVisible();
+      // As it opens: the agent status sits after name and currency, fully above the footer, and the
+      // close button's tooltip stays hidden (a tap can leave the pointer over it on phones).
+      const opened=await page.getByRole('dialog').evaluate(dialog=>{const box=selector=>dialog.querySelector(selector).getBoundingClientRect();const close=dialog.querySelector('.dialog-close');return {currency:box('[aria-labelledby="settings-currency-label"]').bottom,slot:box('.agent-status-slot').top,slotBottom:box('.agent-status-slot').bottom,footer:box('.dialog-footer').top,limits:box('.retention-settings').top,tip:getComputedStyle(close,'::after').opacity,scroll:dialog.querySelector('.settings-body').scrollTop};});
+      assert.ok(opened.currency<opened.slot&&opened.slot<opened.limits,'Agent status follows name and currency, before Time limits');
+      assert.ok(opened.slotBottom<=opened.footer,`Agent status is visible without scrolling (${opened.slotBottom} > ${opened.footer})`);assert.equal(opened.scroll,0);
+      assert.equal(opened.tip,'0','The Close (Esc) tooltip is hidden when Settings opens');
       const opposite=theme==='light'?'dark':'light';
       await page.getByRole('dialog').getByRole('button',{name:(opposite==='light'?'Light':'Dark')+' appearance',exact:true}).click();await expect(page.locator('html')).toHaveAttribute('data-theme',opposite);
       await page.getByRole('dialog').getByRole('button',{name:(theme==='light'?'Light':'Dark')+' appearance',exact:true}).click();await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
@@ -256,7 +286,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       for(let i=0;i<12;i++){await page.keyboard.press('Tab');assert.ok(await page.getByRole('dialog').evaluate(dialog=>dialog.contains(document.activeElement)));}
       await closeDialog();await expect(identity()).toBeFocused();
       for(const narrow of [320,width]){
-        await page.setViewportSize({width:narrow,height});await openSettings();await overflow('Settings at '+narrow);await closeDialog();
+        await page.setViewportSize({width:narrow,height});await openSettings();await overflow('Settings at '+narrow);if(narrow===320)await snap('settings-320');await closeDialog();
       }
       record('Settings controls, keyboard order, focus return and 320px fit');
       await timed('runUpdateNotice',()=>runUpdateNotice({page,base,expect,go,snap,overflow,record}));
@@ -326,15 +356,25 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         const save=page.getByRole('button',{name:'Continue',exact:true});
         if(state==='unavailable')await expect(save).toBeEnabled();else await expect(save).toBeDisabled();
         await expect(page.locator('#expense-words')).toBeEnabled();await expect(page.getByRole('button',{name:'Upload',exact:true})).toBeEnabled();
-        if(state==='signed out')await expect(page.locator('.agent-notice')).toContainText('make agent-login');
-        if(state==='paused')await expect(page.locator('.agent-notice')).toContainText('Statements read by the built-in reader still work');
+        if(state==='signed out'){await expect(page.locator('.agent-notice code')).toHaveText('make agent-login');await expect(page.locator('.agent-notice strong')).toHaveText('The agent isn’t signed in.');}
+        if(state==='paused'){await expect(page.locator('.agent-notice')).toContainText('Statements read by the built-in reader still work');await expect(page.locator('.agent-notice strong')).toHaveText('Add is paused.');
+          // The gate's diagnostic stays behind Check details.
+          await expect(page.locator('.agent-notice details summary')).toHaveText('Check details');await expect(page.locator('.agent-notice details')).not.toHaveAttribute('open','');await expect(page.locator('.agent-notice details > p')).toBeHidden();}
+        // The save bar never says it is ready while the agent keeps Continue disabled.
+        if(state!=='unavailable'){await expect(page.locator('.add-savebar strong')).not.toHaveText('Ready to continue');await expect(page.locator('.add-savebar strong')).toHaveText(state==='paused'?'Add is paused':'Sign in to continue');}
+        const addTitle=state==='unavailable'?null:await page.locator('.agent-notice strong').textContent();
         if(state==='unavailable')await expect(page.locator('.agent-notice')).toHaveCount(0);
         await overflow('notice '+state);if(persona!=='empty')await snap('notice-add-'+persona+'-'+state.replace(' ','-'));
         await openSettings();await expect(page.locator('.settings-body .agent-notice')).toHaveAttribute('data-agent-state',state);await overflow('Settings '+state);
+        if(addTitle)await expect(page.locator('.settings-body .agent-notice strong')).toHaveText(addTitle);
+        // The status slot keeps its reserved height: this state fits inside it, so its arrival moved nothing.
+        const slot=await page.locator('.agent-status-slot').evaluate(node=>({height:node.getBoundingClientRect().height,min:parseFloat(getComputedStyle(node).minHeight),scroll:node.scrollHeight,client:node.clientHeight}));
+        assert.ok(Math.abs(slot.height-slot.min)<1&&slot.scroll<=slot.client+1,`Agent status ${state} fits its reserved slot ${JSON.stringify(slot)}`);
         if(persona==='jordan')await snap('settings-'+state.replace(' ','-'));
         await closeDialog();
         await go('queue/'+(seeded.ids.length?'?draft='+seeded.ids[0]:''));await refresh();
         await expect(page.locator('.agent-notice')).toHaveCount(1);
+        if(addTitle)await expect(page.locator('.agent-notice strong')).toHaveText(addTitle);
         if(seeded.ids.length){
           const answer=page.locator('.draft-question select');
           await answer.selectOption({index:1});await expect(answer).toBeEnabled();
@@ -366,6 +406,8 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await resetDrafts({persona,empty:true});
       await go('queue/');await refresh();await expect(page.locator('.agent-notice')).toHaveCount(0);
       await expect(page.getByText('No items waiting.',{exact:true})).toBeVisible();
+      await expect(page.locator('.drafts-page .viewing-empty > .icon')).toHaveCount(1);await expect(page.locator('.drafts-page .viewing-empty').getByRole('link',{name:'Add an expense',exact:true})).toBeVisible();
+      await expect(page.locator('.drafts-page .page-heading p')).not.toContainText('0 need');
       await expect(page.locator('.sidebar a[href$="queue/"] .nav-count,.phone-live-nav a[href$="queue/"] .nav-count')).toHaveCount(0);
       if(persona==='empty')await snap('drafts-empty');
       record('ready has no banner, and no pending work has no Drafts badge');
@@ -476,6 +518,9 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await page.getByRole('button',{name:'Meadow Savings',exact:true}).click();await expect(page.getByLabel('Currency',{exact:true})).toHaveValue('USD');await page.getByLabel('Currency',{exact:true}).selectOption('EUR');await expect(page.getByRole('dialog')).toContainText('€4,650.00');await snap('account-opening-changeable');await closeDialog();
         await go('explorer/');await expect(page.getByText('Your spending starts here.',{exact:false})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);
         for(const view of ['atlas','forecast']){await go(view+'/');await expect(page.getByText(view==='atlas'?'Nothing recorded this month yet':'No expenses yet.',{exact:true})).toBeVisible();await expect(page.locator('.content svg[role="img"]')).toHaveCount(0);}
+        // Empty Forecast uses the standard header: the title first, with Overview/Rules as its tools.
+        assert.equal(await page.locator('.content .page > :first-child').evaluate(node=>node.className),'page-header');
+        await expect(page.locator('.page-header .page-tools .forecast-sections')).toHaveCount(1);await expect(page.locator('.viewing-empty > .icon')).toHaveCount(1);
         await control('openings',{enabled:false});console.log('SUITE_TIMING '+JSON.stringify({persona,engine,theme,width,name:'opening-balances',seconds:(performance.now()-openingStarted)/1000,commits:commits()-openingBefore}));record('opening-only Accounts subtracts debt with no invented history; Explorer invites the first expense');
       }
       if(persona==='asha') {
@@ -496,6 +541,8 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await page.goBack();await expect(page.locator('.holdings-table')).toBeVisible();
         await overflow('Asha investments');record('Asha holdings, cost/value/gain, chart keyboard inspection, account drill-down and history return');
       }
+      // BROWSER_FOCUS=shell stops here: navigation, Settings, notices, empty views and account dialogs.
+      if(process.env.BROWSER_FOCUS!=='shell') {
       await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
       await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
@@ -510,6 +557,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runAccountGroups',()=>runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money}));
       await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce}));
+      }
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

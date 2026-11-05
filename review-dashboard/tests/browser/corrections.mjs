@@ -32,6 +32,10 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
     await go(`${view}/?month=${month}&entry=${entryId}`);const details=page.getByRole('dialog');
     await expect(details).toBeVisible();await details.getByRole('button',{name:'Edit'}).click();
     await expect(form.getByLabel('Description',{exact:true})).toHaveValue(savedName);
+    // Edit entry keeps the view it came from selected, never Queue.
+    const label=view==='explorer'?'Explorer':'Journal',wide=(page.viewportSize()?.width||0)>760;
+    if(wide){await expect(page.locator('.sidebar nav a[aria-current="page"]')).toHaveAttribute('title',label);await expect(page.locator('.sidebar nav a[href$="queue/"]')).not.toHaveAttribute('aria-current','page');}
+    else{await expect(page.locator('.phone-live-nav > button[aria-controls="phone-more-views"]')).toHaveAttribute('aria-current','page');await expect(page.locator('.phone-live-nav a[href$="queue/"]')).not.toHaveAttribute('aria-current','page');}
     await snap('correction-from-'+view);
     savedName+=' · '+view;await form.getByLabel('Description',{exact:true}).fill(savedName);
     await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');

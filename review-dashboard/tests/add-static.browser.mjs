@@ -37,8 +37,8 @@ try{
   const context=await browser.newContext({viewport:{width,height:900},colorScheme});
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await context.route('**/*',r=>new URL(r.request().url()).hostname==='127.0.0.1'?r.continue():r.abort());
-  await page.goto(base+'add/');await expect(page.getByText("You're offline",{exact:true})).toBeVisible();
-  await page.reload();await expect(page.getByText("You're offline",{exact:true})).toBeVisible();
+  await page.goto(base+'add/');await expect(page.getByText('You’re offline',{exact:true})).toBeVisible();
+  await page.reload();await expect(page.getByText('You’re offline',{exact:true})).toBeVisible();
   await page.goto(base+'drafts/');await expect(page.getByText('Drafts needs the live server',{exact:true})).toBeVisible();
   await page.goto(base+'statements/');await expect(page.getByText('The Statements screen needs the live server. Your other ledger views remain available.')).toBeVisible();
   await page.goto(base+'explorer/');await expect(page.locator('.content h1')).toHaveText('Explorer');
