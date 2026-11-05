@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- AgentExpense dashboard as a launchd agent. Copy to ~/Library/LaunchAgents and
+     replace every placeholder; see docs/deploy/launchd.md. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>org.example.agentexpense</string>
+  <key>WorkingDirectory</key>
+  <string>/path/to/AgentExpense/review-dashboard/server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/uv</string>
+    <string>run</string>
+    <string>--locked</string>
+    <string>--offline</string>
+    <string>app.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/path/to/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>LEDGER_DIR</key>
+    <string>/path/to/ledger</string>
+    <key>EXPENSES_PORT</key>
+    <string>8701</string>
+    <key>EXPENSES_BASE_PATH</key>
+    <string>/</string>
+    <key>EXPENSES_DEV</key>
+    <string>1</string>
+    <key>npm_config_update_notifier</key>
+    <string>false</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/you/Library/Logs/agentexpense/server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/agentexpense/server.log</string>
+</dict>
+</plist>

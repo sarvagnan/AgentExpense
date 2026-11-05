@@ -1,39 +1,16 @@
 # Fictional example ledger
 
-Every person, date, amount, reference and event in this fixture is invented for tests. This is Asha Rao's demonstration INR ledger.
+Every person, date, amount, reference and event in this fixture is invented for
+tests. This is Asha Rao's demonstration INR ledger. It follows the application's
+general bookkeeping policy, `policy/BOOKKEEPING.md`; only Asha's own rules are kept
+here.
 
-## Before adding or changing transactions
+## Personal rules
 
-## Source of truth
-
-JSON in data/expenses is authoritative; data/forecast.json holds commitments. Declare accounts in data/accounts.json. Search for duplicates, retain evidence, use exact decimal amounts and balance every entry. Expenses debit Expenses and credit their actual bank, cash, wallet or card funding source. Advances debit a reimbursement asset; repayment clears it rather than creating income. Record original currency and exact billed cost when applicable. Sources here are invented confirmation notes; never treat them as real receipts. Keep same-day order stable and use the shared ledger lock for concurrent writes.
-
-## Fuel entries
-
-Record physical readings separately from monetary cost. Match a fuel log by explicit confirmation.
+- Sources here are invented confirmation notes; never treat them as real receipts.
+- Advances for Dev Sen debit `Assets:Reimbursements:Dev Sen`; their repayment clears it.
+- The fuel log is on: record each fill's litres and trip distance with its expense.
 
 ## Rebuild and verify
 
 Run make verify and make dashboard from the application with LEDGER_DIR set to this directory. This example has no repository history; initialize a separate personal ledger only when intentionally adopting it.
-
-## Varying recurring rules and bills
-
-A varying rule's postings hold the median of its last three payments. Save an
-unpaid bill on the rule with its evidence; add an expense only when it is paid.
-Retain amount-check doubts and require explicit acceptance of unusual amounts.
-
-## Delete, Trash and retention
-
-Delete is offered only before the ledger's Delete time limit ends and while no
-filed card statement or statement-confirmed bank balance covers the entry.
-The addition audit time starts the window; otherwise use the first ledger commit
-containing the ID. Entries present in the ledger's first commit have no known
-addition time and cannot be deleted, even when an import retained audit lines.
-Ledger history reads are cached and read-only.
-
-Delete moves the entry and exclusively cited evidence into ledger-local Trash.
-Restore retains its ID, postings and original evidence paths, and marks a linked
-rule paid again. Refuse Restore when a statement filed since removal covers the
-payment date without the entry. The audit records deletions, restores, refusals,
-permanent removals and changes to the shared time limits. Edit again to reverse
-an edit. A saved bill remains unpaid until a payment is recorded.

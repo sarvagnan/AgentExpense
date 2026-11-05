@@ -2,10 +2,11 @@
 
 Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` from the application root with an absolute `LEDGER_DIR`. Scheduling is external to the application. Review every unreviewed outcome and report findings to the user. Read first, then record all verdicts in one command. Corrections to entries or evidence require user agreement. Keep the ledger clean on failure.
 
-1. Read the current policy and every line still waiting for a verdict:
+1. Read the current policy (the general policy, then the ledger's personal rules) and
+   every line still waiting for a verdict:
 
    ```sh
-   cat "$LEDGER_DIR/AGENTS.md"
+   cat policy/BOOKKEEPING.md "$LEDGER_DIR/AGENTS.md"
    uv run --with jsonschema python scripts/ledger/audit.py list --unreviewed
    uv run --with jsonschema python scripts/ledger/audit.py list --unreviewed --json
    ```

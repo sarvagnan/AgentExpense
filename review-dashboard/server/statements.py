@@ -649,10 +649,8 @@ class StatementTransaction(Transaction):
 
     def apply_statement(self, lock_fd):
         s = self.draft
-        (self.root/'AGENTS.md').read_text()
-        policy = self.settings.application/'policy/BOOKKEEPING.md'
-        if policy.is_file():
-            policy.read_text()
+        import bookkeeping_policy
+        bookkeeping_policy.read(self.settings)
         documents = load(self.root)
         if fingerprint(self.root) != s['fingerprint']:
             raise StaleChecklist('The ledger changed. Upload this statement again to rebuild the checklist.')

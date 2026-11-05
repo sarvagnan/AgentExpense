@@ -9,9 +9,14 @@ Application `local.json` may also name the service for `make update` to restart
 and turn on the update notice (`{"updates": {"notice": true, "remote": "origin"}}`). With the
 notice on, the worker lists the remote's tags with `git ls-remote` at most once a day, keeping
 the time in `<state>/update-check.json`; see [releasing](../../docs/RELEASING.md).
-On the server host, `make service` installs the tracked `expense-dashboard.service` when changed, reloads systemd and restarts it. It stops with an explanation on hosts without a user systemd session. Customize the service template paths and access settings for your installation before using it.
-The template sets `EXPENSES_STATE_DIR=%S/agentexpense`, using systemd's user state
-root. Override that setting in the unit if you need another dedicated directory.
+On the server host, `make service` fills the tracked `expense-dashboard.service` with this
+installation's path, the selected `LEDGER_DIR` and `uv`, installs it when changed, reloads
+systemd and restarts it. It stops with an explanation on hosts without a user systemd session
+or without a selected ledger. Keep access settings in a systemd drop-in, never in the tracked
+unit; see [running the dashboard](../../docs/deploy/README.md) for systemd, launchd, reverse
+proxy and tailnet examples. The unit sets `EXPENSES_STATE_DIR=%S/agentexpense`, using
+systemd's user state root; override it in the drop-in if you need another directory.
+`make serve` (application root) runs the server in a terminal with local writes allowed.
 For Vite development, enable `EXPENSES_DEV=1 EXPENSES_PORT=8701` in the dashboard
 process as well to proxy only `/api/` to the local server. See `../README.md`.
 

@@ -247,10 +247,8 @@ def apply(settings, body, *, clock=None):
     store = ReviewRecords(root)
     with ledger_lock(root) as fd:
         # Read the selected ledger policy on every run, including recovery.
-        (root / 'AGENTS.md').read_text()
-        policy = settings.application / 'policy/BOOKKEEPING.md'
-        if policy.is_file():
-            policy.read_text()
+        import bookkeeping_policy
+        bookkeeping_policy.read(settings)
         for folder in store.root.iterdir():
             if (folder / 'transaction.json').exists():
                 draft = json.loads((folder / 'record.json').read_text())

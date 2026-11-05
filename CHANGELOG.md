@@ -63,6 +63,17 @@ The first release. The date is set when the release is tagged.
   notice in Settings (off unless `local.json` turns it on) reads the remote's tags at
   most daily. GitHub workflows run CI, propose agent CLI pins weekly and publish
   releases from tags; see [docs/RELEASING.md](docs/RELEASING.md).
+- **Setup.** [SETUP.md](SETUP.md) walks a coding agent through setting up a ledger.
+  `make new-ledger` creates one from `templates/ledger/` as its own repository with a
+  verified first commit; `make add-account` and `make opening-balances` declare
+  accounts and opening balances under the ledger lock; `make demo` runs a fictional
+  ledger from `/tmp` with an offline fake agent; `make serve` starts the dashboard
+  locally; `make private-checks` runs a ledger's own `checks/`. Deployment examples
+  for local use, systemd, launchd, a reverse proxy and a tailnet are in
+  [docs/deploy/](docs/deploy/README.md).
+- **General policy.** The general bookkeeping policy is
+  [policy/BOOKKEEPING.md](policy/BOOKKEEPING.md); a ledger's `AGENTS.md` keeps only
+  personal rules. The server gives the dashboard's agent both, read on every run.
 
 ### Upgrade notes
 
@@ -80,6 +91,15 @@ release:
    prints.
 5. Run `make verify`, then `make dashboard`.
 6. Run `make doctor` again; the Ledger row should now be `ok`.
+
+7. The general policy now ships with the application. If the ledger's `AGENTS.md`
+   repeats general rules, keep only personal rules there (see
+   `templates/ledger/AGENTS.md`) and commit with `make commit`. A full older policy
+   still works; the agent then reads some rules twice.
+8. If you ran the dashboard from an edited copy of
+   `review-dashboard/server/expense-dashboard.service`, move your access settings into
+   a drop-in as [docs/deploy/systemd.md](docs/deploy/systemd.md) describes, restore
+   the tracked file, and run `make service` with `LEDGER_DIR` set.
 
 To go back, use the previous application checkout with the checkpoint commit from
 step 4.

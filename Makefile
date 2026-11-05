@@ -201,6 +201,38 @@ test-update-inside:
 browser-capture:
 	@scripts/test-run.sh $(MAKE) --no-print-directory browser-capture-inside
 
+# Setup: a new ledger from templates/ledger/, a fictional demo, and a ledger's own checks.
+.PHONY: new-ledger demo private-checks
+new-ledger:
+	@test -n "$(DIR)" -a -n "$(NAME)" -a -n "$(CURRENCY)" || (echo 'Usage: make new-ledger DIR=/path/to/ledger NAME="Your name" CURRENCY=USD [LOCALE=en-US] [VCS=jj|git]' >&2; exit 2)
+	uv run --with jsonschema python scripts/setup/new_ledger.py --dir "$(abspath $(DIR))" --name "$(NAME)" --currency "$(CURRENCY)" $(if $(LOCALE),--locale "$(LOCALE)") $(if $(VCS),--vcs "$(VCS)")
+
+# Accounts and opening balances during setup (scripts/ledger/setup_ledger.py); commit with make commit.
+.PHONY: add-account opening-balances
+add-account:
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/setup_ledger.py account $(ARGS)
+
+opening-balances:
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/setup_ledger.py opening $(ARGS)
+
+# A fictional ledger (PERSONA=asha|jordan|sam|empty) in /tmp with the fake agent; Ctrl-C stops and removes it.
+# Offline: it stops instead of installing anything; SMOKE=1 starts, fetches the page and stops.
+demo:
+	@uv run --locked --offline --directory review-dashboard/server python ../../scripts/setup/demo.py $(if $(PERSONA),--persona "$(PERSONA)") $(if $(PORT),--port "$(PORT)") $(if $(SMOKE),--smoke)
+
+# The server for the selected ledger on 127.0.0.1:$EXPENSES_PORT (default 8701), serving the
+# dashboard that make build-dashboard built. This machine's own writes are allowed unless
+# EXPENSES_DEV=0; see docs/deploy/local.md.
+.PHONY: serve
+serve:
+	@test -f "$(LEDGER_DIR)/ledger.json" || (echo "No ledger at $(LEDGER_DIR); set LEDGER_DIR to your ledger." >&2; exit 2)
+	@test -f review-dashboard/dist/index.html || (echo "No dashboard build; run make build-dashboard first." >&2; exit 2)
+	EXPENSES_DEV="$${EXPENSES_DEV-1}" uv run --locked --offline --directory review-dashboard/server python app.py
+
+# Whatever the selected ledger keeps in checks/: unittest files and executable scripts.
+private-checks:
+	@uv run --with jsonschema python scripts/setup/private_checks.py
+
 .PHONY: retention
 retention:
 	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/retain.py $(ARGS)

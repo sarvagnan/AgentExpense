@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 from draft_time import saved_local
+from bookkeeping_policy import policy_text, prompt_policy
 from copy import deepcopy
 from settings import APPLICATION
 from ledger_manifest import read_manifest, module_settings, old_ledger_path
@@ -132,14 +133,7 @@ Currencies belong to accounts, as listed below. For an expense in a different co
 
 When only the charged or received amount is missing, the paying account (or both transfer accounts) is declared, and every other entry detail is settled, return status "question" with the two-posting entry. For an expense, keep the known positive foreign expense amount and use payment amount "0" in the paying account's currency, with both costs null. For a transfer, keep the known negative sent amount in the source account's currency and use received amount "0" in the destination account's currency, with both costs null. This zero is an unknown amount marker, not an actual payment or receipt. Use it only for this currency question; ask an ordinary question for any other unsettled detail. The server retains this proposal, asks the user for the amount or rate in a linked form, and validates the resolved entry before writing anything. Never return this incomplete proposal as "ready".
 
-The ledger's entry policy follows."""
-
-
-def policy_text(path: Path) -> str:
-    lines = path.read_text().splitlines()
-    start = next((i for i, l in enumerate(lines) if l.startswith('## Before adding')), 0)
-    end = next((i for i, l in enumerate(lines) if l.startswith('## Rebuild and verify')), len(lines))
-    return '\n'.join(lines[start:end]).strip()
+The general bookkeeping policy and this ledger's personal rules follow."""
 
 
 def prepare(src: Path, work: Path, index: int):
@@ -217,10 +211,7 @@ def prompt_for(settings, draft, folder, work):
     accounts = json.loads((settings.ledger / 'data/accounts.json').read_text())['accounts']
     payments = [{**meta, 'account': account, 'label': meta.get('label') or account.split(':')[-1]} for account, meta in accounts.items() if meta.get('kind') in ('bank','card','cash','wallet','loan','person')]
     modules = module_settings(read_manifest(settings.ledger))
-    policy = policy_text(settings.ledger / 'AGENTS.md')
-    if not modules['fuel']:
-        import re
-        policy = re.sub(r'(?ms)^## Fuel[^\n]*\n.*?(?=^## |\Z)', '', policy)
+    policy = prompt_policy(settings, fuel=modules['fuel'])
     preface = PREFACE.replace('{lookup_names}', ', '.join(sorted(lookup_names(settings)))).replace(
         '{history_hint}', '; search the old ledger when the store has no precedent' if 'search_old_ledger' in lookup_names(settings) else '')
     prompt = (preface + '\n\n# Payment accounts (ask when words match more than one)\n' + json.dumps(payments, ensure_ascii=False) + '\n\n' + policy + '\n\n# The draft\n'

@@ -38,7 +38,7 @@ class ModuleServerTests(Fixture):
     def test_fuel_on_off_schema_prompt_and_proposal(self):
         settings = self.configure(fuel=True)
         self.assertIn('fuel_filled_litres', schema_for(settings)['properties']['entry']['required'])
-        self.assertIn('## Fuel entries', self.prompt(settings))
+        self.assertIn('## Fuel log', self.prompt(settings))
         answer = ready(new=False); answer['attachment_names'] = []
         to_store(answer, self.ledger, 0)
         settings = self.configure(fuel=False, investments=False, weeklyReview=False)
@@ -46,7 +46,9 @@ class ModuleServerTests(Fixture):
         for key in ('fuel_filled_litres','trip_km'):
             self.assertNotIn(key, schema['required'])
             self.assertNotIn(key, schema['properties'])
-        self.assertNotIn('## Fuel entries', self.prompt(settings))
+        self.assertNotIn('## Fuel log', self.prompt(settings))
+        self.assertIn('# Personal rules for this ledger', self.prompt(settings))
+        self.assertIn('## Personal rules', self.prompt(settings))
         self.assertNotIn('fuel_filled_litres', self.prompt(settings))
         with self.assertRaisesRegex(ProposalError, 'disabled'):
             to_store(answer, self.ledger, 0)

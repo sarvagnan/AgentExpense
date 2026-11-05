@@ -38,9 +38,8 @@ def current_time(clock=None):
 
 
 def policy(settings):
-    (settings.ledger/'AGENTS.md').read_text()
-    general = settings.application/'policy/BOOKKEEPING.md'
-    if general.is_file(): general.read_text()
+    import bookkeeping_policy
+    bookkeeping_policy.read(settings)
 
 
 def ignored_entries(lines):

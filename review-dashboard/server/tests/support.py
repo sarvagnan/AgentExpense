@@ -74,6 +74,8 @@ class Fixture(unittest.TestCase):
         shutil.copytree(APPLICATION / 'scripts', self.application / 'scripts', ignore=shutil.ignore_patterns('__pycache__', '.fixture-*', '.app-fixture-*'))
         shutil.copytree(APPLICATION / 'schema', self.application / 'schema')
         shutil.copytree(APPLICATION / 'migrations', self.application / 'migrations')
+        shutil.copytree(APPLICATION / 'policy', self.application / 'policy')
+        shutil.copytree(APPLICATION / 'templates', self.application / 'templates')
         shutil.copyfile(APPLICATION / 'Makefile', self.application / 'Makefile')
         shutil.copyfile(APPLICATION / '.node-version', self.application / '.node-version')
         shutil.copyfile(APPLICATION / 'VERSION', self.application / 'VERSION')

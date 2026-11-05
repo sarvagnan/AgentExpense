@@ -1,6 +1,10 @@
 # AgentExpense developer instructions
 
-The application repository owns `scripts/`, `schema/`, `review-dashboard/`, tools and examples. A separate ledger repository at `ledger/` or `LEDGER_DIR` owns financial JSON, prices, evidence and archives. Read the selected ledger's `AGENTS.md` before adding, changing or reconciling expenses. Generated `expense_ledger.ledger` belongs inside that ledger.
+To set up AgentExpense for a person, follow [SETUP.md](SETUP.md); this file and that guide are the only agent instructions (no `CLAUDE.md`).
+
+The application repository owns `scripts/`, `schema/`, `policy/`, `templates/`, `review-dashboard/`, tools and fixtures. A separate ledger repository at `ledger/` or `LEDGER_DIR` owns financial JSON, prices, evidence, archives, personal readers (`readers/`) and private checks (`checks/`). Read the general policy [policy/BOOKKEEPING.md](policy/BOOKKEEPING.md) and then the selected ledger's `AGENTS.md` (personal rules only) before adding, changing or reconciling expenses. Generated `expense_ledger.ledger` belongs inside that ledger. Never write a person's data into the application tree.
+
+`make new-ledger DIR=… NAME=… CURRENCY=…` creates a ledger from `templates/ledger/` with its first verified commit; `make add-account` and `make opening-balances` (`scripts/ledger/setup_ledger.py`) declare accounts and opening balances under the lock; `make demo` runs a fixture copy in `/tmp` with the offline fake agent; `make serve` starts the server locally; `make private-checks` runs the selected ledger's `checks/`. Deployment examples are in `docs/deploy/`.
 
 Ledger format 1 requires `ledger.json` and account metadata in `data/accounts.json`. For an older ledger, run `make upgrade-ledger ARGS="--dry-run"` to inspect the plan, then `make upgrade-ledger`; see `migrations/README.md` for options and rollback.
 
@@ -56,7 +60,7 @@ Added-by: user (correction)
 
 Receipt readings use the same correction transaction and an `Added-by: <adapter/model> (receipt details for <entry id>)` trailer. Pending receipt readings and questions retain their draft beyond 24 hours.
 
-Read the ledger policy at run time. Commands remain disabled for the agent; only its read-only MCP lookup server reads the store and optional older ledger. Offline tests use fake agents and never models. After agent isolation changes run `make agent-check`; see `review-dashboard/server/README.md` for the automatic gate, allow-lists and maintainer-only Codex upgrades. The operator signs in once with `make agent-login`; the server never copies or links authentication into its dedicated home.
+The server reads `policy/BOOKKEEPING.md` and the ledger's `AGENTS.md` on every run (`review-dashboard/server/bookkeeping_policy.py`); test application copies include `policy/`. Commands remain disabled for the agent; only its read-only MCP lookup server reads the store and optional older ledger. Offline tests use fake agents and never models. After agent isolation changes run `make agent-check`; see `review-dashboard/server/README.md` for the automatic gate, allow-lists and maintainer-only Codex upgrades. The operator signs in once with `make agent-login`; the server never copies or links authentication into its dedicated home.
 
 ## Audit, statements and review
 

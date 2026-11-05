@@ -616,17 +616,34 @@ class GateTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         config = self.work / 'config'
-        with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(config)}), patch.object(module.shutil, 'which', return_value=None):
+        ledger = self.work / 'service-ledger'
+        tools = {'systemctl': '/fake/systemctl', 'uv': '/fake/uv'}
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(config), 'LEDGER_DIR': str(ledger)}), patch.object(module.shutil, 'which', return_value=None):
             with self.assertRaisesRegex(ValueError, 'systemctl --user is unavailable'):
                 module.install()
         self.assertFalse(config.exists())
-        with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(config)}), patch.object(module.shutil, 'which', return_value='/fake/systemctl'), \
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(config), 'LEDGER_DIR': str(ledger)}), patch.object(module.shutil, 'which', side_effect=tools.get), \
                 patch.object(module.subprocess, 'run') as systemctl, patch.object(module, 'node_environment', return_value={'PATH':'/fixture/node/bin:/fixture/tools'}):
             systemctl.return_value.returncode = 0
+            # No ledger selected: nothing is installed.
+            with self.assertRaisesRegex(ValueError, 'set LEDGER_DIR to your ledger'):
+                module.install()
+            self.assertFalse(config.exists())
+            ledger.mkdir()
+            (ledger / 'ledger.json').write_text('{}')
+            systemctl.reset_mock()
             module.install()
             unit = config / 'systemd/user/expense-dashboard.service'
-            self.assertIn('Environment="PATH=/fixture/node/bin:/fixture/tools"', unit.read_text())
-            self.assertIn('Environment=npm_config_update_notifier=false',unit.read_text())
+            text = unit.read_text()
+            self.assertIn('Environment="PATH=/fixture/node/bin:/fixture/tools"', text)
+            self.assertIn('Environment=npm_config_update_notifier=false', text)
+            self.assertIn(f'Environment=LEDGER_DIR={ledger.resolve()}', text)
+            self.assertIn(f'WorkingDirectory={APPLICATION}/review-dashboard/server', text)
+            self.assertIn(f'ExecStart={Path("/fake/uv").resolve()} run --locked --offline app.py', text)
+            for placeholder in ('@APPLICATION@', '@LEDGER_DIR@', '@UV@'):
+                self.assertNotIn(placeholder, text)
+            for machine in ('EXPENSES_ALLOWED_HOSTS', 'EXPENSES_ALLOWED_LOGINS', 'EXPENSES_AGENT_MODEL', 'EXPENSES_DEV'):
+                self.assertNotIn(machine, text)
             modified = unit.stat().st_mtime_ns
             module.install()
             self.assertEqual(unit.stat().st_mtime_ns, modified)

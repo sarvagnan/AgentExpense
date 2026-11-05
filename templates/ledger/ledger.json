@@ -1,0 +1,19 @@
+{
+  "format": "{{format}}",
+  "id": "{{id}}",
+  "name": "{{name}}",
+  "defaultCurrency": "{{currency}}",
+  "modules": {
+    "fuel": false,
+    "investments": {
+      "prices": null
+    },
+    "history": {
+      "oldLedger": null
+    },
+    "weeklyReview": false
+  },
+  "review": {
+    "storageKey": null
+  }
+}

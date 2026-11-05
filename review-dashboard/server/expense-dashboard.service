@@ -1,21 +1,21 @@
+# AgentExpense dashboard as a systemd user service. `make service` fills in the
+# @…@ paths from this installation and the selected LEDGER_DIR, installs the unit
+# when it changed, reloads systemd and restarts it. Keep machine settings (allowed
+# hosts and logins, base path, port, write access) in a drop-in such as
+# ~/.config/systemd/user/expense-dashboard.service.d/local.conf, never in this
+# file: see docs/deploy/systemd.md.
 [Unit]
-Description=AgentExpense dashboard (configure installation paths before use)
+Description=AgentExpense dashboard
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/absolute/path/to/AgentExpense/review-dashboard/server
-Environment=EXPENSES_DEV=0
+WorkingDirectory=@APPLICATION@/review-dashboard/server
+Environment=LEDGER_DIR=@LEDGER_DIR@
 Environment=EXPENSES_PORT=8701
-Environment=EXPENSES_BASE_PATH=/expenses/
-Environment=EXPENSES_ALLOWED_HOSTS=
-Environment=EXPENSES_ALLOWED_LOGINS=
-Environment=LEDGER_DIR=/absolute/path/to/private-ledger
+Environment=EXPENSES_BASE_PATH=/
 Environment=EXPENSES_STATE_DIR=%S/agentexpense
-Environment=EXPENSES_AGENT_MODEL=gpt-6.1-terra
-Environment=EXPENSES_AGENT_EFFORT=xhigh
-Environment=EXPENSES_AGENT_TIMEOUT=600
-ExecStart=/absolute/path/to/uv run app.py
+ExecStart=@UV@ run --locked --offline app.py
 Restart=on-failure
 RestartSec=5
 
