@@ -232,7 +232,7 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
     explicit = {c.upper() for c in re.findall(r'\b[A-Za-z]{3}\b', text)} & commodities
     payment_words = set().union(*(words(alias) for meta in accounts.values() if meta.get('kind') in PAYING_KINDS
                                   for alias in [meta.get('kind',''),meta.get('label',''),*meta.get('aliases',[])]))
-    ranked = []
+    ranked, weak = [], []
     for rule in rules:
         if not active(rule): continue
         names = words(rule['description']) | set().union(*(words(p['account'].split(':')[-1]) for p in main_postings(rule)))
@@ -256,11 +256,15 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
                     matched_amounts.append(dict(amount=str(near[0]),currency=code))
         distance = abs((date.fromisoformat(rule['date'])-date.fromisoformat(today)).days)
         score += max(0, 1-distance/40)
-        ranked.append(dict(id=rule['id'], description=rule['description'], score=score, next_due=rule['date'],
-                           matched_words=sorted(tokens & name_words), matched_alias=matched_alias, matched_amounts=matched_amounts))
-    ranked.sort(key=lambda r:(-r['score'],r['id']))
-    return dict(matches=ranked, pick_list=len(ranked)>1 and ranked[0]['score']-ranked[1]['score']<2,
-                rule_id=ranked[0]['id'] if ranked and not (len(ranked)>1 and ranked[0]['score']-ranked[1]['score']<2) else None)
+        found = dict(id=rule['id'], description=rule['description'], score=score, next_due=rule['date'],
+                     matched_words=sorted(tokens & name_words), matched_alias=matched_alias, matched_amounts=matched_amounts)
+        # One shared word alone is a quiet suggestion, never a proposal: a proposal
+        # needs two distinctive words, or one with the rule's amount or paying account.
+        (ranked if len(found['matched_words']) > 1 or matched_amounts or matched_alias else weak).append(found)
+    ranked.sort(key=lambda r:(-r['score'],r['id'])); weak.sort(key=lambda r:(-r['score'],r['id']))
+    pick_list = len(ranked)>1 and ranked[0]['score']-ranked[1]['score']<2
+    return dict(matches=ranked, suggestions=weak, pick_list=pick_list,
+                rule_id=ranked[0]['id'] if ranked and not pick_list else None)
 
 
 def suppressed(entry, rules, accounts):

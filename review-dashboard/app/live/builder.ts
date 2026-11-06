@@ -9,6 +9,7 @@ export type Piece = { value: string; source: Source; shown: string };
 export type PatternStats = { count: number; last: { date: string; description: string; amount: string; currency?: string | null; litres?: string }[]; usualPay: string | null; usualShare: number; usualExpense: string | null; usualCategory?: string | null; known?: string[] };
 export type PatternData = { modules?: Record<string, unknown>; patterns: Record<string, PatternStats>; people: string[]; accounts: string[]; payments?: Accounts; merchants?: Record<string,{name:string;expense:string;category:string;pay:string;amount:string;currency:string;pattern:string|null}> };
 export const LABELS: Record<string, string> = { amount: 'Amount', currency: 'Currency', litres: 'Litres', km: 'Trip', outlet: 'Outlet', pay: 'Paid with', date: 'Date', vehicle: 'Vehicle', service: 'Service', route: 'Route', plan: 'Plan', charged: 'Charged amount', items: 'Items', place: 'Place', person: 'From', purpose: 'For', what: 'What', category: 'Category' };
+const UPLOAD_READS: Record<string, string> = { what: 'description', pay: 'payment account', amount: 'amount', place: 'place', outlet: 'outlet', service: 'service', purpose: 'purpose', items: 'items', person: 'person', plan: 'plan', route: 'route', km: 'distance' };
 export const SOURCES: Record<Source, string> = { typed: 'You typed it', usual: 'Usual for this', agent: 'The agent reads it', missing: 'Missing' };
 export const payLabel = (value: string, accounts: Accounts = {}) => accountLabel(value, accounts);
 type Pattern = { id: string; name: string; keys?: string[]; pieces: string[]; sentence: string };
@@ -25,6 +26,12 @@ export const availablePatterns = (manifest: {modules?: unknown}) => PATTERN_DEFS
 const NEW: Pattern = { id: 'new', name: 'Something new', pieces: ['what', 'amount', 'pay', 'date'], sentence: '{what} for {amount}, paid with {pay}, {date}.' };
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const words = (s: string) => new RegExp(`(?<![\\p{L}\\p{N}_])${escape(s)}(?![\\p{L}\\p{N}_])`, 'iu');
+/** A ride's service as typed: "Cedar Taxi" rather than the matched key "taxi"; the key alone keeps its typed case. */
+function rideService(text: string, rest: string, hit?: string) {
+  if (!hit) return '';
+  const named = rest ? text.match(new RegExp(`(?<![\\p{L}\\p{N}_])(?:${escape(rest)}\\s+${escape(hit)}|${escape(hit)}\\s+${escape(rest)})(?![\\p{L}\\p{N}_])`, 'iu'))?.[0] : undefined;
+  return named ?? text.match(words(hit))?.[0] ?? hit;
+}
 const validDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 export function buildSentence(text: string, data: PatternData, edits: Record<string, string> = {}, hasFiles = false, today = localDate()) {
   const low = text.toLowerCase().replace(/’/g, "'");
@@ -88,13 +95,16 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
   if (hit) rest = rest.replace(words(hit), ' ');
   if (known) rest = rest.replace(words(known), ' ');
   if (pattern.id === 'ride') take(/\b((?:from\s+.+?\s+)?to\s+.+?)\s*$/, 'route');
+  // "with receipt" refers to the attached file, never to what was bought.
+  rest = rest.replace(/\b(?:with\s+(?:a\s+|the\s+)?)?receipts?\b/gi, ' ');
   rest = rest.replace(/\b(for|on|via|with|paid|the|a|an|at|my|i|just|got|bought|and|of|in|from)\b/g, ' ').replace(/\s+/g, ' ').trim();
   // Taken pieces leave their separators behind ("café, , ,"): keep only the words, in the case they were typed.
   rest = rest.split(/\s*[,;]\s*/).map(part => part.replace(/^[\s.:·–—-]+|[\s.:·–—-]+$/g, '')).filter(Boolean).join(', ')
     .split(' ').map(word => text.match(words(word))?.[0] ?? word).join(' ').replace(/^(?:to\s+)+|(?:\s+to)+$/gi, '');
   const fields: Record<string, Piece> = {};
   const set = (key: string, value: string, source: Source, shown = value) => { fields[key] = { value, source, shown }; };
-  const vary = (key: string, value = '') => value ? set(key, value, 'typed') : set(key, '', hasFiles ? 'agent' : 'missing', hasFiles ? 'from your upload' : `${LABELS[key].toLowerCase()}?`);
+  // Pieces the agent will read from a file name what they are, so several never read as one repeated chip.
+  const vary = (key: string, value = '') => value ? set(key, value, 'typed') : set(key, '', hasFiles ? 'agent' : 'missing', hasFiles ? `${UPLOAD_READS[key] || LABELS[key].toLowerCase()} from your upload` : `${LABELS[key].toLowerCase()}?`);
   for (const key of [...pattern.pieces, 'currency', 'category']) {
     if (typed[key]) set(key, typed[key], 'typed');
     else if (key === 'date') set(key, today, 'usual', 'today');
@@ -104,7 +114,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
     else if (key === 'amount' && merchant?.amount) set(key, merchant.amount, 'usual');
     else if (key === 'category') set(key, '', 'agent', 'the agent works it out');
     else if (key === 'outlet' || key === 'place') vary(key, known || rest);
-    else if (key === 'service') vary(key, known || (pattern.id === 'ride' ? hit : rest));
+    else if (key === 'service') vary(key, known || (pattern.id === 'ride' ? rideService(text, rest, hit) : rest));
     else if (key === 'what' || key === 'purpose' || key === 'items') vary(key, rest);
     else if (key === 'charged' && !typed.currency) set(key, typed.amount || '', typed.amount ? 'typed' : 'agent');
     else vary(key);

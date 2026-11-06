@@ -49,13 +49,53 @@ class RecurringTests(unittest.TestCase):
             self.assertEqual(match_text([r],text,ACCOUNTS,'2026-10-15','EUR')['matches'],[])
         for text in ('Willow 15 oct','Willow 2026-10-15','Willow 15/10/2026','Willow October 15, 2026'):
             self.assertEqual(text_amounts(text),[])
-        self.assertTrue(match_text([r,other],'Willow',ACCOUNTS,'2026-10-15','EUR')['pick_list'])
-        baseline=match_text([r],'Willow',ACCOUNTS,'2026-10-15','EUR')['matches'][0]['score']
-        self.assertEqual(match_text([r],'Willow 20 USD',ACCOUNTS,'2026-10-15','EUR')['matches'][0]['score'],baseline)
+        self.assertTrue(match_text([r,other],'Willow club',ACCOUNTS,'2026-10-15','EUR')['pick_list'])
+        baseline=match_text([r],'Willow',ACCOUNTS,'2026-10-15','EUR')['suggestions'][0]['score']
+        self.assertEqual(match_text([r],'Willow 20 USD',ACCOUNTS,'2026-10-15','EUR')['suggestions'][0]['score'],baseline)
         self.assertGreater(match_text([r],'Willow fern 21 EUR',ACCOUNTS,'2026-10-15','EUR')['matches'][0]['score'],baseline+4)
-        other['lifecycle']='paused';self.assertEqual(len(match_text([r,other],'Willow',ACCOUNTS,'2026-10-15','EUR')['matches']),1)
+        other['lifecycle']='paused';self.assertEqual(len(match_text([r,other],'Willow club',ACCOUNTS,'2026-10-15','EUR')['matches']),1)
         shortcut_name={**r,'description':'Fern club'}
         self.assertEqual(match_text([shortcut_name],'fern 20 EUR',ACCOUNTS,'2026-10-15','EUR')['matches'],[])
+
+    def test_one_shared_word_is_only_a_suggestion(self):
+        """A lone shared word never proposes a rule; two words, or a word with the amount or payer, do."""
+        def usual(identity, description, category, amount, currency, payer):
+            return dict(id=identity, date='2026-11-15', status='confirmed', description=description, lifecycle='active',
+                        schedule=dict(every='month', **{'from': '2026-11-15'}),
+                        postings=[dict(account=category, amount=amount, commodity=currency),
+                                  dict(account=payer, amount='-'+amount, commodity=currency)])
+        # Asha's shape: a card subscription and plain cash.
+        asha_accounts = {'Liabilities:Credit Cards:Mosaic Card': dict(kind='card', currency='INR', label='Mosaic Card', aliases=['mosaic card']),
+                         'Assets:Cash': dict(kind='cash', currency='INR', label='Cash', aliases=['cash'])}
+        lantern = usual('f0000000000000a1', 'Paper Lantern subscription', 'Expenses:Subscriptions:Paper Lantern', '90.00', 'INR', 'Liabilities:Credit Cards:Mosaic Card')
+        weak = match_text([lantern], 'Paper Kite Market, 12, paid with cash', asha_accounts, '2026-11-06', 'INR', 'en-IN')
+        self.assertEqual((weak['matches'], weak['rule_id'], weak['pick_list']), ([], None, False))
+        self.assertEqual([(m['id'], m['matched_words']) for m in weak['suggestions']], [(lantern['id'], ['paper'])])
+        for text, reason in [('Paper Lantern', 'two words'), ('Paper Lantern 90', 'two words and the amount'),
+                             ('Lantern 90', 'one word and the amount'), ('Lantern on Mosaic Card', 'one word and the payer')]:
+            with self.subTest(text=text, reason=reason):
+                result = match_text([lantern], text, asha_accounts, '2026-11-06', 'INR', 'en-IN')
+                self.assertEqual((result['rule_id'], result['suggestions']), (lantern['id'], []))
+        # Jordan's shape: rent named by its expense account, paid from a checking account.
+        jordan_accounts = {'Assets:Bank:Alder Checking': dict(kind='bank', currency='USD', label='Alder Checking', aliases=['alder', 'checking'])}
+        rent = usual('f0000000000000b1', 'October rent', 'Expenses:Housing:Rent', '800.00', 'USD', 'Assets:Bank:Alder Checking')
+        weak = match_text([rent], 'Birch rent 100 USD', jordan_accounts, '2026-11-06', 'USD', 'en-US')
+        self.assertEqual((weak['matches'], weak['rule_id']), ([], None))
+        self.assertEqual([m['id'] for m in weak['suggestions']], [rent['id']])
+        for text in ('October rent', 'rent 800 USD', 'Rent from Alder Checking', 'rent 790'):
+            with self.subTest(text=text):
+                self.assertEqual(match_text([rent], text, jordan_accounts, '2026-11-06', 'USD', 'en-US')['rule_id'], rent['id'])
+        # A pick list ranks proposals only; two one-word candidates are two suggestions.
+        clover = [usual('f0000000000000c1', 'Clover music', 'Expenses:Music', '40.00', 'USD', 'Assets:Bank:Alder Checking'),
+                  usual('f0000000000000c2', 'Clover lessons', 'Expenses:Lessons', '41.00', 'USD', 'Assets:Bank:Alder Checking')]
+        both = match_text(clover, 'Clover 40', jordan_accounts, '2026-11-06', 'USD', 'en-US')
+        self.assertTrue(both['pick_list']); self.assertEqual(len(both['matches']), 2); self.assertEqual(both['suggestions'], [])
+        quiet = match_text(clover, 'Clover', jordan_accounts, '2026-11-06', 'USD', 'en-US')
+        self.assertEqual((quiet['matches'], quiet['pick_list'], quiet['rule_id']), ([], False, None))
+        self.assertEqual(len(quiet['suggestions']), 2)
+        # A strong proposal and a weak one: only the proposal decides; the weak one stays a suggestion.
+        mixed = match_text([rent, lantern], 'October rent paper', {**asha_accounts, **jordan_accounts}, '2026-11-06', 'USD', 'en-US')
+        self.assertEqual((mixed['rule_id'], [m['id'] for m in mixed['suggestions']]), (rent['id'], [lantern['id']]))
 
     def test_localized_calendar_forms_never_supply_amounts(self):
         for locale,text in [('en-GB','Willow 1st Nov 2026'),('en-US','Willow Nov 1st, 2026'),('en-IN','Willow 01/11'),('fr-FR','Willow 1 novembre 2026'),('de-DE','Willow 1. November 2026'),('es-ES','Willow noviembre 1 2026'),('ja-JP','Willow 2026年11月1日')]:

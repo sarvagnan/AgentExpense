@@ -40,9 +40,10 @@ The first release. The date is set when the release is tagged.
   writes them with an audit line and a reviewable commit. Adapters for Codex,
   Claude Code, Pi, OpenCode and a direct API, each pinned and checked offline.
   Drafts survive agent outages and can be finished by hand.
-- **Recurring rules and bills.** Rules guessed while typing or made from repeated
-  payments; rules whose amount varies, with saved bills that stay unpaid until a
-  payment is recorded.
+- **Recurring rules and bills.** Rules guessed while typing (two shared words, or
+  one with the amount or paying account; a single word is only a suggestion) or
+  made from repeated payments; rules whose amount varies, with saved bills that
+  stay unpaid until a payment is recorded.
 - **Corrections, Delete and Trash.** Saved entries can be corrected, deleted within
   the ledger's time limits and restored from Trash with their evidence.
 - **Statements.** A reader interface (version 1) with generic CSV and spreadsheet

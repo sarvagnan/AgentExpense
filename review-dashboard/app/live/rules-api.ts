@@ -7,7 +7,8 @@ export type RulePosting={account:string;amount:string;commodity:string;cost?:{am
 export type Bill={amount:string;received:string;pay_by?:string;occurrence:string;sources:string[]};
 export type Rule={amount?:'varies';bill?:Bill;varying?:{history:{id:string;date:string;amount:string}[];min:string|null;max:string|null};id:string;description:string;date:string;status:string;postings:RulePosting[];notes?:string[];schedule:{every:'month'|'year';interval?:number;from:string;'anchor-day'?:number};lifecycle?:string;origin?:{kind:string;words?:string;evidence?:string[];came_back?:boolean};version?:string;next_due?:string;last_payment?:{id:string;date:string;rule?:{id:string;occurrence:string}}|null;payments?:{id:string;date:string;rule?:{id:string;occurrence:string}}[];rule_status?:string;review_state?:string;review?:{rule_verdict:string;reason:string}|null};
 export type RuleMatch={id:string;description:string;score:number;next_due:string;matched_words:string[];matched_alias:string|null;matched_amounts:{amount:string;currency:string}[]};
-export type MatchResult={matches:RuleMatch[];pick_list:boolean;rule_id:string|null};
+/** `matches` are proposals; `suggestions` share one word only and are offered quietly. */
+export type MatchResult={matches:RuleMatch[];suggestions?:RuleMatch[];pick_list:boolean;rule_id:string|null};
 export type RuleData={rules:Rule[];suggestions:{rule:Rule;reason:string;automatic?:boolean}[]};
 export const rulesApi={
   list:(signal?:AbortSignal)=>request<RuleData>('rules',{signal}),

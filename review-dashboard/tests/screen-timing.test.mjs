@@ -53,7 +53,7 @@ test('An explicit Review refresh superseded by a newer poll returns the newest s
 
 function ruleGuessHarness(instant){
  const requests=[],updates=[];
- const composer={form:{text:'Clover',declined_rules:['birch']},built:{fields:{}},draft:null,pending:[],interpretation:{busy:false,value:null},update(next){updates.push(next);composer.form=next;},save(){},setRuleDecisionNeeded(){}};
+ const composer={form:{text:'Clover',declined_rules:['birch']},built:{fields:{}},draft:null,pending:[],interpretation:{busy:false,value:null},update(next){updates.push(next);composer.form=next;},save(){},setUsualCard(){}};
  const element=(type,props)=>({type,props});
  const rules=[{id:'birch',description:'Birch rent',postings:[]},{id:'music',description:'Clover music',postings:[]},{id:'lessons',description:'Clover lessons',postings:[]}];
  const h=hookHarness('../app/live/rule-guess.tsx',{
@@ -76,6 +76,25 @@ test('Pick-list Not this stays dismissed when the held authoritative match arriv
    g.requests[0].resolve(late);await g.h.settle();g.render();assert.equal(g.h.current,null,'A late authoritative answer cannot show a dismissed rule');
   }finally{g.h.close();}
  }
+});
+
+test('A one-word suggestion has no primary button, reports no card, and opens its card only when chosen (B-2 N1, N2)',async()=>{
+ const suggestion={matches:[],suggestions:[{id:'music',description:'Clover music',matched_words:['clover']}],pick_list:false,rule_id:null};
+ const g=ruleGuessHarness(suggestion),cards=[];g.composer.setUsualCard=value=>cards.push(value);
+ const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
+ try{
+  g.render();await g.h.advance(180);g.requests[0].resolve(suggestion);await g.h.settle();g.render();
+  const aside=g.h.current;assert.equal(aside.props.className,'rule-guess rule-suggestion');
+  assert.equal(nodes(aside).some(n=>/\bprimary\b/.test(n.props?.className||'')),false,'A suggestion has no primary button');
+  assert.equal(nodes(aside).some(n=>n.type?.name==='RuleGuessChoice'),false,'A suggestion never opens the card by itself');
+  assert.ok(!cards.includes('fixed'),'No usual card is reported while only a suggestion shows');
+  g.button('Show usual payment').props.onClick();g.render();await g.h.settle();
+  assert.ok(nodes(g.h.current).some(n=>n.type?.name==='RuleGuessChoice'),'Choosing the suggestion opens its card');
+  assert.equal(cards.at(-1),'fixed','The open fixed card is reported to the composer, which steps Continue back');
+  g.composer.form={...g.composer.form,text:'Clover again'};g.render();await g.h.advance(180);g.requests.at(-1).resolve(suggestion);await g.h.settle();g.render();
+  assert.equal(g.h.current.props.className,'rule-guess rule-suggestion','Changed words return to the quiet suggestion');assert.equal(cards.at(-1),'');
+  g.button('Not this').props.onClick();g.render();assert.deepEqual([...g.composer.form.declined_rules],['birch','music']);assert.equal(g.h.current,null);
+ }finally{g.h.close();}
 });
 
 function handHarness(){

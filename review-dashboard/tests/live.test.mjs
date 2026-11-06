@@ -55,7 +55,13 @@ test('dates, payment hints, merchant text and word boundaries handle edge cases'
  assert.equal(build('petrol 2026-09-03 200').fields.amount.value,'200');assert.equal(build('petrol 5 November 200').fields.date.value,'2026-11-05');assert.equal(build('petrol 2026-02-30 200').fields.date.value,'2026-10-30');
  for(const [hint,pay] of [['card',PAYS.card],['checking',bank],['wallet',wallet],['Lunch balance',wallet],['Travel card',card],['cash',PAYS.cash]]){ const sentence=build(`petrol 300 ${hint}`);assert.equal(sentence.pattern,'fuel',hint);assert.equal(sentence.fields.pay.value,pay,hint); }
  assert.equal(build('chocolate 40').pattern,'new');assert.equal(build('fuel 100 at Fable Fuels').fields.outlet.value,'Fable Fuels');
- assert.equal(build('cab 96 to office').fields.route.value,'to office');assert.equal(build('Liora paid me back 430 coffee').fields.person.value,'liora');
+ assert.equal(build('cab 96 to office').fields.route.value,'to office');assert.equal(build('cab 96 to office').fields.service.value,'cab');
+ // An upload's unread pieces say what each one is, and "with receipt" is never a description (B-2 P3).
+ const filesOnly=Object.values(build('',{},true).fields).filter(f=>f.source==='agent'&&f.shown.endsWith('from your upload')).map(f=>f.shown);
+ assert.ok(filesOnly.length>1);assert.equal(new Set(filesOnly).size,filesOnly.length,filesOnly.join(' | '));
+ assert.equal(build('Copper Finch Café 18.60 with receipt',{},true).fields.what.value,'Copper Finch Café');assert.notEqual(build('Lunch 18.60 with receipt',{},true).fields.what?.value,'receipt');
+ // A ride's service keeps the typed name and case (B-2 P10).
+ assert.equal(build('Cedar Taxi, paid with my card').fields.service.value,'Cedar Taxi');assert.equal(build('Taxi 120 to the station').fields.service.value,'Taxi');assert.equal(build('taxi Cedar 80').fields.service.value,'taxi Cedar');assert.equal(build('Liora paid me back 430 coffee').fields.person.value,'liora');
  assert.equal(build('paper lantern renewed $5').fields.currency.value,'USD');assert.equal(build('lube ₹450 Fablemart card').fields.what.value,'lube Fablemart');
  // Taken pieces leave no separators behind, and typed words keep their case.
  assert.equal(build('Copper Finch Café, ₹18.60, cash').fields.what.value,'Copper Finch Café');assert.equal(build('Juniper Table, 46.80, cash, today').fields.what.value,'Juniper Table');
@@ -106,6 +112,31 @@ test('each draft state renders its content and permitted actions',async()=>{
  assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt'}}]),30000);
  assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt',can_undo:false,undo_until:null}}]),30000);
  const input=[{...base,id:'old',created_at:'2026-01-01'},{...base,id:'new',created_at:'2026-10-30'}];assert.equal(newestFirst(input)[0].id,'new');assert.equal(input[0].id,'old');
+ }finally{await server.close();}
+});
+
+test('Queue currency questions show the accounts they name: From and To for a transfer, the card for a conversion (B-2 D9, P9)',async()=>{
+ const server=await createServer({optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
+ try{
+  const accounts={'Assets:Bank:Alder Checking':{kind:'bank',currency:'USD',label:'Alder Checking'},'Assets:Bank:Willow Travel':{kind:'bank',currency:'EUR',label:'Willow Travel'},'Liabilities:Cards:Lumen Card':{kind:'card',currency:'USD',label:'Lumen Card'}};
+  (await server.ssrLoadModule('/app/data.ts')).setData({dashboard:{transactions:[],meta:{accounts,ledger:{defaultCurrency:'USD',locale:'en-US'}}},review:{},fuel:{}});
+  const {DraftDetail,currencyPieces}=await server.ssrLoadModule('/app/live/drafts.tsx');
+  const base={id:'a',state:'question',created_at:'2026-11-05T10:00:00Z',files:[],runs:[],result:null};
+  const transfer={...base,text:'Sent 1000 from Alder Checking to Willow Travel',questions:[{question:'How much arrived in EUR?',answer:null}],
+   pieces:{fields:{what:{value:'Sent',source:'typed'},amount:{value:'1000',source:'typed'},pay:{value:'',source:'missing'},date:{value:'2026-11-05',source:'usual'},category:{value:'',source:'agent'}}},
+   currency_request:{kind:'transfer',amount:'1000',sourceCurrency:'USD',currency:'EUR',sourceAccount:'Assets:Bank:Alder Checking',account:'Assets:Bank:Willow Travel',sourceLabel:'Alder Checking',accountLabel:'Willow Travel'}};
+  const pieces=currencyPieces(transfer,transfer.pieces.fields);
+  assert.deepEqual(Object.keys(pieces),['from','to','amount','date']);assert.equal(pieces.from.value,'Assets:Bank:Alder Checking');assert.equal(pieces.to.source,'typed');
+  const html=renderToStaticMarkup(createElement(DraftDetail,{draft:transfer,onAction:async()=>{}}));
+  assert.match(html,/From · You typed it<\/small>Alder Checking/);assert.match(html,/To · You typed it<\/small>Willow Travel/);assert.doesNotMatch(html,/Missing|Paid with|Category/);
+  const conversion={...base,text:'Dinner at Juniper Table, 46.80 EUR, on my card',questions:[{question:'How much was charged in USD?',answer:null}],
+   pieces:{fields:{amount:{value:'46.80',source:'typed'},currency:{value:'EUR',source:'typed'},place:{value:'Juniper Table',source:'typed'},pay:{value:'',source:'missing'},date:{value:'2026-11-05',source:'usual'}}},
+   currency_request:{kind:'expense',amount:'46.80',sourceCurrency:'EUR',currency:'USD',sourceAccount:'',account:'Liabilities:Cards:Lumen Card',sourceLabel:'',accountLabel:'Lumen Card'}};
+  const paid=renderToStaticMarkup(createElement(DraftDetail,{draft:conversion,onAction:async()=>{}}));
+  assert.match(paid,/Paid with · From the question<\/small>Lumen Card/);assert.doesNotMatch(paid,/>Missing</);
+  // A payer the words already settled is kept as typed.
+  const typed={...conversion,pieces:{fields:{...conversion.pieces.fields,pay:{value:'Liabilities:Cards:Lumen Card',source:'typed'}}}};
+  assert.equal(currencyPieces(typed,typed.pieces.fields).pay.source,'typed');
  }finally{await server.close();}
 });
 

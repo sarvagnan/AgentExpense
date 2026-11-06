@@ -579,9 +579,10 @@ def varying_rules(body: dict):
     declarations=deepcopy(original[settings.ledger/'data/accounts.json'])
     if os.environ['BROWSER_PERSONA']=='sam':
         currency=next(m['currency'] for m in declarations['accounts'].values() if m.get('currency') and m['currency']!=currency)
-    pay='Assets:Bank:Willow Bills';category='Expenses:Utilities:Willow Bills'
-    declarations['accounts'].update({pay:dict(kind='bank',currency=currency,label='Willow Bills'),category:{}})
-    rule=dict(id='f00000000000e001',date='2026-11-15',status='confirmed',description='Willow Energy',amount='varies',schedule={'every':'month','from':'2026-11-15'},notes=['Keep original rule notes.'],postings=[dict(account=category,amount='110.00',commodity=currency),dict(account=pay,amount='-110.00',commodity=currency)])
+    # Two distinctive words, shared with no paying account in any persona, so typing the name proposes the rule.
+    pay='Assets:Bank:Quarry Bills';category='Expenses:Utilities:Hearth Energy'
+    declarations['accounts'].update({pay:dict(kind='bank',currency=currency,label='Quarry Bills'),category:{}})
+    rule=dict(id='f00000000000e001',date='2026-11-15',status='confirmed',description='Hearth Energy',amount='varies',schedule={'every':'month','from':'2026-11-15'},notes=['Keep original rule notes.'],postings=[dict(account=category,amount='110.00',commodity=currency),dict(account=pay,amount='-110.00',commodity=currency)])
     rows=deepcopy(original[settings.ledger/'data/expenses/2026.json'])
     for i,(day,value) in enumerate([('2026-07-15','90.00'),('2026-08-15','100.00'),('2026-09-15','600.00'),('2026-10-15','110.00')],1):
         postings=[dict(p,amount=('-' if p['amount'].startswith('-') else '')+value) for p in rule['postings']]

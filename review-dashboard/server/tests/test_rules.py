@@ -216,7 +216,9 @@ class RuleTests(Fixture):
         def cli(*args):
             run=subprocess.run([__import__('sys').executable,str(script),'--root',str(self.ledger),*args],env={**os.environ,'LEDGER_DIR':str(self.ledger)},capture_output=True,text=True)
             self.assertEqual(run.returncode,0,run.stderr);return json.loads(run.stdout)
-        self.assertEqual(len(cli('list')['rules']),1);self.assertEqual(cli('match','Willow')['rule_id'],'f000000000000001')
+        self.assertEqual(len(cli('list')['rules']),1);self.assertEqual(cli('match','Willow 100 INR')['rule_id'],'f000000000000001')
+        # One shared word alone is only a suggestion, never a proposal (grade B-2 N2).
+        weak=cli('match','Willow');self.assertEqual((weak['rule_id'],weak['matches']),(None,[]));self.assertEqual([m['id'] for m in weak['suggestions']],['f000000000000001'])
         payload=self.base/'operation.json';payload.write_text(json.dumps(dict(action='paused',rule_id='f000000000000001')))
         self.assertEqual(cli('operations',str(payload))['action'],'paused');self.assertEqual(cli('backfill')['changed'],0);self.assertEqual(cli('catch-up')['changed'],0)
 

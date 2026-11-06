@@ -125,7 +125,7 @@ test('Held recovery is invalidated by discard and cannot replace a new input',as
 
 test('Rule guesses wait 180ms, cancel obsolete matches, and retain authoritative choices during a refresh',async()=>{
  const rule={id:'rent',description:'Birch rent',amount:'fixed'},result={matches:[{id:'rent'}],rule_id:'rent',pick_list:false},requests=[];
- const composer={form:{text:'Birch rent',declined_rules:[]},built:{fields:{}},draft:null,pending:[],interpretation:{busy:false,value:null},update(){},save(){},setRuleDecisionNeeded(){}};
+ const composer={form:{text:'Birch rent',declined_rules:[]},built:{fields:{}},draft:null,pending:[],interpretation:{busy:false,value:null},update(){},save(){},setUsualCard(){}};
  const element=(type,props)=>({type,props});
  const h=hookHarness('../app/live/rule-guess.tsx',{
   '../data':{dashboard:{meta:{ledger:{locale:'en-US'},accounts:{}}}},'../date-time':{localDate:()=> '2026-11-02'},'../ui':{},'../rules':{},
@@ -145,7 +145,7 @@ test('Rule guesses wait 180ms, cancel obsolete matches, and retain authoritative
 // a match that ignores the signal stands in for that order (carry-over from terra.patch).
 test('A rule match answered after its request was aborted cannot replace the newer match',async()=>{
  const rule={id:'rent',description:'Birch rent',amount:'fixed'},result={matches:[{id:'rent'}],rule_id:'rent',pick_list:false},requests=[];
- let composer={form:{text:'Birch rent',declined_rules:[]},built:{fields:{}},draft:null,pending:[],interpretation:{busy:false,value:null},update(){},save(){},setRuleDecisionNeeded(){}};
+ let composer={form:{text:'Birch rent',declined_rules:[]},built:{fields:{}},draft:null,pending:[],interpretation:{busy:false,value:null},update(){},save(){},setUsualCard(){}};
  const element=(type,props)=>({type,props});
  const h=hookHarness('../app/live/rule-guess.tsx',{
   '../data':{dashboard:{meta:{ledger:{locale:'en-US'},accounts:{}}}},'../date-time':{localDate:()=> '2026-11-02'},'../ui':{},'../rules':{},

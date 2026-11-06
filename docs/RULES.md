@@ -142,7 +142,12 @@ operation API. Dismissing a suggestion uses `removed` with its proposed `rule`
 and no `rule_id`; the server recomputes the current suggestion and retains a
 removed rule with suppression evidence, so a reload does not bring it back.
 
-Add guesses a rule under the words; Not this only records `declined_rules` on the
+Add guesses a rule under the words. A guess needs two distinctive shared words, or
+one with the rule's amount or paying account; words that name a paying account
+never count. One shared word alone is only a quiet suggestion ("Is this your …?",
+`suggestions` in `/api/rules/match`) that opens the card when chosen. While a
+fixed-amount card shows, Add as usual is the one primary action and Continue
+becomes "Send to the agent instead". Not this only records `declined_rules` on the
 editing draft and hides that guess. It never submits a payment or invokes an
 agent. Live matching owns the choice; the built snapshot mirrors matching for
 instant display. Add as usual supports a payment date, changed amount with either

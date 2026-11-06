@@ -22,7 +22,7 @@ export function matchRules(rules,text,accounts,today,currency,locale='en',calend
   const words=tokens(text),quantities=textAmounts(text,locale,calendar),codes=new Set([...Intl.supportedValuesOf('currency'),...rules.flatMap(r=>r.postings.map(p=>p.commodity))]);
   const explicit=new Set((text.match(/\b[A-Za-z]{3}\b/g)||[]).map(c=>c.toUpperCase()).filter(c=>codes.has(c)));
   const paymentWords=new Set(Object.values(accounts).filter(m=>['bank','card','cash','wallet'].includes(m.kind)).flatMap(m=>[m.kind,m.label||'',...(m.aliases||[])].flatMap(x=>[...tokens(x)])));
-  const matches=[];
+  const matches=[],suggestions=[];
   for(const r of rules) {
     if((r.lifecycle||'active')!=='active')continue;
     const names=new Set([...tokens(r.description),...mainPostings(r).flatMap(p=>[...tokens(p.account.split(':').at(-1))])]);
@@ -34,10 +34,11 @@ export function matchRules(rules,text,accounts,today,currency,locale='en',calend
     const matched_amounts=[];
     for(const [code,value] of Object.entries(compared))if(explicit.size?explicit.has(code):code===currency){const amount=quantities.find(q=>Math.abs(q-value)<=Math.abs(value)*.1+1e-9);if(amount!==undefined){score+=2;matched_amounts.push({amount:String(amount),currency:code});}}
     score+=Math.max(0,1-Math.abs(Date.parse(r.date)-Date.parse(today))/86400000/40);
-    matches.push({id:r.id,description:r.description,score,next_due:r.date,matched_words,matched_alias,matched_amounts});
+    // One shared word alone is a quiet suggestion; a proposal needs two words, or one with the amount or paying account.
+    (matched_words.length>1||matched_amounts.length||matched_alias?matches:suggestions).push({id:r.id,description:r.description,score,next_due:r.date,matched_words,matched_alias,matched_amounts});
   }
-  matches.sort((a,b)=>b.score-a.score||a.id.localeCompare(b.id));const pick_list=matches.length>1&&matches[0].score-matches[1].score<2;
-  return {matches,pick_list,rule_id:matches.length&&!pick_list?matches[0].id:null};
+  const order=(a,b)=>b.score-a.score||a.id.localeCompare(b.id);matches.sort(order);suggestions.sort(order);const pick_list=matches.length>1&&matches[0].score-matches[1].score<2;
+  return {matches,suggestions,pick_list,rule_id:matches.length&&!pick_list?matches[0].id:null};
 }
 export function periodFor(rule,day) {
   const [year,month]=day.split('-').map(Number),[startYear,startMonth,startDay]=rule.schedule.from.split('-').map(Number),step=(rule.schedule.interval||1)*(rule.schedule.every==='year'?12:1);

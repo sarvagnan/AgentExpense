@@ -50,14 +50,20 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
  const latest=rows[0],barResult=latest?(latest.type==='draft'?draftStatus(latest.value as Draft):statementStatus(latest.value as StatementSession)):'';
  const empty=!form.text&&!draft?.files.length&&!pending.length;
  const blockedSave=!empty&&!builtin?blockedSaveText(live.agent,live.online):!empty&&live.online===false?blockedSaveText(live.agent,false):null;
+ // A typed new account or another chosen account is being checked: say so, not the mismatch it resolves.
+ const mismatch=files.find(f=>f.mismatch),mismatchChoice=mismatch?form.fileChoices?.[mismatch.id]:undefined;
+ const resolvingMismatch=!!mismatch&&c.interpretation.busy&&!!(mismatchChoice?.new_account?.name.trim()||mismatchChoice?.account&&mismatchChoice.account!==mismatch.account);
  // Every other reason Continue is disabled is said in the bar, never "Ready to continue".
  const waitingSave:[string,string]|null=empty?null:pending.some(p=>!!p.error)?['An upload didn’t finish','Retry or remove it above to continue.']
   :files.some(f=>f.kind==='ambiguous')?['Choose statement or receipt','Pick one above to continue.']
-  :files.find(f=>f.mismatch)?[`Choose an account in ${files.find(f=>f.mismatch)!.currency}`,'The file and the account must use the same currency.']
+  :mismatch&&!resolvingMismatch?[`Choose an account in ${mismatch.currency}`,'The file and the account must use the same currency.']
   :files.some(f=>f.locked)?['Type the file’s password','It stays in memory only and opens the file.']
   :statement&&!draft?.files.length?['Attach the statement file','Its printed figures are checked before anything is applied.']
-  :c.ruleDecisionNeeded?['Choose an action above','Choose the payment or bill action above.']
-  :c.interpretation.busy&&!!draft?.files.length?['Checking the file…','Continue opens when the check finishes.']:null;
+  :c.ruleDecisionNeeded?['Choose an action above','Or choose Not this to send your words to the agent.']
+  :c.interpretation.busy&&!!draft?.files.length?['Checking the file…','Continue opens when the check finishes.']
+  :c.usualCard==='fixed'?['Add as usual above, or send it to the agent','The usual payment is added at once. The agent reads your words instead.']:null;
+ // With a fixed usual-payment card, Add as usual is the one primary action; Continue steps back.
+ const usualFirst=c.usualCard==='fixed';
  // A shorter background result must not clamp scrollY and move the composer
  // under the pointer. Release the extra reach as the person scrolls back up.
  useEffect(()=>{
@@ -85,7 +91,7 @@ export default function Add({live,composer:c}:{live:LiveDrafts;composer:Composer
       {patternError && <p className="live-hint">{patternError}</p>}
 
  </div></section><div className="add-interpretation"><AddUnderstood composer={c} online={live.online}/></div></div>
- <section className="add-savebar" aria-label="Save entry"><div><strong>{saving?'Saving…':busyFiles?'Uploading…':blockedSave?blockedSave[0]:empty&&barResult?barResult:empty?'Ready when you are':waitingSave?waitingSave[0]:statement||files.some(f=>f.kind==='statement')?'Continue to read the statement':'Ready to continue'}</strong><p className="live-hint">{blockedSave&&!saving&&!busyFiles?blockedSave[1]:empty&&latest?'The input is ready for your next entry.':waitingSave&&!saving&&!busyFiles?waitingSave[1]:statement||files.some(f=>f.kind==='statement')?'Checks come before applying any rows.':'Words or a file are enough to start.'}</p>{error&&<p className="live-error" role="alert">{error}</p>}</div><button type="button" className="button primary" disabled={c.ruleDecisionNeeded||live.online!==true||blockedAgent&&!builtin||saving||recovering||busyFiles||c.interpretation.busy||blockedFiles||pending.some(p=>!!p.error)||(!form.text.trim()&&!draft?.files.length)} onClick={()=>void save()}>Continue</button></section>
+ <section className="add-savebar" aria-label="Save entry"><div><strong>{saving?'Saving…':busyFiles?'Uploading…':blockedSave?blockedSave[0]:empty&&barResult?barResult:empty?'Ready when you are':waitingSave?waitingSave[0]:statement||files.some(f=>f.kind==='statement')?'Continue to read the statement':'Ready to continue'}</strong><p className="live-hint">{blockedSave&&!saving&&!busyFiles?blockedSave[1]:empty&&latest?'The input is ready for your next entry.':waitingSave&&!saving&&!busyFiles?waitingSave[1]:statement||files.some(f=>f.kind==='statement')?'Checks come before applying any rows.':'Words or a file are enough to start.'}</p>{error&&<p className="live-error" role="alert">{error}</p>}</div><button type="button" className={usualFirst?'button':'button primary'} disabled={c.ruleDecisionNeeded||live.online!==true||blockedAgent&&!builtin||saving||recovering||busyFiles||c.interpretation.busy||blockedFiles||pending.some(p=>!!p.error)||(!form.text.trim()&&!draft?.files.length)} onClick={()=>void save()}>{usualFirst?'Send to the agent instead':'Continue'}</button></section>
  {refused?.refusal&&<BalanceNotice refusal={refused.refusal}><p>{refused.text}</p><button className="button" disabled={!!refusalBusy} onClick={()=>void resolveRefusal('edit')}>{refusalBusy==='edit'?'Opening…':'Change account or date'}</button><button className="button" disabled={!!refusalBusy} onClick={()=>void resolveRefusal('keep')}>{refusalBusy==='keep'?'Keeping…':'Keep in Queue'}</button><button className="button destructive" disabled={!!refusalBusy} onClick={()=>void resolveRefusal('discard')}>{refusalBusy==='discard'?'Moving to Trash…':'Discard'}</button>{refusalError&&<p>{refusalError}</p>}</BalanceNotice>}
  <AddResults live={live} rows={rows}/>
  {showExamples&&<Dialog title="Examples" subtitle="Pick one, then change it to your own words." labelId="add-examples-title" onClose={()=>setShowExamples(false)}><div className="add-examples">{examples.map(example=><button className="example-button" key={example} onClick={()=>chooseExample(example)}>{example}</button>)}</div></Dialog>}

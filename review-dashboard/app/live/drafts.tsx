@@ -48,6 +48,19 @@ export function queueGroups(drafts:Draft[]){
   {name:'Saved for later',items:active.filter(d=>d.state==='editing'&&(d.text.trim()||d.files.length)).sort((a,b)=>b.created_at.localeCompare(a.created_at))}
  ];
 }
+const PIECE_LABELS:Record<string,string>={...LABELS,from:'From',to:'To'};
+/** A currency question already names its accounts: a transfer shows From and To, a conversion its card. Never "Missing" for an account the words or the question name. */
+export function currencyPieces(d:Draft,fields:Record<string,{value:string;source:string;note?:string}>){
+ const r=d.currency_request;if(!r)return fields;
+ const typed=(label:string)=>!!label&&d.text.toLocaleLowerCase().includes(label.toLocaleLowerCase());
+ const piece=(account:string,label:string)=>typed(label)?{value:account,source:'typed'}:{value:account,source:'agent',note:'From the question'};
+ if(r.kind==='transfer'){
+  // A transfer has no payer or category, and its typed verb ("Sent") is not a description.
+  const rest=Object.fromEntries(Object.entries(fields).filter(([key])=>!['what','pay','category'].includes(key)));
+  return {from:piece(r.sourceAccount,r.sourceLabel),to:piece(r.account,r.accountLabel),...rest};
+ }
+ return fields.pay?.value?fields:{...fields,pay:piece(r.account,r.accountLabel)};
+}
 export function DraftDetail({draft:d,onAction,onDiscard,blocked=false}:{draft:Draft;onAction:()=>Promise<void>;onDiscard?:(id:string)=>Promise<void>;blocked?:boolean;online?:boolean|null}){
  const answer=useAnswer(d),[hand,setHand]=useState(!!d.correction),[text,setText]=useState(d.text),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const pending=useRef<Promise<unknown>>(Promise.resolve()),[patterns,setPatterns]=useState<PatternData>({patterns:{},people:[],accounts:[]});
@@ -56,7 +69,7 @@ export function DraftDetail({draft:d,onAction,onDiscard,blocked=false}:{draft:Dr
  const proposed=d.proposal?.entry;
  if(proposed){for(const [key,value] of Object.entries({what:proposed.description,date:proposed.date,amount:proposed.postings.find(p=>Number(p.amount)>0)?.amount,pay:proposed.postings.find(p=>Number(p.amount)<0)?.account})){if(value&&(!fields[key]||!fields[key].value))fields[key]={value,source:'agent'};}}
  const paymentQuestion=!!question&&!/\b(?:expense|income|category)\s+account\b/i.test(question.question)&&/\b(?:pay|paid|payment|paying|card)\b/i.test(question.question)&&/(?:which|what).*(?:account|card)/i.test(question.question);
- const shownPieces=Object.entries(fields).filter(([key,piece])=>!(key==='currency'&&fields.amount?.value)&&!(key==='pay'&&!piece.value&&paymentQuestion));
+ const shownPieces=Object.entries(currencyPieces(d,fields) as Record<string,{value:string;source:string;note?:string}>).filter(([key,piece])=>!(key==='currency'&&fields.amount?.value)&&!(key==='pay'&&!piece.value&&paymentQuestion));
  const payerOptions=Object.entries(dashboard?.meta?.accounts||{}).filter(([,m])=>['bank','card','cash','wallet','loan','person'].includes(m.kind||''));
  async function act(fn:()=>Promise<unknown>,message:string){setBusy(true);setError('');try{await pending.current;await fn();await onAction();announce(message);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
  const discard=<button className="button destructive" disabled={busy||d.state==='working'} onClick={()=>void act(async()=>{await answer.flush();await (onDiscard?onDiscard(d.id):api.discard(d.id));answer.clear(true);},'Item moved to Trash.')}>Discard</button>;
@@ -68,7 +81,7 @@ export function DraftDetail({draft:d,onAction,onDiscard,blocked=false}:{draft:Dr
  
  {error&&<p className="live-error" role="alert">{error}</p>}</section>
  <section className="draft-words"><h3>Your words</h3>{d.state==='editing'?<label><span className="sr-only">Your words</span><textarea className="field" value={text} rows={4} disabled={busy} onChange={e=>{const value=e.target.value;setText(value);pending.current=pending.current.catch(()=>{}).then(()=>api.edit(d.id,value,draftPieces(buildSentence(value,{...patterns,payments:paymentAccounts(dashboard.meta.accounts)},d.pieces?.edits||{},!!d.files.length),d.pieces?.edits||{}))).then(()=>undefined);}} onBlur={()=>void pending.current.then(()=>onAction()).catch(e=>setError((e as Error).message))}/></label>:<p>{d.text||'Files only — no typed words.'}</p>}</section>
- {(shownPieces.length>0||d.state!=='question')&&<section><h3>Understood as</h3><div className="queue-pieces">{shownPieces.map(([key,piece])=><span key={key} className={`sentence-piece source-${piece.value||piece.source==='agent'?piece.source:'missing'}${d.refusal&&key==='date'?' piece-conflict':''}`}><small>{LABELS[key]||key}{piece.value?` · ${SOURCES[piece.source]||piece.source}`:''}</small>{pieceText(key,piece.value,fields)||(piece.source==='agent'?SOURCES.agent:'Missing')}</span>)}{question&&d.state!=='question'&&<span className="sentence-piece source-missing"><small>Question</small>{question.question}</span>}{!shownPieces.length&&!(question&&d.state!=='question')&&<p className="live-hint">The agent will check the details when sent.</p>}</div>{d.questions.filter(q=>q.answer!==null).map((q,i)=><div className="earlier-answer" key={i}><p>{q.question}</p><p><strong>You:</strong> {q.answer}</p></div>)}</section>}
+ {(shownPieces.length>0||d.state!=='question')&&<section><h3>Understood as</h3><div className="queue-pieces">{shownPieces.map(([key,piece])=><span key={key} className={`sentence-piece source-${piece.value||piece.source==='agent'?piece.source:'missing'}${d.refusal&&key==='date'?' piece-conflict':''}`}><small>{PIECE_LABELS[key]||key}{piece.value?` · ${piece.note||SOURCES[piece.source as keyof typeof SOURCES]||piece.source}`:''}</small>{pieceText(key,piece.value,fields)||(piece.source==='agent'?SOURCES.agent:'Missing')}</span>)}{question&&d.state!=='question'&&<span className="sentence-piece source-missing"><small>Question</small>{question.question}</span>}{!shownPieces.length&&!(question&&d.state!=='question')&&<p className="live-hint">The agent will check the details when sent.</p>}</div>{d.questions.filter(q=>q.answer!==null).map((q,i)=><div className="earlier-answer" key={i}><p>{q.question}</p><p><strong>You:</strong> {q.answer}</p></div>)}</section>}
  <section><h3>Files</h3>{d.files.length?<ul className="attachments">{d.files.map(f=><li key={f.id}><FilePreview id={d.id} file={f} note={`Filed under Bills/${fields.date?.value||'the entry date'} when added`}/></li>)}</ul>:<p className="live-hint">No files attached.</p>}</section>
  </div></article>;
 }

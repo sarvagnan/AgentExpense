@@ -43,6 +43,8 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   const byName=async name=>(await get('rules')).rules.find(r=>r.description===name);
   const words=()=>page.locator('#expense-words'),guess=()=>page.getByRole('complementary',{name:'Usual payment'}),saved=()=>page.getByRole('article',{name:'Added payment'}).first();
   const type=async text=>{await words().fill(text);await expect(words()).toHaveValue(text);await expect(guess()).toBeVisible();};
+  // Captures wait for the words check and the live match to settle: the bar's button is enabled then.
+  const settled=async()=>{await expect(page.locator('.add-savebar .button')).toBeEnabled();await page.mouse.move(1,1);};
   const add=async(text,configure=async()=>{})=>{
     await type(text);await configure();await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();
     await guess().getByRole('button',{name:'Add as usual',exact:true}).click();
@@ -55,16 +57,25 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   const fakeCount=async()=>readFile(countPath,'utf8').catch(()=> '0');
   const beforeFake=await fakeCount();
   await type('Birch rent 100 '+seed.currency);await expect(guess()).toContainText('Matched ‘birch’, ‘rent’');await expect(guess()).toContainText(new RegExp('100'));
+  // A fixed card: Add as usual is the only primary action, and the bar says what to do (grade B-2 N1).
+  await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await settled();
+  await expect(page.locator('.add-savebar .button')).toHaveText('Send to the agent instead');await expect(page.locator('.add-savebar .button')).not.toHaveClass(/\bprimary\b/);
+  await expect(page.locator('.add-savebar strong')).toHaveText('Add as usual above, or send it to the agent');
+  assert.deepEqual(await page.locator('.add-page .button.primary').filter({visible:true}).allInnerTexts(),['Add as usual']);
   await overflow('rule guess');await snap('rule-guess');
   await guess().getByRole('button',{name:'Not this',exact:true}).click();await expect(guess()).toHaveCount(0);
   await expect.poll(async()=>(await get('drafts')).find(d=>d.text.startsWith('Birch rent'))?.declined_rules).toEqual([seed.rules[0].id]);
   await reload();await expect(words()).toHaveValue('Birch rent 100 '+seed.currency);await expect(guess()).toHaveCount(0);
   assert.equal(await fakeCount(),beforeFake,'Not this never invokes the fake agent');
   assert.equal((await get('drafts')).filter(d=>d.state!=='editing').length,0);
-  await type('Clover 40 '+seed.currency);await guess().getByLabel('Which rule did you mean?').selectOption(seed.rules[1].id);await expect(guess()).toContainText('Clover music');await snap('rule-pick-list');
+  // One shared word is two quiet suggestions, not a pick list; choosing one opens its card (grade B-2 N2).
+  await type('Clover');await expect(guess()).toContainText('Is this one of your usual payments?');await expect(guess().locator('.primary')).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Continue',exact:true})).toHaveClass(/\bprimary\b/);await settled();await snap('rule-suggestions');
+  await guess().getByRole('button',{name:'Clover lessons',exact:true}).click();await expect(guess().getByRole('heading',{name:'Clover lessons',exact:true})).toBeVisible();await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();
+  await type('Clover 40 '+seed.currency);await guess().getByLabel('Which rule did you mean?').selectOption(seed.rules[1].id);await expect(guess()).toContainText('Clover music');await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await settled();await snap('rule-pick-list');
   record('6c2 live typed guess, ranked pick list and durable Not this without submission');
   await resetDrafts({persona,empty:true});await go('add/');
-  const first=await add('Birch rent 105 '+seed.currency,async()=>{await expect(guess().getByLabel('This payment only',{exact:true})).toBeChecked();await snap('rule-amount-this-payment');});
+  const first=await add('Birch rent 105 '+seed.currency,async()=>{await expect(guess().getByLabel('This payment only',{exact:true})).toBeChecked();await settled();await snap('rule-amount-this-payment');});
   assert.equal((await byName('Birch rent')).postings[0].amount,'100.00');
   await expect(saved().getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);await expect(saved()).toContainText('Next due');await snap('rule-saved');
   const eligibility=await get('entries/'+first.result.entry_id+'/retention');
@@ -72,19 +83,19 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await expect.poll(async()=>(await byName('Birch rent')).date).toBe('2026-11-02');
   await page.waitForLoadState('networkidle');
   record('6c2 usual payment commits entry and advance together, this-payment amount, checked Delete and Trash');
-  const second=await add('Birch rent 108 '+seed.currency,async()=>{await guess().getByLabel('Update the rule too',{exact:true}).check();await snap('rule-amount-update-rule');});
+  const second=await add('Birch rent 108 '+seed.currency,async()=>{await guess().getByLabel('Update the rule too',{exact:true}).check();await settled();await snap('rule-amount-update-rule');});
   assert.equal((await byName('Birch rent')).postings[0].amount,'108.00');
   await type('Birch rent 108 '+seed.currency);await expect(guess()).toContainText('Already added for');await expect(guess().getByRole('link',{name:'View entry'})).toHaveAttribute('href',new RegExp(second.result.entry_id));
-  await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await snap('rule-already-added');
+  await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await settled();await snap('rule-already-added');
   await words().fill('Birch rent 109 '+seed.currency);await guess().getByLabel('Add another anyway',{exact:true}).check();
   const [duplicateResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/usual')&&r.request().method()==='POST'),guess().getByRole('button',{name:'Add as usual',exact:true}).click()]);
   assert.ok(duplicateResponse.ok(),await duplicateResponse.text());const duplicate=await duplicateResponse.json();await expect(words()).toHaveValue('');
   await wait(duplicate.id);
   await refresh();await page.waitForLoadState('networkidle');await expect(page.locator('.just-added-row').first()).toContainText('Birch rent');await expect(saved().getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);
   record('6c2 updating rule amount, duplicate-period disclosure, View entry and explicit override');
-  await add('Fable support 15 '+seed.currency,async()=>{await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await guess().getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await guess().getByLabel('Use this account from now on',{exact:true}).check();await snap('rule-missing-payer');});
+  await add('Fable support 15 '+seed.currency,async()=>{await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await guess().getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await guess().getByLabel('Use this account from now on',{exact:true}).check();await settled();await snap('rule-missing-payer');});
   assert.equal((await byName('Fable support')).postings.at(-1).account,seed.pay);
-  const converted=await add('Lantern journal 10 '+seed.foreign,async()=>{await expect(guess()).toContainText('Planned conversion');await expect(guess()).toContainText('Statement reconciliation will correct it');await snap('rule-other-currency');});
+  const converted=await add('Lantern journal 10 '+seed.foreign,async()=>{await expect(guess()).toContainText('Planned conversion');await expect(guess()).toContainText('Statement reconciliation will correct it');await settled();await snap('rule-other-currency');});
   assert.equal(converted.result.usual_payment.estimated,true);await expect(saved()).toContainText('Added at the planned conversion');
   assert.equal(await fakeCount(),beforeFake,'Every usual addition bypasses the agent');
   record('6c2 missing payer with remember choice and other-currency planned conversion');

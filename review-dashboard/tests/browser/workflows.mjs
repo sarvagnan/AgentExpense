@@ -108,7 +108,7 @@ await expect(page.locator('.statement-conversion')).toContainText('51.48');await
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===foreignFile)?.state,{timeout:30000}).toBe('found');
  await go('add/');await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:newAccountFile,mimeType:'application/pdf',buffer:mismatch});
  await page.getByRole('button',{name:'Add an account in '+config.foreign,exact:true}).click();
- const inline=page.locator('.inline-account');await inline.getByLabel('Kind',{exact:true}).selectOption('card');await inline.getByLabel('Name',{exact:true}).fill('Willow Statement '+theme+' '+width);await expect(inline.getByLabel('Currency',{exact:true})).toHaveValue(config.foreign);await snap('statement-add-account');
+ const inline=page.locator('.inline-account');await inline.getByLabel('Kind',{exact:true}).selectOption('card');await inline.getByLabel('Name',{exact:true}).fill('Willow Statement '+theme+' '+width);await expect(inline.getByLabel('Currency',{exact:true})).toHaveValue(config.foreign);await expect(page.locator('.understood-panel')).not.toContainText('Checking the file…');await expect(page.locator('.add-savebar strong')).not.toHaveText(/^Choose an account/);await snap('statement-add-account');
  assert.equal(Object.values(JSON.parse(await readFile(join(stage.ledger,'data/accounts.json'))).accounts).some(m=>m.label==='Willow Statement '+theme+' '+width),false);
  await page.getByRole('button',{name:'Continue',exact:true}).click();
  await expect.poll(async()=>(await get('statements')).sessions.find(s=>s.original_name===newAccountFile)?.state,{timeout:180000}).toBe('found');

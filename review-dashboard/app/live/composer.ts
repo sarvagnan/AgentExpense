@@ -92,7 +92,8 @@ export function useComposer(active:boolean){
   async function cancel(item:Pending){item.cancelled=true;item.controller?.abort();changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:true,cancelled:true}:p));try{const d=await ensureDraft();await api.cancelUpload(d.id,item.key);await refreshFiles(d.id);changeUploads(xs=>xs.filter(p=>p.key!==item.key));}catch(e){changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:false,error:`Could not confirm cancellation. ${(e as Error).message}`}:p));}}
   function retry(item:Pending){if(item.cancelled){void cancel(item);return;}if(!item.file)return;changeUploads(xs=>xs.filter(p=>p.key!==item.key));pick([item.file]);}
   async function remove(file:Attachment){const id=current.current.id!;await api.remove(id,file.id);await refreshFiles(id);}
-  const [ruleDecisionNeeded,setRuleDecisionNeeded]=useState(false);
+  // The usual-payment card on show: a fixed card offers Add as usual first; a varying card needs a choice before anything is sent.
+  const [usualCard,setUsualCard]=useState<''|'fixed'|'varies'>(''),ruleDecisionNeeded=usualCard==='varies';
   const usualRetry=useRef<{id:string;signature:string;body:{bill_only?:boolean}}|null>(null);
   async function saveUsual(id:string,body:{bill_only?:boolean}){
     const {bill_only,...payload}=body;
@@ -117,6 +118,6 @@ export function useComposer(active:boolean){
   useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if((!localOK&&!serverSaved&&!!form.text)||pending.some(p=>p.busy)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[localOK,serverSaved,form.text,pending]);
   function forgetDiscarded(id:string){if(current.current.id!==id)return;generation.current++;fileRequest.current++;setRecovering(false);update(blank());setDraft(null);setPasswords({});setError('');setSyncError('');setSynced('');}
   function retryStorage(){persist();void sync();}
-  return {ruleDecisionNeeded,setRuleDecisionNeeded,form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,forgetDiscarded,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};
+  return {usualCard,setUsualCard,ruleDecisionNeeded,form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,modules:dashboard.meta.ledger.modules,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,forgetDiscarded,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};
 }
 export type Composer=ReturnType<typeof useComposer>;

@@ -412,6 +412,30 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       }
       await control('gate',{state:'ready'});
       await resetDrafts({persona,empty:true});
+      // One shared word only suggests a persona's usual payment, with no primary button; choosing it opens the
+      // card, whose Add as usual is then the page's one primary action (grade B-2 N1, N2).
+      const weak={asha:['Paper Kite Market, 12, paid with cash','Paper Lantern subscription'],jordan:['Birch rent 100 USD','October rent']}[persona];
+      if(weak) {
+        await go('add/');await refresh();
+        const words=page.locator('#expense-words'),guess=page.getByRole('complementary',{name:'Usual payment'}),save=page.locator('.add-savebar .button'),barTitle=page.locator('.add-savebar strong');
+        const idle=(await words.boundingBox()).height;
+        await words.fill(weak[0]);await expect(guess).toContainText('Is this your '+weak[1]+'?');await expect(save).toBeEnabled();
+        await expect(guess.locator('.primary')).toHaveCount(0);await expect(page.getByRole('button',{name:'Add as usual',exact:true})).toHaveCount(0);
+        await expect(save).toHaveText('Continue');await expect(save).toHaveClass(/\bprimary\b/);await expect(barTitle).toHaveText('Ready to continue');
+        await page.mouse.move(1,1);await snap('usual-suggestion');
+        await guess.getByRole('button',{name:'Show usual payment',exact:true}).click();await expect(guess.getByRole('heading',{name:weak[1],exact:true})).toBeVisible();
+        await expect(guess.getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await expect(save).toBeEnabled();
+        await expect(save).toHaveText('Send to the agent instead');await expect(save).not.toHaveClass(/\bprimary\b/);await expect(barTitle).toHaveText('Add as usual above, or send it to the agent');
+        assert.deepEqual(await page.locator('.add-page .button.primary').filter({visible:true}).allInnerTexts(),['Add as usual'],'Add as usual is the only primary button beside the card');
+        await expect(page.locator('.expense-interpretation')).toHaveCount(0);
+        if(width>1000)assert.ok((await words.boundingBox()).height<=idle+1,'The card does not stretch the words box');
+        const sizes=await guess.evaluate(node=>[...node.querySelectorAll('.rule-match-reason,.live-hint')].map(n=>getComputedStyle(n).fontSize));
+        assert.equal(new Set(sizes).size,1,'Card hints share one type size: '+sizes.join(', '));
+        await page.mouse.move(1,1);await snap('usual-chosen');
+        await words.fill('');await expect(guess).toHaveCount(0);await expect(save).toHaveText('Continue');
+        record('one shared word suggests a usual payment quietly; the chosen card keeps Add as usual as the one primary action');
+        await resetDrafts({persona,empty:true}); // Typing autosaved an editing draft; the empty Queue checks follow.
+      }
       await go('queue/');await refresh();await expect(page.locator('.agent-notice')).toHaveCount(0);
       await expect(page.getByText('No items waiting.',{exact:true})).toBeVisible();
       await expect(page.locator('.drafts-page .viewing-empty > .icon')).toHaveCount(1);await expect(page.locator('.drafts-page .viewing-empty').getByRole('link',{name:'Add an expense',exact:true})).toBeVisible();

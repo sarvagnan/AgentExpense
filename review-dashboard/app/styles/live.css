@@ -362,6 +362,13 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .forecast-sections{display:flex;gap:8px;margin:0;padding:var(--space-5) var(--space-6) 0}.forecast-sections.in-header{padding:0}
 .rule-guess{margin:16px 0;padding:18px;border:1px solid var(--separator);border-radius:10px;background:var(--surface-raised)}
 .rule-guess h3{font-size:18px;margin:4px 0 8px}.rule-guess .eyebrow{margin:0}.rule-match-reason{color:var(--text-secondary);font-size:13px}
+/* Card hints keep the card's own metadata size on phones too (the phone live-hint rule is larger). */
+.live-page .rule-guess .live-hint{font:var(--text-callout);margin:4px 0 0}
+/* A one-word match is a quiet suggestion: no raised card and no primary action. */
+.rule-guess.rule-suggestion{padding:12px 14px;background:transparent;border-style:dashed}
+.rule-suggestion-question{margin:0;font:var(--text-body)}.rule-suggestion .rule-match-reason{margin:4px 0 0}.rule-suggestion .rule-actions{align-items:center;margin-top:10px}
+/* A card beside the words never stretches the words box past its idle height. */
+@media(min-width:1001px){.add-page .add-layout:has(.rule-guess)>.composer-panel{align-self:start;min-height:320px}}
 .rule-summary{display:flex;flex-wrap:wrap;gap:6px 18px;margin:10px 0;font-size:14px}.rule-summary>span{overflow-wrap:anywhere}
 .rule-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.rule-check,.rule-amount-choice label{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px}.rule-check input,.rule-amount-choice input{flex-shrink:0;width:18px;height:18px;accent-color:var(--accent)}
 .rule-amount-choice{border:1px solid var(--control-border);border-radius:8px;padding:12px;margin:14px 0}.rule-amount-choice legend{padding:0 4px;font-size:14px}
@@ -390,7 +397,7 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .understood-body{padding:18px;overflow-wrap:anywhere}
 .understood-body .sentence-empty{min-height:190px}
 .interpretation-sentence{display:flex;flex-wrap:wrap;gap:5px;line-height:1.8}
-.interpretation-sentence .sentence-piece{font-size:15px;padding:3px 7px}
+.interpretation-sentence .sentence-piece{font-size:15px;padding:3px 7px;justify-content:center}
 .file-interpretation+.file-interpretation{margin-top:14px;padding-top:14px;border-top:1px solid var(--separator)}
 .file-interpretation>strong{font-size:13px;color:var(--text-secondary);overflow-wrap:anywhere}
 .file-interpretation h3{margin:8px 0;font-size:17px}

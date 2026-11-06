@@ -11,13 +11,13 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   await expect(guess.getByLabel('Payment date')).toHaveValue(today);
   await words.fill('Birch rent yesterday');
   const yesterday=await page.evaluate(()=>{const now=new Date();now.setDate(now.getDate()-1);return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;});
-  await expect(guess.getByLabel('Payment date')).toHaveValue(yesterday);await expect(guess).toContainText('(yesterday)');await snap('usual-typed-date');
+  await expect(guess.getByLabel('Payment date')).toHaveValue(yesterday);await expect(guess).toContainText('(yesterday)');await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await page.mouse.move(1,1);await snap('usual-typed-date');
   await guess.getByLabel('Payment date').fill('');await expect(guess.getByRole('button',{name:'Add as usual'})).toBeDisabled();await guess.getByLabel('Payment date').fill(yesterday);
   await guess.getByRole('button',{name:'Not this',exact:true}).click();await expect(guess).toHaveCount(0);
   await words.fill('Birch rent yesterday please');await expect.poll(async()=>(await get('drafts')).find(d=>d.text==='Birch rent yesterday please')?.declined_rules).toEqual([seed.rules[0].id]);await page.waitForLoadState('networkidle');await page.reload();await expect(words).toHaveValue('Birch rent yesterday please');await expect(guess).toHaveCount(0);
   await page.evaluate(()=>localStorage.removeItem('ledger-add-v1'));await page.reload();await expect(words).toHaveValue('Birch rent yesterday please');await expect(guess).toHaveCount(0);
-  await words.fill('Clover');await expect(guess.getByLabel('Which rule did you mean?')).toBeVisible();await guess.getByRole('button',{name:'Not this',exact:true}).click();await expect(guess).toHaveCount(0);
-  await expect.poll(async()=>(await get('drafts')).find(d=>d.text==='Clover')?.declined_rules?.length).toBe(3);
+  await words.fill('Clover 40 '+seed.currency);await expect(guess.getByLabel('Which rule did you mean?')).toBeVisible();await guess.getByRole('button',{name:'Not this',exact:true}).click();await expect(guess).toHaveCount(0);
+  await expect.poll(async()=>(await get('drafts')).find(d=>d.text==='Clover 40 '+seed.currency)?.declined_rules?.length).toBe(3);
   record('6d typed local date and monotonic Not this across changed words, reload, recovery and pick list');
   await resetDrafts({persona,empty:true});await go('add/');await words.fill('Birch rent yesterday');await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await guess.getByRole('button',{name:'Add as usual'}).click();
   let added;await expect.poll(async()=>{added=(await get('drafts?include_added=true')).find(d=>d.text==='Birch rent yesterday');return added?.state;},{timeout:180000}).toBe('added');
