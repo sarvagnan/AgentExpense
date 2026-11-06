@@ -4,7 +4,7 @@
 actionlint would catch most often, without downloading anything:
 
 - each workflow parses and has a name, triggers and jobs with runners, time limits and steps;
-- each step has exactly one of `run` or `uses`, and every action is pinned to a ref;
+- each step has exactly one of `run` or `uses`, and every action is pinned to a commit SHA;
 - `needs`, `matrix.*` and local actions refer to things that exist;
 - every `${{ }}` expression is closed, and every `run` script passes `bash -n`;
 - the project's rules: the personal-data scan uses an empty list made in the job,
@@ -63,8 +63,8 @@ def check_steps(steps, where, problems, root, matrix=None):
             if uses.startswith('./'):
                 if not (root / uses / 'action.yml').is_file():
                     problems.append(f'{label}: local action {uses} has no action.yml')
-            elif not re.fullmatch(r'[\w.-]+/[\w./-]+@[\w.-]+', uses):
-                problems.append(f'{label}: action {uses} is not pinned to a ref')
+            elif not re.fullmatch(r'[\w.-]+/[\w./-]+@[0-9a-f]{40}', uses):
+                problems.append(f'{label}: action {uses} is not pinned to a commit SHA')
         else:
             check_script(step['run'], label, problems)
         for text in strings(step):

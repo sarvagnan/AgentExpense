@@ -35,7 +35,8 @@ class WorkflowCheckTests(unittest.TestCase):
     def test_mistakes_are_reported(self):
         cases = [
             ('workflows/ci.yml', '    timeout-minutes: 15\n', '', 'job privacy: missing timeout-minutes'),
-            ('workflows/ci.yml', 'actions/setup-python@v5', 'actions/setup-python', 'is not pinned to a ref'),
+            ('workflows/ci.yml', 'actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065', 'actions/setup-python', 'is not pinned to a commit SHA'),
+            ('workflows/ci.yml', 'actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065', 'actions/setup-python@v5', 'is not pinned to a commit SHA'),
             ('workflows/release.yml', '          fi\n          echo "VERSION_NUMBER', '          echo "VERSION_NUMBER', 'bash -n'),
             ('workflows/ci.yml', 'name: Offline suites and build (${{ matrix.persona }})', 'name: Offline (${{ matrix.person }})', 'matrix.person is not in the job matrix'),
             ('workflows/ci.yml', 'make test-server SERVER_TESTS=${{ matrix.persona', 'make test-server SERVER_TESTS=${{ matrix.engine', 'matrix.engine is not in the job matrix'),

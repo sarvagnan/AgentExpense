@@ -31,10 +31,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Personal-data scan with an empty list
@@ -69,7 +69,7 @@ jobs:
     env:
       LEDGER_DIR: ${{ github.workspace }}/fixtures/ledgers/${{ matrix.persona }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - run: make doctor
       - name: Verify, test migrations and build
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - name: Update v0.1.0 to v0.2.0 with a migration, and roll back a failing release
         run: make test-update
@@ -104,7 +104,7 @@ jobs:
       matrix:
         engine: [chromium, firefox, webkit]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - name: Install Playwright (pinned) and its headless ${{ matrix.engine }}
         # The harness loads Playwright from this folder and refuses any other version.
@@ -118,7 +118,7 @@ jobs:
         run: ENGINES=${{ matrix.engine }} CAPTURE=0 make browser-tests
       - name: Keep failing-case traces
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: browser-traces-${{ matrix.engine }}
           path: /tmp/agentexpense-run-*/**/failure-*.zip
