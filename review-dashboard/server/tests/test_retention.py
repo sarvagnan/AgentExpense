@@ -130,6 +130,24 @@ class RetentionTests(Fixture):
         self.assertEqual(self.service.listing()['items'],[])
         self.assertTrue(clean(self.ledger))
 
+    def test_a_ledger_jj_cannot_read_defers_the_sweep_in_one_line(self):
+        # The worker's sweep against a folder that is not a jj repository (as in an
+        # agent-check fixture): one warning line naming the command, no traceback.
+        from dataclasses import replace
+        from worker import Worker
+        plain=self.base/'not-a-repository';plain.mkdir()
+        worker=Worker(self.settings,self.drafts)
+        worker.retention=Retention(replace(self.settings,ledger=plain),self.drafts,lambda:self.now)
+        with self.assertLogs(level='WARNING') as log: worker.sweep_retention()
+        self.assertEqual(len(log.records),1);self.assertIsNone(log.records[0].exc_info)
+        message=log.records[0].getMessage()
+        self.assertTrue(message.startswith(f'Retention sweep deferred: jj -R {plain} diff --summary exited 1: '),message)
+        self.assertIn('no jj repo',message)
+        # Other failures are bugs and keep their traceback.
+        worker.retention=type('Broken',(),{'sweep':lambda self:1/0})()
+        with self.assertLogs(level='ERROR') as log: worker.sweep_retention()
+        self.assertIsNotNone(log.records[0].exc_info)
+
     def test_saved_statement_restore_uses_shared_preview_and_expiry_limits(self):
         import io
         from pypdf import PdfWriter

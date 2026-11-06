@@ -1,14 +1,39 @@
 """One durable FIFO worker per ledger, independent of HTTP request lifetimes."""
 import fcntl
 from pathlib import Path
+import subprocess
 import threading
+
+from starlette.exceptions import HTTPException
 
 import agent
 from daily_refresh import DailyRefresh
 from outcomes import queue_outcome, OutcomeTransaction
 from agent import now
-from transactions import BalanceRefusal, Transaction, AccountError, ProposalError, LedgerBusy, clean, ledger_lock, refresh
+from transactions import BalanceRefusal, Transaction, AccountError, ProposalError, LedgerBusy, clean, command_failure, ledger_lock, refresh
 import save_timing
+
+
+# FileNotFoundError passes through too: endpoints answer a missing item with their own 404 or 409.
+# So does HTTPException, which an operation raises for its own answer (intake's state checks).
+REFUSALS = (ValueError, TypeError, KeyError, ArithmeticError, FileNotFoundError, HTTPException)
+
+
+class SaveFailed(ValueError):
+    """A checked operation failed outside its own refusals (a failed verification or jj
+    command, a file error). Its transaction has rolled back; the request answers 409 with
+    this one-line reason instead of a bare 500, and the log keeps the traceback."""
+
+
+def refusal(exc, kind):
+    """The exception a worker.call endpoint answers with: refusals as they are, anything else
+    as SaveFailed with a one-line reason."""
+    if isinstance(exc, REFUSALS): return exc
+    import logging
+    logging.getLogger(__name__).error('%s failed and was not saved', kind, exc_info=exc)
+    if isinstance(exc, subprocess.CalledProcessError): reason = command_failure(exc)
+    else: reason = (str(exc).strip().splitlines() or [type(exc).__name__])[0][:300]
+    return SaveFailed(f'The ledger could not save this change ({reason}). Try again; if it fails again, run make doctor.')
 
 
 class Worker:
@@ -32,13 +57,15 @@ class Worker:
         operation in its save timing line.
         """
         if not self.thread:
-            with save_timing.operation(kind): return operation()
+            try:
+                with save_timing.operation(kind): return operation()
+            except Exception as exc: raise refusal(exc, kind) from exc
         job=dict(queued_at=now(), operation=operation, done=threading.Event(), kind=kind)
         with self.drafts.mutex:
             if self.stop_event.is_set(): raise ValueError('The server is stopping; retry this action')
             self.calls.append(job)
         self.wake.set();job['done'].wait()
-        if 'error' in job: raise job['error']
+        if 'error' in job: raise refusal(job['error'], kind) from job['error']
         return job['result']
 
     def cancel_receipt(self, entry_id):
@@ -85,14 +112,21 @@ class Worker:
         if self.pause.check_thread: self.pause.check_thread.join()
         self.lease.close()
 
+    def sweep_retention(self):
+        if not getattr(self, 'retention', None): return
+        import logging
+        try:
+            with save_timing.operation('retention-sweep'): self.retention.sweep()
+        except subprocess.CalledProcessError as exc:
+            # jj could not read the ledger (for example a test fixture that is not a
+            # repository): the sweep retries in 30 s, and says why in one line.
+            logging.warning('Retention sweep deferred: %s', command_failure(exc))
+        except Exception:
+            logging.exception('Retention sweep deferred')
+
     def loop(self):
         while not self.stop_event.is_set():
-            if getattr(self, "retention", None):
-                try:
-                    with save_timing.operation('retention-sweep'): self.retention.sweep()
-                except Exception:
-                    import logging
-                    logging.exception("Retention sweep deferred")
+            self.sweep_retention()
             self.daily_refresh.tick()
             if getattr(self, 'update_notice', None):
                 try: self.update_notice.tick()

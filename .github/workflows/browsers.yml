@@ -1,0 +1,74 @@
+# On version tags, by hand and weekly: the headless browser suites in Light (Dark is for the
+# grading round) and the make update test. Pushes and pull requests run ci.yml. Nothing here
+# reads a private list, signs in to an agent or runs a model.
+name: Browsers and update
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+  schedule:
+    - cron: "41 3 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browsers-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  npm_config_update_notifier: "false"
+  PLAYWRIGHT_VERSION: "1.64.1"
+  JJ_USER: CI
+  JJ_EMAIL: ci@example.invalid
+  GIT_AUTHOR_NAME: CI
+  GIT_AUTHOR_EMAIL: ci@example.invalid
+  GIT_COMMITTER_NAME: CI
+  GIT_COMMITTER_EMAIL: ci@example.invalid
+
+jobs:
+  update:
+    name: make update between local releases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup
+      - name: Update v0.1.0 to v0.2.0 with a migration, and roll back a failing release
+        run: make test-update
+
+  browser:
+    name: Headless browsers (${{ matrix.engine }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup
+      - name: Install Playwright (pinned) and its headless ${{ matrix.engine }}
+        # The harness loads Playwright from this folder and refuses any other version.
+        run: |
+          mkdir -p ~/.cache/expense-playwright
+          cd ~/.cache/expense-playwright
+          printf '{"private": true}\n' > package.json
+          npm install --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
+          npx playwright install --with-deps ${{ matrix.engine == 'chromium' && 'chromium-headless-shell' || matrix.engine }}
+      - name: Browser run cleanup probe
+        # The offline jobs install no browser and skip this probe; here it must run.
+        if: matrix.engine == 'chromium'
+        run: BROWSER_PROBE_REQUIRED=1 SCANNER_TESTS=test_browser_failure_and_signal_remove_owned_roots make test-scanner
+      - name: Browser suites, every persona and size, in Light
+        run: ENGINES=${{ matrix.engine }} THEMES=light CAPTURE=0 make browser-tests
+      - name: Keep failing-case traces
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-traces-${{ matrix.engine }}
+          path: /tmp/agentexpense-run-*/**/failure-*.zip
+          if-no-files-found: ignore

@@ -1,15 +1,10 @@
 import assert from 'node:assert/strict';
+import {hold as holdShared} from './held.mjs';
 
-// Hold real responses, rather than depending on one engine being slower.
-async function hold(page,pattern,method='GET',transform=null,count=1){
- let resolveReady,release;const ready=new Promise(r=>resolveReady=r),gate=new Promise(r=>release=r);let seen=0,completed=0;
- const work=[];
- const handler=async route=>{
-  if(route.request().method()!==method||seen>=count)return route.fallback();
-  seen++;const task=(async()=>{const response=await route.fetch();let body=await response.body();if(transform)body=Buffer.from(JSON.stringify(transform(JSON.parse(body))));if(++completed===count)resolveReady();await gate;await route.fulfill({response,body});})();work.push(task);await task;
- };
- await page.route(pattern,handler);
- return {ready,async release(){release();await Promise.all(work);await page.unroute(pattern,handler);}};
+// Hold real responses, rather than depending on one engine being slower. `transform`
+// rewrites a held JSON body.
+function hold(page,pattern,method='GET',transform=null,count=1){
+ return holdShared(page,pattern,{method,count,transform:transform&&(body=>Buffer.from(JSON.stringify(transform(JSON.parse(body)))))});
 }
 async function unchanged(locator,box,expect){
  await expect(locator).toBeEnabled();const next=await locator.boundingBox();assert.ok(next&&box);for(const key of ['x','y','width','height'])assert.ok(Math.abs(next[key]-box[key])<1,`${key}: control moved during a background response`);

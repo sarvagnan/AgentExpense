@@ -208,6 +208,39 @@ class RuleTests(Fixture):
         with self.client(worker=False,dev=False) as client:
             response=client.post('/api/rules/operations/'+'1'*32,json=dict(action='paused',rule_id='f000000000000001'));self.assertEqual(response.status_code,403)
 
+    def test_a_failed_commit_answers_409_with_its_reason_and_keeps_the_rule(self):
+        # CI, 2026-11-06: a rule save answered a bare 500. Whatever fails after the checks
+        # (strict verification, a jj command), the transaction rolls back and the request
+        # answers 409 with a one-line reason, through the worker or without it.
+        self.seed();forecast=self.ledger/'data/forecast.json'
+        before=load(self.ledger)[forecast];head=self.jj('log','-r','@-','--no-graph','-T','commit_id')
+        failures=[(RuntimeError('Ledger commit failed verification: fictional strict check\nmore output'),'(Ledger commit failed verification: fictional strict check)'),
+                  (subprocess.CalledProcessError(1,['jj','--config','snapshot.max-new-file-size=0','-R','/tmp/fixture','commit','-m','x'],stderr='Error: fictional concurrent operation\n'),
+                   '(jj -R /tmp/fixture commit -m x exited 1: Error: fictional concurrent operation)')]
+        for worker in (False,True):
+            for failure,reason in failures:
+                with self.subTest(worker=worker,failure=type(failure).__name__):
+                    with patch('transactions.Transaction.verified_commit',side_effect=failure),self.client(worker=worker) as client,self.assertLogs('worker',level='ERROR') as log:
+                        response=client.post('/api/rules/operations/'+secrets.token_hex(16),json=dict(action='paused',rule_id='f000000000000001'))
+                    self.assertEqual(response.status_code,409,response.text)
+                    self.assertEqual(response.json()['detail'],f'The ledger could not save this change {reason}. Try again; if it fails again, run make doctor.')
+                    self.assertIsNotNone(log.records[0].exc_info)
+                    self.assertEqual(load(self.ledger)[forecast],before);self.assertTrue(clean(self.ledger))
+                    self.assertEqual(self.jj('log','-r','@-','--no-graph','-T','commit_id'),head)
+        # The same operation then saves normally.
+        with self.client(worker=True) as client:
+            response=client.post('/api/rules/operations/'+secrets.token_hex(16),json=dict(action='paused',rule_id='f000000000000001'))
+        self.assertEqual(response.status_code,200,response.text);self.assertEqual(load(self.ledger)[forecast][0]['lifecycle'],'paused')
+
+    def test_an_operations_own_http_answer_passes_through_the_worker(self):
+        # Intake's dispatch raises HTTPException for a draft in the wrong state; that answer
+        # must reach the client unchanged, not as a failed save.
+        import worker
+        from fastapi import HTTPException
+        answer=HTTPException(409,'This submission is already in Queue')
+        with self.assertNoLogs('worker',level='ERROR'): self.assertIs(worker.refusal(answer,'intake'),answer)
+        with self.assertLogs('worker',level='ERROR'): self.assertIsInstance(worker.refusal(OSError('disk full'),'intake'),worker.SaveFailed)
+
     def test_cli_shared_operations_match_backfill_and_catch_up(self):
         self.seed()
         server=self.application/'review-dashboard/server'

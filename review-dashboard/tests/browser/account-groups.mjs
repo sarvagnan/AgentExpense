@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {gunzipSync,gzipSync} from 'node:zlib';
+import {forward,hold} from './held.mjs';
 
 // Step 6g: one-line account rows, group headings that open a group view, the transfers
 // switch, mixed currencies, the phone picker, history and a data reload held open.
@@ -146,23 +147,23 @@ export async function runAccountGroups({page,base,persona,width,stage,expect,con
 
   // 7. A data reload landing while a group view is open keeps the view, its period and the switch.
   await go('account-summary/?account=Banks');
-  const url=base+'data/dashboard.json.gz',drafts=base+'api/drafts?include_added=true';let ready,release,work=null,used=false;
-  const seen=new Promise(r=>ready=r),gate=new Promise(r=>release=r);
-  const held=async route=>{if(used)return route.fallback();used=true;work=(async()=>{const response=await route.fetch();const next=JSON.parse(gunzipSync(await response.body()));next.transactions.find(t=>t.description==='Rowan Card payment').description='Rowan Card payment, reloaded';ready();await gate;await route.fulfill({response,body:gzipSync(JSON.stringify(next))});})();await work;};
+  const drafts=base+'api/drafts?include_added=true',failures=[];
+  const reload=await hold(page,base+'data/dashboard.json.gz',{transform:body=>{const next=JSON.parse(gunzipSync(body));next.transactions.find(t=>t.description==='Rowan Card payment').description='Rowan Card payment, reloaded';return gzipSync(JSON.stringify(next));}});
   let added=false;
-  const addition=async route=>{if(added)return route.fallback();added=true;const response=await route.fetch();const listed=await response.json();
-   await route.fulfill({response,json:[{id:'6'.repeat(32),state:'added',text:'Rowan timing',pieces:null,created_at:new Date().toISOString(),saved_at:null,queued_at:null,files:[],runs:[],questions:[],error:null,waiting:null,result:{outcome:'added',entry_id:'6'.repeat(16)}},...listed]});};
-  await page.route(url,held);await page.route(drafts,addition);
+  const forwarded=forward(page,async(response,route)=>route.fulfill({response,json:[{id:'6'.repeat(32),state:'added',text:'Rowan timing',pieces:null,created_at:new Date().toISOString(),saved_at:null,queued_at:null,files:[],runs:[],questions:[],error:null,waiting:null,result:{outcome:'added',entry_id:'6'.repeat(16)}},...await response.json()]}),{failures});
+  const addition=route=>{if(added)return route.fallback();added=true;return forwarded(route);};
+  await page.route(drafts,addition);
   try{
-   await refresh();await seen;
+   await refresh();await reload.ready;
    const switchControl=view.getByRole('switch',{name:'Show transfers between Banks'});
    await view.getByLabel('Period').selectOption('all');await switchControl.check();await switchControl.hover();const before=await switchControl.boundingBox();
-   release();await work;await expect(view).toContainText('Rowan Card payment, reloaded');
+   await reload.release();await expect(view).toContainText('Rowan Card payment, reloaded');
    await expect(view).toHaveAttribute('data-group','Banks');await expect(view.getByLabel('Period')).toHaveValue('all');await expect(switchControl).toBeChecked();await expect(switchControl).toBeEnabled();
    await expect(view.locator('tr[data-internal="true"]')).toContainText('Move to Rowan Reserve');
    const after=await switchControl.boundingBox();for(const key of ['x','y','width','height'])assert.ok(Math.abs(after[key]-before[key])<1,`The switch stayed under the pointer (${key})`);
    assert.match(page.url(),/period=all/);assert.match(page.url(),/transfers=shown/);
-  }finally{release();await work;await page.unroute(url,held);await page.unroute(drafts,addition);}
+   assert.deepEqual(failures,[],'The forwarded Queue read reached the server');
+  }finally{await reload.release();await page.unroute(drafts,addition);}
   record('6g timing: a held data reload keeps the group view, its period and the transfers switch');
  }finally{await quiesce();await control('account-groups',{restore:true});}
 }

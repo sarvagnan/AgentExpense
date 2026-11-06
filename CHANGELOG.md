@@ -78,8 +78,10 @@ The first release. The date is set when the release is tagged.
   checkout, the ledger checkpoint and the dashboard. `make upgrade-ledger` runs a
   chain of migrations, rehearsing it on a scratch copy first. An optional update
   notice in Settings (off unless `local.json` turns it on) reads the remote's tags at
-  most daily. GitHub workflows run CI, propose agent CLI pins weekly and publish
-  releases from tags; see [docs/RELEASING.md](docs/RELEASING.md).
+  most daily. GitHub workflows run the scans and offline suites on every push, the
+  headless browsers (in Light) and the update test on tags, by hand and weekly,
+  propose agent CLI pins weekly and publish releases from tags; see
+  [docs/RELEASING.md](docs/RELEASING.md).
 - **Setup.** [SETUP.md](SETUP.md) walks a coding agent through setting up a ledger.
   `make new-ledger` creates one from `templates/ledger/` as its own repository with a
   verified first commit; `make add-account` and `make opening-balances` declare

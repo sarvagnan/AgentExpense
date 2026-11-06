@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import gzip
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -77,6 +78,19 @@ class DailyRefreshTests(unittest.TestCase):
                 self.refresh.side_effect = self.rebuild
                 self.time = 600; self.job.tick()
                 self.assertEqual(self.refresh.call_count, 2)
+
+    def test_a_ledger_jj_cannot_read_backs_off_with_one_line(self):
+        # A fixture that is not a jj repository: one warning line, no traceback, same backoff.
+        failure = subprocess.CalledProcessError(1, ['jj', '--config', 'snapshot.max-new-file-size=0', '-R', '/tmp/fixture', 'diff', '--summary'],
+                                                output='', stderr='Error: There is no jj repo in "/tmp/fixture"\n')
+        self.clean.side_effect = failure
+        with self.assertLogs('daily_refresh', level='WARNING') as log: self.job.tick()
+        self.assertEqual(len(log.records), 1)
+        self.assertEqual(log.records[0].levelname, 'WARNING');self.assertIsNone(log.records[0].exc_info)
+        self.assertEqual(log.records[0].getMessage(), 'Daily dashboard refresh deferred; retrying in 10 minutes: '
+                         'jj -R /tmp/fixture diff --summary exited 1: Error: There is no jj repo in "/tmp/fixture"')
+        self.assertTrue(self.job.retry_failed);self.assertEqual(self.job.next_check, 600)
+        self.refresh.assert_not_called()
 
     def test_missing_or_old_metadata_rebuilds_and_bad_json_backs_off(self):
         self.path.unlink(); self.job.tick(); self.refresh.assert_called_once()

@@ -79,7 +79,8 @@ async function staging(persona) {
   await run('npm',['--prefix','review-dashboard','run','build'],{cwd:app,env,log:join(root,'build.log')});
   env.EXPENSES_PORT=String(await port());
   const log=await open(join(root,'server.log'),'w');
-  activeServer=spawn(python,[join(dash,'tests/browser/serve.py')],{cwd:app,env,stdio:['ignore',log.fd,log.fd]});await log.close();
+  // Unbuffered, so a traceback is whole in the log even if the server is killed after it.
+  activeServer=spawn(python,[join(dash,'tests/browser/serve.py')],{cwd:app,env:{...env,PYTHONUNBUFFERED:'1'},stdio:['ignore',log.fd,log.fd]});await log.close();
   const base=`http://127.0.0.1:${env.EXPENSES_PORT}/expenses/`;
   const deadline=Date.now()+20000;let started=false;
   while(Date.now()<deadline){try{if((await fetch(base+'api/health')).ok){started=true;break;}}catch{}if(activeServer.exitCode!==null)break;await new Promise(done=>setTimeout(done,100));}
@@ -122,7 +123,11 @@ async function cleanupArtifacts(passed) {
     const {readdir,lstat}=await import('node:fs/promises');
     // A failed server request is otherwise only a status code: print each server's tail
     // (fictional fixture data only) into this run's own output before the root is removed.
-    for(const persona of personas){const log=await readFile(join(artifacts,persona,'server.log'),'utf8').catch(()=>null);if(log)console.log(`SERVER_LOG_TAIL ${persona}\n${log.split('\n').slice(-120).join('\n')}\nEND_SERVER_LOG_TAIL ${persona}`);}
+    // The last traceback is printed whole, even when later lines would push it out of the tail.
+    for(const persona of personas){const log=await readFile(join(artifacts,persona,'server.log'),'utf8').catch(()=>null);if(!log)continue;
+      const lines=log.split('\n'),tail=lines.slice(-120),start=lines.findLastIndex(line=>line.startsWith('Traceback ')||line.startsWith('ERROR:'));
+      const traceback=start>=0&&start<lines.length-120?lines.slice(start,start+200):[];
+      console.log(`SERVER_LOG_TAIL ${persona}\n${traceback.length?traceback.join('\n')+'\n[…]\n':''}${tail.join('\n')}\nEND_SERVER_LOG_TAIL ${persona}`);}
     const failures=[];
     async function retain(folder){for(const name of await readdir(folder)){const path=join(folder,name);if((await lstat(path)).isDirectory())await retain(path);else if(name.startsWith('failure-')&&name.endsWith('.zip'))failures.push(path);}}
     await retain(artifacts);

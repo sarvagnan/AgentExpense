@@ -1,18 +1,13 @@
 import assert from 'node:assert/strict';
 import {gunzipSync,gzipSync} from 'node:zlib';
 import {holdResponse as hold} from './retention-timing.mjs';
+import {hold as holdShared} from './held.mjs';
 
 // A Queue poll that sees a new addition (from Add, another device or a receipt) reloads
 // the dashboard while the person reads, types, navigates or saves elsewhere. Each case
 // holds that reload open, acts during it, releases it and checks that nothing was lost.
-async function holdData(page,base,change=()=>{}){
- const url=base+'data/dashboard.json.gz';let ready,release,work=null,used=false;const seen=new Promise(r=>ready=r),gate=new Promise(r=>release=r);
- const handler=async route=>{
-  if(used)return route.fallback();used=true;
-  work=(async()=>{const response=await route.fetch();const data=JSON.parse(gunzipSync(await response.body()));change(data);ready();await gate;await route.fulfill({response,body:gzipSync(JSON.stringify(data))});})();await work;
- };
- await page.route(url,handler);
- return {ready:seen,async release(){release();await work;await page.unroute(url,handler);}};
+function holdData(page,base,change=()=>{}){
+ return holdShared(page,base+'data/dashboard.json.gz',{transform:body=>{const data=JSON.parse(gunzipSync(body));change(data);return gzipSync(JSON.stringify(data));}});
 }
 // The added row copies a real one, so every screen reading Queue rows can render it.
 const addition=id=>rows=>{const real=rows.find(d=>d.state==='added');assert.ok(real,'The fixture has an added row');return [{...real,id:id.repeat(32),created_at:new Date().toISOString(),receipt_reading:null,result:{...real.result,entry_id:id.repeat(16)}},...rows];};

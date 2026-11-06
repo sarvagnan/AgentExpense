@@ -18,6 +18,22 @@ APPLICATION=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(APPLICATION/'scripts'))
 import test_run
 
+PLAYWRIGHT=Path.home()/'.cache/expense-playwright/node_modules/playwright/package.json'
+
+
+def browser_probe_unavailable():
+    """Why the browser cleanup probe cannot run here, or None.
+
+    It drives the pinned headless Chromium through `make browser-tests`. The offline CI
+    jobs install no browser; CI's Chromium job runs this probe with BROWSER_PROBE_REQUIRED=1.
+    """
+    try:version=json.loads(PLAYWRIGHT.read_text()).get('version')
+    except (OSError,ValueError):
+        return 'browser cleanup probe needs the pinned Playwright 1.64.1 in ~/.cache/expense-playwright, which is not installed'
+    if version!='1.64.1':
+        return f'browser cleanup probe needs the pinned Playwright 1.64.1; ~/.cache/expense-playwright has {version}'
+    return None
+
 
 class TestRunCleanup(unittest.TestCase):
     def probe(self, command, *, browser=None, keep=False, kept_markers=1):
@@ -80,17 +96,36 @@ class TestRunCleanup(unittest.TestCase):
         python=APPLICATION/'review-dashboard/server/.venv/bin/python'
         self.probe([str(python),'scripts/tests/server_cleanup_probe.py'])
 
-    def test_node_and_browser_failure_and_signal_remove_owned_roots(self):
-        node=subprocess.check_output([sys.executable,str(APPLICATION/'scripts/node_toolchain.py')],text=True).strip()
-        self.probe([str(Path(node)/'node'),'--test','review-dashboard/tests/retention.test.mjs'])
+    def test_browser_failure_and_signal_remove_owned_roots(self):
+        # A failing browser run keeps only its failure traces; a signalled one keeps nothing.
+        reason=browser_probe_unavailable()
+        if reason:
+            if os.environ.get('BROWSER_PROBE_REQUIRED')=='1':self.fail(reason)
+            self.skipTest(reason)
         self.probe(['make','browser-tests'],browser='fail')
         self.probe(['make','browser-tests'],browser='term')
+
+    def test_node_failure_and_signal_remove_owned_roots(self):
+        node=subprocess.check_output([sys.executable,str(APPLICATION/'scripts/node_toolchain.py')],text=True).strip()
+        self.probe([str(Path(node)/'node'),'--test','review-dashboard/tests/retention.test.mjs'])
         # A late child was absent from the supervisor's first PID snapshot. It
         # ignores TERM and keeps writing cache-like files after its parent exits.
         # The isolated process-group fence must stop it before root removal.
         writer="const fs=require('node:fs'),p=process.env.TMPDIR+'/late-writer';fs.mkdirSync(p);process.on('SIGTERM',()=>{});setInterval(()=>fs.writeFileSync(p+'/'+Date.now(),'fictional'),10)"
         script="const {spawn}=require('node:child_process');process.on('SIGTERM',()=>{spawn(process.execPath,['-e',"+repr(writer)+"],{stdio:'ignore'});setTimeout(()=>process.exit(0),100)});console.log('CLEANUP_BROWSER_READY');setInterval(()=>{},1000)"
         self.probe([str(Path(node)/'node'),'-e',script],browser='term')
+
+
+class BrowserProbeAvailabilityTests(unittest.TestCase):
+    def test_a_missing_or_different_playwright_names_the_reason(self):
+        with tempfile.TemporaryDirectory() as folder:
+            package=Path(folder,'package.json')
+            with mock.patch.object(sys.modules[__name__],'PLAYWRIGHT',package):
+                self.assertIn('not installed',browser_probe_unavailable())
+                package.write_text(json.dumps({'version':'1.50.0'}))
+                self.assertIn('has 1.50.0',browser_probe_unavailable())
+                package.write_text(json.dumps({'version':'1.64.1'}))
+                self.assertIsNone(browser_probe_unavailable())
 
 
 class SignalGroupTests(unittest.TestCase):

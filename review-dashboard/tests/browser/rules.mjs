@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {gone} from './held.mjs';
 
 export async function openLiveRules({page,base,expect}) {
   // Exercise Forecast navigation with the existing live connection, rather than
@@ -12,7 +13,7 @@ export async function openLiveRules({page,base,expect}) {
   await forecast.click();await expect(page.getByRole('button',{name:'Overview',exact:true})).toHaveAttribute('aria-current','page');await page.waitForLoadState('networkidle');
   let release;const held=new Promise(resolve=>{release=resolve;});let requested=false,hostReads=0,offline=false;
   const pattern='**/data/add-patterns.json.gz';
-  const deferred=async route=>{hostReads++;await held;await route.fulfill({status:200,contentType:'application/json',body:'{"rules":[]}'});};
+  const deferred=async route=>{hostReads++;await held;await route.fulfill({status:200,contentType:'application/json',body:'{"rules":[]}'}).catch(error=>{if(!gone(page,error))throw error;});};
   const health='**/api/health',unavailable=route=>route.fulfill({status:200,contentType:'application/json',body:'{"ok":false}'});
   const track=request=>{if(request.url()===base+'api/rules')requested=true;};
   await page.route(pattern,deferred);page.on('request',track);

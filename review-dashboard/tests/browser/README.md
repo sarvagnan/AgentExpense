@@ -308,3 +308,13 @@ Rules tab keeps at least 4.5:1 contrast while hovered and pressed. `BROWSER_FOCU
 default case's shell section, then the view captures, `runFinish`, `runRules`, `runCorrections`,
 `runConfirmedBalances`, `runRetention`, `runAccountGroups` and `runVarying`: the states a
 looking-back regrade needs, without a grader-only harness copy.
+
+CI round 1 adds `held.mjs`, the shared helpers for timing tests. Every held or forwarding
+route uses `hold` or `forward`: a fetch that fails (a reset connection or a closed server)
+aborts the request and fails only the test that waits on it, never the whole run, because
+Playwright turns an error thrown in a route handler into an unhandled rejection. A GET whose
+reused keep-alive connection was reset is sent once more; the test server also keeps idle
+connections for 15 minutes. `settleTasks` lets the tasks a render has queued run before a
+paused `page.clock` advances, so a timer the app starts in an effect is not missed.
+`tests/held-routes.test.mjs` checks the helpers with route and page doubles. GitHub CI
+runs the browsers in Light only (`THEMES=light`); see `docs/RELEASING.md`.

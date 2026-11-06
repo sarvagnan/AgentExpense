@@ -8,7 +8,10 @@ actionlint would catch most often, without downloading anything:
 - `needs`, `matrix.*` and local actions refer to things that exist;
 - every `${{ }}` expression is closed, and every `run` script passes `bash -n`;
 - the project's rules: the personal-data scan uses an empty list made in the job,
-  Playwright is pinned to the harness version, and nothing runs `npm audit`.
+  Playwright is pinned to the harness version, and nothing runs `npm audit`;
+- the trigger split (owner, 2026-11-07): `ci.yml` runs the scans and the offline suites
+  on every push and pull request, and nothing slower; `browsers.yml` runs the browser
+  matrix in Light and `make test-update` only on `v*` tags, by hand and weekly.
 """
 from __future__ import annotations
 from pathlib import Path
@@ -99,6 +102,9 @@ def check_workflow(path, root=APPLICATION):
         for key in ('runs-on', 'timeout-minutes', 'steps'):
             if key not in job:
                 problems.append(f'{label}: missing {key}')
+        limit = job.get('timeout-minutes')
+        if 'timeout-minutes' in job and (type(limit) is not int or not 1 <= limit <= 360):
+            problems.append(f'{label}: timeout-minutes must be a whole number of minutes from 1 to 360')
         needs = job.get('needs', [])
         for need in [needs] if isinstance(needs, str) else needs:
             if need not in jobs:
@@ -128,26 +134,99 @@ def check_action(path, root=APPLICATION):
     return problems
 
 
+def runs(job):
+    """Every run script of a job, joined."""
+    return '\n'.join(step.get('run', '') for step in (job.get('steps') or []) if isinstance(step, dict))
+
+
+def triggers(workflow):
+    value = workflow.get('on') if isinstance(workflow, dict) else None
+    if isinstance(value, str):
+        return {value: None}
+    if isinstance(value, list):
+        return {name: None for name in value}
+    return value if isinstance(value, dict) else {}
+
+
+def split_rules(root):
+    """Pushes and pull requests get the scans and offline suites; the slow runs wait."""
+    problems = []
+    folder = root / '.github/workflows'
+    try:
+        ci, browsers = (load(folder / name) if (folder / name).is_file() else None for name in ('ci.yml', 'browsers.yml'))
+    except yaml.YAMLError:
+        return problems  # check_workflow already reports it.
+    if not isinstance(ci, dict):
+        return problems + ['ci.yml: missing; it runs the scans and offline suites on every push and pull request']
+    if not isinstance(browsers, dict):
+        return problems + ['browsers.yml: missing; it runs the browser matrix and make test-update']
+    on = triggers(ci)
+    if set(on) != {'push', 'pull_request'}:
+        problems.append(f'ci.yml: must run on push and pull_request only, not {sorted(on)}')
+    for event in ('push', 'pull_request'):
+        if isinstance(on.get(event), dict) and set(on[event]) & {'branches', 'branches-ignore', 'tags', 'tags-ignore', 'paths', 'paths-ignore'}:
+            problems.append(f'ci.yml: {event} must not be filtered; it runs on every {event.replace("_", " ")}')
+    ci_jobs = ci.get('jobs') if isinstance(ci.get('jobs'), dict) else {}
+    ci_text = '\n'.join(runs(job) for job in ci_jobs.values() if isinstance(job, dict))
+    for needed, what in (('scripts/check_private.py', 'the personal-data scan'), ('gitleaks', 'the secret scan'),
+                         ('make dashboard', 'the offline build'), ('make test-server', 'the server tests'),
+                         ('npm --prefix review-dashboard test', 'the dashboard tests'), ('make test-scanner', 'the scanner and tooling tests')):
+        if needed not in ci_text:
+            problems.append(f'ci.yml: {what} ({needed}) must run on every push')
+    offline = [job for job in ci_jobs.values() if isinstance(job, dict) and 'make test-server' in runs(job)]
+    ledgers = root / 'fixtures/ledgers' if (root / 'fixtures/ledgers').is_dir() else APPLICATION / 'fixtures/ledgers'
+    personas = sorted(path.name for path in ledgers.iterdir() if path.is_dir())
+    for job in offline:
+        matrix = ((job.get('strategy') or {}).get('matrix') or {}).get('persona')
+        if personas and sorted(matrix or []) != personas:
+            problems.append(f'ci.yml: the offline suites must run for every persona {personas}, not {matrix}')
+    for slow, what in (('make browser-tests', 'the browser matrix'), ('make test-update', 'the update test')):
+        if slow in ci_text:
+            problems.append(f'ci.yml: {what} ({slow}) belongs in browsers.yml, not on every push')
+    on = triggers(browsers)
+    if set(on) != {'push', 'workflow_dispatch', 'schedule'}:
+        problems.append(f'browsers.yml: must run on v* tags, workflow_dispatch and a schedule only, not {sorted(on)}')
+    push = on.get('push')
+    if 'push' in on and (not isinstance(push, dict) or set(push) != {'tags'} or push.get('tags') != ['v*']):
+        problems.append('browsers.yml: push must be limited to v* tags')
+    schedule = on.get('schedule')
+    if 'schedule' in on and not (isinstance(schedule, list) and schedule and all(isinstance(item, dict) and isinstance(item.get('cron'), str) and len(item['cron'].split()) == 5 for item in schedule)):
+        problems.append('browsers.yml: schedule needs a five-field cron')
+    browser_jobs = browsers.get('jobs') if isinstance(browsers.get('jobs'), dict) else {}
+    browser_text = '\n'.join(runs(job) for job in browser_jobs.values() if isinstance(job, dict))
+    if 'make test-update' not in browser_text:
+        problems.append('browsers.yml: make test-update is missing')
+    suites = [job for job in browser_jobs.values() if isinstance(job, dict) and 'make browser-tests' in runs(job)]
+    if not suites:
+        problems.append('browsers.yml: make browser-tests is missing')
+    for job in suites:
+        engines = ((job.get('strategy') or {}).get('matrix') or {}).get('engine') or []
+        for engine in ('chromium', 'firefox', 'webkit'):
+            if engine not in engines:
+                problems.append(f'browsers.yml: browser engine {engine} is missing')
+        for line in runs(job).splitlines():
+            if 'make browser-tests' in line and 'THEMES=light' not in line.split('make browser-tests')[0]:
+                problems.append('browsers.yml: CI browser runs use THEMES=light; Dark is for the grading round')
+    if 'BROWSER_PROBE_REQUIRED=1' not in browser_text:
+        problems.append('browsers.yml: the browser cleanup probe must run (BROWSER_PROBE_REQUIRED=1) where Playwright is installed')
+    return problems
+
+
 def project_rules(root=APPLICATION):
     problems = []
     texts = {path.relative_to(root): path.read_text() for path in sorted((root / '.github').rglob('*.yml'))}
-    combined = '\n'.join(texts.values())
     for path, text in texts.items():
         if re.search(r'\bnpm\s+audit\b', text):
             problems.append(f'{path}: runs npm audit')
     ci = texts.get(Path('.github/workflows/ci.yml'), '')
+    browsers = texts.get(Path('.github/workflows/browsers.yml'), '')
     if not re.search(r': > "\$list"\n\s*python3 scripts/check_private\.py --list "\$list"', ci):
         problems.append('ci.yml: the personal-data scan must use an empty list made in the job')
-    if f'PLAYWRIGHT_VERSION: "{PLAYWRIGHT}"' not in ci:
-        problems.append(f'ci.yml: Playwright must be pinned to {PLAYWRIGHT}')
+    if f'PLAYWRIGHT_VERSION: "{PLAYWRIGHT}"' not in browsers:
+        problems.append(f'browsers.yml: Playwright must be pinned to {PLAYWRIGHT}')
     if not re.search(r'GITLEAKS_VERSION: "\d+\.\d+\.\d+"', ci):
         problems.append('ci.yml: the secret scanner must be pinned')
-    for engine in ('chromium', 'firefox', 'webkit'):
-        if engine not in ci:
-            problems.append(f'ci.yml: browser engine {engine} is missing')
-    if 'make test-update' not in combined:
-        problems.append('ci.yml: make test-update is missing')
-    return problems
+    return problems + split_rules(root)
 
 
 def check(root=APPLICATION):

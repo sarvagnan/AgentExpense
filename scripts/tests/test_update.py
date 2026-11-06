@@ -336,7 +336,11 @@ class UpdateScenario(unittest.TestCase):
         self.assertTrue(self.service_calls(), 'the configured service is restarted')
         doctor = self.make('doctor')
         self.assertEqual(doctor.returncode, 0, doctor.stdout)
-        self.assertRegex(doctor.stdout, r'(?m)^Ledger +ok +format 2 at ')
+        # The upgraded format reads as current. A git-only ledger also gets doctor's
+        # non-blocking warning that saves need jj, which is true of this fixture.
+        expected = (r'(?m)^Ledger +ok +format 2 at \S+, jj repository$' if self.kind == 'jj' else
+                    r'(?m)^Ledger +warn +format 2 at \S+, git repository without jj; saves need jj$')
+        self.assertRegex(doctor.stdout, expected)
 
 
 class GitCloneUpdate(UpdateScenario):

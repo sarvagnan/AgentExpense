@@ -4,9 +4,10 @@ import gzip
 import json
 import logging
 import os
+import subprocess
 import time
 
-from transactions import clean, ledger_lock, refresh
+from transactions import clean, command_failure, ledger_lock, refresh
 from dashboard_data import check_source, public_data
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,11 @@ class DailyRefresh:
                     self.retry_failed = False
             except BlockingIOError:
                 return
+        except subprocess.CalledProcessError as exc:
+            # jj could not read the ledger: one line, not a traceback, and the same retry.
+            self.retry_failed = True
+            self.next_check = self.clock() + self.failure_backoff
+            logger.warning('Daily dashboard refresh deferred; retrying in 10 minutes: %s', command_failure(exc))
         except Exception:
             self.retry_failed = True
             self.next_check = self.clock() + self.failure_backoff

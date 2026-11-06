@@ -114,9 +114,10 @@ Opening Settings never contacts the remote.
 
 ## Continuous integration
 
-`.github/workflows/` holds three workflows, which run once the repository is published.
+`.github/workflows/` holds four workflows, which run once the repository is published.
 `make check-workflows` checks their structure offline, including that every third-party
-action is pinned to a full commit SHA (the release it came from is noted beside it).
+action is pinned to a full commit SHA (the release it came from is noted beside it), that
+every job has a time limit, and the trigger split below.
 Downloaded tools are checked too: gitleaks against its release checksums, and jj and
 hledger against the `jj-sha256` and `hledger-sha256` inputs of `.github/actions/setup`.
 CI uses the hledger version development uses, not Ubuntu's older package. To move to a newer action or tool, look
@@ -125,9 +126,15 @@ up the release's commit SHA or archive digest and change both together.
 - **CI** (`ci.yml`), on every push and pull request: the personal-data scan with an
   empty list made in the job (the real list stays private), the scanner's own tests, a
   pinned gitleaks secret scan, then for each fictional persona `make doctor`,
-  `make dashboard`, the server tests, the dashboard tests and `make test-scanner`; one
-  `make test-update` job; and the headless browser suites with Playwright 1.64.1 in
-  Chromium, Firefox and WebKit.
+  `make dashboard`, the server tests, the dashboard tests and `make test-scanner`.
+  These install no browser, so the browser cleanup probe in `make test-scanner` is
+  skipped with its reason.
+- **Browsers and update** (`browsers.yml`), on `v*` tags, by hand (`workflow_dispatch`)
+  and weekly: one `make test-update` job, and the headless browser suites with
+  Playwright 1.64.1 in Chromium, Firefox and WebKit, every persona and size, in Light
+  only (`THEMES=light`; Dark is for the grading round). The Chromium job also runs the
+  browser cleanup probe, which must not be skipped there. To check a change before a
+  release, run it by hand from the Actions tab.
 - **Agent CLI upgrades** (`agent-upgrade.yml`), weekly: for each pinned CLI adapter,
   `make agent-upgrade DRY_RUN=1` installs the newest release in a temporary folder and
   runs the offline allow-list checks; when they pass, the job pins it and opens a pull

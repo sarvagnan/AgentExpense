@@ -2,6 +2,7 @@ import {benignConsole} from './console-filter.mjs';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {forward} from './held.mjs';
 
 export async function runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}){
  const get=async()=>{const r=await fetch(base+'api/review');assert.ok(r.ok,await r.clone().text());return r.json();};
@@ -60,10 +61,12 @@ export async function runReview({browser,context,page,base,persona,engine,theme,
  await open();dialog=page.getByRole('dialog');await expect(dialog.getByLabel('Notes (optional)',{exact:true})).toHaveValue('Checked invented receipt');
  // Deliver the successful commit with an unreadable response: the app must keep
  // its recovery request, then safely retry the same ID after document reload.
- await page.route('**/api/review/actions',async route=>{const response=await route.fetch({timeout:180000});assert.ok(response.ok());await route.fulfill({status:200,contentType:'application/json',body:'{'});},{times:1});
+ const forwarded=[];
+ await page.route('**/api/review/actions',forward(page,async(response,route)=>{assert.ok(response.ok(),'The resolve commit succeeded');await route.fulfill({status:200,contentType:'application/json',body:'{'});},{failures:forwarded,fetch:{timeout:180000}}),{times:1});
  await dialog.getByRole('button',{name:'Resolve',exact:true}).click();
  await expect(page.locator('[aria-label="Unsent review"]')).toBeVisible();
  await expect(dialog.getByRole('button',{name:'Resolve',exact:true})).toBeEnabled({timeout:180000});
+ assert.deepEqual(forwarded,[],'The forwarded resolve reached the server');
  await go('review/');await expect(page.locator('[aria-label="Unsent review"]')).toBeVisible();
  await page.getByRole('button',{name:'Retry saved request',exact:true}).click();await expect(page.locator('[aria-label="Unsent review"]')).toHaveCount(0,{timeout:180000});await waitCount(initialCount-1);
  state=await get();assert.equal(state.entries[entry.id].status,'confirmed');assert.equal(state.entries[entry.id].description,'Willow learning');

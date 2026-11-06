@@ -835,4 +835,7 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
 """
     return Response(statement_pdf(text), media_type='application/pdf')
 
-uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning')
+# Playwright's route.fetch keeps idle connections open indefinitely. Uvicorn's default closes
+# them after 5 s, so a reused one can be reset as it is sent (CI, 2026-11-06: ECONNRESET in a
+# held route). Keep idle connections longer than any pause in a browser run.
+uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning',timeout_keep_alive=900)

@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
+import {hold as holdResponse, settleTasks} from './held.mjs';
 
 // The first-run screens (step 9-2) on a fresh template copy of each persona's ledger,
 // in its own currency and locale. Both paths save through real locked, verified
 // commits; the persona's files are restored afterwards.
 const POLL_MS = 1500;
-
 // Hold real responses, rather than depending on one engine being slower.
-async function hold(page, pattern, method = 'GET', count = 1) {
-  let resolveReady, release; const ready = new Promise(r => resolveReady = r), gate = new Promise(r => release = r); let seen = 0, completed = 0;
-  const work = [];
-  const handler = async route => {
-    if (route.request().method() !== method || seen >= count) return route.fallback();
-    seen++; const task = (async () => { const response = await route.fetch(); const body = await response.body(); if (++completed === count) resolveReady(); await gate; await route.fulfill({response, body}); })(); work.push(task); await task;
-  };
-  await page.route(pattern, handler);
-  // A response that never comes fails the test rather than hanging it.
-  const limited = Promise.race([ready, new Promise((_, reject) => setTimeout(() => reject(new Error(`No ${method} response to hold for ${pattern}`)), 60000).unref())]);
-  return {ready:limited, async release() { release(); await Promise.all(work); await page.unroute(pattern, handler); }};
-}
+const hold = (page, pattern, method) => holdResponse(page, pattern, {method, limit:60000});
+
 async function unchanged(locator, box) {
   const next = await locator.boundingBox(); assert.ok(next && box);
   for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(next[key] - box[key]) < 1, `${key}: control moved during a background response (${box[key]} → ${next[key]}; ${JSON.stringify(await locator.page().evaluate(() => ({scrollY, innerHeight, height:document.documentElement.scrollHeight})))})`);
@@ -170,6 +160,8 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
       await clockPage.locator('input[type=file]').setInputFiles([await file('card', currency, 'clock-check.pdf')]);
       const session = await (await uploaded).json();
       await expect(clockPage.locator('.setup-file[data-file="clock-check.pdf"]')).toHaveAttribute('data-state', 'reading');
+      // The poll timer starts in the effect after this render; let it start before advancing.
+      await settleTasks(clockPage);
       let polls = 0; clockPage.on('request', request => { if (request.method() === 'GET' && request.url().endsWith('/api/statements/' + session.id)) polls++; });
       await clockPage.clock.runFor(POLL_MS - 1);await clockPage.waitForTimeout(50);
       assert.equal(polls, 0, 'No poll before the interval');

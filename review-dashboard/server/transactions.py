@@ -56,6 +56,15 @@ def clean(root):
     return not jj(root, 'diff', '--summary')
 
 
+def command_failure(exc):
+    """One line for a failed command: what ran, its status and its last error line."""
+    output = exc.stderr if isinstance(exc.stderr, str) and exc.stderr.strip() else exc.output if isinstance(exc.output, str) else ''
+    last = output.strip().splitlines()[-1] if output and output.strip() else 'no output'
+    command = exc.cmd if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
+    name = ' '.join(str(part) for part in command if str(part) not in ('--config', 'snapshot.max-new-file-size=0'))
+    return f'{name} exited {exc.returncode}: {last}'
+
+
 def reject_invisible(value, field='answer'):
     if isinstance(value, str) and any(unicodedata.category(c) in ('Cc', 'Cf') for c in value):
         raise ProposalError(f'{field}: invisible or control character')

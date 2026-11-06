@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {hold,settleTasks} from './held.mjs';
 
-export async function holdAddResponse(page,pattern,method='GET'){
- let ready,release,taken=false;const entered=new Promise(r=>ready=r),gate=new Promise(r=>release=r),work=[];
- const handler=async route=>{if(taken||route.request().method()!==method)return route.fallback();taken=true;const task=(async()=>{const response=await route.fetch();ready();await gate;await route.fulfill({response});})();work.push(task);await task;};
- await page.route(pattern,handler);return {ready:entered,async release(){release();await Promise.all(work);await page.unroute(pattern,handler);}};
-}
+export const holdAddResponse=(page,pattern,method='GET')=>hold(page,pattern,{method});
 async function stable(locator,before,expect){await expect(locator).toBeEnabled();const after=await locator.boundingBox();for(const key of ['x','y','width','height'])assert.ok(Math.abs(before[key]-after[key])<1,`${key}: Add's control moved during held background work`);}
 export async function runAddTiming({page,base,stage,persona,expect,control,go,refresh,record,quiesce,resetDrafts}){
  const reset=async()=>{await quiesce();await control('reset-workflows',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});await go('add/');};
@@ -50,7 +47,7 @@ export async function runOfflineRetry({page,base,expect,record}){
   await clock.clock.pauseAt(await clock.evaluate(()=>Date.now()+5000));
   // The first words are saved (a new draft refreshes the page) before any health read is held.
   const saved=clock.waitForResponse(r=>/\/api\/drafts(\/[0-9a-f]+)?$/.test(new URL(r.url()).pathname)&&['POST','PATCH'].includes(r.request().method()));
-  await words.fill('Meal during a slow check');await clock.clock.runFor(400);await saved;await clock.waitForLoadState('networkidle');
+  await words.fill('Meal during a slow check');await settleTasks(clock);await clock.clock.runFor(400);await saved;await clock.waitForLoadState('networkidle');
   let held=[],checks=0;const hold=route=>{checks++;held.push(route);};
   await clock.route('**/api/health',hold);
   await upload.hover();const box=await upload.boundingBox(),wordsBox=await words.boundingBox();
