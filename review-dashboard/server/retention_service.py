@@ -328,7 +328,8 @@ class Retention:
 
     def estimate(self, docs, rule, lines):
         from recurring import recompute_estimate
-        recompute_estimate(rule,[e for e in entries(docs) if e['id'] not in ignored_entries(lines)],docs[self.settings.ledger/'data/accounts.json']['accounts'])
+        ignored=ignored_entries(lines)
+        recompute_estimate(rule,[e for e in entries(docs) if e['id'] not in ignored],docs[self.settings.ledger/'data/accounts.json']['accounts'])
 
     def sweep(self, force=False):
         if not force and time.monotonic()<self.next_sweep: return

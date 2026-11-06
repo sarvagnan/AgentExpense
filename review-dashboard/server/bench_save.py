@@ -12,8 +12,7 @@ Environment:
 - BENCH_SEED: generator seed;
 - BENCH_REPORT / BENCH_JSON: also write the Markdown table / raw samples to these paths;
 - BENCH_KEEP=1: keep the generated ledger and server state after the run;
-- BENCH_BILL=1: include the bill in runs above 20,000 entries, where it is skipped
-  because saving a bill reads the whole audit log once per entry.
+- BENCH_SKIP_BILL=1: leave the bill out.
 
 Each operation reports `response`, the time the person waits for the saved result
 (an HTTP response, or the queued item reaching its result); `committed`, the server's
@@ -94,11 +93,9 @@ class Bench:
         self.epoch = time.time()
         # A deadlock guard only; a stress-size save takes minutes.
         self.timeout = 600 * max(1, (entries or 0) // 5000)
-        # Saving a bill reads and validates the whole audit log once per entry
-        # (rules_service.queue_bill), which takes hours at stress sizes.
-        self.skip_bill = bool(entries and entries > 20000) and os.environ.get('BENCH_BILL') != '1'
+        self.skip_bill = os.environ.get('BENCH_SKIP_BILL') == '1'
         if self.skip_bill:
-            self.notes.append('Bill skipped: saving a bill reads the whole audit log once per entry (BENCH_BILL=1 includes it)')
+            self.notes.append('Bill skipped (BENCH_SKIP_BILL=1)')
 
     # --- setup -----------------------------------------------------------
     def build(self):

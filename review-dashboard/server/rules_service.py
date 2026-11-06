@@ -203,7 +203,8 @@ def queue_usual(settings, drafts, draft, body):
             effective['amount']=rule['bill']['amount']
         elif not body.get('amount'): raise ValueError('Needs an amount')
         if body.get('update_rule'): raise ValueError('Varying rules recompute their estimate from payments')
-        actual=[e for e in entries(documents) if e['id'] not in ignored_entries(records(settings.ledger))]
+        ignored=ignored_entries(records(settings.ledger))
+        actual=[e for e in entries(documents) if e['id'] not in ignored]
         check=amount_check(rule,effective['amount'],actual,documents[settings.ledger/'data/accounts.json']['accounts'])
         if check and not body.get('amount_anyway'): raise AmountCheck(check)
     proposal,estimated=wire_proposal(rule,day,[f['original_name'].rsplit('.',1)[0] for f in draft['files']],settings.ledger,effective)
@@ -254,7 +255,8 @@ def queue_bill(settings, drafts, draft, body):
     value=body.get('amount');value=store_amount(value) if isinstance(value,str) else value
     bill=dict(amount=value,received=body.get('date') or context['client_time'][:10],occurrence=rule['date'],sources=[],**({'pay_by':body['pay_by']} if body.get('pay_by') else {}))
     rule['bill']=bill;validate(documents,root)
-    actual=[e for e in entries(documents) if e['id'] not in ignored_entries(records(root))]
+    ignored=ignored_entries(records(root))
+    actual=[e for e in entries(documents) if e['id'] not in ignored]
     check=amount_check(rule,bill['amount'],actual,documents[root/'data/accounts.json']['accounts'])
     if check and not body.get('amount_anyway'): raise AmountCheck(check)
     if draft.get('saved_at') is None: drafts.save_time(draft,body.get('client_time'),body.get('client_zone'))
@@ -276,7 +278,8 @@ class RuleRecords(SettingsRecords):
 
 def snapshot(settings, clock=None):
     root=settings.ledger; documents=load(root); lines=records(root); accounts=documents[root/'data/accounts.json']['accounts']
-    actual=[e for e in entries(documents) if e['id'] not in ignored_entries(lines)]
+    ignored=ignored_entries(lines)
+    actual=[e for e in entries(documents) if e['id'] not in ignored]
     rules=documents[root/'data/forecast.json']; stale={r['id'] for r,e in stale_rules(actual,rules,accounts)}
     proposals={}; review_states={}
     for line in lines:
@@ -346,7 +349,8 @@ def operate(settings, op_id, body, *, clock=None):
             return {**receipt['committed_result'], 'replayed': True}
         if not clean(root): raise LedgerBusy('Waiting for a clean ledger before changing rules')
         documents=load(root); rules=documents[root/'data/forecast.json']; before=deepcopy(rules)
-        actual=[e for e in entries(documents) if e['id'] not in ignored_entries(lines)]
+        ignored=ignored_entries(lines)
+        actual=[e for e in entries(documents) if e['id'] not in ignored]
         accounts=documents[root/'data/accounts.json']['accounts']; action=body.get('action');rule=next((r for r in rules if r['id']==body.get('rule_id')),None)
         if body.get('version') and (not rule or digest(rule)!=body['version']): raise ValueError('The rule changed; reload it')
         bill_draft=None;copies=[];check=None;bill_record=None
