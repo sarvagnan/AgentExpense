@@ -44,7 +44,9 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     if(process.env.BROWSER_CASE && process.env.BROWSER_CASE!==`${theme}-${width}`)continue;
     const context=await browser.newContext({viewport:size,colorScheme:theme,locale:locale[persona],timezoneId:zone[persona],reducedMotion:'reduce',acceptDownloads:true});
     await context.addInitScript(value=>{if(location.protocol==='http:'||location.protocol==='https:')localStorage.setItem('ledger-appearance',value);},theme);
-    await context.tracing.start({screenshots:true,snapshots:true});
+    // WebKit trace screenshots capture through macOS WindowServer, which holds the surfaces while
+    // the display sleeps until it aborts and ends the login session (microsoft/playwright#43066).
+    await context.tracing.start({screenshots:engine!=='webkit',snapshots:true});
     stage.activeContext=context;stage.activeCase=`${engine}-${theme}-${width}`;
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
