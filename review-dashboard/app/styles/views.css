@@ -92,6 +92,9 @@
 }
 .atlas-card:hover { background: var(--surface-raised); }
 .atlas-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--selection-fill); }
+.atlas-currency + .atlas-currency { margin-top: var(--space-8); }
+.atlas-currency-header { min-height: 40px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.atlas-currency-header h2 { display: flex; align-items: center; font: var(--text-headline); }
 .atlas-card-head { display: flex; justify-content: space-between; gap: var(--space-2); font: var(--text-body-strong); }
 .mini-bars { position: relative; height: 56px; display: flex; align-items: flex-end; gap: 1px; border-bottom: 1px solid var(--separator); }
 .mini-bars i { flex: 1; min-width: 1px; border-radius: 1px 1px 0 0; background: var(--series-compare); }
@@ -183,6 +186,8 @@
 .review-list { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--separator); }
 .review-row { width: 100%; min-height: 48px; display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: 6px var(--space-4); border: 0; border-bottom: 1px solid var(--separator); background: transparent; color: var(--text); font: var(--text-body); text-align: left; }
 .review-row:hover { background: var(--surface-raised); }
+/* A selected row keeps its selection tint under the pointer. */
+.review-row[aria-selected="true"]:hover { background: var(--selection-fill-inactive); }
 .review-row[aria-selected="true"] { background: var(--selection-fill-inactive); }
 .review-list:focus-within .review-row[aria-selected="true"] { background: var(--selection-fill); }
 .review-row:focus-visible { outline-offset: -3px; }
@@ -226,7 +231,8 @@
 .month-check { min-height: 28px; display: inline-flex; align-items: center; gap: 8px; }
 .month-check input { width: 14px; height: 14px; margin: 0; }
 .swatch { width: 12px; height: 4px; border-radius: 2px; }
-.month-forecast { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.month-forecast { display: flex; align-items: center; gap: var(--space-4); }
+.month-forecast > span:first-child { min-width: 84px; }
 .excluded { padding: 0 var(--space-4) var(--space-4); }
 .excluded h3 { margin-bottom: 2px; font: var(--text-body-strong); }
 .excluded > p { margin-bottom: var(--space-2); color: var(--text-secondary); font: var(--text-callout); }
@@ -271,7 +277,12 @@
 .forecast-strip i { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border: 1px solid var(--surface); border-radius: 50%; background: var(--series-compare); }
 .forecast-strip b { position: absolute; top: 3px; bottom: 3px; width: 3px; margin-left: -1px; border-radius: 1px; background: var(--series-focus); }
 @media (max-width: 1600px) { .forecast-detail-grid { grid-template-columns: minmax(0, 1fr); } }
-.forecast-table { min-width: 760px; }
+.forecast-table { min-width: 900px; }
+.forecast-table .month-check .row-title, .forecast-table .month-forecast .row-title, .forecast-table .month-forecast .row-sub { white-space: nowrap; }
+.forecast-table .month-forecast > .row-sub { flex: none; margin-top: 0; }
+.forecast-chart-empty { padding-block: 48px; }
+.forecast-chart-empty p { max-width: 52ch; }
+.chart-leader { fill: none; stroke: var(--text-tertiary); stroke-width: 1; }
 /* Accounts */
 .accounts-workspace { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .account-list { position: sticky; top: var(--space-4); max-height: calc(100vh - 32px); overflow: auto; padding-bottom: var(--space-2); }
@@ -281,6 +292,8 @@
 .account-list h3 span { font-weight: 400; }
 .account-row { width: calc(100% - 16px); min-height: 32px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; margin: 0 var(--space-2); padding: 5px var(--space-2); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text); font: var(--text-body); text-align: left; }
 .account-row:hover { background: var(--surface-raised); }
+/* A selected row keeps its selection tint under the pointer. */
+.account-row[aria-current="true"]:hover { background: var(--selection-fill-inactive); }
 .account-row[aria-current="true"] { background: var(--selection-fill-inactive); font-weight: 600; }
 .account-list:focus-within .account-row[aria-current="true"] { background: var(--selection-fill); }
 .account-row .num { text-align: right; white-space: nowrap; }
@@ -466,6 +479,8 @@
 .account-group-open > span:first-child { display: inline-flex; align-items: center; gap: 2px; font-weight: 600; }
 .account-group-open .icon { width: 14px; height: 14px; }
 .account-group-open:hover { background: var(--surface-raised); color: var(--text); }
+/* A selected row keeps its selection tint under the pointer. */
+.account-group-open[aria-current="true"]:hover { background: var(--selection-fill-inactive); }
 .account-group-open[aria-current="true"] { background: var(--selection-fill-inactive); color: var(--text); box-shadow: inset 3px 0 var(--accent); }
 .account-list:focus-within .account-group-open[aria-current="true"] { background: var(--selection-fill); }
 .fund-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-bottom: 1px solid var(--separator); }
@@ -618,12 +633,29 @@
   /* The merchant's metadata already includes the category and payment account. */
   .entries-table, .entries-table thead, .entries-table tbody { display:block; width:100%; }
   .entries-table colgroup, .entries-table .col-category, .entries-table td.col-payment { display:none; }
-  .entries-table thead tr, .entries-table tr.interactive { display:grid; grid-template-columns:54px minmax(0,1fr) 92px; gap:0; padding:8px 0; }
+  .entries-table thead tr, .entries-table tr.interactive { display:grid; grid-template-columns:64px minmax(0,1fr) 92px; gap:0; padding:8px 0; }
+  /* "Date" and its sort arrow fit the first column whole, over the dates. */
+  .entries-table thead th:first-child { padding-inline:8px; }
   .entries-table thead th, .entries-table tr.interactive > td { min-width:0; height:auto; padding:4px 8px; }
   .entries-table thead .column-resizer { display:none; }
   .entries-table td.date { grid-column:1; grid-row:1; align-self:center; }
   .entries-table .col-description { grid-column:2; grid-row:1; }
   .entries-table td.num { grid-column:3; grid-row:1; align-self:center; }
+}
+
+/* Phone Journal rows read like Explorer's: title, category and route stacked on the left, the
+   amount on the right of the first line; the header keeps sorting with Amount over the amounts. */
+@media (max-width: 600px) {
+  .journal-table thead tr { justify-content: space-between; padding: 4px var(--space-4); }
+  .journal-table thead th.th-num, .journal-table thead th:first-child { padding: 0; }
+  .journal-table .row-sub { white-space: normal; overflow: visible; }
+  .journal-table tr.interactive { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-3); padding: 8px 0; }
+  .journal-table tbody tr.interactive > td { padding: 0 var(--space-4); border: 0; }
+  .journal-table tr.interactive > td:first-child { grid-column: 1; grid-row: 1; padding-right: 0; }
+  .journal-table tr.interactive > td.num { grid-column: 2; grid-row: 1; align-self: start; padding-left: 0; line-height: 18px; }
+  .journal-table td.journal-route { grid-column: 1 / -1; grid-row: 2; margin-top: 2px; }
+  .journal-table .route-line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .journal-day-row th { padding: 14px var(--space-4) 6px; }
 }
 
 @media (max-width: 760px) {

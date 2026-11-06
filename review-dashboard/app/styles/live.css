@@ -359,7 +359,7 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .correction-saved .button { margin-top: 8px; }
 
 /* Recurring cards are independent of their composer or saved-result container. */
-.forecast-sections{display:flex;gap:8px;margin:0;padding:var(--space-5) var(--space-6) 0}.forecast-sections.in-header{padding:0}.forecast-sections .active{background:var(--text);color:var(--surface)}
+.forecast-sections{display:flex;gap:8px;margin:0;padding:var(--space-5) var(--space-6) 0}.forecast-sections.in-header{padding:0}
 .rule-guess{margin:16px 0;padding:18px;border:1px solid var(--separator);border-radius:10px;background:var(--surface-raised)}
 .rule-guess h3{font-size:18px;margin:4px 0 8px}.rule-guess .eyebrow{margin:0}.rule-match-reason{color:var(--text-secondary);font-size:13px}
 .rule-summary{display:flex;flex-wrap:wrap;gap:6px 18px;margin:10px 0;font-size:14px}.rule-summary>span{overflow-wrap:anywhere}

@@ -60,7 +60,9 @@ export function axisMoney(value, max, currency = defaultCurrency) {
   // All ticks use the unit selected by the largest tick.
   const divisor = size >= 1e9 ? 1e9 : size >= 1e6 ? 1e6 : size >= 1e3 ? 1e3 : 1;
   const suffix = divisor === 1 ? '' : new Intl.NumberFormat(locale, {notation: 'compact'}).formatToParts(divisor).find(part => part.type === 'compact')?.value || '';
-  return `${money(value / divisor, currency, divisor === 1 ? 0 : 1)}${value ? suffix : ''}`;
+  // Whole units print without a decimal (`€0`, `€1k`, `€1.5k`), so nice ticks read cleanly.
+  const scaled = value / divisor;
+  return `${money(scaled, currency, Number.isInteger(Number(scaled.toFixed(6))) ? 0 : 1)}${value ? suffix : ''}`;
 }
 export function currencyOrder(codes, preferred = defaultCurrency) {
   return [...new Set(codes)].sort((a, b) => a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b));

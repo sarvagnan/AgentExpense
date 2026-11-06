@@ -401,10 +401,11 @@ input.field:disabled, textarea.field:disabled, select.field:disabled {
 .trend-charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:16px; padding:16px; }
 .trend-currency { min-width:0; }
 .trend-currency figcaption { font-weight:600; margin-bottom:8px; }
-.trend-currency svg { display:block; width:100%; }
-.trend-currency text { font:10px var(--font-sans); fill:var(--text-secondary); }
+.trend-frame { min-width:0; }
+.trend-currency svg { display:block; width:100%; height:auto; overflow:visible; }
+.trend-currency text { font:var(--text-caption); fill:var(--text-secondary); }
 .trend-grid { stroke:var(--separator); fill:none; }
-.trend-line { stroke:var(--currency-color,var(--accent)); fill:none; stroke-width:2.5; stroke-linejoin:round; }
+.trend-line { stroke:var(--currency-color,var(--accent)); fill:none; stroke-width:2; stroke-linejoin:round; }
 .trend-dot { fill:var(--currency-color,var(--accent)); }
 .currency-series[data-currency="GBP"] { --currency-color:var(--series-focus); }
 .currency-series[data-currency="EUR"] { --currency-color:var(--positive); }

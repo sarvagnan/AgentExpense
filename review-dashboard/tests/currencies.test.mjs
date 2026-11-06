@@ -102,7 +102,8 @@ test('Explorer, Accounts, Journal, Atlas and Forecast render Sam without convert
  assert.equal((forecast.match(/Cumulative expenses by day for/g)||[]).length,2);
  assert.match(forecast,/Forecast · EUR/);assert.match(forecast,/Forecast · GBP/);
  const atlas=render(Atlas,{month:'2026-07',setMonth:()=>{}});
- assert.match(atlas,/Atlas · EUR/);assert.match(atlas,/Atlas · GBP/);
+ assert.equal((atlas.match(/<h1/g)||[]).length,1,'Two currencies share one Atlas title');assert.match(atlas,/<h1[^>]*>Atlas<\/h1>/);
+ assert.match(atlas,/<h2 id="atlas-EUR"[^>]*>.*?EUR spending<\/h2>/);assert.match(atlas,/<h2 id="atlas-GBP"[^>]*>.*?GBP spending<\/h2>/);
  (await server.ssrLoadModule('/app/data.ts')).setData(jordan);
  const dollarMonth=render(Explorer,{month:'2026-10',setMonth:()=>{}});
  assert.match(dollarMonth,/Amounts in USD/);assert.doesNotMatch(dollarMonth,/Amounts in EUR/);

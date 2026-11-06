@@ -41,6 +41,10 @@ code { font: var(--text-code); }
 .button:hover:not(:disabled) { background: var(--surface-raised); }
 .button:active:not(:disabled) { filter: brightness(.92); }
 .button:disabled { opacity: .45; }
+/* A selected push button (Forecast's Overview and Rules) keeps its fill under hover and press:
+   this rule outranks .button:hover, so the label never vanishes into the hover fill. */
+.button[aria-current="page"], .button[aria-current="page"]:hover:not(:disabled) { border-color: var(--text); background: var(--text); color: var(--surface); }
+.button[aria-current="page"]:active:not(:disabled) { filter: none; opacity: .85; }
 .button .icon { width: 15px; height: 15px; }
 .button.primary { border-color: transparent; background: var(--accent-fill); color: var(--on-accent); font-weight: 600; }
 .button.primary:hover:not(:disabled) { background: var(--accent-fill); filter: brightness(1.08); }

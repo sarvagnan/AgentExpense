@@ -28,6 +28,7 @@ const useDataVersion = () => useSyncExternalStore(subscribeData, dataVersion, da
 import AccountSummary from './account-summary';
 import { displayAccountLabel, summarizeAccounts } from './account-labels';
 import { paymentSide } from './payment-side';
+import { niceScale, trendMonths } from './chart-scale';
 import { useEntryTextTooltip } from './entry-text-tooltip';
 import Forecast from './forecast';
 import { sortTransactions, type SortKey, type SortDirection } from './transaction-sort';
@@ -414,11 +415,11 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
       <div className="explorer-body with-aside">
       <section className="panel entries-panel">
         <PanelHeader title="Ledger entries" meta={filtersActive ? `${plural(filtered.length, 'entry', 'entries')} of ${monthTransactions.length} shown` : undefined}>
-          {filtersActive && <button type="button" className="button plain" onClick={showAll}>Show All</button>}
+          {filtersActive && filtered.length > 0 && <button type="button" className="button plain" onClick={showAll}>Show All</button>}
           <label className="sr-only" htmlFor="explorer-category">Category</label>
           <select id="explorer-category" className="field" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select>
         </PanelHeader>
-        {filtersActive && <p className="matching-total" role="status">{filtered.length} matching · <strong>{moneyTotal(matchingExpenses)}</strong> net expenses <span>· transfers excluded</span></p>}
+        {filtersActive && filtered.length > 0 && <p className="matching-total" role="status">{filtered.length} matching · <strong>{moneyTotal(matchingExpenses)}</strong> net expenses <span>· transfers excluded</span></p>}
         <div className="table-scroll"><table className="data-table entries-table" role="table">
           <colgroup><col className="col-date" style={{ width: widths.date }}/><col/><col className="col-category" style={{ width: widths.category }}/><col className="col-payment" style={{ width: widths.payment }}/><col className="col-amount" style={{ width: widths.amount }}/></colgroup>
           <thead><tr>{columns.map(({ key, label, numeric, className, width }) => <th key={key} className={`${numeric ? 'th-num' : ''} ${className || ''}`} aria-label={label} aria-sort={sortKey === key ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
@@ -451,31 +452,50 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
 }
 
 function SpendingTrend() {
-  const last=monthKeys().at(-1)!;
-  const end=new Date(Number(last.slice(0,4)),Number(last.slice(5,7))-1,1);
-  const keys=Array.from({length:12},(_,i)=>{const day=new Date(end.getFullYear(),end.getMonth()-11+i,1);return `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}`;});
+  // The range ends at the last complete month: the month in progress would plot as a plunge.
+  const keys=trendMonths(monthKeys(),data.meta.today);
   const currencies=currencyOrder(data.months.filter(row=>keys.includes(row.month) && row.count>0).map(row=>row.currency));
-  return <section className="panel spending-trend"><PanelHeader title="Spending · twelve months" meta={`${monthLong(keys[0])} – ${monthLong(last)}`}/><div className="trend-charts">{currencies.map(currency=>{
-    const rows=keys.map(key=>data.months.find(row=>row.month===key && row.currency===currency && row.count>0));
-    const max=Math.max(1,...rows.map(row=>row?.total || 0));
-    const min=Math.min(0,...rows.map(row=>row?.total || 0));
-    const y=(value:number)=>140-(value-min)/(max-min)*112;
-    const segments:string[][]=[];let segment:string[]=[];
-    rows.forEach((row,i)=>{if(row)segment.push(`${58+i*44},${y(row.total)}`);else if(segment.length){segments.push(segment);segment=[];}});if(segment.length)segments.push(segment);
-    return <figure key={currency} className="trend-currency currency-series" data-currency={currency}><figcaption>{currencies.length>1 ? <><i className="currency-key" aria-hidden="true"/>{currency} spending</> : 'Spending'}</figcaption><svg viewBox="0 0 560 180" role="img" aria-label={`Twelve-month spending in ${currency}. Each currency has its own axis; missing months have no point.`}>
-      {[min,(max+min)/2,max].map((value,i)=><g key={i}><path className="trend-grid" d={`M54 ${y(value)}H550`}/><text x="48" y={y(value)+4} textAnchor="end">{axisMoney(value,max,currency)}</text></g>)}
+  if(!currencies.length)return null;
+  return <section className="panel spending-trend"><PanelHeader title="Spending · twelve months" meta={`${monthLong(keys[0])} – ${monthLong(keys.at(-1)!)}`}/><div className="trend-charts">{currencies.map(currency=><TrendChart key={currency} currency={currency} keys={keys} mixed={currencies.length>1}/>)}</div><p className="panel-note">{currencies.length>1 ? 'Each currency has its own total and chart. Amounts are never converted.' : 'Months without recorded spending have no point.'}</p></section>;
+}
+
+/** One currency's twelve months, drawn at the width it is shown so its text stays on the type scale. */
+function TrendChart({currency,keys,mixed}:{currency:string;keys:string[];mixed:boolean}) {
+  const [width,setWidth]=useState(560);
+  const frame=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    const element=frame.current;if(!element)return;
+    const observer=new ResizeObserver(([entry])=>setWidth(Math.max(240,Math.round(entry.contentRect.width))));
+    observer.observe(element);
+    return ()=>observer.disconnect();
+  },[]);
+  const rows=keys.map(key=>data.months.find(row=>row.month===key && row.currency===currency && row.count>0));
+  const values=rows.map(row=>row?.total || 0);
+  const {low,top,ticks}=niceScale(Math.min(...values),Math.max(...values),4);
+  const [H,left,right,topPad,bottom]=[180,52,12,12,28];
+  const step=(width-left-right)/keys.length;
+  const x=(index:number)=>left+step*(index+.5);
+  const y=(value:number)=>topPad+(top-value)/(top-low)*(H-topPad-bottom);
+  const segments:string[][]=[];let segment:string[]=[];
+  rows.forEach((row,i)=>{if(row)segment.push(`${x(i).toFixed(1)},${y(row.total).toFixed(1)}`);else if(segment.length){segments.push(segment);segment=[];}});if(segment.length)segments.push(segment);
+  // Every month is labelled when there is room; otherwise every other one, always keeping the last.
+  const every=step<34?2:1;
+  return <figure className="trend-currency currency-series" data-currency={currency}><figcaption>{mixed ? <><i className="currency-key" aria-hidden="true"/>{currency} spending</> : 'Spending'}</figcaption><div className="trend-frame" ref={frame}><svg width={width} height={H} viewBox={`0 0 ${width} ${H}`} role="img" aria-label={`Twelve-month spending in ${currency}, ${monthLong(keys[0])} to ${monthLong(keys.at(-1)!)}. Each currency has its own axis; missing months have no point.`}>
+      {ticks.map(value=><g key={value}><path className="trend-grid" d={`M${left} ${y(value)}H${width-right}`}/><text x={left-8} y={y(value)+4} textAnchor="end">{axisMoney(value,top,currency)}</text></g>)}
       {segments.map((points,i)=><polyline key={i} className="trend-line" points={points.join(' ')}/>)}
-      {rows.map((row,i)=>row && <circle key={row.month} className="trend-dot" cx={58+i*44} cy={y(row.total)} r="3"><title>{`${monthLong(row.month)}: ${money(row.total,currency)}`}</title></circle>)}
-      {keys.map((key,i)=><text key={key} x={58+i*44} y="167" textAnchor="middle">{monthName(key).slice(0,3)}</text>)}
-    </svg><details><summary>Monthly amounts in {currency}</summary><dl>{rows.filter((row):row is Month=>!!row).map(row=><div key={row.month}><dt>{monthLong(row.month)}</dt><dd>{money(row.total,currency)}</dd></div>)}</dl></details></figure>;
-  })}</div><p className="panel-note">{currencies.length>1 ? 'Each currency has its own total and chart. Amounts are never converted.' : 'Months without recorded spending have no point.'}</p></section>;
+      {rows.map((row,i)=>row && <circle key={row.month} className="trend-dot" cx={x(i)} cy={y(row.total)} r="3"><title>{`${monthLong(row.month)}: ${money(row.total,currency)}`}</title></circle>)}
+      {keys.map((key,i)=>(i%every===(keys.length-1)%every) && <text key={key} x={x(i)} y={H-8} textAnchor="middle">{monthName(key).slice(0,3)}</text>)}
+    </svg></div><details><summary>Monthly amounts in {currency}</summary><dl>{rows.filter((row):row is Month=>!!row).map(row=><div key={row.month}><dt>{monthLong(row.month)}</dt><dd>{money(row.total,currency)}</dd></div>)}</dl></details></figure>;
 }
 
 export function Atlas(props: {month: string; setMonth: (month: string, mode?: 'push'|'replace') => void}) {
   const currencies = currencyOrder(spendingMonths().map(item => item.currency));
   if (!data.months.some(row => row.month === props.month && row.currency)) return <EmptyMonth title="Atlas" {...props}/>;
-  return <>{currencies.map(currency => <CurrencyAtlas mixed={currencies.length > 1} key={currency} {...props} month={data.months.some(item => item.currency === currency && item.month === props.month) ? props.month : data.months.filter(item => item.currency === currency).at(-1)!.month} currency={currency}/>)}</>;
+  const sections = currencies.map(currency => <CurrencyAtlas mixed={currencies.length > 1} key={currency} {...props} month={data.months.some(item => item.currency === currency && item.month === props.month) ? props.month : data.months.filter(item => item.currency === currency).at(-1)!.month} currency={currency}/>);
+  // Two currencies share one page title; each has its own section heading and month window.
+  return <section className="page atlas">{currencies.length > 1 && <PageHeader title="Atlas" subtitle={ATLAS_SUBTITLE}/>}{sections}</section>;
 }
+const ATLAS_SUBTITLE = 'Daily spending across twelve months. Bars are scaled within each month. Choose a month to see its detail.';
 
 function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; currency: string; month: string; setMonth: (month: string, mode?: 'push' | 'replace') => void }) {
   const money = (value: number) => amountMoney(value, currency);
@@ -509,14 +529,15 @@ function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; c
     if (selectedIndex < start) setMonth(keys[start]);
     if (selectedIndex > end) setMonth(keys[end]);
   };
-  return <section className="page atlas">
-    <PageHeader title={`Atlas${mixed ? ` · ${currency}` : ''}`} subtitle="Daily spending across twelve months. Bars are scaled within each month. Choose a month to see its detail.">
-      <div className="segmented" role="group" aria-label="Twelve-month window">
+  const windowControl = <div className="segmented" role="group" aria-label={`Twelve-month window${mixed ? ` for ${currency}` : ''}`}>
         <button type="button" className="icon-button" aria-label="Earlier months" title="Earlier months" disabled={windowEnd <= Math.min(11, keys.length - 1)} onClick={() => shift(-1)}><Icon name="chevron-left"/></button>
         <span className="segmented-label">{monthShort(months[0].month)} – {monthShort(months.at(-1)!.month)}</span>
         <button type="button" className="icon-button" aria-label="Later months" title="Later months" disabled={windowEnd >= keys.length - 1} onClick={() => shift(1)}><Icon name="chevron-right"/></button>
-      </div>
-    </PageHeader>
+      </div>;
+  const Section = mixed ? 'section' : Fragment;
+  return <Section {...(mixed ? { className: 'atlas-currency currency-series', 'data-currency': currency, 'aria-labelledby': `atlas-${currency}` } : {})}>{mixed
+    ? <header className="atlas-currency-header"><h2 id={`atlas-${currency}`}><i className="currency-key" aria-hidden="true"/>{currency} spending</h2>{windowControl}</header>
+    : <PageHeader title="Atlas" subtitle={ATLAS_SUBTITLE}>{windowControl}</PageHeader>}
     <div className="atlas-grid" role="group" aria-label="Months. Use the arrow keys to move between months." onKeyDown={cards.onKeyDown}>{months.map((item) => {
       const localMax = Math.max(1, ...item.daily.map((entry) => entry.amount));
       const localMin = Math.min(0, ...item.daily.map((entry) => entry.amount));
@@ -551,7 +572,7 @@ function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; c
           <a className="more-link" href={`${import.meta.env.BASE_URL}explorer/${month !== defaultMonth() ? `?month=${month}` : ''}`}>All {plural(monthEntries.length, 'entry', 'entries')} in Explorer</a></section>
       </div>
     </section>
-  </section>;
+  </Section>;
 }
 
 function CurrencyJournalSummary({ month, rows, current, mixed }: { mixed:boolean; month: string; rows: Transaction[]; current: Month }) {
@@ -640,7 +661,7 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
                 return <tr key={item.id} className="interactive" data-selected={item.id === selectedId} onClick={(event) => { if (!hasSelectedText(event)) choose(item); }} onContextMenu={(event) => openMenu(event, item, event.currentTarget)}>
                   <td><EntryLink entryId={item.id} className="row-open" {...nav.rowProps(item)} aria-label={fullEntryText(item)} title={item.description} aria-current={item.id === selectedId ? 'true' : undefined} aria-controls="transaction-inspector" data-copy={copyLine(item)}
                     onFocus={(event) => { setCursor(item.id); textTooltip.show(event, fullEntryText(item)); }} onBlur={textTooltip.hide} onOpen={() => choose(item)} onKeyDown={(event) => { if (menu.keyOpens(event)) openMenu(event, item, event.currentTarget.closest('tr')); }}>
-                    <span className="row-title" title={item.description}>{rowTitle(item.description)}</span><span className="row-sub" title={item.category}>{item.category}{item.status === 'Pending' && <span className="status pending"> · <Icon name="pending"/>Unclassified</span>}</span></EntryLink></td>
+                    <span className="row-title" title={item.description}>{rowTitle(item.description)}</span><span className="row-sub" title={item.category}>{item.category}{item.status === 'Pending' && <>{' · '}<span className="status pending"><Icon name="pending"/>Unclassified</span></>}</span></EntryLink></td>
                   <td className="journal-type" title={item.displayType}>{item.displayType}</td>
                   <td className="journal-route" title={`${from.full} → ${to.full}`}><span className="route-line">{from.short}</span><span className="route-line"><span className="journal-arrow" aria-hidden="true">→ </span><span className="sr-only">to </span>{to.short}</span></td>
                   <td className={`num ${amountClass(item)}`}>{signedAmount(item)}</td>

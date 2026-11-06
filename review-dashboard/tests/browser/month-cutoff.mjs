@@ -42,16 +42,21 @@ export async function runMonthCutoff({page, stage, expect, go, overflow, snap, r
     await go('forecast/');
     const panel=page.locator('.forecast').filter({hasText:'Fictional overdue membership'});
     await expect(panel).toHaveCount(1);
-    await expect(panel.locator('svg[role="img"]')).toHaveAttribute('aria-label',/recorded through day 15/);
+    // A currency without a full month shows a short empty state in place of the chart.
+    const history=data.months.some(row=>row.currency===currency&&row.month>=forecast.firstFullMonth&&row.month<forecast.currentMonth);
+    if(history)await expect(panel.locator('svg[role="img"]')).toHaveAttribute('aria-label',/recorded through day 15/);
+    else {await expect(panel.locator('.forecast-chart-empty')).toBeVisible();await expect(panel.locator('.forecast-chart-panel svg[role="img"]')).toHaveCount(0);await expect(panel).not.toContainText(/\b0-month|\b0 full months/);await expect(panel.locator('label.compact-field').filter({hasText:'Comparison average'})).toHaveCount(0);}
     await expect(panel.locator('.forecast-items')).toContainText('Fictional overdue membership');
     await expect(panel.locator('.forecast-items li').last()).toHaveClass('estimate');
     await expect(panel.locator('.estimate .row-sub')).toContainText('The 16 days left');
     const total=await panel.locator('.metrics .metric').first().locator('.metric-value').innerText();
     await expect(panel.locator('tr.current')).toContainText(total);
-    assert.ok(await panel.locator('.forecast-dotted').getAttribute('d'));
-    await panel.locator('.forecast-chart-panel').scrollIntoViewIfNeeded();
-    await panel.locator('.chart-focus').focus();
-    await expect(panel.getByText('Expected at today',{exact:true})).toBeVisible();
+    if(history) {
+      assert.ok(await panel.locator('.forecast-dotted').getAttribute('d'));
+      await panel.locator('.forecast-chart-panel').scrollIntoViewIfNeeded();
+      await panel.locator('.chart-focus').focus();
+      await expect(panel.getByText('Expected at today',{exact:true})).toBeVisible();
+    } else await panel.locator('.forecast-chart-panel').scrollIntoViewIfNeeded();
     await overflow('overdue forecast at today');await snap('forecast-overdue-at-today');
     record('6b2 today cut-off, same-day Explorer/category keys, overdue expected payment and chart/table total agree');
   } finally {

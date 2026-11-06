@@ -1,4 +1,5 @@
 import {runRetention} from './retention.mjs';
+import {runViewCaptures} from './capture.mjs';
 import {runAccountGroups} from './account-groups.mjs';
 import {runFirstRun} from './first-run.mjs';
 import {runRetentionTiming} from './retention-timing.mjs';
@@ -181,6 +182,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await runUpdateNotice({page,base,expect,go,snap,overflow,record});
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='views') {
+        await timed('runViewCaptures',()=>runViewCaptures({page,persona,width,height,expect,go,snap,overflow,record}));
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        record('console and page errors');await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='finish') {
         await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
@@ -544,7 +550,18 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await overflow('Asha investments');record('Asha holdings, cost/value/gain, chart keyboard inspection, account drill-down and history return');
       }
       // BROWSER_FOCUS=shell stops here: navigation, Settings, notices, empty views and account dialogs.
-      if(process.env.BROWSER_FOCUS!=='shell') {
+      // BROWSER_FOCUS=area-c adds the looking-back views and the suites that open them.
+      if(process.env.BROWSER_FOCUS==='area-c') {
+      await timed('runViewCaptures',()=>runViewCaptures({page,persona,width,height,expect,go,snap,overflow,record}));
+      await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runAccountGroups',()=>runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money}));
+      await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      } else if(process.env.BROWSER_FOCUS!=='shell') {
+      await timed('runViewCaptures',()=>runViewCaptures({page,persona,width,height,expect,go,snap,overflow,record}));
       await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
       await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));

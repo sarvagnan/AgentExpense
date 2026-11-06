@@ -291,3 +291,20 @@ the deleted notice below the H1 (and absent on Trash), readable Queue chips and 
 file row; `corrections.mjs` checks one Edit entry heading and the Attach files button; `review.mjs`
 checks the styled result notice. The fixture host's `reset-workflows` now waits for a Discard's
 pending audit commit instead of failing, and transfer words use account labels.
+
+UI fix round 2 adds `runViewCaptures` (in `capture.mjs`) to every default case, before the
+workflow suites; `BROWSER_FOCUS=views` runs it alone. It captures the looking-back views as a
+person first sees them: `explorer-month`, `explorer-inspector` (opened from a row),
+`explorer-keyboard` (moved with ArrowDown), `explorer-no-match`, `atlas-month`, `journal-month`,
+`journal-inspector`, `forecast-overview`, `forecast-rules` (both on first open),
+`accounts-default` and, on the phone case, `explorer-320`, `accounts-320`, `journal-320`,
+`forecast-320` and `atlas-320`. Every capture parks the pointer away from the control it just
+used. Its assertions: the twelve-month chart is drawn at its rendered width on the caption
+size and ends at the last complete month with whole ticks; one Show All with no match; one Atlas
+title; the phone Journal row (amount on the title's line, route beneath, headings aligned);
+Forecast's comparison select names the window its figures use, nothing says "0-month", line-end
+labels clear each other and every dot, no month-table header or label is cut, and the selected
+Rules tab keeps at least 4.5:1 contrast while hovered and pressed. `BROWSER_FOCUS=area-c` runs the
+default case's shell section, then the view captures, `runFinish`, `runRules`, `runCorrections`,
+`runConfirmedBalances`, `runRetention`, `runAccountGroups` and `runVarying`: the states a
+looking-back regrade needs, without a grader-only harness copy.
