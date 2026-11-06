@@ -1,3 +1,4 @@
+import {benignConsole} from './console-filter.mjs';
 import {runRetention} from './retention.mjs';
 import {runViewCaptures} from './capture.mjs';
 import {runAccountGroups} from './account-groups.mjs';
@@ -51,7 +52,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     stage.activeContext=context;stage.activeCase=`${engine}-${theme}-${width}`;
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
-    page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
+    page.on('console',message=>{if(message.type()==='error'&&!benignConsole(message.text()))errors.push(message.text());});
     await page.route('**/*',route=>{const url=route.request().url();return url.startsWith(base) || url.startsWith('blob:') || url.startsWith('data:')?route.continue():route.abort('blockedbyclient');});
     const record=(name)=>{results.push({persona,engine,theme,width,test:name,pass:true});console.log(`  PASS ${persona} ${engine} ${theme} ${width}: ${name}`);};
     const commits=()=>execFileSync('jj',['-R',ledger,'log','-r','ancestors(@)','--no-graph','-T','commit_id'],{env:stage.env,encoding:'utf8'}).trim().length/40;

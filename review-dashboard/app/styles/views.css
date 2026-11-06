@@ -633,8 +633,8 @@
   /* The merchant's metadata already includes the category and payment account. */
   .entries-table, .entries-table thead, .entries-table tbody { display:block; width:100%; }
   .entries-table colgroup, .entries-table .col-category, .entries-table td.col-payment { display:none; }
-  .entries-table thead tr, .entries-table tr.interactive { display:grid; grid-template-columns:64px minmax(0,1fr) 92px; gap:0; padding:8px 0; }
-  /* "Date" and its sort arrow fit the first column whole, over the dates. */
+  .entries-table thead tr, .entries-table tr.interactive { display:grid; grid-template-columns:72px minmax(0,1fr) 92px; gap:0; padding:8px 0; }
+  /* "Date" and its sort arrow fit the first column whole, over the dates, with room for wider fonts than the system's. */
   .entries-table thead th:first-child { padding-inline:8px; }
   .entries-table thead th, .entries-table tr.interactive > td { min-width:0; height:auto; padding:4px 8px; }
   .entries-table thead .column-resizer { display:none; }

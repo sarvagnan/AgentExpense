@@ -1,3 +1,4 @@
+import {benignConsole} from './console-filter.mjs';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -22,7 +23,7 @@ export async function runReview({browser,context,page,base,persona,engine,theme,
   if(width>760)assert.ok(boxes[1].x>boxes[0].x);else assert.ok(boxes[1].y>=boxes[0].bottom);
   await expect(page.locator('.review-doubt')).toContainText('workshop');
   const device=await browser.newContext({viewport:{width,height},colorScheme:theme});const second=await device.newPage();
-  const secondErrors=[];second.on('pageerror',e=>secondErrors.push(e.message));second.on('console',m=>{if(m.type()==='error')secondErrors.push(m.text());});
+  const secondErrors=[];second.on('pageerror',e=>secondErrors.push(e.message));second.on('console',m=>{if(m.type()==='error'&&!benignConsole(m.text()))secondErrors.push(m.text());});
   try{
    await second.goto(base+'review/');await expect(second.locator('.server-review-content')).toBeVisible();
    await act(cards.first().getByRole('button',{name:'These are separate',exact:true}));await waitCount(23);

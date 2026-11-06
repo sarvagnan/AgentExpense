@@ -117,8 +117,9 @@ Opening Settings never contacts the remote.
 `.github/workflows/` holds three workflows, which run once the repository is published.
 `make check-workflows` checks their structure offline, including that every third-party
 action is pinned to a full commit SHA (the release it came from is noted beside it).
-Downloaded tools are checked too: gitleaks against its release checksums and jj against
-the `jj-sha256` input of `.github/actions/setup`. To move to a newer action or tool, look
+Downloaded tools are checked too: gitleaks against its release checksums, and jj and
+hledger against the `jj-sha256` and `hledger-sha256` inputs of `.github/actions/setup`.
+CI uses the hledger version development uses, not Ubuntu's older package. To move to a newer action or tool, look
 up the release's commit SHA or archive digest and change both together.
 
 - **CI** (`ci.yml`), on every push and pull request: the personal-data scan with an

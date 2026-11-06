@@ -4,6 +4,12 @@ inputs:
   uv-version:
     description: Exact uv version
     default: "0.12.13"
+  hledger-version:
+    description: Exact hledger version, the one development uses (Ubuntu's package is older and words errors differently)
+    default: "1.52.4"
+  hledger-sha256:
+    description: SHA-256 of that version's hledger-linux-x64.tar.gz, from its GitHub release
+    default: "f76a2e4088e162b7658e43077502569d5a6fdacd219b19bfb9aab6588b69643a" # pragma: allowlist secret (public release digest)
   jj-version:
     description: Exact Jujutsu version
     default: "0.46.0"
@@ -25,11 +31,23 @@ runs:
     - name: Install hledger and jj
       shell: bash
       env:
+        HLEDGER_VERSION: ${{ inputs.hledger-version }}
+        HLEDGER_SHA256: ${{ inputs.hledger-sha256 }}
         JJ_VERSION: ${{ inputs.jj-version }}
         JJ_SHA256: ${{ inputs.jj-sha256 }}
       run: |
-        sudo apt-get update
-        sudo apt-get install -y hledger
+        mkdir -p "$RUNNER_TEMP/hledger"
+        hledger_archive="$RUNNER_TEMP/hledger-${HLEDGER_VERSION}.tar.gz"
+        curl -fsSL -o "$hledger_archive" "https://github.com/simonmichael/hledger/releases/download/${HLEDGER_VERSION}/hledger-linux-x64.tar.gz"
+        echo "${HLEDGER_SHA256}  $hledger_archive" | sha256sum --check --strict
+        tar -xzf "$hledger_archive" -C "$RUNNER_TEMP/hledger"
+        # Some releases wrap the binaries in an inner tar to keep their permissions.
+        find "$RUNNER_TEMP/hledger" -name '*.tar' -exec tar -xf {} -C "$RUNNER_TEMP/hledger" \;
+        hledger_bin=$(find "$RUNNER_TEMP/hledger" -type f -name hledger | head -1)
+        test -n "$hledger_bin" || { echo "hledger binary not found in the release archive"; exit 1; }
+        chmod +x "$hledger_bin"
+        dirname "$hledger_bin" >> "$GITHUB_PATH"
+        "$hledger_bin" --version
         mkdir -p "$RUNNER_TEMP/jj"
         archive="$RUNNER_TEMP/jj-v${JJ_VERSION}.tar.gz"
         curl -fsSL -o "$archive" "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz"
