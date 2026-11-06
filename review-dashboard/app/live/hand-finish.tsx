@@ -4,7 +4,28 @@ import {formatCalendarDate} from '../date-time';
 import {ApiError} from './api';
 import {dashboard} from '../data';
 import {Icon,plural} from '../ui';
+import {accountFieldLabel} from '../account-labels';
 import {api,apiUrl,fileUrl,upload,type Draft,type Proposal,type HandChecks,type CorrectionResult} from './api';
+
+const NEW='\u0000new';
+/** Every account the ledger knows: declared metadata and every account an entry uses. */
+function knownAccounts(){const set=new Set(Object.keys(dashboard.meta.accounts));for(const entry of dashboard.transactions)for(const posting of entry.postings)set.add(posting.account);return set;}
+const accountGroups=(known:Set<string>)=>{const meta=dashboard.meta.accounts,all=[...known].sort((a,b)=>accountFieldLabel(a,meta).localeCompare(accountFieldLabel(b,meta)));
+  return [['Accounts',all.filter(a=>meta[a]?.kind)],['Categories',all.filter(a=>!meta[a]?.kind&&a.startsWith('Expenses:'))],['Income',all.filter(a=>!meta[a]?.kind&&a.startsWith('Income:'))],['Other',all.filter(a=>!meta[a]?.kind&&!/^(Expenses|Income):/.test(a))]] as const;};
+/** A posting's account: chosen by the name the rest of the app shows; the value stays the ledger path.
+ * An account the ledger doesn't have yet is typed as an exact path. */
+function AccountField({value,readOnly,onChange}:{value:string;readOnly:boolean;onChange:(account:string)=>void}){
+  const known=useRef<Set<string>>(null as unknown as Set<string>);known.current??=knownAccounts();
+  const [typing,setTyping]=useState(()=>!!value&&!known.current.has(value));
+  const meta=dashboard.meta.accounts;
+  if(readOnly)return <label>Account<input readOnly className="field" value={value&&known.current.has(value)?accountFieldLabel(value,meta):value} title={value}/></label>;
+  if(typing)return <label>Account<span className="account-path-field"><input className="field" value={value} placeholder="Expenses:Category:Name" spellCheck={false} autoComplete="off" onChange={e=>onChange(e.target.value)} required/><button type="button" className="button plain" onClick={()=>{setTyping(false);if(!known.current.has(value))onChange('');}}>Choose from list</button></span><small className="live-hint">A new account: its exact ledger path.</small></label>;
+  return <label>Account<select className="field" value={value} title={value} onChange={e=>{if(e.target.value===NEW){setTyping(true);onChange('');}else onChange(e.target.value);}} required>
+    <option value="">Choose an account</option>
+    {accountGroups(known.current).filter(([,list])=>list.length).map(([name,list])=><optgroup key={name} label={name}>{list.map(a=><option key={a} value={a}>{accountFieldLabel(a,meta)}{meta[a]?.kind&&meta[a]?.currency?` · ${meta[a].currency}`:''}</option>)}</optgroup>)}
+    <option value={NEW}>New account…</option>
+  </select></label>;
+}
 
 export default function HandFinish({draft,onDone,backLabel='Back to Queue',onCorrected}:{draft:Draft;onDone:()=>Promise<void>;backLabel?:string;onCorrected?:(result:CorrectionResult)=>void}) {
   const correction=draft.correction;
@@ -51,14 +72,14 @@ export default function HandFinish({draft,onDone,backLabel='Back to Queue',onCor
       {correction?.locked&&<p className="live-notice">This entry belongs to a filed statement. Amounts, currencies, costs, posting count and paying accounts are locked. Date, description, category and notes can be corrected.</p>}
       {locks.filter((l,i)=>locks.findIndex(x=>x.account===l.account)===i).map(l=><p className="live-notice" key={l.account}>Amount and paying account are locked by {balanceSource(l.source)}</p>)}
       <h3>Postings</h3><p className="live-hint">Positive amounts receive money; negative amounts pay. A total cost balances a foreign-currency posting.</p>
-      <datalist id={`accounts-${draft.id}`}>{Object.keys(dashboard.meta.accounts).map(a=><option key={a} value={a}/>)}</datalist>
-      {entry.postings.map((p,i)=><fieldset key={i} className="hand-posting" data-balance-locked={locks.some(l=>l.posting===i)}><legend>Posting {i+1}</legend>
-        {(['account','amount','commodity'] as const).map(key=><label key={key}>{key==='commodity'?'Currency':key==='account'?'Account':'Amount'}<input readOnly={!!correction?.locked&&(key!=='account'||!!dashboard.meta.accounts[p.account]?.kind)||locks.some(l=>l.posting===i)} className="field" list={key==='account'?`accounts-${draft.id}`:undefined} value={p[key]} onChange={e=>{const postings=entry.postings.map((row,n)=>n===i?{...row,[key]:e.target.value}:row);change({...form,entry:{...entry,postings}});}} required/></label>)}
+      {entry.postings.map((p,i)=><fieldset key={i} className="hand-posting" data-balance-locked={locks.some(l=>l.posting===i)}><legend className="sr-only">Posting {i+1}</legend><p className="hand-posting-title" aria-hidden="true">Posting {i+1}</p>
+        <AccountField value={p.account} readOnly={!!correction?.locked&&!!dashboard.meta.accounts[p.account]?.kind||locks.some(l=>l.posting===i)} onChange={account=>change({...form,entry:{...entry,postings:entry.postings.map((row,n)=>n===i?{...row,account}:row)}})}/>
+        {(['amount','commodity'] as const).map(key=><label key={key} className={`hand-${key}`}>{key==='commodity'?'Currency':'Amount'}<input readOnly={!!correction?.locked||locks.some(l=>l.posting===i)} className="field" inputMode={key==='amount'?'decimal':undefined} value={p[key]} onChange={e=>{const postings=entry.postings.map((row,n)=>n===i?{...row,[key]:e.target.value}:row);change({...form,entry:{...entry,postings}});}} required/></label>)}
+        <button type="button" className="icon-button hand-remove" aria-label={`Remove posting ${i+1}`} title="Remove posting" disabled={!!correction?.locked||locks.length>0||entry.postings.length<=2} onClick={()=>change({...form,entry:{...entry,postings:entry.postings.filter((_,n)=>n!==i)}})}><Icon name="close"/></button>
         <label className="hand-cost-toggle"><input type="checkbox" disabled={!!correction?.locked||locks.some(l=>l.posting===i)} checked={!!p.cost} onChange={e=>change({...form,entry:{...entry,postings:entry.postings.map((row,n)=>n===i?{...row,cost:e.target.checked?{amount:'',commodity:p.commodity}:null}:row)}})}/>Total cost</label>
-        {p.cost&&(['amount','commodity'] as const).map(key=><label key={key}>Cost {key==='commodity'?'currency':'amount'}<input readOnly={!!correction?.locked||locks.some(l=>l.posting===i)} className="field" value={p.cost![key]} onChange={e=>change({...form,entry:{...entry,postings:entry.postings.map((row,n)=>n===i?{...row,cost:{...row.cost!,[key]:e.target.value}}:row)}})} required/></label>)}
-        <button type="button" className="button" disabled={!!correction?.locked||locks.length>0||entry.postings.length<=2} onClick={()=>change({...form,entry:{...entry,postings:entry.postings.filter((_,n)=>n!==i)}})}>Remove posting {i+1}</button>
+        {p.cost&&(['amount','commodity'] as const).map(key=><label key={key} className={`hand-cost-${key}`}>Cost {key==='commodity'?'currency':'amount'}<input readOnly={!!correction?.locked||locks.some(l=>l.posting===i)} className="field" value={p.cost![key]} onChange={e=>change({...form,entry:{...entry,postings:entry.postings.map((row,n)=>n===i?{...row,cost:{...row.cost!,[key]:e.target.value}}:row)}})} required/></label>)}
       </fieldset>)}
-      <button type="button" className="button" disabled={!!correction?.locked||locks.length>0} onClick={()=>change({...form,entry:{...entry,postings:[...entry.postings,{account:'',amount:'',commodity:entry.postings[0]?.commodity||dashboard.meta.ledger.defaultCurrency,cost:null}]}})}>Add posting</button>
+      <button type="button" className="button plain hand-add-posting" disabled={!!correction?.locked||locks.length>0} onClick={()=>change({...form,entry:{...entry,postings:[...entry.postings,{account:'',amount:'',commodity:entry.postings[0]?.commodity||dashboard.meta.ledger.defaultCurrency,cost:null}]}})}><Icon name="plus"/>Add posting</button>
       <label>Notes<textarea aria-label="Notes" className="field" value={entry.notes.join('\n')} onChange={e=>change({...form,entry:{...entry,notes:e.target.value.split('\n').filter(Boolean)}})}/></label>
       {correction&&<><label>Reason (optional)<textarea className="field" value={reason} onChange={e=>setReason(e.target.value)}/></label>{correction.sources.length>0&&<section aria-label="Saved sources"><h3>Sources</h3>{correction.sources.map(source=><label key={source}><input type="checkbox" checked={sources.includes(source)} onChange={e=>{setSources(e.target.checked?[...sources,source]:sources.filter(s=>s!==source));setChecks(null);}}/>{source}</label>)}</section>}</>}
       <div className="hand-attachments"><span className="field-label" id={`attachments-${draft.id}`}>Attachments</span><div className="attach-row"><button type="button" className="button" disabled={busy} aria-describedby={`attachments-${draft.id}`} onClick={()=>picker.current?.click()}><Icon name="import"/>Attach files</button><span className="live-hint">{form.attachment_names.length?plural(form.attachment_names.length,'attachment'):'Photos or PDFs'}</span></div><input ref={picker} aria-label="Attachments" className="sr-only" tabIndex={-1} type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" disabled={busy} onChange={e=>{const files=Array.from(e.target.files||[]);setBusy(true);void(async()=>{let result=draft;for(const file of files)result=await upload(draft.id,file,()=>{},undefined,crypto.randomUUID().replaceAll('-',''),token.current);setFiles(result.files);change({...latest.current!,attachment_names:result.files.map(f=>f.original_name.replace(/\.[^.]+$/,''))});})().catch(e=>setError(e.message)).finally(()=>setBusy(false));e.target.value='';}}/>

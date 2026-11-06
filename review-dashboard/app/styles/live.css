@@ -9,6 +9,7 @@
 .live-notice p { margin: 4px 0 10px; }
 .live-notice p:last-child { margin-bottom: 0; }
 .live-success > .icon { color: var(--positive); }
+.live-notice.failure > .icon { color: var(--negative); }
 .add-layout { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(0,.95fr); gap: 16px; align-items: start; }
 .expense-words { display: block; width: 100%; min-height: 120px; padding: 12px; border: 1px solid var(--control-border); border-radius: var(--radius-control); background: var(--control-fill); color: var(--text); font: 400 17px/1.5 var(--font-sans); resize: vertical; }
 .expense-words::placeholder { color: var(--text-tertiary); opacity: 1; }
@@ -59,7 +60,7 @@
 .draft-queue > ul { margin: 0; padding: 0; list-style: none; }
 .draft-queue li + li { border-top: 1px solid var(--separator); }
 .draft-row { display: grid; gap: 5px; width: 100%; padding: 14px 16px; border: 0; border-left: 3px solid transparent; background: transparent; text-align: left; overflow-wrap: anywhere; }
-.draft-row:hover { background: var(--surface-raised); }
+@media (hover:hover) { .draft-row:hover { background: var(--surface-raised); } }
 .draft-row[aria-pressed="true"] { border-left-color: var(--accent); background: var(--selection-fill); }
 .draft-status { display: inline-flex; align-items: center; gap: 5px; font: var(--text-caption); color: var(--text-secondary); }
 .draft-status.state-question, .draft-status.state-failed { color: var(--warning); font-weight: 600; }
@@ -317,6 +318,8 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .statement-current>.statement-agent-reading {margin:0 16px 16px}
 .statement-reader .field-label {display:flex;align-items:center;gap:8px;margin-top:10px}
 .statement-reader .field-label+.live-hint {margin-top:4px}
+/* The applied result sits under the reader box with the same hairline weight. */
+.statement-applied {border-color:var(--separator)}
 .statement-applied h3 {font:var(--text-headline)}
 .statement-applied .button {margin-top:12px}
 .statement-current>.panel {margin:0;border:0;border-top:1px solid var(--separator);border-radius:0;box-shadow:none;background:transparent}
@@ -338,13 +341,26 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 @media(max-width:760px){.statement-current .statement-row{padding-block:14px}.statement-current .statement-review-action{position:static;width:auto;padding:0;border:0;background:none}.statement-current .statement-review-action>span{max-width:none}.statements-page:has(.statement-current .statement-review-action){padding-bottom:0}}
 
 .hand-finish form { display: grid; gap: 16px; }
-.hand-finish label { display: grid; gap: 6px; min-width: 0; }
-.hand-posting { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; padding: 16px; min-width: 0; border: 1px solid var(--border); border-radius: 8px; }
-.hand-posting legend { padding: 0 6px; font-weight: 600; }
+/* One shrinkable track: a select's longest option must not set the field's minimum width (WebKit). */
+.hand-finish label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+/* Fields keep a reading width; one posting is one row: account, amount, currency and a quiet remove. */
+.hand-finish .hand-fields > :not(.detail-footer):not(.live-notice):not(section) { max-width: 760px; }
+.hand-finish input[type="date"].field { max-width: 240px; }
+.hand-posting { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 132px 88px var(--control-height); align-items: end; gap: 8px 12px; min-width: 0; margin: 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--separator); }
+/* The legend names the group for assistive technology; the visible title is an ordinary grid item (a floated legend overflows in WebKit). */
+.hand-posting .hand-posting-title { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font: var(--text-callout); font-weight: 600; }
+.hand-posting .hand-cost-toggle { grid-column: 1 / -1; }
+.hand-posting .hand-cost-amount { grid-column: 2; }
+.hand-posting .hand-cost-commodity { grid-column: 3; }
+.hand-posting .hand-remove { align-self: end; }
+.hand-posting .hand-remove .icon { width: 14px; height: 14px; }
+.hand-finish .hand-add-posting { justify-self: start; }
+.account-path-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.account-path-field .field { flex: 1; }
 .hand-finish .hand-cost-toggle { display: flex; align-items: center; }
 .hand-finish .field { width: 100%; min-width: 0; }
 .hand-finish .detail-footer { flex-wrap: wrap; }
-@media (max-width:760px) { .hand-posting { grid-template-columns: 1fr; } .hand-finish .detail-footer .button { min-height:44px; } }
+@media (max-width:760px) { .hand-posting { grid-template-columns: minmax(0, 1fr) 88px 44px; } .hand-posting > label:first-of-type { grid-column: 1 / -1; } .hand-posting .hand-cost-amount { grid-column: 1; } .hand-posting .hand-cost-commodity { grid-column: 2; } .hand-posting .hand-remove { width: 44px; height: 44px; } .hand-finish .detail-footer .button { min-height:44px; } }
 
 .hand-finish .hand-fields { display: contents; }
 .hand-attachments { display: grid; gap: 6px; min-width: 0; }
@@ -371,7 +387,7 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 @media(min-width:1001px){.add-page .add-layout:has(.rule-guess)>.composer-panel{align-self:start;min-height:320px}}
 .rule-summary{display:flex;flex-wrap:wrap;gap:6px 18px;margin:10px 0;font-size:14px}.rule-summary>span{overflow-wrap:anywhere}
 .rule-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.rule-check,.rule-amount-choice label{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px}.rule-check input,.rule-amount-choice input{flex-shrink:0;width:18px;height:18px;accent-color:var(--accent)}
-.rule-amount-choice{border:1px solid var(--control-border);border-radius:8px;padding:12px;margin:14px 0}.rule-amount-choice legend{padding:0 4px;font-size:14px}
+.rule-amount-choice{display:flex;flex-wrap:wrap;gap:4px 20px;min-width:0;margin:0;padding:0;border:0}.rule-amount-choice legend.field-label{float:left;width:100%;padding:0}.rule-amount-choice label{margin-top:0}
 .rule-conversion,.rule-already,.rule-origin,.rule-proposal{padding:12px;background:var(--surface-raised);border:1px solid var(--separator);border-radius:8px;font-size:14px;margin-top:14px}
 .rule-saved{padding:18px;margin:0 auto 20px;max-width:1130px}.rule-saved header,.rule-row header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.rule-saved h2,.rule-row h2{font-size:18px;margin:0;overflow-wrap:anywhere}.rule-saved p{margin-top:10px}
 .rules-page{max-width:1130px}.rules-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}.rules-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.rule-row{padding:20px;min-width:0}.rule-status{padding:4px 8px;border-radius:6px;background:var(--surface-raised);color:var(--text-secondary);font-size:12px;white-space:nowrap}.rule-status.on-track{color:var(--positive)}.rule-status.due,.rule-status.stale{color:var(--accent)}.rule-status.overdue{color:var(--negative)}
@@ -383,6 +399,8 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 
 /* One stable composer; confirmations and follow-ups belong below its save bar. */
 .add-page>.page-header,.add-page>.add-blocking-notice,.add-page>.add-savebar,.just-added{max-width:1130px}
+/* Queue's header tools end where its notice and workspace end (Review and Rules do the same). */
+.drafts-page>.page-header{max-width:1130px}
 .add-page .add-layout{align-items:stretch;min-height:320px;gap:16px}
 .add-page .composer-panel{display:flex;flex-direction:column}
 .add-page .composer-panel>.panel-body{display:flex;flex:1;flex-direction:column;padding:18px;min-height:260px}
@@ -498,6 +516,10 @@ html:has(.add-page){overflow-anchor:none}
 .queue-next{padding-bottom:var(--space-4);border-bottom:1px solid var(--separator)}
 .retention-control{margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--separator)}
 .retention-control .live-hint{margin-top:var(--space-2)}
+/* A lock line hangs its wrapped text beside the icon, never under it. */
+.retention-control .retention-lock{display:flex;align-items:flex-start;gap:6px}.retention-lock>.icon{flex:none;width:14px;height:14px;margin-top:2px}
+/* The Delete dialog's file lists are labelled groups under its title, not headings that outrank it. */
+.retention-files h3{margin:0 0 4px;color:var(--text-secondary);font:var(--text-callout);font-weight:600}.retention-files ul{margin:0;padding-left:18px}.retention-files li{overflow-wrap:anywhere}.retention-files li+li{margin-top:4px}.retention-files p{margin:0}
 .retention-notice{max-width:1130px}
 .dialog-field{display:grid;gap:8px;margin-top:16px;font:var(--text-body-strong)}
 .dialog-field .field{font:var(--text-body);width:100%}
@@ -508,6 +530,7 @@ html:has(.add-page){overflow-anchor:none}
 .trash-row{padding:var(--space-4);display:flex;justify-content:space-between;gap:var(--space-4);border-bottom:1px solid var(--separator)}
 .trash-row h2{font:var(--text-headline);overflow-wrap:anywhere}
 .trash-row p{margin-top:var(--space-2)}
+.trash-row .trash-refusal{margin:var(--space-3) 0 0}.trash-row .trash-refusal p{margin-top:2px}
 .trash-row[data-selected="true"]{background:var(--selection-fill-inactive);box-shadow:inset 3px 0 var(--accent)}
 .trash-actions{display:flex;align-items:flex-start;gap:var(--space-2);flex-shrink:0}
 @media(max-width:760px){.queue-table .draft-row{padding:var(--space-3)}.queue-heading{padding:var(--space-3)}.trash-row{display:block}.trash-actions{margin-top:var(--space-3)}.queue-amount{font-size:13px}}
@@ -523,5 +546,6 @@ html:has(.add-page){overflow-anchor:none}
 .limit-effect p{min-height:1.5em;line-height:1.5}
 .limit-effect ul{margin:4px 0 0;padding-left:18px;display:grid;gap:2px}
 .limit-effect .text-button{font:inherit;line-height:inherit;padding:0;vertical-align:baseline}
-@media(max-width:760px){.limit-effect p{min-height:3em}}
+/* Each effect sentence fits one phone line; only the narrowest phones reserve a second. */
+@media(max-width:360px){.limit-effect p{min-height:3em}}
 @media(max-width:360px){.time-limit{grid-template-columns:minmax(0,1fr)}}

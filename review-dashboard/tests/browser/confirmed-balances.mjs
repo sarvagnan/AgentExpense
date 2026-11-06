@@ -6,7 +6,7 @@ export async function runConfirmedBalances({page,base,persona,expect,control,go,
   const get=async path=>{const response=await fetch(base+'api/'+path);assert.ok(response.ok);return response.json();};
   await go('add/');const words=page.locator('#expense-words');
   // "cedar" also names the paying account (Cedar Current), so the words carry the amount to propose the rule.
-  await words.fill('Cedar learning 100 on 30 October');
+  await words.fill('Cedar tutoring 100 on 30 October');
   const guess=page.getByRole('complementary',{name:'Usual payment'});
   await expect(guess).toBeVisible();await guess.getByLabel('Payment date').fill('2026-10-30');
   await guess.getByRole('checkbox',{name:/Add another anyway/}).check();
@@ -16,13 +16,13 @@ export async function runConfirmedBalances({page,base,persona,expect,control,go,
   const notice=page.getByRole('alert',{name:'Confirmed balance refusal'});
   await expect(notice).toContainText('Cedar Current’s October balance is already confirmed');
   await expect(notice.getByRole('link',{name:'View entry'})).toHaveCount(1);
-  await expect(words).toHaveValue('Cedar learning 100 on 30 October');
+  await expect(words).toHaveValue('Cedar tutoring 100 on 30 October');
   await expect(notice.getByRole('button',{name:'Change account or date'})).toBeVisible();
   await expect(notice.getByRole('button',{name:'Keep in Queue'})).toBeVisible();
   await overflow('confirmed Add refusal');await snap('confirmed-usual-refusal');
   let failed=(await get('drafts')).find(d=>d.refusal);assert.ok(failed);
   await notice.getByRole('button',{name:'Change account or date'}).click();
-  await expect(notice).toHaveCount(0);await expect(words).toHaveValue('Cedar learning 100 on 30 October');
+  await expect(notice).toHaveCount(0);await expect(words).toHaveValue('Cedar tutoring 100 on 30 October');
   assert.equal((await get('drafts/'+failed.id)).state,'editing');
   await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await guess.getByRole('button',{name:'Add as usual'}).click();await expect(notice).toBeVisible();
   await notice.getByRole('button',{name:'Keep in Queue'}).click();await expect(notice).toHaveCount(0);
@@ -43,7 +43,7 @@ export async function runConfirmedBalances({page,base,persona,expect,control,go,
     await expect(notice).toHaveCount(0);await expect(words).toHaveValue('Paper Kite notebook');assert.equal(deletes,1,'One Discard request');
     await expect.poll(async()=>(await get('drafts')).some(d=>d.id===refusedId)).toBe(false);
   } finally {releaseDelete();await page.unroute(`**/api/drafts/${refusedId}`,holdDelete);}
-  await words.fill('Cedar learning 100 on 30 October');await expect(guess).toBeVisible();await guess.getByLabel('Payment date').fill('2026-10-30');await guess.getByRole('checkbox',{name:/Add another anyway/}).check();
+  await words.fill('Cedar tutoring 100 on 30 October');await expect(guess).toBeVisible();await guess.getByLabel('Payment date').fill('2026-10-30');await guess.getByRole('checkbox',{name:/Add another anyway/}).check();
   await guess.getByRole('button',{name:'Add as usual'}).click();await expect(notice).toBeVisible();
   failed=(await get('drafts')).find(d=>d.refusal);assert.ok(failed);
   await go('queue/?draft='+failed.id);

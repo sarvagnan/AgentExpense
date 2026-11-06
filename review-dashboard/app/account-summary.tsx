@@ -218,30 +218,30 @@ function StepChart({ points, currency, label, caption, start, end }: { points: {
 const listAmount = (value: number, currency: string) => currency === data.meta.ledger.defaultCurrency || !isCurrency(currency) ? money(value, currency) : moneyCode(value, currency);
 const openingOnly = () => data.transactions.every(entry=>entry.postings.some(posting=>posting.account==='Equity:Opening Balances'));
 export default function AccountSummary() {
-  const [account]=useQueryState('account','');
-  const native=balanceAccounts(data.transactions,'9999-12-31').filter(account=>account.group!=='Other accounts' && !isFund(account.currency));
-  const mixed=currencyOrder(native.map(account=>account.currency)).length>1 && moduleSettings(data.meta.ledger).investments===false;
   const unitHoldings=moduleSettings(data.meta.ledger).investments!==false && data.transactions.some(entry=>entry.postings.some(posting=>isFund(posting.currency) && data.meta.accounts[posting.account]?.kind==='investment'));
-  return openingOnly() && !unitHoldings ? <OpeningAccounts/> : mixed && !account ? <CurrencyAccounts/> : <DetailedAccounts/>;
+  return openingOnly() && !unitHoldings ? <OpeningAccounts/> : <DetailedAccounts/>;
 }
-function CurrencyAccounts() {
-  const [detailsAccount,setDetailsAccount]=useState<string|null>(null);
-  const latest=data.transactions.reduce((last,entry)=>entry.date>last?entry.date:last,'');
-  const earliest=data.transactions.reduce((first,entry)=>entry.date<first?entry.date:first,latest);
-  const [asOf,setAsOf]=useQueryState('asOf',latest,value=>/^\d{4}-\d{2}-\d{2}$/.test(value) && value>=earliest && value<=latest);
-  const accounts=balanceAccounts(data.transactions,asOf).filter(account=>account.group!=='Other accounts' && account.group!=='Investments');
-  return <section className="page accounts"><PageHeader title="Accounts" subtitle="Balances in each account’s own currency."><label className="compact-field">Balances as of <input className="field" type="date" min={earliest} max={latest} value={asOf} onChange={e=>{if(e.target.value)setAsOf(e.target.value);}}/></label></PageHeader>
-    {currencyOrder(accounts.map(account=>account.currency)).length>1 && <section className="panel net-worth"><h2>Net worth</h2><strong>{moneyTotal(sumCurrencies(accounts,account=>account.balance))}</strong></section>}
-    <CurrencyGroups accounts={accounts} onDetails={setDetailsAccount} activity/>
-    <p className="panel-note">Each currency has its own total. Card debt is subtracted within that currency.</p>
-    {detailsAccount && <AccountDialog account={detailsAccount} onClose={()=>setDetailsAccount(null)}/>}
-  </section>;
+/** Each currency's own total and its groups, never its accounts: the list beside it names each account once. */
+function CurrencySummary({accounts,onOpenGroup}: {accounts:ReturnType<typeof balanceAccounts>;onOpenGroup:(group:string)=>void}) {
+  const currencies=currencyOrder(accounts.map(account=>account.currency));
+  return <div className="currency-groups currency-summary">{currencies.map(currency=>{
+    const members=accounts.filter(account=>account.currency===currency);
+    const present=groups.filter(group=>members.some(account=>account.group===group));
+    return <section className="panel" key={currency} aria-label={`${currency} accounts`}><PanelHeader title={`${currency} accounts`}><strong>{money(members.reduce((sum,account)=>sum+account.balance,0),currency)}</strong></PanelHeader>
+      <ul className="currency-group-rows">{present.map(group=>{
+        const inGroup=members.filter(account=>account.group===group);
+        const total=fromMinor(inGroup.reduce((sum,account)=>sum+groupSign(group,account.account)*toMinor(account.balance,currency),0),currency);
+        const owed=GROUP_COLUMNS[group]?.owed && total>0;
+        return <li key={group}><button type="button" className="currency-group-row" title={`Show ${group}: all accounts`} onClick={()=>onOpenGroup(group)}>
+          <span className="account-group-name">{group}</span><span className="num">{money(total,currency)}{owed?' owed':''}</span></button></li>;
+      })}</ul></section>;
+  })}</div>;
 }
-function CurrencyGroups({accounts,onDetails,activity=false,children}: {children?:ReactNode;accounts:ReturnType<typeof balanceAccounts>;onDetails:(account:string)=>void;activity?:boolean}) {
+function CurrencyGroups({accounts,onDetails,children}: {children?:ReactNode;accounts:ReturnType<typeof balanceAccounts>;onDetails:(account:string)=>void}) {
   const currencies=currencyOrder(accounts.map(account=>account.currency));
   return <div className={`currency-groups${currencies.length===1 ? ' single-currency' : ''}`}>{currencies.map(currency=>{
     const members=accounts.filter(account=>account.currency===currency);
-    return <section className="panel" key={currency} aria-label={currencies.length>1 ? `${currency} accounts` : 'Net balance'}><PanelHeader title={currencies.length>1 ? `${currency} accounts` : 'Net balance'}><strong>{money(members.reduce((sum,account)=>sum+account.balance,0),currency)}</strong></PanelHeader>{members.map(account=><div className="currency-account-row" key={account.key}><div><button type="button" className="account-link" onClick={e=>{e.currentTarget.focus();onDetails(account.account);}}>{short(account.account)}</button><small>{account.group==='Credit cards'?'Card · '+(account.balance===0?'paid off':'owed, including unbilled charges'):((kind)=>kind ? kind[0].toUpperCase()+kind.slice(1) : account.group)(data.meta.accounts[account.account]?.kind)}</small>{activity && <a className="account-activity-link" href={`${import.meta.env.BASE_URL}account-summary/?account=${encodeURIComponent(account.account+'|'+account.currency)}`}>View activity</a>}</div><span>{money(account.group==='Credit cards'?Math.abs(account.balance):account.balance,currency)}{account.group==='Credit cards' && account.balance<0?' owed':''}</span></div>)}{currencies.length===1 && children}</section>;
+    return <section className="panel" key={currency} aria-label={currencies.length>1 ? `${currency} accounts` : 'Net balance'}><PanelHeader title={currencies.length>1 ? `${currency} accounts` : 'Net balance'}><strong>{money(members.reduce((sum,account)=>sum+account.balance,0),currency)}</strong></PanelHeader>{members.map(account=><div className="currency-account-row" key={account.key}><div><button type="button" className="account-link" onClick={e=>{e.currentTarget.focus();onDetails(account.account);}}>{short(account.account)}</button><small>{account.group==='Credit cards'?'Card · '+(account.balance===0?'paid off':'owed, including unbilled charges'):((kind)=>kind ? kind[0].toUpperCase()+kind.slice(1) : account.group)(data.meta.accounts[account.account]?.kind)}</small></div><span>{money(account.group==='Credit cards'?Math.abs(account.balance):account.balance,currency)}{account.group==='Credit cards' && account.balance<0?' owed':''}</span></div>)}{currencies.length===1 && children}</section>;
   })}</div>;
 }
 function OpeningAccounts() {
@@ -249,7 +249,7 @@ function OpeningAccounts() {
   const date=data.transactions.reduce((last,entry)=>entry.date>last?entry.date:last,'') || data.meta.ledger.startDate;
   const accounts=balanceAccounts(data.transactions,date || '9999-12-31').filter(account=>account.group!=='Other accounts' && (moduleSettings(data.meta.ledger).investments!==false || account.group!=='Investments'));
   const mixed=currencyOrder(accounts.map(account=>account.currency)).length>1;
-  const invitation=<section className="empty viewing-empty opening-invitation"><Icon name="accounts"/><strong>{accounts.length?'Only opening balances so far.':'No opening balances yet.'}</strong><p>Your account activity will appear as you add expenses and check statements.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></section>;
+  const invitation=<section className="empty viewing-empty opening-invitation"><Icon name="accounts"/><strong>{accounts.length?'Only opening balances so far.':'No opening balances yet.'}</strong><p>{accounts.length?'Your account activity will appear as you add expenses and check statements.':'Enter what each account holds today, or add your first expense.'}</p><div className="empty-actions"><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a>{!accounts.length && !data.transactions.length && <a className="button" href={`${import.meta.env.BASE_URL}add/?setup=today`}>Set up opening balances</a>}</div></section>;
   return <section className="page accounts opening-accounts"><PageHeader title="Accounts" subtitle={accounts.length?`Opening balances · ${dayLabel(date!)}`:'Balances in each account’s own currency.'}/>
     {accounts.length ? <>{mixed && <section className="panel net-worth"><PanelHeader title="Net balance"><strong>{moneyTotal(sumCurrencies(accounts,account=>account.balance))}</strong></PanelHeader></section>}<CurrencyGroups accounts={accounts} onDetails={setDetailsAccount}>{!mixed && invitation}</CurrencyGroups>{mixed && <><p className="panel-note">Card debt is subtracted within its currency.</p><div className="panel">{invitation}</div></>}</> : <div className="panel">{invitation}</div>}
     {detailsAccount && <AccountDialog account={detailsAccount} onClose={()=>setDetailsAccount(null)}/>}
@@ -470,7 +470,7 @@ function DetailedAccounts() {
     </PageHeader>
     <button type="button" className="button plain accounts-context-toggle" aria-expanded={contextExpanded} aria-controls="account-totals account-context" onClick={() => setContextExpanded(value => !value)}>{contextExpanded ? 'Less account context' : 'More account context'}<Icon name="chevron-up-down"/></button>
     <section className="panel"><PanelHeader title="Net worth"><span className="summary-total">{moneyTotal(netWorth)}</span></PanelHeader></section>
-    {currencyOrder(accounts.filter(account=>!isFund(account.currency)).map(account=>account.currency)).length>1 && <><CurrencyGroups accounts={accounts.filter(account=>!isFund(account.currency))} onDetails={setDetailsAccount}/><p className="panel-note">Each currency has its own total. Card debt is subtracted within that currency.</p></>}
+    {currencyOrder(accounts.filter(account=>!isFund(account.currency)).map(account=>account.currency)).length>1 && <><CurrencySummary accounts={accounts.filter(account=>!isFund(account.currency))} onOpenGroup={group=>openGroupView(group)}/><p className="panel-note">Each currency has its own total. Card debt is subtracted within that currency.</p></>}
     <section className="metrics" id="account-totals" aria-label="Totals by kind of account">{['Banks', 'Prepaid', 'Credit cards', ...(investmentsEnabled ? ['Investments'] : [])].map((group) => {
       const members = accounts.filter((account) => account.group === group);
       const total = group === 'Investments' && !priced ? investmentTotals : sumCurrencies(members, (account: typeof accounts[number]) => valueOf(account) * (group === 'Credit cards' ? -1 : 1), (account: typeof accounts[number]) => valueCurrency(account));

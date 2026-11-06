@@ -142,10 +142,16 @@ operation API. Dismissing a suggestion uses `removed` with its proposed `rule`
 and no `rule_id`; the server recomputes the current suggestion and retains a
 removed rule with suppression evidence, so a reload does not bring it back.
 
-Add guesses a rule under the words. A guess needs two distinctive shared words, or
-one with the rule's amount or paying account; words that name a paying account
-never count. One shared word alone is only a quiet suggestion ("Is this your …?",
-`suggestions` in `/api/rules/match`) that opens the card when chosen. While a
+Add guesses a rule under the words. A rule's name is its description and its
+category's last name. A word is distinctive when no more than two rules' names use
+it and it names no category group (an `Expenses` segment with accounts under it),
+account kind or paying account. A guess needs two shared distinctive words, or one
+with the rule's amount (within 10%). The paying account only ranks guesses; most
+payments share it. One distinctive word alone is only a quiet suggestion ("Is this
+your …?", `suggestions` in `/api/rules/match`) that opens the card when chosen;
+shared words alone suggest nothing. A rule whose name has no distinctive word but two
+or more shared ones counts its whole name as one word: typed in full it is a
+suggestion, and with its amount a guess. While a
 fixed-amount card shows, Add as usual is the one primary action and Continue
 becomes "Send to the agent instead". Not this only records `declined_rules` on the
 editing draft and hides that guess. It never submits a payment or invokes an

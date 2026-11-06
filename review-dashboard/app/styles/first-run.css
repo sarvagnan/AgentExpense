@@ -25,7 +25,7 @@
 
 .setup-choices { display: grid; gap: 12px; }
 .setup-choice { display: flex; align-items: flex-start; gap: 14px; width: 100%; padding: 20px; border: 1px solid var(--control-border); border-radius: var(--radius-panel); background: var(--surface); color: var(--text); font: inherit; text-align: left; }
-.setup-choice:hover { border-color: var(--accent); background: var(--surface-sunken); }
+@media (hover:hover) { .setup-choice:hover { border-color: var(--accent); background: var(--surface-sunken); } }
 .setup-choice > .icon { width: 22px; height: 22px; color: var(--accent); }
 .setup-choice h2 { font: var(--text-headline); }
 .setup-choice p { margin-top: 6px; color: var(--text-secondary); line-height: 1.5; }
@@ -33,14 +33,15 @@
 
 .setup-account { padding: 16px 20px; border-bottom: 1px solid var(--separator); }
 .setup-account:last-child { border-bottom: 0; }
-.account-fields { display: grid; grid-template-columns: 100px minmax(0, 1fr) 132px 82px; gap: 10px; }
+.account-fields { display: grid; grid-template-columns: 100px minmax(0, 1fr) 132px 82px 28px; gap: 10px; }
+/* Remove sits beside the account's fields, so a row is no taller than its fields and its total. */
+.account-fields .account-remove { align-self: end; width: 28px; height: var(--control-height); }
 .account-fields label { min-width: 0; }
 .account-fields .field { width: 100%; }
 .setup-account .setup-hint { margin-top: 8px; color: var(--text-secondary); font: var(--text-callout); line-height: 1.5; }
 .setup-account .setup-error { margin-top: 8px; }
 .opening-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .opening-unit { color: var(--text-secondary); font: var(--text-caption); }
-.opening-line .icon-button { width: 28px; height: 28px; }
 .setup-add-account { margin-top: 12px; }
 .setup-add-account .icon { width: 15px; height: 15px; }
 .setup-more-kinds { margin-top: 12px; color: var(--text-secondary); font: var(--text-callout); }
@@ -94,14 +95,15 @@
   .setup-content .panel-body { padding: 16px; }
   .setup-intro { margin-bottom: 20px; font-size: 14px; }
   .setup-frame .button, .setup-frame .icon-button { min-height: 44px; height: auto; }
-  .setup-frame .icon-button, .opening-line .icon-button { width: 44px; height: 44px; }
+  .setup-frame .icon-button, .account-fields .account-remove { width: 44px; height: 44px; }
   .setup-frame .field { min-height: 44px; font-size: 16px; }
   .setup-account { padding: 16px; }
   .account-fields { grid-template-columns: minmax(0, 1fr) 82px; }
+  .account-fields .account-remove { grid-column: 2; grid-row: 2; justify-self: end; }
   .account-fields label:nth-child(2) { grid-column: 1 / -1; grid-row: 1; }
   .account-fields label:first-child { grid-column: 1; grid-row: 2; }
   .account-fields label:nth-child(3) { grid-column: 1; grid-row: 3; }
-  .account-fields label:last-child { grid-column: 2; grid-row: 3; }
+  .account-fields label:nth-child(4) { grid-column: 2; grid-row: 3; }
   .setup-new-account { grid-template-columns: minmax(0, 1fr) 82px; }
   .setup-new-account label:nth-of-type(2) { grid-column: 1 / -1; grid-row: 2; }
   .setup-footer { gap: 12px; }

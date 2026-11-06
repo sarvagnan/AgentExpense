@@ -20,6 +20,31 @@ test('instant matching agrees with the authoritative matcher across names, dates
     assert.deepEqual(normalize(actual),normalize(expected),locale+': '+text);
   }
 });
+test('instant matching agrees on distinctive words: category groups, account kinds, shared names and the payer',()=>{
+  const groups={...accounts,'Assets:Bank:Alder':{kind:'bank',currency:'EUR',label:'Alder',aliases:['alder']},'Expenses:Insurance:Home':{},'Expenses:Insurance:Car':{}};
+  const usual=(id,description,account,amount,pay='Assets:Purse')=>rule({id,description,postings:[{account,amount,commodity:'EUR'},{account:pay,amount:'-'+amount,commodity:'EUR'}]});
+  const rules=[usual('f000000000000011','Quill home insurance','Expenses:Insurance:Home','120.00'),usual('f000000000000012','Thistle car insurance','Expenses:Insurance:Car','64.00','Assets:Bank:Alder'),
+    usual('f000000000000013','Hawthorn dues','Expenses:Clubs:Dues','30.00'),usual('f000000000000014','Hawthorn parking','Expenses:Clubs:Parking','12.00'),usual('f000000000000015','Hawthorn pool','Expenses:Clubs:Pool','18.00')];
+  const examples=['Quill home insurance','Quill insurance 120','Quill insurance','Juniper Insurance Brokers 120','insurance 64','Juniper bank 64','Thistle from Alder','Thistle 64 Alder','Hawthorn 30','Hawthorn dues','dues 30','clubs 18','Hawthorn pool 18 EUR'];
+  // A rule named only by category words is found by its whole name.
+  const wholeGroups={...groups,'Expenses:Car:Fuel':{},'Expenses:Car:Parking':{}};
+  const wholeRules=[usual('f000000000000016','Car insurance','Expenses:Insurance:Car','90.00'),usual('f000000000000017','Insurance','Expenses:Insurance:Home','120.00')];
+  const cases=[...examples.map(text=>[rules,groups,text]),...['Car insurance 90','car insurance','Juniper car 90','Juniper Insurance Brokers 120'].map(text=>[wholeRules,wholeGroups,text])];
+  for(const [rules,groups,text] of cases){
+    const expected=JSON.parse(execFileSync(process.env.VIRTUAL_ENV?process.env.VIRTUAL_ENV+'/bin/python':'python3',['-c',"import json,sys;sys.path.insert(0,'scripts/ledger');from recurring import match_text; print(json.dumps(match_text(**json.loads(sys.stdin.read()))))"],{cwd:new URL('../../',import.meta.url),input:JSON.stringify({rules,text,accounts:groups,today:'2026-11-02',currency:'EUR',locale:'en-GB'}),encoding:'utf8'}));
+    const actual=matchRules(rules,text,groups,'2026-11-02','EUR','en-GB');
+    const normalize=x=>({...x,matches:x.matches.map(m=>({...m,matched_amounts:m.matched_amounts.map(a=>({...a,amount:Number(a.amount)}))})),suggestions:x.suggestions.map(m=>({...m,matched_amounts:m.matched_amounts.map(a=>({...a,amount:Number(a.amount)}))}))});
+    assert.deepEqual(normalize(actual),normalize(expected),text);
+  }
+  const quiet=matchRules(rules,'Quill insurance',groups,'2026-11-02','EUR','en-GB');
+  assert.deepEqual([quiet.matches.length,quiet.suggestions.map(m=>m.matched_words)],[0,[['quill']]]);
+  assert.equal(matchRules(rules,'Juniper Insurance Brokers 120',groups,'2026-11-02','EUR','en-GB').suggestions.length,0);
+  assert.equal(matchRules(rules,'Thistle from Alder',groups,'2026-11-02','EUR','en-GB').rule_id,null);
+  assert.equal(matchRules(wholeRules,'Car insurance 90',wholeGroups,'2026-11-02','EUR','en-GB').rule_id,'f000000000000016');
+  const whole=matchRules(wholeRules,'car insurance',wholeGroups,'2026-11-02','EUR','en-GB');
+  assert.deepEqual([whole.matches.length,whole.suggestions.map(m=>m.matched_words)],[0,[['car','insurance']]]);
+  assert.equal(matchRules(wholeRules,'Juniper Insurance Brokers 120',wholeGroups,'2026-11-02','EUR','en-GB').suggestions.length,0);
+});
 test('calendar quantities, anchored periods, paid choices and statuses stay per rule',()=>{
   assert.deepEqual(textAmounts('1 nov 2026 2026-11-01 01/11/2026 20 EUR'),[20]);
   assert.deepEqual(textAmounts('1. November 2026 1.200,50 EUR','de-DE'),[1200.5]);

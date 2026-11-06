@@ -44,6 +44,9 @@ export async function runAccountGroups({page,base,persona,width,stage,expect,con
   await long.focus();await page.keyboard.press('ArrowUp');await page.keyboard.press('ArrowDown');
   const outline=await long.evaluate(node=>({offset:parseFloat(getComputedStyle(node).outlineOffset),width:parseFloat(getComputedStyle(node).outlineWidth)}));
   assert.ok(outline.offset<=-outline.width,`The focus outline is inset (${JSON.stringify(outline)})`);
+  // C19: a heading's total is as large as the amounts under it and bolder, so the hierarchy reads top-down.
+  const weights=await list.evaluate(node=>{const total=node.querySelector('.account-group-total'),amount=node.querySelector('.account-row .num');const a=getComputedStyle(total),b=getComputedStyle(amount);return {total:parseFloat(a.fontSize),amount:parseFloat(b.fontSize),weight:Number(a.fontWeight),rowWeight:Number(b.fontWeight)};});
+  assert.ok(weights.total>=weights.amount&&weights.weight>weights.rowWeight,`Group totals outrank account amounts (${JSON.stringify(weights)})`);
   await overflow('Accounts list rows');await snap('accounts-list-rows');
   record('6g account rows: one line, fixed height, truncation with full name, codes for other currencies, inset focus');
 
@@ -62,6 +65,9 @@ export async function runAccountGroups({page,base,persona,width,stage,expect,con
    if(narrow)await page.getByRole('button',{name:'Less account context',exact:true}).click();
    // Phone captures start at the group view itself; the full-page companion keeps the page above it.
    if(narrow)await view.evaluate(node=>node.scrollIntoView({block:'start',behavior:'instant'}));
+   // C12: the table's last row has no partial bottom border under its first cell.
+   const borders=await view.locator('.group-accounts-table tbody tr').last().evaluate(row=>[...row.children].map(cell=>parseFloat(getComputedStyle(cell).borderBottomWidth)));
+   assert.ok(borders.every(width=>width===borders[0]),`The last row's cells share one bottom border (${borders})`);
    await overflow(group+' group view');await snap(`accounts-group-${GROUPS[group]}`);
   }
   const cell=(account,label)=>view.locator('.group-accounts-table tr').filter({hasText:account}).locator(`[data-label="${label}"]`);

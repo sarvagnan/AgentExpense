@@ -527,7 +527,8 @@ def confirmed_balances(body: dict):
     from ledger_manifest import read_manifest, module_settings
     currency=read_manifest(settings.ledger)['defaultCurrency']
     account='Assets:Bank:Cedar Confirmation'
-    category='Expenses:Learning:Cedar Confirmation'
+    # The rule's name needs a distinctive word: 'cedar' names the paying account and 'learning' a category group.
+    category='Expenses:Learning:Cedar Tutoring'
     declarations=read_json(settings.ledger/'data/accounts.json')
     declarations['accounts'].update({account:dict(kind='bank',currency=currency,label='Cedar Current'),category:{},'Equity:Opening Balances':{}})
     p=lambda a,n:dict(account=a,amount=n,commodity=currency)
@@ -538,7 +539,7 @@ def confirmed_balances(body: dict):
     closing=dict(id='000000000000b003',date='2026-10-31',status='confirmed',description='Cedar monthly balance',postings=[dict(p(account,'0.00'),**{'assert':dict(amount='900.00',commodity=currency)})],sources=[source])
     summary=dict(id='000000000000b004',kind='bank',account=account,start='2026-10-01',end='2026-10-31',source=source,reader='generic-csv',**{'opening-balance':'1000.00','closing-balance':'900.00','assertion-id':closing['id']},debits='100.00',credits='0.00',rows=1,members=[dict(date=paid['date'],serial='1',description=paid['description'],amount='100.00',direction='Debit',citation=dict(sheet='CSV',row=2),disposition='recorded',**{'entry-id':paid['id']})])
     rows=read_json(settings.ledger/'data/expenses/2026.json')+[opening,paid,closing];rows.sort(key=lambda e:e['date'])
-    rule=dict(id='f00000000000b001',date='2026-11-29',status='confirmed',description='Cedar learning',postings=deepcopy(paid['postings']),schedule={'every':'month','from':'2026-11-29'})
+    rule=dict(id='f00000000000b001',date='2026-11-29',status='confirmed',description='Cedar tutoring',postings=deepcopy(paid['postings']),schedule={'every':'month','from':'2026-11-29'})
     changes={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':rows,settings.ledger/'data/card-statements.json':read_json(settings.ledger/'data/card-statements.json')+[summary],settings.ledger/'data/forecast.json':[rule]}
     # The normal settings fixture writer owns the lock and verified commit.
     def install():

@@ -38,7 +38,8 @@ code { font: var(--text-code); }
   font: var(--text-body);
   white-space: nowrap;
 }
-.button:hover:not(:disabled) { background: var(--surface-raised); }
+/* Hover fills only where a pointer hovers: a tap must not leave a control shaded. */
+@media (hover:hover) { .button:hover:not(:disabled) { background: var(--surface-raised); } }
 .button:active:not(:disabled) { filter: brightness(.92); }
 .button:disabled { opacity: .45; }
 /* A selected push button (Forecast's Overview and Rules) keeps its fill under hover and press:
@@ -47,10 +48,10 @@ code { font: var(--text-code); }
 .button[aria-current="page"]:active:not(:disabled) { filter: none; opacity: .85; }
 .button .icon { width: 15px; height: 15px; }
 .button.primary { border-color: transparent; background: var(--accent-fill); color: var(--on-accent); font-weight: 600; }
-.button.primary:hover:not(:disabled) { background: var(--accent-fill); filter: brightness(1.08); }
+@media (hover:hover) { .button.primary:hover:not(:disabled) { background: var(--accent-fill); filter: brightness(1.08); } }
 .button.destructive { color: var(--negative); }
 .button.plain { border-color: transparent; background: transparent; color: var(--link); padding: 0 6px; }
-.button.plain:hover:not(:disabled) { background: var(--surface-raised); }
+@media (hover:hover) { .button.plain:hover:not(:disabled) { background: var(--surface-raised); } }
 .button.plain.destructive { color: var(--negative); }
 .icon-button {
   width: var(--control-height); height: var(--control-height);
@@ -58,7 +59,7 @@ code { font: var(--text-code); }
   padding: 0; border: 0; border-radius: var(--radius-control);
   background: transparent; color: var(--text-secondary);
 }
-.icon-button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+@media (hover:hover) { .icon-button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); } }
 .icon-button:active:not(:disabled) { filter: brightness(.9); }
 .icon-button:disabled { opacity: .35; }
 

@@ -73,8 +73,8 @@ const limitLabel=(value:number,unit:'days'|'hours')=>unit==='hours'&&value<24?pl
 /** What a changed limit would do now: one sentence, and the affected items on request. */
 function limitEffect(key:typeof LIMITS[number][0],effects:Effects):{text:string;items:string[]} {
   const items=(key==='delete_days'?effects.deletable_again:key==='trash_days'?effects.remove_now:effects.move_to_trash).map(item=>item.description),n=items.length;
-  const text=key==='delete_days'?(n?`${plural(n,'older entry','older entries')} ${n===1?'becomes':'become'} deletable again.`:'The new window applies to existing entries immediately.')
-    :key==='trash_days'?(n?`${plural(n,'item')} in Trash would be removed for good now.`:'No Trash items would be removed for good now.')
+  const text=key==='delete_days'?(n?`${plural(n,'older entry','older entries')} ${n===1?'becomes':'become'} deletable again.`:'The new window applies to existing entries now.')
+    :key==='trash_days'?(n?`${plural(n,'Trash item')} would be removed for good.`:'No Trash items would be removed for good.')
     :(n?`${plural(n,'saved item')} would move to Trash now.`:'No saved items would move to Trash now.');
   return {text,items};
 }

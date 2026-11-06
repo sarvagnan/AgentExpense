@@ -35,7 +35,8 @@ function setFlag(on: boolean) { try { if (on) localStorage.setItem(FLAG, dashboa
  * this browser is bringing in statements (which creates accounts before any entry). */
 export function needsFirstRun() {
   const accounts = Object.values(dashboard.meta.accounts).some(meta => meta.kind);
-  return dashboard.transactions.length === 0 && (!accounts || flagged());
+  // An address naming a setup step (Accounts’ “Set up opening balances”) opens it while the ledger is fresh.
+  return dashboard.transactions.length === 0 && (!accounts || flagged() || readStep() !== null);
 }
 
 const post = (body: unknown): RequestInit => ({method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
@@ -160,6 +161,15 @@ export function parseAmount(text: string, currency: string, locale = dashboard.m
   if (places > allowed) return {value:null, error:allowed ? `${currency} amounts have at most ${allowed} decimal places.` : `${currency} amounts have no decimal places.`};
   return {value:plain, error:''};
 }
+/** A valid typed balance with the currency's full decimal places (75 → 75.00), in the typed locale's decimal sign. */
+export function fullAmount(text: string, currency: string, locale = dashboard.meta.ledger.locale || navigator.language) {
+  const parsed = parseAmount(text, currency, locale);
+  if (parsed.value === null) return text;
+  const allowed = minorUnits(currency), [whole, fraction = ''] = parsed.value.split('.');
+  if (!allowed) return text;
+  const decimal = new Intl.NumberFormat(locale).formatToParts(1.5).find(p => p.type === 'decimal')?.value || '.';
+  return `${whole}${decimal}${fraction.padEnd(allowed, '0')}`;
+}
 const owed = (kind: Kind) => kind === 'card' || kind === 'loan';
 const KIND_HINT: Partial<Record<Kind, string>> = {
   card:'Include charges not yet billed, not just your last statement balance.',
@@ -197,15 +207,15 @@ function Today({title, rows, setRows, onBack, onDone}: {title: ReactNode; rows: 
             {(['bank','card','cash','wallet','loan'] as Kind[]).map(kind => <option key={kind} value={kind}>{kind[0].toUpperCase() + kind.slice(1)}</option>)}
             <optgroup label="More"><option value="investment">Investment</option><option value="person">Person</option></optgroup></select></label>
           <label><span className="field-label">Account name</span><input className="field account-name" value={row.label} readOnly={row.existing} maxLength={100} autoComplete="off" aria-invalid={duplicate(row) || undefined} onChange={e => update(row.key, {label:e.target.value})}/></label>
-          <label><span className="field-label">{owed(row.kind) ? 'Amount owed' : 'Balance'}</span><input className="field account-balance" inputMode="decimal" autoComplete="off" value={row.balance} aria-invalid={!!amount.error || undefined} onChange={e => update(row.key, {balance:e.target.value})}/></label>
+          <label><span className="field-label">{owed(row.kind) ? 'Amount owed' : 'Balance'}</span><input className="field account-balance" inputMode="decimal" autoComplete="off" value={row.balance} aria-invalid={!!amount.error || undefined} onChange={e => update(row.key, {balance:e.target.value})} onBlur={() => { const shown = fullAmount(row.balance, row.currency); if (shown !== row.balance) update(row.key, {balance:shown}); }}/></label>
           <label><span className="field-label">Currency</span><select className="field account-currency" value={row.currency} disabled={row.existing} aria-label={`Currency for ${row.label.trim() || 'this account'}`} onChange={e => update(row.key, {currency:e.target.value})}><CurrencyOptions current={row.currency}/></select></label>
+          {rows.length > 1 && !row.existing ? <button type="button" className="icon-button account-remove" aria-label={`Remove ${row.label.trim() || 'this account'}`} title="Remove" onClick={() => setRows(xs => xs.filter(x => x.key !== row.key))}><Icon name="close"/></button> : <span className="account-remove" aria-hidden="true"/>}
         </div>
         {KIND_HINT[row.kind] && <p className="setup-hint kind-hint">{KIND_HINT[row.kind]}</p>}
         {row.existing && <p className="setup-hint">Already in your ledger.</p>}
         {amount.error && <p className="setup-error" role="alert">{amount.error}</p>}
         {duplicate(row) && <p className="setup-error">Another account has this name. Give each a different name.</p>}
-        <div className="opening-line"><p className="opening-unit">Opening balance: <span>{amount.value !== null ? money(Number(amount.value), row.currency) : amount.error ? '—' : money(0, row.currency)}</span></p>
-          {rows.length > 1 && !row.existing && <button type="button" className="icon-button" aria-label={`Remove ${row.label.trim() || 'this account'}`} title="Remove" onClick={() => setRows(xs => xs.filter(x => x.key !== row.key))}><Icon name="close"/></button>}</div>
+        <div className="opening-line"><p className="opening-unit">Opening balance: <span>{amount.value !== null ? money(Number(amount.value), row.currency) : amount.error ? '—' : money(0, row.currency)}</span></p></div>
       </div>)}</section>
       <div className="setup-add-account"><button type="button" className="button plain" onClick={() => { const key = nextKey(); added.current = key; setRows(xs => [...xs, {key, kind:'bank', label:'', balance:'', currency:main}]); }}><Icon name="plus"/>Add account</button></div>
       <p className="setup-more-kinds">More kinds: Investment · Person — money owed between you and someone.</p>

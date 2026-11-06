@@ -2,7 +2,7 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import Dashboard, { type View } from './dashboard';
 import { announce, sessionRead, sessionWrite, useAppearance } from './ui';
-import { loadData } from './data';
+import { dashboard, loadData } from './data';
 import FirstRun, { needsFirstRun } from './first-run';
 import './globals.css';
 
@@ -84,7 +84,7 @@ function App() {
 
   useEffect(() => {
     const remember = () => sessionWrite(`ledger-view:${routeFor(window.location.pathname)}`, window.location.search);
-    const handleHistory = () => { remember(); setView(routeFor(window.location.pathname)); };
+    const handleHistory = () => { remember(); setView(routeFor(window.location.pathname)); if (dashboard) setSetup(needsFirstRun()); };
     remember();
     const handleNavigation = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -107,6 +107,7 @@ function App() {
         window.dispatchEvent(new Event('ledger-navigate'));
       }
       setView(routes[path]);
+      if (dashboard && needsFirstRun()) setSetup(true);
       window.scrollTo({ top: 0, behavior: 'instant' });
     };
 

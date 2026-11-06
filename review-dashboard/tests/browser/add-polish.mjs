@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 export async function runAddPolish({page,persona,expect,control,go,snap,record,quiesce,resetDrafts}){
  await quiesce();await control('reset-workflows',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});await control('confirmed-balances',{});await go('add/');
  const words=page.locator('#expense-words'),guess=page.getByRole('complementary',{name:'Usual payment'}),notice=page.getByRole('alert',{name:'Confirmed balance refusal'});
- await words.fill('Cedar learning 100 on 30 October');await guess.getByLabel('Payment date').fill('2026-10-30');await guess.getByRole('checkbox',{name:/Add another anyway/}).check();await guess.getByRole('button',{name:'Add as usual'}).click();await expect(notice).toBeVisible();
+ await words.fill('Cedar tutoring 100 on 30 October');await guess.getByLabel('Payment date').fill('2026-10-30');await guess.getByRole('checkbox',{name:/Add another anyway/}).check();await guess.getByRole('button',{name:'Add as usual'}).click();await expect(notice).toBeVisible();
  const spacing=await notice.evaluate(node=>{const facts=node.querySelector('.facts').getBoundingClientRect(),heading=node.querySelector('section h3').getBoundingClientRect();return {gap:heading.top-facts.bottom,expected:parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--space-4'))};});
  assert.ok(spacing.gap>=spacing.expected,`Possible duplicates needs the section spacing token: ${JSON.stringify(spacing)}`);
  await expect(notice.locator(':scope > div > p').first()).toHaveText(/^The /);await expect(page.locator('.add-savebar .live-error')).toHaveCount(0);await snap('add-polish-refusal');

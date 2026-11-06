@@ -58,7 +58,7 @@ class RecurringTests(unittest.TestCase):
         self.assertEqual(match_text([shortcut_name],'fern 20 EUR',ACCOUNTS,'2026-10-15','EUR')['matches'],[])
 
     def test_one_shared_word_is_only_a_suggestion(self):
-        """A lone shared word never proposes a rule; two words, or a word with the amount or payer, do."""
+        """A lone shared word never proposes a rule; two distinctive words, or one with the amount, do."""
         def usual(identity, description, category, amount, currency, payer):
             return dict(id=identity, date='2026-11-15', status='confirmed', description=description, lifecycle='active',
                         schedule=dict(every='month', **{'from': '2026-11-15'}),
@@ -72,19 +72,24 @@ class RecurringTests(unittest.TestCase):
         self.assertEqual((weak['matches'], weak['rule_id'], weak['pick_list']), ([], None, False))
         self.assertEqual([(m['id'], m['matched_words']) for m in weak['suggestions']], [(lantern['id'], ['paper'])])
         for text, reason in [('Paper Lantern', 'two words'), ('Paper Lantern 90', 'two words and the amount'),
-                             ('Lantern 90', 'one word and the amount'), ('Lantern on Mosaic Card', 'one word and the payer')]:
+                             ('Lantern 90', 'one word and the amount')]:
             with self.subTest(text=text, reason=reason):
                 result = match_text([lantern], text, asha_accounts, '2026-11-06', 'INR', 'en-IN')
                 self.assertEqual((result['rule_id'], result['suggestions']), (lantern['id'], []))
+        # The paying account alone is weak evidence: most payments share it, so it only ranks.
+        payer_only = match_text([lantern], 'Lantern on Mosaic Card', asha_accounts, '2026-11-06', 'INR', 'en-IN')
+        self.assertEqual((payer_only['rule_id'], [m['id'] for m in payer_only['suggestions']]), (None, [lantern['id']]))
+        self.assertEqual(payer_only['suggestions'][0]['matched_alias'], 'Mosaic Card')
         # Jordan's shape: rent named by its expense account, paid from a checking account.
         jordan_accounts = {'Assets:Bank:Alder Checking': dict(kind='bank', currency='USD', label='Alder Checking', aliases=['alder', 'checking'])}
         rent = usual('f0000000000000b1', 'October rent', 'Expenses:Housing:Rent', '800.00', 'USD', 'Assets:Bank:Alder Checking')
         weak = match_text([rent], 'Birch rent 100 USD', jordan_accounts, '2026-11-06', 'USD', 'en-US')
         self.assertEqual((weak['matches'], weak['rule_id']), ([], None))
         self.assertEqual([m['id'] for m in weak['suggestions']], [rent['id']])
-        for text in ('October rent', 'rent 800 USD', 'Rent from Alder Checking', 'rent 790'):
+        for text in ('October rent', 'rent 800 USD', 'Rent from Alder Checking 800', 'rent 790'):
             with self.subTest(text=text):
                 self.assertEqual(match_text([rent], text, jordan_accounts, '2026-11-06', 'USD', 'en-US')['rule_id'], rent['id'])
+        self.assertEqual(match_text([rent], 'Rent from Alder Checking', jordan_accounts, '2026-11-06', 'USD', 'en-US')['rule_id'], None)
         # A pick list ranks proposals only; two one-word candidates are two suggestions.
         clover = [usual('f0000000000000c1', 'Clover music', 'Expenses:Music', '40.00', 'USD', 'Assets:Bank:Alder Checking'),
                   usual('f0000000000000c2', 'Clover lessons', 'Expenses:Lessons', '41.00', 'USD', 'Assets:Bank:Alder Checking')]
@@ -96,6 +101,58 @@ class RecurringTests(unittest.TestCase):
         # A strong proposal and a weak one: only the proposal decides; the weak one stays a suggestion.
         mixed = match_text([rent, lantern], 'October rent paper', {**asha_accounts, **jordan_accounts}, '2026-11-06', 'USD', 'en-US')
         self.assertEqual((mixed['rule_id'], [m['id'] for m in mixed['suggestions']]), (rent['id'], [lantern['id']]))
+
+    def test_only_distinctive_words_propose_a_usual_payment(self):
+        """Category-group, account-kind and widely shared words never count; the payer only ranks."""
+        accounts = {'Assets:Bank:Alder Checking': dict(kind='bank', currency='USD', label='Alder Checking', aliases=['alder', 'checking']),
+                    'Liabilities:Credit Cards:Lumen Card': dict(kind='card', currency='USD', label='Lumen Card', aliases=['lumen']),
+                    'Expenses:Insurance:Home': {}, 'Expenses:Insurance:Car': {}}
+        def usual(identity, description, category, amount, payer='Assets:Bank:Alder Checking'):
+            return dict(id=identity, date='2026-11-20', status='confirmed', description=description, lifecycle='active',
+                        schedule=dict(every='month', **{'from': '2026-11-20'}),
+                        postings=[dict(account=category, amount=amount, commodity='USD'),
+                                  dict(account=payer, amount='-'+amount, commodity='USD')])
+        # Two rules sharing a category word: "insurance" names the Insurance group, so it never counts.
+        home = usual('f0000000000000d1', 'Quill home insurance', 'Expenses:Insurance:Home', '120.00')
+        car = usual('f0000000000000d2', 'Thistle car insurance', 'Expenses:Insurance:Car', '64.00', 'Liabilities:Credit Cards:Lumen Card')
+        def match(text, rules=(home, car)):
+            return match_text(list(rules), text, accounts, '2026-11-06', 'USD', 'en-US')
+        self.assertEqual(match('Quill home insurance')['rule_id'], home['id'])
+        self.assertEqual(match('Quill insurance 120')['rule_id'], home['id'])
+        one = match('Quill insurance')
+        self.assertEqual((one['matches'], [(m['id'], m['matched_words']) for m in one['suggestions']]), ([], [(home['id'], ['quill'])]))
+        # A payee typed with a shared word: nothing distinctive matches, even with the right amount.
+        for text in ('Juniper Insurance Brokers 120', 'insurance 64', 'Juniper card 64'):
+            with self.subTest(text=text):
+                self.assertEqual({k: match(text)[k] for k in ('matches', 'suggestions', 'rule_id')}, dict(matches=[], suggestions=[], rule_id=None))
+        # A word in three rules' names is shared, not distinctive; in two it still counts.
+        dues = [usual('f0000000000000e%d' % n, 'Hawthorn ' + kind, 'Expenses:Clubs:' + kind.title(), amount)
+                for n, (kind, amount) in enumerate([('dues', '30.00'), ('parking', '12.00'), ('pool', '18.00')], 1)]
+        self.assertEqual({k: match('Hawthorn 30', dues)[k] for k in ('matches', 'suggestions')}, dict(matches=[], suggestions=[]))
+        named = match('Hawthorn dues', dues)
+        self.assertEqual((named['matches'], [m['id'] for m in named['suggestions']]), ([], [dues[0]['id']]))
+        self.assertEqual(match('dues 30', dues)['rule_id'], dues[0]['id'])
+        self.assertEqual(match('Hawthorn 30', dues[:2])['rule_id'], dues[0]['id'])
+        # A rule with one distinctive word, typed with its amount, is still proposed; the payer breaks a tie.
+        lone = usual('f0000000000000f1', 'Rent', 'Expenses:Housing:Rent', '800.00')
+        self.assertEqual(match('Rent 800', [lone])['rule_id'], lone['id'])
+        self.assertEqual(match('Rent', [lone])['rule_id'], None)
+        twins = [usual('f0000000000000f2', 'Sorrel lessons', 'Expenses:Learning:Lessons', '40.00'),
+                 usual('f0000000000000f3', 'Sorrel club', 'Expenses:Learning:Club', '40.00', 'Liabilities:Credit Cards:Lumen Card')]
+        self.assertTrue(match('Sorrel 40', twins)['pick_list'])
+        self.assertEqual(match('Sorrel 40 with Lumen', twins)['rule_id'], twins[1]['id'])
+        # A rule named only by shared words is found by its whole name: with the amount it is proposed,
+        # without it suggested; part of the name finds nothing, and a one-word shared name never counts.
+        groups = dict(accounts, **{'Expenses:Car:Fuel': {}, 'Expenses:Car:Parking': {}})
+        cover = usual('f0000000000000f5', 'Car insurance', 'Expenses:Insurance:Car', '90.00')
+        alone = usual('f0000000000000f6', 'Insurance', 'Expenses:Insurance:Home', '120.00')
+        def grouped(text, rules=(cover, home)):
+            return match_text(list(rules), text, groups, '2026-11-06', 'USD', 'en-US')
+        self.assertEqual(grouped('Car insurance 90')['rule_id'], cover['id'])
+        whole = grouped('car insurance')
+        self.assertEqual((whole['matches'], [(m['id'], m['matched_words']) for m in whole['suggestions']]), ([], [(cover['id'], ['car', 'insurance'])]))
+        self.assertEqual({k: grouped('Juniper car 90')[k] for k in ('matches', 'suggestions')}, dict(matches=[], suggestions=[]))
+        self.assertEqual({k: grouped('Juniper Insurance Brokers 120', [alone])[k] for k in ('matches', 'suggestions')}, dict(matches=[], suggestions=[]))
 
     def test_localized_calendar_forms_never_supply_amounts(self):
         for locale,text in [('en-GB','Willow 1st Nov 2026'),('en-US','Willow Nov 1st, 2026'),('en-IN','Willow 01/11'),('fr-FR','Willow 1 novembre 2026'),('de-DE','Willow 1. November 2026'),('es-ES','Willow noviembre 1 2026'),('ja-JP','Willow 2026年11月1日')]:

@@ -26,7 +26,12 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   // One "Edit entry" heading (the page's); the panel names the entry. Controls use the system's buttons.
   await expect(page.getByRole('heading',{name:'Edit entry',exact:true})).toHaveCount(1);await expect(form.getByRole('button',{name:'Attach files',exact:true})).toBeVisible();await expect(form.locator('section[aria-label="Saved sources"]:not(:has(input))')).toHaveCount(0);await expect(form).toContainText('No changes yet');
   await expect(form.getByText('Agent doubts',{exact:true})).toHaveCount(0);await form.getByLabel('Description',{exact:true}).fill('Birch rent corrected');await form.getByLabel('Reason (optional)').fill('Receipt confirmed the description');
-  await snap('correction-from-drafts');await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
+  // C16 / B-2 P16: posting accounts read as the app names them (values stay paths); one row per posting with a quiet remove.
+  const postings=await form.locator('.hand-posting').evaluateAll(sets=>sets.map(set=>{const select=set.querySelector('select'),row=set.querySelector('input:not([type=checkbox])').getBoundingClientRect(),remove=set.querySelector('.hand-remove');return {value:select?.value,shown:select?.selectedOptions[0]?.textContent,remove:remove?.getAttribute('aria-label'),removeText:remove?.textContent,amountTop:row.top,selectTop:select?.getBoundingClientRect().top};}));
+  assert.ok(postings.length>=2);
+  for(const [i,posting] of postings.entries()){assert.match(posting.value,/:/,'The value is the ledger path');assert.doesNotMatch(posting.shown,/^(Expenses|Assets|Liabilities|Income|Equity):/,`Posting ${i+1} shows a name, not a path: ${posting.shown}`);assert.equal(posting.remove,`Remove posting ${i+1}`);assert.equal(posting.removeText,'','Remove is an icon button');}
+  const addPosting=await form.getByRole('button',{name:'Add posting',exact:true}).boundingBox(),formBox=await form.boundingBox();assert.ok(addPosting.width<formBox.width/2,'Add posting is not a full-width bar');
+  await page.mouse.move(1,1);await snap('correction-from-drafts');await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
   await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});await snap('correction-saved');await page.getByRole('button',{name:'Back to Queue',exact:true}).click();
   const entryId=added.result.entry_id,month=yesterday.slice(0,7);
   let savedName='Birch rent corrected';
@@ -61,7 +66,11 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   await expect(guess.getByRole('button',{name:'Add as usual'})).toBeEnabled();await guess.getByRole('button',{name:'Add as usual'}).click();
   await expect.poll(async()=>{added=(await get('drafts?include_added=true')).find(d=>d.text==='Birch rent today');return added?.receipt_reading?.state;},{timeout:180000}).toBe('question');
   await page.evaluate(()=>{for(const key of Object.keys(sessionStorage))if(key.startsWith('ledger-add-visit-'))sessionStorage.removeItem(key);});
-  await go('explorer/?month=2026-11&entry='+added.result.entry_id);const receiptInspector=page.locator('#transaction-inspector');await expect(receiptInspector.getByRole('region',{name:'Receipt reading'})).toContainText('The receipt says');await snap('receipt-question-inspector');await receiptInspector.getByRole('button',{name:'Close details'}).click();record('6f C pending receipt questions remain reachable from Explorer without the Add visit');
+  await go('explorer/?month=2026-11&entry='+added.result.entry_id);const receiptInspector=page.locator('#transaction-inspector');await expect(receiptInspector.getByRole('region',{name:'Receipt reading'})).toContainText('The receipt says');
+  // C15: a file's Open and Copy sit beside its name, not on a line of their own.
+  const evidence=await receiptInspector.locator('.source-list li').first().evaluate(item=>{const name=item.querySelector('.path').getBoundingClientRect(),actions=item.querySelector('.source-actions').getBoundingClientRect();return {nameTop:name.top,actionsTop:actions.top,actionsBottom:actions.bottom,nameBottom:name.bottom,nameRight:name.right,actionsLeft:actions.left};});
+  assert.ok(evidence.actionsTop<evidence.nameBottom&&evidence.actionsLeft>=evidence.nameRight-1,`Open sits beside the file name (${JSON.stringify(evidence)})`);
+  await snap('receipt-question-inspector');await receiptInspector.getByRole('button',{name:'Close details'}).click();record('6f C pending receipt questions remain reachable from Explorer without the Add visit');
   await go('add/?draft='+added.id);await page.locator('.receipt-inline').getByRole('button',{name:'More',exact:true}).click();const question=page.getByRole('region',{name:'Receipt reading'});await expect(question).toContainText('The receipt says');await overflow('receipt question');await snap('receipt-question');
   await question.getByRole('button',{name:'Keep the entry'}).click();await expect(question).toContainText('Entry kept. Receipt notes saved.',{timeout:180000});
   record('6d usual saves first, reads filed receipt afterwards and records the owner choice');

@@ -26,7 +26,7 @@
   text-align: left;
 }
 .calendar-day.level-0 { background: transparent; border-color: var(--separator); }
-.calendar-day:hover { border-color: var(--control-border); }
+@media (hover:hover) { .calendar-day:hover { border-color: var(--control-border); } }
 .calendar-day[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .calendar-date { color: var(--text-secondary); font: var(--text-caption); }
 .calendar-amount { font: 400 11px/16px var(--font-sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -90,7 +90,7 @@
   border: 1px solid transparent; border-radius: var(--radius-panel);
   background: var(--surface); color: var(--text); text-align: left;
 }
-.atlas-card:hover { background: var(--surface-raised); }
+@media (hover:hover) { .atlas-card:hover { background: var(--surface-raised); } }
 .atlas-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--selection-fill); }
 .atlas-currency + .atlas-currency { margin-top: var(--space-8); }
 .atlas-currency-header { min-height: 40px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
@@ -121,7 +121,7 @@
 .ranked-list li:first-child { border-top: 0; padding-top: 0; }
 .ranked-list li:has(> .ranked-link) { display: block; padding: 0; }
 .ranked-link { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: var(--space-2); align-items: baseline; margin: 0 -6px; padding: 7px 6px; border-radius: var(--radius-control); color: var(--text); }
-.ranked-link:hover { background: var(--surface-raised); text-decoration: none; }
+@media (hover:hover) { .ranked-link:hover { background: var(--surface-raised); text-decoration: none; } }
 .ranked-link:active { filter: var(--pressed); }
 .ranked-list .date { color: var(--text-secondary); font: var(--text-callout); }
 .ranked-list .num { white-space: nowrap; }
@@ -185,7 +185,7 @@
 .segmented-tabs .count { color: var(--text-secondary); font-weight: 400; }
 .review-list { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--separator); }
 .review-row { width: 100%; min-height: 48px; display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: 6px var(--space-4); border: 0; border-bottom: 1px solid var(--separator); background: transparent; color: var(--text); font: var(--text-body); text-align: left; }
-.review-row:hover { background: var(--surface-raised); }
+@media (hover:hover) { .review-row:hover { background: var(--surface-raised); } }
 /* A selected row keeps its selection tint under the pointer. */
 .review-row[aria-selected="true"]:hover { background: var(--selection-fill-inactive); }
 .review-row[aria-selected="true"] { background: var(--selection-fill-inactive); }
@@ -239,7 +239,7 @@
 .excluded .data-table th:first-child, .excluded .data-table td:first-child { padding-left: 0; }
 .excluded .data-table th:last-child, .excluded .data-table td:last-child { padding-right: 0; }
 .month-toggle { height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface); color: var(--text-secondary); font: var(--text-callout); }
-.month-toggle:hover:not(:disabled) { border-color: var(--control-border); color: var(--text); }
+@media (hover:hover) { .month-toggle:hover:not(:disabled) { border-color: var(--control-border); color: var(--text); } }
 .month-toggle i { width: 12px; height: 3px; border-radius: 2px; outline: 1px solid var(--control-border); outline-offset: 0; }
 .month-toggle[aria-pressed="true"] { border-color: var(--control-border); background: var(--surface-raised); color: var(--text); font-weight: 600; }
 .month-toggle[aria-pressed="true"] i { height: 4px; outline: 0; }
@@ -291,7 +291,7 @@
 .account-list h3 { display: flex; justify-content: space-between; padding: var(--space-3) var(--space-4) 4px; color: var(--text-secondary); font: var(--text-callout); font-weight: 600; }
 .account-list h3 span { font-weight: 400; }
 .account-row { width: calc(100% - 16px); min-height: 32px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; margin: 0 var(--space-2); padding: 5px var(--space-2); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text); font: var(--text-body); text-align: left; }
-.account-row:hover { background: var(--surface-raised); }
+@media (hover:hover) { .account-row:hover { background: var(--surface-raised); } }
 /* A selected row keeps its selection tint under the pointer. */
 .account-row[aria-current="true"]:hover { background: var(--selection-fill-inactive); }
 .account-row[aria-current="true"] { background: var(--selection-fill-inactive); font-weight: 600; }
@@ -478,7 +478,7 @@
 .account-group-open { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 4px var(--space-2); border: 0; border-radius: var(--radius-control); background: transparent; color: inherit; font: inherit; text-align: left; }
 .account-group-open > span:first-child { display: inline-flex; align-items: center; gap: 2px; font-weight: 600; }
 .account-group-open .icon { width: 14px; height: 14px; }
-.account-group-open:hover { background: var(--surface-raised); color: var(--text); }
+@media (hover:hover) { .account-group-open:hover { background: var(--surface-raised); color: var(--text); } }
 /* A selected row keeps its selection tint under the pointer. */
 .account-group-open[aria-current="true"]:hover { background: var(--selection-fill-inactive); }
 .account-group-open[aria-current="true"] { background: var(--selection-fill-inactive); color: var(--text); box-shadow: inset 3px 0 var(--accent); }
@@ -520,7 +520,7 @@
 .holdings-table tr > :first-child { position: sticky; left: 0; z-index: 1; width: clamp(112px, 30vw, 160px); background: var(--surface); border-right: 1px solid var(--separator); white-space: normal; }
 .holdings-table tr > :first-child .row-title { display: block; overflow: visible; -webkit-line-clamp: unset; white-space: normal; overflow-wrap: anywhere; }
 .holdings-table tr > :first-child .row-sub { overflow: visible; text-overflow: clip; white-space: normal; }
-.holdings-table tr:hover > :first-child { background: var(--surface-raised); }
+@media (hover:hover) { .holdings-table tr:hover > :first-child { background: var(--surface-raised); } }
 .holdings-scroll-hint { margin-block: 8px; }
 .accounts-context-toggle, .accounts-picker { display: none; }
 .holdings-table tfoot td { padding-top: var(--space-2); font-weight: 600; }
@@ -664,11 +664,11 @@
 }
 
 /* Account list headings and selection follow the Journal's flat rows. */
-.account-list h3,.account-list h3:has(>.account-group-open){display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);padding:var(--space-3);border-bottom:1px solid var(--separator);background:var(--surface-sunken);color:var(--text);white-space:nowrap}
+.account-list h3,.account-list h3:has(>.account-group-open){display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);padding:var(--space-3);border-bottom:1px solid var(--separator);background:var(--surface-sunken);color:var(--text);font:var(--text-body-strong);white-space:nowrap}
 .account-list .account-group-name{display:inline-flex;align-items:center;gap:var(--space-1);min-width:0}
 .account-list .account-group-name strong{font-weight:600}
 .account-list .account-group-name small{font-weight:400;color:var(--text-secondary)}
-.account-list .account-group-total{font-size:11px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.account-list .account-group-total{font-weight:600;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .account-list .account-group-open{padding:0;border-radius:0;gap:var(--space-2)}
 .account-list .account-row{width:100%;margin:0;padding:var(--space-3);border-radius:0;border-bottom:1px solid var(--separator)}
 .account-list .account-row[aria-current="true"],.account-list .account-group-open[aria-current="true"]{border-radius:0;box-shadow:inset 3px 0 var(--accent)}

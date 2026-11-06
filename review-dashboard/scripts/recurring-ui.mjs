@@ -2,6 +2,8 @@ import calendars from '../../schema/recurring-locales.json' with {type:'json'};
 // Instant display only. The live matcher and checked server own every decision.
 const generic = new Set(['subscription','membership','renewal','monthly','yearly','annual','payment','paid','the','a','by','on','for']);
 const ancillary = new Set(['fee','fees','tax','taxes','discount','discounts','rounding']);
+// Words that name a kind of account (and its group) never identify one usual payment.
+const kindWords = new Set(['bank','banks','card','cards','credit','cash','wallet','wallets','prepaid','loan','loans','investment','investments','person','people','account','accounts']);
 export const tokens = text => new Set((text.toLowerCase().match(/[^\P{L}\d_]+/gu) || []));
 export const mainPostings = rule => rule.postings.filter(p=>p.account.startsWith('Expenses:') && Number(p.amount)>0 && ![...tokens(p.account.split(':').slice(1).join(':'))].some(w=>ancillary.has(w)));
 export const payer = (rule,accounts) => {const ps=rule.postings.filter(p=>['bank','card','cash','wallet'].includes(accounts[p.account]?.kind) && Number(p.amount)<0);return ps.length===1?ps[0]:null;};
@@ -18,24 +20,33 @@ export function textAmounts(text,locale='en',calendar) {
   if(decimal===',') {if(group)text=text.replaceAll(group,'');return (text.match(/(?<![\p{L}\p{N}_./-])\d+(?:,\d+)?(?![\p{L}\p{N}_./-])/gu)||[]).map(n=>Number(n.replace(',','.')));}
   return (text.match(/(?<![\p{L}\p{N}_./-])\d+(?:,\d{2,3})*(?:\.\d+)?(?![\p{L}\p{N}_./-])/gu)||[]).map(n=>Number(n.replaceAll(',','')));
 }
+/** The words that name a rule: its description and its category's own (last) name. */
+const ruleNames = rule => new Set([...tokens(rule.description),...mainPostings(rule).flatMap(p=>[...tokens(p.account.split(':').at(-1))])].filter(w=>!generic.has(w)));
+/** Words of category groups: every Expenses segment that has accounts under it. */
+const categoryWords = (rules,accounts) => new Set([...new Set([...Object.keys(accounts),...rules.flatMap(r=>r.postings.map(p=>p.account))])].filter(path=>path.split(':')[0]==='Expenses').flatMap(path=>path.split(':').slice(1,-1).flatMap(segment=>[...tokens(segment)])));
 export function matchRules(rules,text,accounts,today,currency,locale='en',calendar) {
   const words=tokens(text),quantities=textAmounts(text,locale,calendar),codes=new Set([...Intl.supportedValuesOf('currency'),...rules.flatMap(r=>r.postings.map(p=>p.commodity))]);
   const explicit=new Set((text.match(/\b[A-Za-z]{3}\b/g)||[]).map(c=>c.toUpperCase()).filter(c=>codes.has(c)));
   const paymentWords=new Set(Object.values(accounts).filter(m=>['bank','card','cash','wallet'].includes(m.kind)).flatMap(m=>[m.kind,m.label||'',...(m.aliases||[])].flatMap(x=>[...tokens(x)])));
+  const current=rules.filter(r=>(r.lifecycle||'active')==='active');
+  // A word is distinctive when at most two rules' names use it and it names no category group, account kind or paying account; shared words only rank.
+  const named=new Map();for(const r of current)for(const w of ruleNames(r))named.set(w,(named.get(w)||0)+1);
+  const common=new Set([...categoryWords(current,accounts),...kindWords,...Object.values(accounts).map(m=>m.kind||''),...paymentWords]);
   const matches=[],suggestions=[];
-  for(const r of rules) {
-    if((r.lifecycle||'active')!=='active')continue;
-    const names=new Set([...tokens(r.description),...mainPostings(r).flatMap(p=>[...tokens(p.account.split(':').at(-1))])]);
-    const matched_words=[...names].filter(w=>!generic.has(w)&&!paymentWords.has(w)&&words.has(w)).sort();if(!matched_words.length)continue;
-    let score=4*matched_words.length;const pay=payer(r,accounts),meta=pay?accounts[pay.account]:null;
+  for(const r of current) {
+    const names=[...ruleNames(r)].filter(w=>!paymentWords.has(w));let distinctive=names.filter(w=>named.get(w)<=2&&!common.has(w));
+    // A rule named only by shared words (two or more) is found by its whole name, which counts as one word.
+    const whole=!distinctive.length&&names.length>1&&names.every(w=>words.has(w));if(whole)distinctive=names;
+    const matched_words=distinctive.filter(w=>words.has(w)).sort();if(!matched_words.length)continue;
+    let score=4*matched_words.length+names.filter(w=>!distinctive.includes(w)&&words.has(w)).length;const pay=payer(r,accounts),meta=pay?accounts[pay.account]:null;
     const matched_alias=meta?[meta.label||'',...(meta.aliases||[])].find(a=>a&&[...tokens(a)].every(w=>words.has(w)))||null:null;
     if(matched_alias)score+=3;
     const compared=ruleAmounts(r);if(pay && compared[pay.commodity]===undefined)compared[pay.commodity]=Math.abs(Number(pay.amount));
     const matched_amounts=[];
     for(const [code,value] of Object.entries(compared))if(explicit.size?explicit.has(code):code===currency){const amount=quantities.find(q=>Math.abs(q-value)<=Math.abs(value)*.1+1e-9);if(amount!==undefined){score+=2;matched_amounts.push({amount:String(amount),currency:code});}}
     score+=Math.max(0,1-Math.abs(Date.parse(r.date)-Date.parse(today))/86400000/40);
-    // One shared word alone is a quiet suggestion; a proposal needs two words, or one with the amount or paying account.
-    (matched_words.length>1||matched_amounts.length||matched_alias?matches:suggestions).push({id:r.id,description:r.description,score,next_due:r.date,matched_words,matched_alias,matched_amounts});
+    // One distinctive word alone is a quiet suggestion; a proposal needs two, or one with the rule's amount. The paying account only ranks.
+    (matched_words.length>1&&!whole||matched_amounts.length?matches:suggestions).push({id:r.id,description:r.description,score,next_due:r.date,matched_words,matched_alias,matched_amounts});
   }
   const order=(a,b)=>b.score-a.score||a.id.localeCompare(b.id);matches.sort(order);suggestions.sort(order);const pick_list=matches.length>1&&matches[0].score-matches[1].score<2;
   return {matches,suggestions,pick_list,rule_id:matches.length&&!pick_list?matches[0].id:null};

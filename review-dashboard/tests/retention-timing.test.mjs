@@ -104,6 +104,6 @@ test('Retention preview ignores older replies while edits and the save remain in
  assert.equal(JSON.stringify(h.all()).includes('OBSOLETE'),false);assert.equal(select('Delete an entry').props.value,14);
  // Each changed limit says what it does directly under its own selector, in the singular for one item.
  const row=label=>h.all().find(n=>n.props?.className==='time-limit'&&walkText(n).includes(label)),effect=label=>row(label).props.children.find(c=>c&&c.props?.className==='limit-effect live-hint');
- assert.match(walkText(effect('Delete an entry')),/^1 older entry becomes deletable again\./);assert.match(walkText(effect('Keep in Trash')),/^No Trash items would be removed for good now\./);assert.ok(!effect('Keep saved for later'),'An unchanged limit shows no effect');assert.equal(select('Keep in Trash').props.value,3);
+ assert.match(walkText(effect('Delete an entry')),/^1 older entry becomes deletable again\./);assert.match(walkText(effect('Keep in Trash')),/^No Trash items would be removed for good\./);assert.ok(!effect('Keep saved for later'),'An unchanged limit shows no effect');assert.equal(select('Keep in Trash').props.value,3);
  h.all().find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await h.settle();assert.equal(closed,0);assert.equal(body.limits.trash_days,3);saved.resolve({});await h.settle();assert.equal(closed,1);h.unmount();
 });

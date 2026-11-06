@@ -89,6 +89,11 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     const locale = {asha:'en-IN', jordan:'en-US', sam:'en-GB', empty:'en-US'}[persona];
     const money = (value, code) => new Intl.NumberFormat(locale, {style:'currency', currency:code, minimumFractionDigits:2, maximumFractionDigits:2}).format(value);
     await expect(rows.nth(0).locator('.opening-unit span')).toContainText('1,840.25');
+    // Grade A-2: Remove sits in the fields row (no line of its own), and a whole balance gains its decimals on leaving the field.
+    const remove=await rows.nth(1).evaluate(row=>{const button=row.querySelector('.account-remove').getBoundingClientRect(),fields=row.querySelector('.account-fields').getBoundingClientRect(),line=row.querySelector('.opening-line').getBoundingClientRect();return {inside:button.top>=fields.top-1&&button.bottom<=fields.bottom+1,lineHeight:line.height};});
+    assert.ok(remove.inside,'Remove sits within the account fields');assert.ok(remove.lineHeight<=24,`The opening line holds only its text (${remove.lineHeight})`);
+    await rows.nth(1).locator('.account-balance').fill('4650');await rows.nth(1).locator('.account-balance').blur();
+    await expect(rows.nth(1).locator('.account-balance')).toHaveValue(currency==='JPY'?'4650':'4650.00');
     for (let i = 0; i < 3; i++) await expect(rows.nth(i).locator('.account-currency')).toHaveValue(currency);
     await expect(finishSetup).toBeEnabled();
     await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });

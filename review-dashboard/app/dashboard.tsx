@@ -150,7 +150,7 @@ function EmptyMonth({title, month, setMonth}: {title:string; month:string; setMo
   const fresh = !data.months.some(row => row.count > 0);
   return <section className={`page ${title.toLowerCase()}`}><PageHeader title={title} subtitle={monthLong(month)}>
     <MonthStepper months={monthKeys()} value={month} onChange={setMonth}/>
-  </PageHeader><div className="panel empty viewing-empty"><Icon name="explorer"/><strong>{month === defaultMonth() ? 'Nothing recorded this month yet' : `Nothing recorded in ${monthLong(month)} yet`}</strong>
+  </PageHeader><div className="panel empty viewing-empty"><Icon name={title === 'Atlas' ? 'atlas' : title === 'Journal' ? 'journal' : 'explorer'}/><strong>{month === defaultMonth() ? 'Nothing recorded this month yet' : `Nothing recorded in ${monthLong(month)} yet`}</strong>
     {fresh ? <><p>Your spending starts here. Once you add an expense, you’ll see {title === 'Atlas' ? 'each category month by month' : title === 'Journal' ? 'every entry and the accounts it moved between' : 'totals, categories and transactions'} here. Your opening balances are in Accounts.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a><a className="button plain" href={`${import.meta.env.BASE_URL}account-summary/`}>See opening balances</a></> : <><p>Add an expense, or go back a month to see earlier entries.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add an expense</a></>}
   </div></section>;
 }

@@ -7,6 +7,14 @@ export function displayAccountLabel(account: string, metadata: Accounts = accoun
   return account.split(/:| · /).slice(-2).join(' · ');
 }
 
+/** The name forms and cards show for an account: its own label, or its category path
+ * (`Rule Workflow › Hawthorn dues`). Field values stay full ledger paths. */
+export function accountFieldLabel(account: string, metadata: Accounts = accountMetadata()) {
+  if (metadata[account]?.kind) return accountLabel(account, metadata);
+  const parts = account.split(':');
+  return (parts.length > 1 && (parts[0] === 'Expenses' || parts[0] === 'Income') ? parts.slice(1) : parts).join(' › ');
+}
+
 type Posting = { account: string; amount: number; label: string };
 /** Combine repeated item postings before choosing the largest account on a side. */
 export function summarizeAccounts(postings: Posting[], metadata: Accounts = accountMetadata()) {

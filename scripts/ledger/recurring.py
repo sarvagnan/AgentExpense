@@ -18,6 +18,9 @@ import secrets
 PAYING_KINDS = {'bank', 'card', 'cash', 'wallet'}
 ANCILLARY = {'fee', 'fees', 'tax', 'taxes', 'discount', 'discounts', 'rounding'}
 GENERIC = {'subscription', 'membership', 'renewal', 'monthly', 'yearly', 'annual', 'payment', 'paid', 'the', 'a', 'by', 'on', 'for'}
+# Words that name a kind of account (and its group) never identify one usual payment.
+KIND_WORDS = {'bank', 'banks', 'card', 'cards', 'credit', 'cash', 'wallet', 'wallets', 'prepaid', 'loan', 'loans',
+              'investment', 'investments', 'person', 'people', 'account', 'accounts'}
 
 
 def active(rule):
@@ -226,19 +229,40 @@ def text_amounts(text, locale=None):
     return [Decimal(n.replace(',', '')) for n in re.findall(r'(?<![\w./-])\d+(?:,\d{2,3})*(?:\.\d+)?(?![\w./-])', text)]
 
 
+def rule_names(rule):
+    """The words that name a rule: its description and its category's own (last) name."""
+    return (words(rule['description']) | set().union(*(words(p['account'].split(':')[-1]) for p in main_postings(rule)))) - GENERIC
+
+
+def category_words(rules, accounts):
+    """Words of category groups: every Expenses segment that has accounts under it."""
+    paths = set(accounts) | {p['account'] for rule in rules for p in rule['postings']}
+    return set().union(*(words(segment) for path in paths if path.split(':')[0] == 'Expenses'
+                         for segment in path.split(':')[1:-1]))
+
+
 def match_text(rules, text, accounts, today, currency=None, locale=None):
     tokens = words(text); quantities = text_amounts(text, locale)
     commodities = currency_codes() | {p['commodity'] for rule in rules for p in rule['postings']}
     explicit = {c.upper() for c in re.findall(r'\b[A-Za-z]{3}\b', text)} & commodities
     payment_words = set().union(*(words(alias) for meta in accounts.values() if meta.get('kind') in PAYING_KINDS
                                   for alias in [meta.get('kind',''),meta.get('label',''),*meta.get('aliases',[])]))
+    current = [rule for rule in rules if active(rule)]
+    # A word is distinctive when at most two rules' names use it and it names no category
+    # group, account kind or paying account; shared words only rank.
+    named = {}
+    for rule in current:
+        for word in rule_names(rule): named[word] = named.get(word, 0) + 1
+    common = category_words(current, accounts) | KIND_WORDS | {meta.get('kind', '') for meta in accounts.values()} | payment_words
     ranked, weak = [], []
-    for rule in rules:
-        if not active(rule): continue
-        names = words(rule['description']) | set().union(*(words(p['account'].split(':')[-1]) for p in main_postings(rule)))
-        name_words = names - GENERIC - payment_words
-        if not tokens & name_words: continue
-        score = 4*len(tokens & name_words)
+    for rule in current:
+        names = rule_names(rule) - payment_words
+        distinctive = {w for w in names if named[w] <= 2 and w not in common}
+        # A rule named only by shared words (two or more) is found by its whole name, which counts as one word.
+        whole = not distinctive and len(names) > 1 and names <= tokens
+        if whole: distinctive = names
+        if not tokens & distinctive: continue
+        score = 4*len(tokens & distinctive) + len(tokens & (names - distinctive))
         matched_alias = None
         matched_amounts = []
         payer = paying(rule, accounts)
@@ -257,10 +281,10 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
         distance = abs((date.fromisoformat(rule['date'])-date.fromisoformat(today)).days)
         score += max(0, 1-distance/40)
         found = dict(id=rule['id'], description=rule['description'], score=score, next_due=rule['date'],
-                     matched_words=sorted(tokens & name_words), matched_alias=matched_alias, matched_amounts=matched_amounts)
-        # One shared word alone is a quiet suggestion, never a proposal: a proposal
-        # needs two distinctive words, or one with the rule's amount or paying account.
-        (ranked if len(found['matched_words']) > 1 or matched_amounts or matched_alias else weak).append(found)
+                     matched_words=sorted(tokens & distinctive), matched_alias=matched_alias, matched_amounts=matched_amounts)
+        # One distinctive word alone is a quiet suggestion, never a proposal: a proposal needs
+        # two distinctive words, or one with the rule's amount. The paying account only ranks.
+        (ranked if len(found['matched_words']) > 1 and not whole or matched_amounts else weak).append(found)
     ranked.sort(key=lambda r:(-r['score'],r['id'])); weak.sort(key=lambda r:(-r['score'],r['id']))
     pick_list = len(ranked)>1 and ranked[0]['score']-ranked[1]['score']<2
     return dict(matches=ranked, suggestions=weak, pick_list=pick_list,

@@ -63,7 +63,10 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const snap=(state)=>capture(page,{state,theme,width,height});
     const go=async(route)=>{await page.waitForLoadState('networkidle');await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);await page.waitForLoadState('networkidle');};
     const overflow=async(label)=>{
-      const value=await page.evaluate(()=>({width:innerWidth,html:document.documentElement.scrollWidth,body:document.body.scrollWidth}));
+      // On overflow, name the outermost elements reaching past the viewport, so a failure says where.
+      const value=await page.evaluate(()=>{const width=innerWidth,wide=document.documentElement.scrollWidth>width+1||document.body.scrollWidth>width+1;
+        const past=wide?[...document.body.querySelectorAll('*')].filter(node=>node.getBoundingClientRect().right>width+1&&!(node.parentElement&&node.parentElement.getBoundingClientRect().right>width+1)).slice(0,5).map(node=>`${node.tagName.toLowerCase()}.${[...node.classList].join('.')} ${Math.round(node.getBoundingClientRect().width)}px`):[];
+        return {width,html:document.documentElement.scrollWidth,body:document.body.scrollWidth,...(past.length?{past}:{})};});
       assert.ok(value.html<=value.width+1 && value.body<=value.width+1,`${label}: horizontal overflow ${JSON.stringify(value)}`);
     };
     const refresh=async()=>{await page.evaluate(()=>window.dispatchEvent(new Event('drafts-changed')));};
@@ -281,6 +284,9 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       assert.ok(opened.currency<opened.slot&&opened.slot<opened.limits,'Agent status follows name and currency, before Time limits');
       assert.ok(opened.slotBottom<=opened.footer,`Agent status is visible without scrolling (${opened.slotBottom} > ${opened.footer})`);assert.equal(opened.scroll,0);
       assert.equal(opened.tip,'0','The Close (Esc) tooltip is hidden when Settings opens');
+      // A-2 N1: Ready is a line at the top of its reserved slot, not an empty-looking box.
+      const ready=await page.locator('.agent-status-slot').evaluate(slot=>{const style=getComputedStyle(slot),line=slot.querySelector('.agent-ready').getBoundingClientRect(),box=slot.getBoundingClientRect();return {fill:style.backgroundColor,border:style.borderTopColor,offset:line.top-box.top};});
+      assert.match(ready.fill,/rgba\(0, 0, 0, 0\)|transparent/,'Ready has no panel fill');assert.match(ready.border,/rgba\(0, 0, 0, 0\)|transparent/,'Ready has no panel border');assert.ok(ready.offset<=14,`Ready sits at the slot's top (${ready.offset})`);
       const opposite=theme==='light'?'dark':'light';
       await page.getByRole('dialog').getByRole('button',{name:(opposite==='light'?'Light':'Dark')+' appearance',exact:true}).click();await expect(page.locator('html')).toHaveAttribute('data-theme',opposite);
       await page.getByRole('dialog').getByRole('button',{name:(theme==='light'?'Light':'Dark')+' appearance',exact:true}).click();await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
@@ -324,6 +330,21 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
           await snap(route+'-empty');
         }
         if(persona==='empty' && ['review','account-summary'].includes(route))await snap(route==='review'?'review-empty':'accounts-no-balances');
+        if(persona==='empty' && route==='atlas'){const icons=await page.evaluate(()=>[document.querySelector('.viewing-empty > .icon')?.innerHTML,document.querySelector('a[href$="atlas/"] .icon')?.innerHTML,document.querySelector('a[href$="explorer/"] .icon')?.innerHTML]);assert.ok(icons[1],'The Atlas navigation icon is present');assert.equal(icons[0],icons[1],'Atlas’s empty state uses the Atlas icon');assert.notEqual(icons[0],icons[2]);}
+        if(persona==='empty' && route==='account-summary') {
+          // Grade A-2: an empty ledger's Accounts offers opening balances, opening the first run's accounts step.
+          const setup=page.locator('.opening-invitation').getByRole('link',{name:'Set up opening balances',exact:true});
+          await expect(setup).toBeVisible();await expect(page.locator('.opening-invitation').getByRole('link',{name:'Add your first expense',exact:true})).toBeVisible();
+          await setup.click();await expect(page.getByRole('heading',{name:'Your accounts, as of today',exact:true})).toBeVisible();
+          assert.ok(page.url().includes('setup=today'),'The setup step is in the address');
+          const declared=Object.values(JSON.parse(initialAccounts).accounts).filter(meta=>meta.kind&&meta.currency).length;
+          await expect(page.locator('.setup-account')).toHaveCount(declared);await expect(page.locator('.setup-account .account-name').first()).toHaveAttribute('readonly','');
+          await page.locator('.setup-account .account-balance').first().fill('75');await page.locator('.setup-account .account-balance').first().blur();
+          await expect(page.locator('.setup-account .account-balance').first()).toHaveValue('75.00');
+          await overflow('opening balances from Accounts');await snap('accounts-opening-setup');
+          await page.goBack();await expect(page.getByRole('heading',{name:'Accounts',exact:true})).toBeVisible();await expect(setup).toBeVisible();
+          record('empty Accounts routes to opening balances and back without a commit');
+        }
         if(width<760)for(const action of await page.locator('.empty .button.primary').all())assert.ok((await action.boundingBox()).height>=44,'Empty-view primary actions have a 44px phone touch target');
       }
       record('all nine routes render at 320px and target viewport without overflow or console errors');
@@ -452,6 +473,9 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await expect(page.locator('[data-fixed-currency]')).toHaveText(metadata[fixed].currency);
         await expect(page.getByRole('dialog').getByRole('combobox')).toHaveCount(0);
         await expect(page.getByRole('dialog')).toContainText('so its currency is fixed.');
+        // C20: Name, Kind and Currency are spaced evenly.
+        const gaps=await page.getByRole('dialog').evaluate(dialog=>{const terms=[...dialog.querySelectorAll('.account-details-facts dt')],values=[...dialog.querySelectorAll('.account-details-facts dd')];return terms.slice(1).map((term,i)=>term.getBoundingClientRect().top-values[i].getBoundingClientRect().bottom);});
+        assert.equal(gaps.length,2);assert.ok(Math.abs(gaps[0]-gaps[1])<=2,`Account facts share one rhythm (${gaps})`);
         assert.doesNotMatch(await page.getByRole('dialog').innerText(),/transaction [0-9a-f]{16}|Assets:|Liabilities:/);
         assert.equal(await page.locator('.dialog-close').evaluate(node=>getComputedStyle(node,'::after').opacity),'0');
         await overflow('fixed currency dialog');if(persona==='sam')await snap('account-fixed');
@@ -523,18 +547,18 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
           }
           await overflow('Sam '+month);await snap('explorer-'+({ '06':'june','07':'july','08':'august'}[month]));
         }
-        await go('account-summary/');await expect(page.locator('.currency-groups')).toContainText('GBP accounts');await expect(page.locator('.currency-groups')).toContainText('EUR accounts');
-        await expect(page.locator('.currency-groups')).toContainText('£3,284.65');await expect(page.locator('.currency-groups')).toContainText('€6,558.80');await expect(page.locator('.currency-groups')).toContainText('€286.40 owed');
-        for(const narrow of [320,width]) {
-          await page.setViewportSize({width:narrow,height});
-          const headline=await page.locator('.net-worth').evaluate(node=>{
-            const label=node.querySelector('h2'),total=node.querySelector('strong'),a=label.getBoundingClientRect(),b=total.getBoundingClientRect();
-            return {label:label.textContent,labelBottom:a.bottom,totalTop:b.top,fontSize:parseFloat(getComputedStyle(total).fontSize)};
-          });
-          assert.equal(headline.label,'Net worth');assert.ok(headline.totalTop>=headline.labelBottom,'Net worth has a dedicated total below its label');assert.ok(headline.fontSize>=22,'Net worth retains headline emphasis');
-          await overflow('Net worth at '+narrow);
-        }
-        await snap('accounts-populated');record('Sam June/July/August native amounts, separate chart axes and native net worth minus debt');
+        // C11: the two-currency page is the one Accounts page: per-currency summaries by group, each account listed once, the day stepper.
+        await go('account-summary/');const summary=page.locator('.currency-summary');
+        await expect(summary).toContainText('GBP accounts');await expect(summary).toContainText('EUR accounts');
+        await expect(summary).toContainText('£3,284.65');await expect(summary).toContainText('€6,558.80');await expect(summary).toContainText('€286.40 owed');
+        await expect(page.locator('.currency-account-row')).toHaveCount(0);await expect(summary.locator('.account-row')).toHaveCount(0);
+        for(const name of ['Birken Current','Bramble Current','Birken Card','Bramble Card'])await expect(page.locator('.account-list .account-row-name',{hasText:new RegExp('^'+name+'$')})).toHaveCount(1);
+        await expect(page.locator('.month-stepper[aria-labelledby="as-of-label"]')).toBeVisible();await expect(page.locator('.page-header input[type="date"]:not(.date-input)')).toHaveCount(0);
+        for(const row of await summary.locator('.currency-group-row').all())assert.ok(Math.abs((await row.boundingBox()).height-(width<760?44:36))<=1,'Currency summary rows are one line');
+        for(const narrow of [320,width]){await page.setViewportSize({width:narrow,height});await overflow('two-currency Accounts at '+narrow);}
+        await page.setViewportSize(size);await page.mouse.move(1,1);await snap('accounts-populated');
+        await summary.getByRole('button',{name:'Credit cards'}).first().click();await expect(page.locator('.group-view')).toBeVisible();assert.ok(page.url().includes('account=Credit+cards')||page.url().includes('account=Credit%20cards'),'A currency summary row opens its group');
+        await page.goBack();await expect(summary).toBeVisible();record('Sam June/July/August native amounts, separate chart axes and native net worth minus debt');
       }
       if(persona==='empty') {
         const openingStarted=performance.now(),openingBefore=commits();

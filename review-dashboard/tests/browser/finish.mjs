@@ -56,7 +56,12 @@ export async function runFinish({page,base,persona,engine,theme,width,stage,expe
  const draft=await json('drafts',{text:'Fictional shared purchase'});await json('drafts/'+draft.id+'/save',{});await wait(draft.id,'question');
  await go('queue/?draft='+draft.id);await refresh();
  await expect(page.getByRole('heading',{name:'Create these accounts?',exact:true})).toBeVisible();await expect(page.locator('.draft-detail')).toContainText('Shared:Accounts Receivable:Finch');
- await expect(page.locator('.draft-detail .queue-pieces:empty')).toHaveCount(0);await overflow('new account consent');await snap('new-account-question');await page.getByRole('button',{name:'Create and add',exact:true}).click();
+ await expect(page.locator('.draft-detail .queue-pieces:empty')).toHaveCount(0);
+ // B-2 P12: the new account stays an exact path; the entry's existing accounts read as the app names them.
+ const lines=await page.locator('.draft-detail .account-list').last().locator('li > span:first-child').allTextContents();
+ assert.ok(lines.includes('Shared:Accounts Receivable:Finch'),'The new account keeps its exact path');
+ for(const line of lines.filter(line=>line!=='Shared:Accounts Receivable:Finch'))assert.doesNotMatch(line,/^(Expenses|Assets|Liabilities|Income|Equity):/,`An existing account shows its name: ${line}`);
+ await overflow('new account consent');await snap('new-account-question');await page.getByRole('button',{name:'Create and add',exact:true}).click();
  await wait(draft.id,'added');record('6a new top-level account question approves exact proposal without a second agent call');
  await quiesce();await control('reset-workflows',{});
 }

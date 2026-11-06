@@ -75,6 +75,9 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
  await page.getByRole('button',{name:'Apply statement',exact:true}).click();
  await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:180000}).toBe('applied');
  await expect(page.getByRole('heading',{name:'Statement applied',exact:true})).toBeVisible();
+ // B-2 P15: the applied box keeps the reader box's hairline, not a heavier control border.
+ const hairlines=await page.evaluate(()=>{const applied=document.querySelector('.statement-applied'),probe=document.createElement('div');probe.style.borderTop='1px solid var(--separator)';document.body.append(probe);const separator=getComputedStyle(probe).borderTopColor;probe.remove();return {applied:getComputedStyle(applied).borderTopColor,separator};});
+ assert.equal(hairlines.applied,hairlines.separator,'Statement applied uses the separator hairline');
  session=await get('statements/'+session.id);assert.ok(session.result.commit_id);
  const accounts=JSON.parse(await readFile(join(stage.ledger,'data/accounts.json'))).accounts;
  assert.equal(accounts[config.account].statement.reader,'generic-csv');
