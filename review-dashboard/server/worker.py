@@ -8,6 +8,7 @@ from daily_refresh import DailyRefresh
 from outcomes import queue_outcome, OutcomeTransaction
 from agent import now
 from transactions import BalanceRefusal, Transaction, AccountError, ProposalError, LedgerBusy, clean, ledger_lock, refresh
+import save_timing
 
 
 class Worker:
@@ -22,15 +23,17 @@ class Worker:
         from agent_pause import AgentPause
         self.pause = AgentPause(settings.ledger)
 
-    def call(self, operation):
+    def call(self, operation, kind='call'):
         """Run a checked human operation on this ledger's FIFO worker.
 
         The service owns locking/recovery/audit. An unsent or interrupted HTTP
         request can retry its durable idempotency key. Offline hosts without a
-        worker execute synchronously through the same service.
+        worker execute synchronously through the same service. `kind` names the
+        operation in its save timing line.
         """
-        if not self.thread: return operation()
-        job=dict(queued_at=now(), operation=operation, done=threading.Event())
+        if not self.thread:
+            with save_timing.operation(kind): return operation()
+        job=dict(queued_at=now(), operation=operation, done=threading.Event(), kind=kind)
         with self.drafts.mutex:
             if self.stop_event.is_set(): raise ValueError('The server is stopping; retry this action')
             self.calls.append(job)
@@ -85,7 +88,8 @@ class Worker:
     def loop(self):
         while not self.stop_event.is_set():
             if getattr(self, "retention", None):
-                try: self.retention.sweep()
+                try:
+                    with save_timing.operation('retention-sweep'): self.retention.sweep()
                 except Exception:
                     import logging
                     logging.exception("Retention sweep deferred")
@@ -116,7 +120,8 @@ class Worker:
             if reading:
                 try:
                     from receipts import read
-                    read(self,reading)
+                    with save_timing.operation('receipt-details',queued_at=reading['receipt_reading'].get('queued_at')):
+                        read(self,reading)
                 except LedgerBusy:
                     try: reading=self.drafts.get(reading['id'],include_discarded=True)
                     except FileNotFoundError: continue
@@ -138,7 +143,9 @@ class Worker:
                 try:
                     while not self.stop_event.is_set():
                         try:
-                            job['result']=job['operation']();break
+                            with save_timing.operation(job['kind'],queued_at=job['queued_at']):
+                                job['result']=job['operation']()
+                            break
                         except LedgerBusy:
                             self.stop_event.wait(self.retry_interval)
                     if 'result' not in job: raise ValueError('The server stopped before this correction; retry it')
@@ -160,7 +167,9 @@ class Worker:
                 self.wake.clear()
                 continue
             try:
-                self.process(draft)
+                kind='bill' if draft.get('bill_request') else 'usual' if draft.get('usual_payment') else 'hand-add' if draft.get('finished_by') else 'add'
+                with save_timing.operation(kind,queued_at=draft.get('queued_at')):
+                    self.process(draft)
             except Exception as exc:
                 if self.stop_event.is_set() and isinstance(exc, agent.AgentFailure):
                     # Cancellation during shutdown is interrupted work, not an
@@ -199,7 +208,8 @@ class Worker:
                             record = current['audit_pending'][0]
                         # Ledger verification/commit holds the ledger lock, but
                         # must not block autosave, answers or handover requests.
-                        OutcomeTransaction(self.settings, self.drafts, current, record).apply_record(fd)
+                        with save_timing.operation('audit-record'):
+                            OutcomeTransaction(self.settings, self.drafts, current, record).apply_record(fd)
                         with self.drafts.mutex:
                             latest = self.drafts.get(draft['id'], include_discarded=True)
                             latest['audit_pending'] = [r for r in latest.get('audit_pending', []) if r['id'] != record['id']]
@@ -263,7 +273,8 @@ class Worker:
                     draft['runs'].append(pending)
                     self.drafts.put(draft)
                     try:
-                        answer, record = agent.run(self.settings, draft, self.drafts.folder(draft['id']), cancel=self.stop_event)
+                        with save_timing.step('agent'):
+                            answer, record = agent.run(self.settings, draft, self.drafts.folder(draft['id']), cancel=self.stop_event)
                     except agent.AgentFailure as exc:
                         draft['runs'][-1] = exc.record
                         if exc.kind=='bad_answer' and not self.stop_event.is_set(): draft['answer_failures']=draft.get('answer_failures',0)+1

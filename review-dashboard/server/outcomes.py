@@ -53,7 +53,8 @@ class OutcomeTransaction(Transaction):
             append(self.root, self.record)
             message = f"Record dashboard draft outcome: {self.record['outcome']}\n\n{self.marker}\nDraft: {self.draft['id']}\nAdded-by: dashboard audit recorder"
             env = {**os.environ, 'LEDGER_DIR': str(self.root), LOCK_FD_ENV: str(lock_fd), 'EXPENSES_COMMIT_MESSAGE': message}
-            result = subprocess.run(['make', 'commit'], cwd=self.settings.application, env=env, pass_fds=(lock_fd,), capture_output=True, text=True)
+            from save_timing import make_commit
+            result = make_commit(self.settings.application, env, lock_fd)
             if result.returncode:
                 raise RuntimeError('Could not commit the audit record: ' + (result.stdout + result.stderr)[-3000:])
             self.journal.unlink()

@@ -18,6 +18,7 @@ import unicodedata
 
 from draft_time import saved_local
 from settings import APPLICATION
+import save_timing
 
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
@@ -47,7 +48,8 @@ class ProposalError(ValueError):
 def jj(root, *args):
     # PDF evidence may exceed jj's default 1 MiB limit. Snapshot it, and
     # detect unrelated large files when checking for a clean working copy.
-    return subprocess.check_output(['jj', '--config', 'snapshot.max-new-file-size=0', '-R', str(root), *args], cwd=root, text=True, stderr=subprocess.PIPE).strip()
+    with save_timing.step('jj'):
+        return subprocess.check_output(['jj', '--config', 'snapshot.max-new-file-size=0', '-R', str(root), *args], cwd=root, text=True, stderr=subprocess.PIPE).strip()
 
 
 def clean(root):
@@ -294,8 +296,7 @@ class Transaction:
         """Caller owns lock and rollback snapshot; strict verification is mandatory."""
         env = {**os.environ, 'LEDGER_DIR': str(self.root), LOCK_FD_ENV: str(lock_fd),
                'EXPENSES_COMMIT_MESSAGE': message}
-        completed = subprocess.run(['make', 'commit'], cwd=self.settings.application, env=env,
-                                   pass_fds=(lock_fd,), text=True, capture_output=True)
+        completed = save_timing.make_commit(self.settings.application, env, lock_fd)
         if completed.returncode:
             raise RuntimeError('Ledger commit failed verification: ' + (completed.stdout+completed.stderr)[-5000:])
         return jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
@@ -306,6 +307,10 @@ class Transaction:
         Caller holds the draft mutex when retaining the result. Apply repeats this
         under the ledger lock; consent binds the complete wire proposal.
         """
+        with save_timing.step('prepare'):
+            return self._prepare(answer)
+
+    def _prepare(self, answer):
         from agent import schema_for
         from proposal_consent import proposal_hash
         wire = {key:value for key,value in answer.items() if key!='account_metadata'} if self.draft.get('hand_form') or self.draft.get('finished_by') else answer
@@ -332,7 +337,8 @@ class Transaction:
         """Publish a replacement/merge through the same checked recovery boundary."""
         from audit import append, audit_path
         from replacements import check_documents
-        check_documents(documents, self.root)
+        with save_timing.step('prepare'):
+            check_documents(documents, self.root)
         paths=[*store_paths(self.root), *documents, self.root/'expense_ledger.ledger', audit_path(self.root,record)]
         paths += [p for pair in moves for p in pair] + [target for source,target in copies] + list(removals)
         journal=self.snapshot(list(dict.fromkeys(paths)))
@@ -421,6 +427,11 @@ class Transaction:
 
 
 def refresh(settings, result):
+    with save_timing.step('data'):
+        return _refresh(settings, result)
+
+
+def _refresh(settings, result):
     try:
         check_source(settings.dashboard_data, settings.ledger)
         env = node_environment(settings.application)

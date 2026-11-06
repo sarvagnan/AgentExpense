@@ -177,7 +177,15 @@ def check_forecasts(documents: dict, root: Path = ROOT) -> None:
 
 
 def check(root: Path = ROOT) -> None:
-    documents = load(root)
+    from step_timings import timed
+    with timed("store_check"):
+        _check(root)
+
+
+def _check(root: Path) -> None:
+    from step_timings import timed
+    with timed("schema"):
+        documents = load(root)
     if module_settings(read_manifest(root))['fuel']:
         fuel = read_json(root / 'data/fuel-log.json')
         if not isinstance(fuel, dict) or not isinstance(fuel.get('entries'), list):
@@ -221,7 +229,8 @@ def check(root: Path = ROOT) -> None:
     print(f"Unbilled card entries through latest statement end: {len(membership['unbilled'])}")
     for entry in membership["unbilled"]:
         print(f"  unbilled {entry['date']} {entry['id']} {entry['amount']} {entry['currency']} — {entry['description']}")
-    check_forecasts(documents, root)
+    with timed("forecast_hledger"):
+        check_forecasts(documents, root)
     check_price_coverage(documents, root)
     print(f"Verified {len(entries(documents))} actual entries, {len(documents[root / 'data/forecast.json'])} forecast rules, {len(evidence)} Bills paths and {len(documents) + 1} canonical files")
 

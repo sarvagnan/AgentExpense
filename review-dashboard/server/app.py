@@ -151,6 +151,8 @@ class DashboardGZipMiddleware(GZipMiddleware):
 def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clock=None):
     settings = settings or Settings.from_env()
     read_manifest(settings.ledger)
+    import save_timing
+    save_timing.configure_log()
     drafts = Drafts(settings.ledger, clock=agent_clock)
     worker = Worker(settings, drafts)
     from retention_service import Retention
@@ -313,7 +315,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.post('/api/rules/operations/{identity}')
     def rule_operation(identity: str, body: dict):
         from rules_service import operate
-        try: return worker.call(lambda: operate(settings, identity, body, clock=agent_clock))
+        try: return worker.call(lambda: operate(settings, identity, body, clock=agent_clock), kind='rule-'+str(body.get('action')))
         except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
             raise HTTPException(409, error_detail(exc)) from exc
 
@@ -362,14 +364,14 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.post('/api/entries/{entry_id}/corrections/{operation_id}')
     def correct_entry(entry_id: str, operation_id: str, body: dict):
         from corrections import apply
-        try: return worker.call(lambda: apply(settings,entry_id,operation_id,body,drafts=drafts))
+        try: return worker.call(lambda: apply(settings,entry_id,operation_id,body,drafts=drafts), kind='edit')
         except (ValueError,TypeError,KeyError,ArithmeticError) as exc: raise HTTPException(409,error_detail(exc)) from exc
 
     @app.post('/api/drafts/{identity}/receipt-choice')
     def receipt_choice(identity: str, body: dict):
         from receipts import choose
         draft=get(identity)
-        try: return public(worker.call(lambda: choose(settings,drafts,draft,body.get('choice'))))
+        try: return public(worker.call(lambda: choose(settings,drafts,draft,body.get('choice')), kind='receipt-choice'))
         except BalanceRefusal as exc:
             with drafts.mutex:
                 latest=get(identity)
@@ -512,7 +514,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def review_action(body: dict):
         from review import apply
         try:
-            return worker.call(lambda: apply(settings, body, clock=review_clock))
+            return worker.call(lambda: apply(settings, body, clock=review_clock), kind='review-'+str(body.get('action')))
         except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
             raise HTTPException(409, str(exc)) from exc
 
@@ -731,7 +733,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 draft['intake_result']=result; drafts.put(draft)
                 worker.wake.set()
                 return result
-        try: return await run_in_threadpool(worker.call,dispatch)
+        try: return await run_in_threadpool(worker.call,dispatch,'intake')
         except ValueError as exc: raise HTTPException(409,str(exc)) from None
 
     @app.post('/api/drafts/{identity}/save')
@@ -917,7 +919,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 try: status=retention.eligibility(body.get('entry_id'))
                 except ValueError: status=None  # A committed retry replays below.
                 if status and status['offered'] and status['version']==body.get('version'): worker.cancel_receipt(body.get('entry_id'))
-            result = worker.call(lambda: retention.operate(operation_id, body))
+            result = worker.call(lambda: retention.operate(operation_id, body), kind='retention-'+str(body.get('action')))
             worker.wake.set()
             return result
         except ValueError as exc: raise HTTPException(409, str(exc))
@@ -933,7 +935,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             if draft['state']=='added' and not draft.get('statement_file'):
                 raise HTTPException(409,'Added entries leave the Queue; use the entry inspector')
             draft['discard_requested']=True;drafts.put(draft)
-        try: worker.call(lambda: retention.operate(secrets.token_hex(16), dict(action='queue-discard', item_id=identity)))
+        try: worker.call(lambda: retention.operate(secrets.token_hex(16), dict(action='queue-discard', item_id=identity)), kind='retention-queue-discard')
         except ValueError as exc: raise HTTPException(409, str(exc))
         finally:
             with drafts.mutex:
@@ -945,7 +947,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.post('/api/drafts/{identity}/restore')
     def restore(identity: str):
         try:
-            worker.call(lambda: retention.operate(secrets.token_hex(16), dict(action='queue-restore', item_id=identity)))
+            worker.call(lambda: retention.operate(secrets.token_hex(16), dict(action='queue-restore', item_id=identity)), kind='retention-queue-restore')
             return public(get(identity))
         except ValueError as exc: raise HTTPException(409, str(exc))
 
@@ -1108,7 +1110,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             saved.update(cancelled=True,generation=saved.get('generation',0)+1)
             statements.put(saved,force=True)
         try:
-            worker.call(lambda: retention.operate(secrets.token_hex(16),dict(action='queue-discard',item_id=identity)))
+            worker.call(lambda: retention.operate(secrets.token_hex(16),dict(action='queue-discard',item_id=identity)),kind='retention-queue-discard')
         except ValueError as exc:
             raise HTTPException(409, str(exc))
 
@@ -1141,7 +1143,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def restore_statement(identity: str):
         statement_get(identity, include_discarded=True)
         try:
-            worker.call(lambda: retention.operate(secrets.token_hex(16),dict(action='queue-restore',item_id=identity)))
+            worker.call(lambda: retention.operate(secrets.token_hex(16),dict(action='queue-restore',item_id=identity)),kind='retention-queue-restore')
             s = statements.get(identity)
         except ValueError as exc:
             raise HTTPException(409, str(exc))

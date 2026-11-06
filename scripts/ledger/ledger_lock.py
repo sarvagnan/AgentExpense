@@ -7,8 +7,12 @@ from contextlib import contextmanager
 import fcntl
 import os
 from pathlib import Path
+import time
 
 LOCK_FD_ENV = 'EXPENSES_LEDGER_LOCK_FD'
+# An optional callable that receives each blocking acquisition's wait in seconds.
+# The server's step timings set it; it never changes how the lock behaves.
+wait_observer = None
 
 
 @contextmanager
@@ -27,7 +31,10 @@ def ledger_lock(root: Path, *, blocking=True):
         yield fd
         return
     with path.open('a+b') as handle:
+        start = time.perf_counter()
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        if blocking and wait_observer is not None:
+            wait_observer(time.perf_counter() - start)
         try:
             yield handle.fileno()
         finally:

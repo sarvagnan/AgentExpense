@@ -144,7 +144,8 @@ def main() -> None:
     from ledger_manifest import read_manifest
     from ledger_lock import ledger_lock
     read_manifest(root)
-    with ledger_lock(root):
+    from step_timings import timed
+    with ledger_lock(root), timed("journal"):
         documents = load(root)
         (root / "expense_ledger.ledger").write_text(render(documents, root), encoding="utf-8")
     print(f"Generated {len(entries(documents))} entries and {len(documents[root / 'data/forecast.json'])} forecast rules")

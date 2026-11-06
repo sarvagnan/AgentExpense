@@ -689,7 +689,8 @@ class Statements:
             elif s.get('first_run') and not s.get('apply_started') and not s.get('committed_result') and fingerprint(self.ledger) != s.get('fingerprint'):
                 self.first_run_replan(s)
             else:
-                with ledger_lock(self.ledger) as fd:
+                from save_timing import operation
+                with operation('statement-apply', queued_at=s.get('queued_at')), ledger_lock(self.ledger) as fd:
                     with self.mutex:
                         latest = self.get(s['id'], include_discarded=True)
                         if latest.get('discarded_until') or latest['state'] != 'applying' or latest.get('generation', 0) != s.get('generation', 0):
@@ -891,7 +892,8 @@ class StatementTransaction(Transaction):
             self.save_journal(journal)
             message=(f"Reconcile {label} statement ending {statement['periodEnd']}\n\nMatched {len(changed)} entries; converted {result['converted']}; added {len(added)}.\nSource: {source}\n{self.marker}\nAdded-by: dashboard statements ({s['extraction']})")
             env={**os.environ,'LEDGER_DIR':str(self.root),LOCK_FD_ENV:str(lock_fd),'EXPENSES_COMMIT_MESSAGE':message}
-            completed=subprocess.run(['make','commit'],cwd=self.settings.application,env=env,pass_fds=(lock_fd,),capture_output=True,text=True)
+            from save_timing import make_commit
+            completed=make_commit(self.settings.application,env,lock_fd)
             if completed.returncode:
                 raise RuntimeError('The checked statement change failed; nothing was applied. '+(completed.stdout+completed.stderr)[-4000:])
             result['commit_id']=jj(self.root,'log','-r','@-','--no-graph','-T','commit_id')

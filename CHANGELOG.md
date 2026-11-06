@@ -63,6 +63,13 @@ The first release. The date is set when the release is tagged.
   suites, and a personal-data scanner (`make scan`). `npm ci` runs only when the
   installed packages differ from `package-lock.json` by version (`make install`
   covers both dependency sets).
+- **Save timings.** Each save writes one `save-timing` line to the server log with
+  the duration of every step (pickup, prepare, lock wait, journal, store check,
+  hledger, jj, data rebuild, total); nothing is written into the ledger.
+  `make bench-save` times representative saves on a large fictional ledger from
+  `scripts/fixtures/generate_large.py` in `/tmp`, with the fake agent, and exits
+  non-zero when a target is missed by more than 50%; `BENCH_ENTRIES=100000` is a
+  stress run without targets.
 - **Updates and releases.** `make update` moves an installation to the newest
   release tag: doctor, a clean checkout, the changelog since the installed version,
   confirmation (or `--yes`), a detached checkout of the tag, the ledger upgrade,

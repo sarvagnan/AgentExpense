@@ -81,6 +81,12 @@ def account_details(settings, account):
 
 
 def update_settings(settings, get_changes, result, description):
+    from save_timing import operation
+    with operation('settings'):
+        return _update_settings(settings, get_changes, result, description)
+
+
+def _update_settings(settings, get_changes, result, description):
     records = SettingsRecords(settings.ledger)
     with ledger_lock(settings.ledger) as fd:
         for folder in records.root.iterdir():
@@ -100,9 +106,8 @@ def update_settings(settings, get_changes, result, description):
             journal['result'] = result
             transaction.save_journal(journal)
             message = f"{description}\n\n{transaction.marker}"
-            run = subprocess.run(['make', 'commit'], cwd=settings.application,
-                                 env={**os.environ, 'LEDGER_DIR': str(settings.ledger), LOCK_FD_ENV: str(fd), 'EXPENSES_COMMIT_MESSAGE': message},
-                                 pass_fds=(fd,), capture_output=True, text=True)
+            from save_timing import make_commit
+            run = make_commit(settings.application, {**os.environ, 'LEDGER_DIR': str(settings.ledger), LOCK_FD_ENV: str(fd), 'EXPENSES_COMMIT_MESSAGE': message}, fd)
             if run.returncode:
                 raise RuntimeError('Settings change failed verification: ' + (run.stdout + run.stderr)[-4000:])
             result['commit_id'] = jj(settings.ledger, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')

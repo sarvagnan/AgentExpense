@@ -694,6 +694,28 @@ times become null with a retained “Receipt … not understood” note. Numeric
 slash/dash dates need an evident day (>12) or an explicitly recorded draft locale;
 the server never assumes its own locale. Other receipt facts still apply.
 
+### Save timings
+
+Each save writes one line to the server log (stderr, so the service journal), never
+into the ledger: `save-timing {"operation": …, "outcome": "ok"|"error", "total": …,
+"steps": {…}}`, in seconds. [`save_timing.py`](save_timing.py) lists the steps (pickup,
+agent, prepare, lock wait, commit with verify, journal, store check, schema, the
+per-rule forecast hledger runs, hledger, jj, data rebuild). `make commit` reports its
+own steps through a temporary file named in `EXPENSES_STEP_TIMINGS`; without that
+variable (a commit from the command line) nothing is recorded. `EXPENSES_TIMING_LOG=0`
+keeps the lines out of stderr; the offline tests set it.
+
+`make bench-save` (application root) generates a large fictional ledger with
+`scripts/fixtures/generate_large.py` under the test run's `/tmp` root and runs Add
+(fake agent), hand form, Edit, Delete, Restore, a rule bill, statement Apply, a Review
+decision and a settings change through the in-process server. It prints per-operation
+medians and 95th percentiles of the response, the time to the commit and every step,
+and exits 1 when a target (commit median 1 s and 95th percentile 2 s, data rebuild
+2 s, Add pickup 0.2 s) is missed by more than 50%. `BENCH_ENTRIES=100000` reports a
+stress run without targets; `BENCH_REPS`, `BENCH_SEED`, `BENCH_REPORT`, `BENCH_JSON`
+and `BENCH_KEEP=1` are described in [`bench_save.py`](bench_save.py). Run it with
+nothing else busy on the machine. It never runs a model.
+
 ### Temporary files
 
 Every test launcher owns one `agentexpense-run-*` root. Nested make targets,

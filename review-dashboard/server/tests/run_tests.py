@@ -17,6 +17,8 @@ ensure_root()
 
 SERVER = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(SERVER / 'tests'), str(SERVER)]
+# Save timing lines stay out of test output; test_save_timing attaches its own handler.
+os.environ.setdefault('EXPENSES_TIMING_LOG', '0')
 from persona_guard import check_marks, is_persona_sensitive, install, activate, deactivate
 
 

@@ -72,7 +72,7 @@ test-migrations-inside:
 # Saves validate data only; development verify and dashboard also test the code.
 check:
 	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/ledger/check_store.py
-	"$(HLEDGER)" -f "$(LEDGER_DIR)/expense_ledger.ledger" check -s ordereddates
+	$(if $(EXPENSES_STEP_TIMINGS),python3 scripts/ledger/step_timings.py hledger --) "$(HLEDGER)" -f "$(LEDGER_DIR)/expense_ledger.ledger" check -s ordereddates
 
 format:
 	uv run --with jsonschema python scripts/ledger/store.py --format
@@ -233,6 +233,14 @@ serve:
 # Whatever the selected ledger keeps in checks/: unittest files and executable scripts.
 private-checks:
 	@uv run --with jsonschema python scripts/setup/private_checks.py
+
+# Save timings on a generated large fictional ledger under /tmp, with the fake agent only.
+# BENCH_ENTRIES=100000 is a stress run without targets; see review-dashboard/server/bench_save.py.
+.PHONY: bench-save
+bench-save:
+	@scripts/test-run.sh $(MAKE) --no-print-directory bench-save-inside
+bench-save-inside: node-modules
+	uv run --locked --directory review-dashboard/server python bench_save.py
 
 .PHONY: retention
 retention:
