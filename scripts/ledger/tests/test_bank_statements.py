@@ -1,6 +1,6 @@
 """Balance-style membership checks remain active in every verified ledger write."""
 from copy import deepcopy
-from test_ledger import Fixture
+from test_ledger import Fixture, entry, posting, statement_row, write
 from store import load, dump
 from check_store import check_card_statements
 from reconcile_bank import bank_plan
@@ -12,11 +12,11 @@ BANK = 'Assets:Bank:Savings Account'
 class BankMembershipTests(Fixture):
     def setUp(self):
         super().setUp()
-        self.rows = [dict(id='1'*16,date='2026-01-01',status='confirmed',description='Opening',postings=[dict(account=BANK,amount='100.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='-100.00',commodity='INR')]),
-                     dict(id='2'*16,date='2026-01-02',status='confirmed',description='Fable Shop',sources=['Bills/bank.csv'],reference='EX-001',postings=[dict(account='Expenses:Test',amount='10.00',commodity='INR'),dict(account=BANK,amount='-10.00',commodity='INR')]),
-                     dict(id='3'*16,date='2026-01-28',status='confirmed',description='Closing',sources=['Bills/bank.csv'],postings=[dict(account=BANK,amount='0.00',commodity='INR',**{'assert':dict(amount='90.00',commodity='INR')})])]
-        self.member = dict(date='2026-01-02',serial='row-2',description='Fable Shop',amount='10.00',direction='Debit',reference='EX-001',balance='90.00',citation=dict(sheet='CSV',row=2),disposition='recorded',**{'entry-id':'2'*16})
-        self.summary = dict(id='4'*16,kind='bank',account=BANK,start='2026-01-01',end='2026-01-28',source='Bills/bank.csv',reader='generic-csv',rows=1,members=[self.member],**{'opening-balance':'100.00','closing-balance':'90.00','debits':'10.00','credits':'0.00','assertion-id':'3'*16})
+        self.rows = [entry('1'*16,'2026-01-01',description='Opening',postings=[posting(BANK,'100.00'),posting('Equity:Opening Balances','-100.00')]),
+                     entry('2'*16,'2026-01-02',description='Fable Shop',evidence=['Bills/bank.csv'],references={'reference':'EX-001','order-id':[]},postings=[posting('Expenses:Test','10.00'),posting(BANK,'-10.00')]),
+                     entry('3'*16,'2026-01-28',description='Closing',evidence=['Bills/bank.csv'],postings=[posting(BANK,'0.00',**{'assert':dict(amount='90.00',commodity='INR')})])]
+        self.member = dict(date='2026-01-02',serial='row-2',description='Fable Shop',amount='10.00',direction='Debit',citation=dict(sheet='CSV',row=2),reference='EX-001',balance='90.00',disposition='recorded',**{'entry-id':'2'*16,'review-candidates':[]})
+        self.summary = dict(kind='bank',id='4'*16,account=BANK,start='2026-01-01',end='2026-01-28',source='Bills/bank.csv',reader='generic-csv',rows=1,members=[self.member],**{'source-balance-style':None,'opening-balance':'100.00','closing-balance':'90.00','debits':'10.00','credits':'0.00','assertion-id':'3'*16})
 
     def documents(self):
         dump(self.year,self.rows);dump(self.root/'data/card-statements.json',[self.summary])
@@ -65,7 +65,7 @@ class BankMembershipTests(Fixture):
         from reconcile_statement import reconcile,text_report
         documents=self.documents();documents[self.root/'data/card-statements.json']=[]
         row={**self.member,'page':1}
-        documents[self.root/'data/accounts.json']['accounts'][BANK]['statement']=dict(reader='generic-csv',identifier='BANK-ONE')
+        documents[self.root/'data/accounts.json']['accounts'][BANK]['statement']=dict(reader='generic-csv',identifier='BANK-ONE',options=None)
         report=reconcile(documents,[row],start='2026-01-01',end='2026-01-28',account=BANK,identifier='BANK-ONE',root=self.root)
         self.assertEqual(report['kind'],'bank')
         self.assertEqual(report['items'][0]['entry_id'],'2'*16)
@@ -86,15 +86,13 @@ class EarlyCardMembershipTests(Fixture):
 
     def setUp(self):
         super().setUp()
-        card = lambda identity, day, amount, **fields: dict(id=identity, date=day, status='confirmed', description='Fable Shop', sources=['Bills/card.pdf'],
-                                                           postings=[dict(account='Expenses:Test', amount=amount, commodity='INR'), dict(account=self.CARD, amount='-'+amount, commodity='INR')], **fields)
-        opening = dict(id='1'*16, date='2025-11-01', status='confirmed', description='Opening',
-                       postings=[dict(account=self.CARD, amount='0.00', commodity='INR'), dict(account='Equity:Opening Balances', amount='0.00', commodity='INR')])
+        card = lambda identity, day, amount, **fields: entry(identity, day, amount, description='Fable Shop', evidence=['Bills/card.pdf'], **fields)
+        opening = entry('1'*16, '2025-11-01', description='Opening', postings=[posting(self.CARD, '0.00'), posting('Equity:Opening Balances', '0.00')])
         self.early, self.unbilled = card('2'*16, '2025-12-29', '10.00'), card('3'*16, '2026-01-27', '5.00')
         dump(self.root/'data/expenses/2025.json', [opening, self.early]);dump(self.year, [self.unbilled])
-        self.member = dict(date='2025-12-29', serial='EX-001', description='Fable Shop', amount='10.00', direction='Debit', reference='EX-001', citation=dict(page=1, line=12), disposition='recorded', **{'entry-id': '2'*16})
-        self.summary = dict(id='4'*16, kind='bank', account=self.CARD, start='2026-01-01', end='2026-01-28', source='Bills/card.pdf', reader='personal-card', rows=1, members=[self.member],
-                            **{'opening-balance': '0.00', 'closing-balance': '-10.00', 'debits': '10.00', 'credits': '0.00', 'source-balance-style': 'debt'})
+        self.member = dict(date='2025-12-29', serial='EX-001', description='Fable Shop', amount='10.00', direction='Debit', citation=dict(page=1, line=12), reference='EX-001', balance=None, disposition='recorded', **{'entry-id': '2'*16, 'review-candidates': []})
+        self.summary = dict(kind='bank', id='4'*16, account=self.CARD, start='2026-01-01', end='2026-01-28', source='Bills/card.pdf', reader='personal-card', rows=1, members=[self.member],
+                            **{'source-balance-style': 'debt', 'opening-balance': '0.00', 'closing-balance': '-10.00', 'debits': '10.00', 'credits': '0.00', 'assertion-id': None})
 
     def check(self, *summaries):
         dump(self.root/'data/card-statements.json', list(summaries))
@@ -113,7 +111,7 @@ class EarlyCardMembershipTests(Fixture):
         # Without the debt marker it is a signed account statement: strict dates.
         self.check(self.summary)
         documents = load(self.root)
-        documents[self.root/'data/card-statements.json'][0].pop('source-balance-style')
+        documents[self.root/'data/card-statements.json'][0]['source-balance-style'] = None
         with self.assertRaisesRegex(ValueError, 'before the statement period starts: page 1, line 12'):
             check_bank_statements(documents, self.root)
         second = {**deepcopy(self.summary), 'id': '5'*16, 'start': '2026-01-29', 'end': '2026-02-28', 'opening-balance': '-10.00', 'closing-balance': '-20.00'}

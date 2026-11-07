@@ -47,7 +47,7 @@ def failures(documents, root, *, candidate=None, detail=''):
                     for other in rows[start+1:index+1]:
                         if other['id'] in (candidate.get('id'), entry['id']) or not any((p['account'], p['commodity']) == key and abs(Decimal(p['amount'])) in amounts for p in other['postings']):
                             continue
-                        member = statement and (other.get('statement-end') == statement['end'] or any(m.get('entry-id') == other['id'] for m in statement.get('members', [])))
+                        member = statement and ((other['statement'] or {}).get('end') == statement['end'] or any(m.get('entry-id') == other['id'] for m in statement.get('members', [])))
                         if (not statement or other['date'] >= statement['start'] or member) and abs((date.fromisoformat(other['date'])-day).days) <= 3:
                             duplicates.append(dict(entry_id=other['id'], date=other['date'], description=other['description'],
                                                    amount=next(p['amount'] for p in other['postings'] if (p['account'], p['commodity']) == key and abs(Decimal(p['amount'])) in amounts), commodity=key[1]))
@@ -70,10 +70,10 @@ def correction_locks(documents, root, entry):
     for number, posting in enumerate(entry['postings']):
         key = (posting['account'], posting['commodity'])
         metadata = documents[root/'data/accounts.json']['accounts'].get(key[0], {})
-        if metadata.get('kind') == 'card' and (entry.get('statement-end') or any(s.get('assertion-id') == entry['id'] or any(m.get('entry-id') == entry['id'] for m in s.get('members', [])) for s in documents[root/'data/card-statements.json'])):
+        if metadata.get('kind') == 'card' and ((entry['statement'] or {}).get('end') or any(s.get('assertion-id') == entry['id'] or any(m.get('entry-id') == entry['id'] for m in s.get('members', [])) for s in documents[root/'data/card-statements.json'])):
             continue  # Filed cards retain their existing membership lock and wording.
         assertions = [(i, row, p) for i, row in enumerate(rows) for p in row['postings']
-                      if p['account'] == key[0] and p.get('assert', {}).get('commodity') == key[1]]
+                      if p['account'] == key[0] and (p.get('assert') or {}).get('commodity') == key[1]]
         closing = next((a for a in assertions if a[0] >= index), None)
         if not closing:
             continue

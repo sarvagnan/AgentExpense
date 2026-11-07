@@ -4,8 +4,8 @@ import test from 'node:test';
 import { sourceKind, sourceType } from '../scripts/source-labels.mjs';
 
 test('source kind prioritizes explicit statement membership and bank rows over file names', () => {
-  assert.equal(sourceKind({ 'statement-end': '2026-09-28', sources: ['Bills/receipt.pdf'] }), 'Statement');
-  assert.equal(sourceKind({ 'source-row': 1, sources: ['Bills/receipt.pdf'] }), 'Bank import');
+  assert.equal(sourceKind({ statement: { end: '2026-09-28' }, sources: ['Bills/receipt.pdf'] }), 'Statement');
+  assert.equal(sourceKind({ statement: { 'source-row': 1 }, sources: ['Bills/receipt.pdf'] }), 'Bank import');
   for (const source of ['Bills/confirmation.md', 'user-provided fuel log', 'User-confirmed payment']) {
     assert.equal(sourceKind({ sources: [source] }), 'User confirmed');
   }

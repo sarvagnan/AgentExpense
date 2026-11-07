@@ -55,10 +55,11 @@ manager. Jujutsu (jj) is required even when git is installed: `make commit` and 
 dashboard save through it. Run `make doctor` again until it ends with `Ready.` Before
 setup, the Ledger row says no ledger is selected; that is expected.
 
-The ledger commands (`make new-ledger`, `make verify-data`, `make commit`) run
-`uv run --with jsonschema`, which may ask the package index for `jsonschema`. Once
-`make install` has run, `export UV_OFFLINE=1` keeps them offline for the rest of the
-setup; without it, include them when you ask about the network.
+The ledger commands (`make new-ledger`, `make verify-data`, `make commit`) run in the
+server's locked environment (`uv run --locked --project review-dashboard/server`, the
+Makefile's `LEDGER_PYTHON`), which `make install` creates. Once it has run,
+`export UV_OFFLINE=1` keeps them offline for the rest of the setup; without it,
+include them when you ask about the network.
 
 Ledger commits carry the jj user name and email. Check them with
 `jj config get user.name` and `jj config get user.email`; if either prints nothing, ask
@@ -211,15 +212,20 @@ their own (who shares which costs, which account pays for what) and write them u
 "Personal rules" in the ledger's `AGENTS.md`. Personal rules may add detail; they
 never remove a check from the general policy.
 
-Optional modules are set in the ledger's `ledger.json`
-([docs/MODULES.md](docs/MODULES.md)):
+Optional modules and extensions are set in the ledger's `ledger.json`
+([docs/MODULES.md](docs/MODULES.md), [docs/EXTENSIONS.md](docs/EXTENSIONS.md)):
 
-| Module | Default | Ask |
+| Setting | Default | Ask |
 | --- | --- | --- |
-| `fuel` | off | Do they log fuel fills (litres, distance)? |
+| `extensions.fuel` | not listed | Do they log fuel fills (litres, distance)? If so, list `"fuel": {"ask": true}` |
 | `investments` | on, no price source | Do they hold funds? A price source fetches prices; without one, holdings show their cost |
 | `history.oldLedger` | none | Do they have an older hledger journal the agent may search for precedent? |
 | `weeklyReview` | off | Do they want a weekly review procedure for an agent to run? |
+
+If they record something on every entry that the core doesn't hold (the client a work
+expense was for, say), a ledger extension can hold it; [docs/EXTENSIONS.md](docs/EXTENSIONS.md)
+describes the definition file. After listing or changing an extension, run
+`make extension-update NAME=…`.
 
 After changing `ledger.json` or `AGENTS.md`: `make commit m="Set modules and personal rules"`.
 

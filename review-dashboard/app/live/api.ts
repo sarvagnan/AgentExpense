@@ -2,7 +2,8 @@ import type {BalanceRefusal,BalanceLock} from './balance-refusal';
 import type { Piece } from './builder';
 import {clientTime} from '../date-time';
 export type Attachment = { id: string; original_name: string; media_type: string; size: number };
-export type Proposal = {account_metadata?:Record<string,{kind:string;currency:string}>;status:string;question:string|null;explanation:string|null;entry:{date:string;status:string;description:string;notes:string[];postings:{account:string;amount:string;commodity:string;cost:{amount:string;commodity:string}|null}[];[key:string]:unknown};new_accounts:string[];doubts:string[];attachment_names:string[]};
+/** The hand form (and Edit entry): the agent's answer shape, kebab-case, with every extension's fields (docs/STORE.md). */
+export type Proposal = {'account-metadata'?:Record<string,{kind:string;currency:string}>;status:string;question:string|null;explanation:string|null;entry:{date:string;status:string;description:string;notes:string[];postings:{account:string;amount:string;commodity:string;cost:{amount:string;commodity:string}|null}[];extensions?:import('../data-types').ExtensionGroups;[key:string]:unknown};'new-accounts':string[];doubts:string[];'attachment-names':string[]};
 export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;resumes_at:string;attempt:number};
 export type HandChecks = {refusal?:BalanceRefusal;unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
 export type Draft = {proposal?:Proposal|null;trashed_at?:string|null;refusal?:BalanceRefusal;

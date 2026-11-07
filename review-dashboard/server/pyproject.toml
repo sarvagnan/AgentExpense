@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",
     "jsonschema>=4.22",
+    "pydantic>=2.14",
     "pypdfium2>=4.30",
     "pillow>=10.4",
     "pyoxipng>=9.0",

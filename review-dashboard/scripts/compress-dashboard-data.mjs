@@ -3,16 +3,16 @@ guardDashboardData();
 import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 
-import { moduleSettings, readManifest } from './ledger-manifest.mjs';
-const modules = moduleSettings(await readManifest());
-if (!modules.fuel) await rm(dashboardDataPath('public/data/fuel-log.json.gz'), {force: true});
+import { hasExtension, readManifest } from './ledger-manifest.mjs';
+const fuel = hasExtension(await readManifest(), 'fuel');
+if (!fuel) await rm(dashboardDataPath('public/data/fuel-log.json.gz'), {force: true});
 
 // Tailscale Serve sends static files uncompressed, so publish gzip copies for the app to fetch and decompress.
 const target = dashboardDataPath('public/data/');
 await mkdir(target, { recursive: true });
 
 let total = 0;
-for (const name of ['dashboard', 'pending-transactions', ...(modules.fuel ? ['fuel-log'] : []), 'add-patterns']) {
+for (const name of ['dashboard', 'pending-transactions', ...(fuel ? ['fuel-log'] : []), 'add-patterns']) {
   const json = JSON.stringify(JSON.parse(await readFile(dashboardDataPath('app/data', `${name}.json`), 'utf8')));
   const gzipped = gzipSync(json, { level: 9 });
   // The live server streams these files while a save rebuilds them: replace each one whole.

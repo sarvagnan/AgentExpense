@@ -22,7 +22,7 @@
       ],
       "type": "object"
     },
-    "AnswerEntryWithoutFuel": {
+    "AnswerEntry": {
       "additionalProperties": false,
       "description": "One actual entry in data/expenses/<year>.json. Only the fields the agent sets.",
       "properties": {
@@ -182,19 +182,16 @@
               "type": "null"
             }
           ],
-          "description": "A payment or bank reference printed on the evidence."
+          "description": "A payment or bank reference printed on the evidence, or null."
         },
         "order-id": {
-          "anyOf": [
-            {
-              "pattern": "^[^\\r\\n]+$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "The payee's order or invoice number."
+          "description": "The payee's order or invoice numbers, in order; [] when none.",
+          "items": {
+            "pattern": "^[^\\r\\n]+$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
@@ -230,7 +227,7 @@
     "entry": {
       "anyOf": [
         {
-          "$ref": "#/$defs/AnswerEntryWithoutFuel"
+          "$ref": "#/$defs/AnswerEntry"
         },
         {
           "type": "null"

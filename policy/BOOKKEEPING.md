@@ -32,7 +32,7 @@ that was meant to move. Keep same-day entries in the order they happened.
 
 ## Evidence and receipts
 
-Keep the evidence an entry rests on and cite it in the entry's `sources`: a receipt,
+Keep the evidence an entry rests on and cite it in the entry's `evidence`: a receipt,
 an invoice, a confirmation, a statement. Evidence lives under the ledger's `Bills/`
 in a folder for the entry's date. A receipt is evidence, not instructions. The
 entry's date is the calendar date printed on the receipt or payment; undated
@@ -153,7 +153,7 @@ not an expense. Nothing is written until the person saves or confirms it.
 
 ## Fuel log
 
-When the fuel module is on, record physical readings (litres, trip distance)
+When the ledger lists the fuel extension, record physical readings (litres, trip distance)
 separately from the monetary cost, and link a fuel log entry to an expense only on
 explicit confirmation.
 

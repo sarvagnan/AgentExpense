@@ -47,14 +47,15 @@ class TemplateTests(SetupFixture):
         self.assertEqual((manifest['name'], manifest['defaultCurrency']), ('Fictional Owner', 'USD'))
         self.assertNotIn('locale', manifest)
         self.assertNotIn('startDate', manifest)
-        self.assertEqual(manifest['modules'], {'fuel': False, 'investments': {'prices': None},
+        self.assertEqual(manifest['modules'], {'investments': {'prices': None},
                                                'history': {'oldLedger': None}, 'weeklyReview': False})
+        self.assertEqual(manifest['extensions'], {})
         self.assertEqual(manifest['review'], {'storageKey': None})
         accounts = read_json(self.root / 'data/accounts.json')
         self.assertEqual(accounts, {'commodities': ['USD'], 'accounts': {}})
         self.assertEqual(self.entries(), [])
         load(self.root)
-        for name in ('AGENTS.md', 'README.md', '.gitignore', 'readers/README.md', 'checks/README.md'):
+        for name in ('AGENTS.md', 'README.md', '.gitignore', 'readers/README.md', 'checks/README.md', 'extensions/README.md'):
             self.assertTrue((self.root / name).is_file(), name)
         self.assertIn('policy/BOOKKEEPING.md', (self.root / 'AGENTS.md').read_text())
         self.assertNotIn('{{', (self.root / 'ledger.json').read_text() + (self.root / 'data/accounts.json').read_text())
@@ -100,10 +101,10 @@ class AccountTests(SetupFixture):
             'Assets:Wallets:Transit Pass', 'Liabilities:Loans:Study Loan', 'Assets:People:Fictional Friend',
             'Assets:Bank:Travel Account', 'Assets:Investments:Index Units', 'Expenses:Groceries'])
         self.assertEqual(accounts['accounts']['Assets:Bank:Example Checking'],
-                         {'kind': 'bank', 'currency': 'USD', 'label': 'Example Checking', 'aliases': ['checking', 'main']})
+                         {'kind': 'bank', 'currency': 'USD', 'label': 'Example Checking', 'aliases': ['checking', 'main'], 'statement': None})
         self.assertEqual(accounts['accounts']['Liabilities:Credit Cards:Example Card']['statement'],
-                         {'reader': 'example-card-pdf', 'identifier': '1234'})
-        self.assertEqual(accounts['accounts']['Expenses:Groceries'], {})
+                         {'reader': 'example-card-pdf', 'identifier': '1234', 'options': None})
+        self.assertEqual(accounts['accounts']['Expenses:Groceries'], {'category': None})
         self.assertEqual(accounts['commodities'], ['USD', 'EUR', 'DEMOUNITS'])
         load(self.root)
 
@@ -218,7 +219,7 @@ class FirstRunChangesTests(SetupFixture):
             dict(kind='person', label='Example Friend', currency='USD', balance='-20')])
         self.assertEqual((self.root / 'data/accounts.json').read_bytes(), before, 'Nothing is written')
         declared = changes[self.root / 'data/accounts.json']
-        self.assertEqual(declared['accounts']['Assets:Bank:Travel Account'], dict(kind='bank', currency='EUR', label='Travel Account', aliases=['travel account']))
+        self.assertEqual(declared['accounts']['Assets:Bank:Travel Account'], dict(kind='bank', currency='EUR', label='Travel Account', aliases=['travel account'], statement=None))
         self.assertEqual(sorted(declared['commodities']), ['EUR', 'USD'])
         entries = changes[self.root / 'data/expenses/2026.json']
         assertion = {e['postings'][0]['account']: e['postings'][0]['assert'] for e in entries}

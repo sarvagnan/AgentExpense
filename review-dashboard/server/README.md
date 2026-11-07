@@ -480,9 +480,10 @@ claim. Release/expiry retain the form and FIFO position and revoke consent.
 | POST `api/drafts/{id}/approve-accounts` | `proposal_hash`; approve exact retained agent proposal and queue without an agent call |
 
 Uploads use the existing files endpoint and checks with multipart `claim_token`.
-Removal accepts that token as a query parameter. A hand proposal uses the ordinary
-answer shape, with optional `account_metadata` for new balance-sheet accounts;
-metadata must pass the store schema. The server discovers new accounts from its
+Removal accepts that token as a query parameter. A hand proposal uses the form shape
+(`Form` in `scripts/ledger/store_models.py`: the agent's answer plus every listed
+extension's fields), with `account-metadata` for new balance-sheet accounts;
+metadata must pass the store models. The server discovers new accounts from its
 postings and every new account requires a separate tick. Agent proposals creating
 a new root become a question; an account-check failure also asks a person.
 Free-text answers clear retained consent. Consent hashes the complete proposal,

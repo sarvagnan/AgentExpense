@@ -1,9 +1,9 @@
-import { moduleSettings } from '../scripts/ledger-modules.mjs';
+import { hasExtension } from '../scripts/ledger-modules.mjs';
 type Reading = { entryId?: string; litres: number | null; tripKm: number | null; ledgerStatus: string };
 type Entry = { id: string; status: string; fuelLog: { litres: number; tripKm: number | null; confirmed: boolean } | null };
 /** Persistent IDs identify entries; explicit confirmation and physical readings verify the association. */
-export function fuelLedgerEntry<T extends Entry>(reading: Reading, entries: T[], manifest: {modules?: unknown}): T | undefined {
-  if (!moduleSettings(manifest).fuel) return;
+export function fuelLedgerEntry<T extends Entry>(reading: Reading, entries: T[], manifest: {extensions?: unknown}): T | undefined {
+  if (!hasExtension(manifest, 'fuel')) return;
   if (reading.ledgerStatus !== 'Linked' || !reading.entryId || reading.litres === null) return;
   const matches = entries.filter((entry) => entry.id === reading.entryId && entry.status === 'Cleared'
     && entry.fuelLog?.confirmed && entry.fuelLog.litres === reading.litres

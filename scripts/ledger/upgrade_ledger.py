@@ -6,11 +6,13 @@ import json
 import os
 import shutil
 from pathlib import Path
+import contextlib
+import io
 import subprocess
 import sys
 import tempfile
 
-from store import dump, read_json, validate
+from store import canonical_text, dump, load, read_json, write_text
 from project_paths import APPLICATION_ROOT, ledger_root
 from ledger_manifest import CURRENT_FORMAT, app_version, ordered_manifest, read_manifest
 from ledger_lock import ledger_lock
@@ -57,7 +59,8 @@ class Repository:
             self.jj_command('commit', '-m', message)
             self.jj_command('bookmark', 'set', 'main', '-r', '@-')
         else:
-            command(self.root, 'git', 'add', '--', 'ledger.json', 'data/accounts.json')
+            # The working copy was clean before the upgrade: every change is the migration's.
+            command(self.root, 'git', 'add', '-A')
             command(self.root, 'git', 'commit', '-m', message)
 
     def rollback(self, checkpoint):
@@ -85,45 +88,71 @@ def verify(root):
     from store import load
     journal = root / 'expense_ledger.ledger'
     journal.write_text(render(load(root), root))
-    check(root)
+    # The upgrade prints counts only: keep the store check's totals, not its per-entry lines.
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        check(root)
+    print('\n'.join(line for line in output.getvalue().splitlines() if not line.startswith('  ')))
     command(root, os.environ.get('HLEDGER_BIN', 'hledger'), '-f', str(journal), 'check', '-s', 'ordereddates')
 
 
-def validate_plan(result):
-    # Validate in scratch space even for --dry-run, without touching the ledger.
+class CountsOnly(ValueError):
+    """A failure whose message holds counts only, safe to print for a private ledger."""
+
+
+AFTER_APPLY = ('Verification failed after migrating; the checkpoint is restored. Run make verify on a copy '
+               'to see details, or set EXPENSES_UPGRADE_DEBUG=1 to print them.')
+
+
+def validate_plan(step, result, root):
+    """Validate the final step's plan in scratch space, even for --dry-run, without touching the ledger.
+
+    A step may check its own result; otherwise the planned manifest and accounts are
+    written over a scratch copy of the ledger's store, which loads with every current check.
+    """
+    if hasattr(step, 'check'):
+        step.check(result)
+        return
     with tempfile.TemporaryDirectory(prefix='expense-migration-plan-', dir=os.environ.get('EXPENSES_TEST_TMP','/tmp')) as folder:
-        root = Path(folder)
-        dump(root / 'ledger.json', result[0])
-        validate({root / 'data/accounts.json': result[1]}, root)
+        scratch = Path(folder)
+        shutil.copytree(root / 'data', scratch / 'data')
+        if (root / 'extensions').is_dir():
+            shutil.copytree(root / 'extensions', scratch / 'extensions')
+        write_text(scratch / 'ledger.json', canonical_text(ordered_manifest(result[0]), flat=False))
+        dump(scratch / 'data/accounts.json', result[1], scratch)
+        load(scratch)
 
 
 def rehearse(root, options, steps, version):
     """Plan and apply every step on a scratch copy; validate the result at the current format.
 
     This app reads only the current format, so intermediate results can't be validated
-    alone. Returns the first step's plan; the ledger itself is never written.
+    alone. Returns each step's plan by its source format; the ledger itself is never written.
     """
     with tempfile.TemporaryDirectory(prefix='expense-migration-chain-', dir=os.environ.get('EXPENSES_TEST_TMP','/tmp')) as folder:
         scratch = Path(folder)
         shutil.copytree(root / 'data', scratch / 'data')
+        if (root / 'extensions').is_dir():
+            shutil.copytree(root / 'extensions', scratch / 'extensions')
         if (root / 'ledger.json').exists():
             shutil.copyfile(root / 'ledger.json', scratch / 'ledger.json')
-        first = None
+        plans = {}
         while version < CURRENT_FORMAT:
             step = steps[version]
-            result = step.plan(scratch, options)
-            first = first or result
+            result = plans[version] = step.plan(scratch, options)
             if step.TARGET_FORMAT == CURRENT_FORMAT:
-                validate_plan(result)
+                validate_plan(step, result, scratch)
             step.apply(scratch, result)
             version = step.TARGET_FORMAT
-        return first
+        return plans
 
 
 def report_stale_rules(root, declarations):
     from recurring import stale_rules
-    actual = [entry for path in sorted((root / 'data/expenses').glob('*.json')) for entry in read_json(path)]
-    count = len(stale_rules(actual, read_json(root / 'data/forecast.json'), declarations['accounts']))
+    import format1
+    actual = [format1.entry(entry) for path in sorted((root / 'data/expenses').glob('*.json')) for entry in read_json(path)]
+    rules = [format1.rule(rule) for rule in read_json(root / 'data/forecast.json')]
+    count = len(stale_rules(actual, rules, declarations['accounts']))
     print(f'Recurring rules already paid: {count}. Run make rules-catch-up with this LEDGER_DIR to move past last payment.')
 
 
@@ -141,12 +170,19 @@ def upgrade(root, options):
     if options.dry_run:
         repo.require_clean()
         step = steps[version]
-        result = rehearse(root, options, steps, version)
+        plans = rehearse(root, options, steps, version)
+        result = plans[version]
         print(f'Plan: format {version} -> {step.TARGET_FORMAT} (app v{app_version()})')
-        print(json.dumps(ordered_manifest(result[0]), indent=2, ensure_ascii=False))
+        if hasattr(step, 'describe'):
+            print('\n'.join(step.describe(result)))
+        else:
+            print(json.dumps(ordered_manifest(result[0]), indent=2, ensure_ascii=False))
         for later in range(step.TARGET_FORMAT, CURRENT_FORMAT):
             print(f'Then: format {later} -> {later + 1}')
-        report_stale_rules(root, result[1])
+            if hasattr(steps[later], 'describe'):
+                print('\n'.join(steps[later].describe(plans[later])))
+        if version == 0:
+            report_stale_rules(root, result[1])
         return
     with ledger_lock(root):
         # Re-read after waiting for another cooperating writer.
@@ -159,8 +195,12 @@ def upgrade(root, options):
         checkpoint = repo.checkpoint()
         print('Checkpoint: ' + checkpoint[0])
         # Migrations and verification only write these paths. Preserve ignored journal bytes too.
-        targets = ['ledger.json', 'data/accounts.json', 'expense_ledger.ledger']
+        targets = ['ledger.json', 'data/accounts.json', 'expense_ledger.ledger',
+                   *(path for source in range(version, CURRENT_FORMAT) if hasattr(steps[source], 'targets')
+                     for path in steps[source].targets(root))]
+        targets = list(dict.fromkeys(targets))
         before = {name: (root / name).read_bytes() if (root / name).exists() else None for name in targets}
+        applied = False
         try:
             rehearse(root, options, steps, version)
             initial_plan = steps[version].plan(root, options)
@@ -169,6 +209,7 @@ def upgrade(root, options):
             baseline = snapshot(root, format_zero_settings=initial_plan if version == 0 else None)
             # Dashboard paths the applied migrations declare as intended changes.
             declared = [path for source in range(version, CURRENT_FORMAT) for path in getattr(steps[source], 'OUTPUT_CHANGES', ())]
+            allowed = {}
             while version < CURRENT_FORMAT:
                 step = steps[version]
                 result = initial_plan if version == 0 else step.plan(root, options)
@@ -176,25 +217,40 @@ def upgrade(root, options):
                 # This app reads only the current format, so intermediate formats are
                 # committed as they are; the final one is validated, verified and
                 # compared, and any failure restores the checkpoint for every step.
+                if hasattr(step, 'describe'):
+                    print('\n'.join(step.describe(result)))
+                # Entries whose journal lines a step declares as changing, from every step in the chain.
+                for kind, ids in getattr(result, 'allowed', {}).items():
+                    allowed.setdefault(kind, set()).update(ids)
                 if final:
-                    validate_plan(result)
+                    validate_plan(step, result, root)
+                applied = True
                 step.apply(root, result)
                 if final:
                     verify(root)
-                    if not compare(baseline, snapshot(root), declared):
-                        raise ValueError('Generated outputs changed beyond the changes the migrations declare.' if declared
+                    if not compare(baseline, snapshot(root), declared, allowed=allowed):
+                        raise CountsOnly('Generated outputs changed beyond the changes the migrations declare.' if declared
                                          else 'Generated outputs changed; migration declares no output changes.')
                 repo.commit(f'Upgrade ledger format {version} → {step.TARGET_FORMAT} (app v{app_version()})')
                 version = step.TARGET_FORMAT
             print(f'Upgraded ledger to format {version}.')
-        except BaseException:
+        except BaseException as error:
             repo.rollback(checkpoint)
             for name, data in before.items():
                 target = root / name
                 if data is None:
                     target.unlink(missing_ok=True)
                 else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(data)
+            folder = root / 'extensions'
+            if folder.is_dir() and not any(folder.iterdir()):
+                folder.rmdir()
+            # Once a step has written, a check's details can name entries, amounts or paths:
+            # print counts only unless the operator asks for the details.
+            if applied and isinstance(error, Exception) and not isinstance(error, CountsOnly) \
+                    and not os.environ.get('EXPENSES_UPGRADE_DEBUG'):
+                raise CountsOnly(AFTER_APPLY) from None
             raise
 
 

@@ -4,7 +4,7 @@ import io
 import threading
 from unittest.mock import patch
 from pypdf import PdfWriter
-from support import Fixture
+from support import Fixture, meta
 from statement_fixtures import TEXT
 from statements import Statements
 
@@ -118,7 +118,7 @@ class StatementFixTests(Fixture):
         from store import dump, read_json
         path = self.ledger/'data/accounts.json'
         declarations = read_json(path)
-        declarations['accounts']['Liabilities:Plastic:Main'] = dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
+        declarations['accounts']['Liabilities:Plastic:Main'] = meta(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
         dump(path,declarations)
         sessions, old = self.session()
         statement = dict(periodStart='2026-09-29', periodEnd='2026-10-28', previousBalance='0.00', rows=[])

@@ -12,6 +12,7 @@ import unittest
 APPLICATION = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(APPLICATION / 'scripts/ledger'), str(APPLICATION / 'scripts/fixtures')]
 import generate_large
+from ledger_manifest import read_manifest
 from store import entries, load
 
 
@@ -60,10 +61,13 @@ class GenerateLargeTests(unittest.TestCase):
         rules = documents[self.root / 'data/forecast.json']
         self.assertEqual(len(rules), 32)
         self.assertTrue(any(r.get('amount') == 'varies' for r in rules))
-        self.assertEqual({e['rule']['id'] for e in actual if e.get('rule')}, {r['id'] for r in rules})
+        self.assertEqual({e['rule']['id'] for e in actual if e['rule']}, {r['id'] for r in rules})
+        # Fuel readings go through the fuel extension that ledger.json lists.
+        self.assertEqual(read_manifest(self.root)['extensions'], {'fuel': {'ask': True}})
+        self.assertGreater(sum(1 for e in actual if (e['extensions']['fuel'] or {}).get('litres')), 100)
         statements = documents[self.root / 'data/card-statements.json']
         self.assertGreater(len(statements), 40)
-        self.assertEqual(sum(s['rows'] for s in statements), sum(1 for e in actual if e.get('statement-end')))
+        self.assertEqual(sum(s['rows'] for s in statements), sum(1 for e in actual if (e['statement'] or {}).get('end')))
         unfiled = [e for e in actual if e['date'] > statements[-1]['end'] and any(p['account'] == generate_large.CARD for p in e['postings'])]
         self.assertGreater(len(unfiled), 100)
         assertions = [p for e in actual for p in e['postings'] if p.get('assert')]
@@ -73,7 +77,7 @@ class GenerateLargeTests(unittest.TestCase):
         self.assertTrue(any(e['status'] == 'pending' for e in actual))
         self.assertTrue((self.root / 'data/prices/mutual-funds.prices').read_text().count('\nP ') > 50)
         self.assertTrue(list((self.root / 'data/additions').glob('*.jsonl')))
-        sources = {s for e in actual for s in e.get('sources', [])}
+        sources = {s for e in actual for s in e['evidence']}
         self.assertTrue(all((self.root / s).is_file() for s in sources))
         for entry in actual:
             totals = Counter()

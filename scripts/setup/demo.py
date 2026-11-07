@@ -25,7 +25,7 @@ import urllib.request
 
 APPLICATION = Path(__file__).resolve().parents[2]
 FIXTURES = APPLICATION / 'fixtures/ledgers'
-APPLICATION_PARTS = ('scripts', 'schema', 'migrations', 'policy', 'readers', 'templates', 'Makefile', '.node-version', 'VERSION')
+APPLICATION_PARTS = ('scripts', 'schema', 'extensions', 'migrations', 'policy', 'readers', 'templates', 'Makefile', '.node-version', 'VERSION')
 DASHBOARD_PARTS = ('app', 'public', 'scripts', 'server', 'index.html', 'package.json', 'package-lock.json',
                    'tsconfig.json', 'vite.config.ts')
 SKIPPED = {'.git', '.jj', '.venv', 'node_modules', 'dist', '__pycache__', '.source-ledger.json', 'drafts', '.lock',
@@ -123,8 +123,8 @@ class Demo:
         fake = self.root / 'fake-agent'
         fake.write_text(f'#!{sys.executable}\n' + source)
         fake.chmod(0o755)
-        answer = dict(status='question', question=DEMO_QUESTION, entry=None, new_accounts=[], doubts=[],
-                      attachment_names=[], explanation=None)
+        answer = {'status': 'question', 'question': DEMO_QUESTION, 'entry': None, 'new-accounts': [], 'doubts': [],
+                  'attachment-names': [], 'explanation': None}
         (self.root / 'fake.json').write_text(json.dumps({'steps': [{'answer': answer}]}))
         self.env = self.environment()
 

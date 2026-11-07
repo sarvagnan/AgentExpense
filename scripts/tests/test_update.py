@@ -4,7 +4,7 @@
 would contain into a disposable source repository under the test root and tags:
 
 - v0.1.0: the export as it is (main stays here, as if cloned when it was the latest);
-- v0.2.0: a real test migration, ledger format 1 -> 2 adding `testField` to
+- v0.2.0: a real test migration, raising the current ledger format by one and adding `testField` to
   ledger.json, with the format, schema and fixture changes a release makes, plus its
   changelog entry;
 - v0.3.0: an injected failure, a ledger test that fails after the ledger migration
@@ -19,6 +19,7 @@ The test migration lives only in the disposable repository, never in migrations/
 """
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import shutil
@@ -32,20 +33,25 @@ APPLICATION = Path(__file__).resolve().parents[2]
 ENABLED = os.environ.get('AGENTEXPENSE_UPDATE_TEST') == '1'
 REASON = 'slow: builds and updates disposable clones; run make test-update'
 
-MIGRATION = '''"""Format 1 -> 2, only in make update's test releases: adds testField to ledger.json.
+# The test release raises the current format by one, whatever it is (AGENTS.md: tests use the constant).
+sys.path.insert(0, str(APPLICATION / 'scripts'))
+from ledger_manifest import CURRENT_FORMAT  # noqa: E402
+
+NEXT_FORMAT = CURRENT_FORMAT + 1
+MIGRATION = f'''"""Format {CURRENT_FORMAT} -> {NEXT_FORMAT}, only in make update's test releases: adds testField to ledger.json.
 
 The dashboard copies the manifest into meta.ledger; that is the one declared output change.
 """
 from store import dump, read_json
 
-SOURCE_FORMAT = 1
-TARGET_FORMAT = 2
+SOURCE_FORMAT = {CURRENT_FORMAT}
+TARGET_FORMAT = {NEXT_FORMAT}
 OUTPUT_CHANGES = ('$.meta.ledger.testField',)
 
 
 def plan(root, options):
     manifest = read_json(root / 'ledger.json')
-    return {**manifest, 'format': 2, 'testField': True}, read_json(root / 'data/accounts.json')
+    return {{**manifest, 'format': {NEXT_FORMAT}, 'testField': True}}, read_json(root / 'data/accounts.json')
 
 
 def apply(root, result):
@@ -106,24 +112,25 @@ def bump_version(root, old, new, changes):
 
 def release_020(root):
     """A release that bumps the ledger format, as a real one would."""
-    replace_once(root / 'scripts/ledger_manifest.py', 'CURRENT_FORMAT = 1\n', 'CURRENT_FORMAT = 2\n')
-    replace_once(root / 'review-dashboard/scripts/ledger-manifest.mjs', 'export const CURRENT_FORMAT = 1;', 'export const CURRENT_FORMAT = 2;')
+    replace_once(root / 'scripts/ledger_manifest.py', f'CURRENT_FORMAT = {CURRENT_FORMAT}\n', f'CURRENT_FORMAT = {NEXT_FORMAT}\n')
+    replace_once(root / 'review-dashboard/scripts/ledger-manifest.mjs', f'export const CURRENT_FORMAT = {CURRENT_FORMAT};',
+                 f'export const CURRENT_FORMAT = {NEXT_FORMAT};')
     schema = root / 'schema/ledger.schema.json'
     value = json.loads(schema.read_text())
-    assert value['properties']['format']['const'] == 1
-    value['properties']['format']['const'] = 2
+    assert value['properties']['format']['const'] == CURRENT_FORMAT
+    value['properties']['format']['const'] = NEXT_FORMAT
     value['properties']['testField'] = {'type': 'boolean'}
     schema.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n')
-    (root / 'migrations/0002_test_field.py').write_text(MIGRATION)
+    (root / f'migrations/{NEXT_FORMAT:04d}_test_field.py').write_text(MIGRATION)
     # The upgrade test lists the manifest keys a full upgrade produces.
     replace_once(root / 'scripts/ledger/migration_tests/test_upgrade.py',
-                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'review'])",
-                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'review', 'testField'])")
+                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review'])",
+                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review', 'testField'])")
     for manifest in sorted((root / 'fixtures/ledgers').glob('*/ledger.json')):
         value = json.loads(manifest.read_text())
-        manifest.write_text(json.dumps({**value, 'format': 2, 'testField': True}, indent=2, ensure_ascii=False) + '\n')
-    bump_version(root, '0.1.0', '0.2.0', '### Added\n\n- Ledger format 2: `ledger.json` gains `testField` (test release).\n\n'
-                 '### Upgrade notes\n\n1. Run `make update`; it upgrades the ledger to format 2.')
+        manifest.write_text(json.dumps({**value, 'format': NEXT_FORMAT, 'testField': True}, indent=2, ensure_ascii=False) + '\n')
+    bump_version(root, '0.1.0', '0.2.0', f'### Added\n\n- Ledger format {NEXT_FORMAT}: `ledger.json` gains `testField` (test release).\n\n'
+                 f'### Upgrade notes\n\n1. Run `make update`; it upgrades the ledger to format {NEXT_FORMAT}.')
 
 
 def release_030(root):
@@ -166,7 +173,7 @@ def setUpModule():
     release('0.1.0', 'AgentExpense 0.1.0')
     run(['git', 'push', '--quiet', str(remote), 'main', 'v0.1.0'], source, environ)
     release_020(source)
-    release('0.2.0', 'AgentExpense 0.2.0: test ledger format 2')
+    release('0.2.0', f'AgentExpense 0.2.0: test ledger format {NEXT_FORMAT}')
     release_030(source)
     release('0.3.0', 'AgentExpense 0.3.0: injected failure')
     run(['git', 'tag', '-a', 'v0.4.0-rc.1', '-m', 'Pre-release'], source, environ)
@@ -289,7 +296,7 @@ class UpdateScenario(unittest.TestCase):
             self.assertEqual(run(['git', 'symbolic-ref', '--short', 'HEAD'], self.clone, self.environ), 'main')
         self.assertEqual(self.ledger_commit(), self.checkpoint, output[-4000:])
         self.assertTrue(self.clean(self.ledger))
-        self.assertEqual(self.manifest()['format'], 1)
+        self.assertEqual(self.manifest()['format'], CURRENT_FORMAT)
         self.assertNotIn('testField', self.manifest())
 
     def check_failure_rolls_back(self):
@@ -298,7 +305,7 @@ class UpdateScenario(unittest.TestCase):
         self.assertNotIn('[y/N]', output)
         # The failure came after the ledger migration had been committed.
         self.assertIn('Upgrading the ledger: make upgrade-ledger', output)
-        self.assertIn('Upgraded ledger to format 2.', output)
+        self.assertIn(f'Upgraded ledger to format {NEXT_FORMAT}.', output)
         self.assertIn('Injected failure: this test release must roll back.', output)
         self.assertIn('Update to 0.3.0 failed during "Verifying, rebuilding and testing"', output)
         self.assertIn('Nothing from 0.3.0 remains installed.', output)
@@ -320,26 +327,26 @@ class UpdateScenario(unittest.TestCase):
         code, output = self.update(*arguments, answer='y\n' if prompt else None)
         self.assertEqual(code, 0, output[-6000:])
         self.assertEqual('Update AgentExpense 0.1.0 to 0.2.0? [y/N]' in output, prompt)
-        self.assertIn('AgentExpense updated from 0.1.0 to 0.2.0. Ledger format 2. The server was restarted.', output)
+        self.assertIn(f'AgentExpense updated from 0.1.0 to 0.2.0. Ledger format {NEXT_FORMAT}. The server was restarted.', output)
         self.assertIn('## [0.2.0] - 2026-11-05', output)
         self.assertNotIn('## [0.3.0]', output)
         self.assertEqual((self.clone / 'VERSION').read_text().strip(), '0.2.0')
         self.assertEqual(self.app_commit(), state['commits']['0.2.0'])
         self.assertTrue(self.clean(self.clone))
-        self.assertEqual(self.manifest()['format'], 2)
+        self.assertEqual(self.manifest()['format'], NEXT_FORMAT)
         self.assertIs(self.manifest()['testField'], True)
         self.assertTrue(self.clean(self.ledger))
         template = 'description' if self.kind == 'jj' else None
         message = (run(['jj', 'log', '-r', '@-', '--no-graph', '-T', template], self.ledger, self.environ) if template else
                    run(['git', 'log', '-1', '--format=%s'], self.ledger, self.environ))
-        self.assertEqual(message.strip(), 'Upgrade ledger format 1 → 2 (app v0.2.0)')
+        self.assertEqual(message.strip(), f'Upgrade ledger format {CURRENT_FORMAT} → {NEXT_FORMAT} (app v0.2.0)')
         self.assertTrue(self.service_calls(), 'the configured service is restarted')
         doctor = self.make('doctor')
         self.assertEqual(doctor.returncode, 0, doctor.stdout)
         # The upgraded format reads as current. A git-only ledger also gets doctor's
         # non-blocking warning that saves need jj, which is true of this fixture.
-        expected = (r'(?m)^Ledger +ok +format 2 at \S+, jj repository$' if self.kind == 'jj' else
-                    r'(?m)^Ledger +warn +format 2 at \S+, git repository without jj; saves need jj$')
+        expected = (rf'(?m)^Ledger +ok +format {NEXT_FORMAT} at \S+, jj repository$' if self.kind == 'jj' else
+                    rf'(?m)^Ledger +warn +format {NEXT_FORMAT} at \S+, git repository without jj; saves need jj$')
         self.assertRegex(doctor.stdout, expected)
 
 

@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 from audit import event, append, audit_path
-from store import entries, dump, new_id, store_paths, validate
+from store import empty_entry, entries, dump, new_id, posting, store_paths, validate
 from statement_readers import check_statement, signed, money_text, card_debt
 from reconcile_statement import reconciliation_path, card_amount
 from ledger_lock import LOCK_FD_ENV
@@ -43,7 +43,7 @@ def apply_bank(transaction, documents, lock_fd):
         shutil.copyfile(t.drafts.folder(session['id'])/('read'+session['file_suffix']), target)
         opening = statement_opening(documents, root, statement)
         if opening:
-            opening['sources'] = [source]
+            opening['evidence'] = [source]
         actual = {e['id']:e for e in entries(documents)}
         used_ids = {e['id'] for rows in documents.values() if isinstance(rows,list) for e in rows if 'id' in e}
         members, added, matched, used, uncertain = [], [], [], set(), []
@@ -55,7 +55,8 @@ def apply_bank(transaction, documents, lock_fd):
             return entry['id']
         for item in checklist:
             row, choice = item['row'], item['decision']
-            member = {k:row[k] for k in ('date','serial','description','amount','direction','citation','reference','balance') if k in row}
+            member = {**{k:row[k] for k in ('date','serial','description','amount','direction','citation')},
+                      'reference': row.get('reference'), 'balance': row.get('balance'), 'entry-id': None, 'disposition': None, 'review-candidates': []}
             if item['rule'] == 'pre_start':
                 member['disposition'] = 'pre-start'
                 members.append(member)
@@ -83,25 +84,24 @@ def apply_bank(transaction, documents, lock_fd):
                 member.update(disposition='already-in-ledger' if item['rule'] in ('already_in_ledger','overlap') else 'recorded', **{'entry-id':identity})
                 # Evidence may be added; financial postings, dates and descriptions
                 # on an existing entry are never rewritten by balance-style Apply.
-                entry.setdefault('sources', [])
-                if source not in entry['sources']:
-                    entry['sources'].append(source)
+                if source not in entry['evidence']:
+                    entry['evidence'].append(source)
             else:
                 if (not choice and not item.get('postings')) or choice and choice['action'] not in ('account','pending'):
                     raise ValueError('New row has no approved account')
                 total = -signed(row)
-                posting = dict(account=choice['account'] if choice else item['postings'][0]['account'], amount=money_text(total), commodity=currency)
+                line = posting(choice['account'] if choice else item['postings'][0]['account'], money_text(total), currency)
                 if row.get('foreignAmount'):
                     original = Decimal(row['foreignAmount']) * (1 if total >= 0 else -1)
-                    posting.update(amount=money_text(original), commodity=row['foreignCurrency'],cost=dict(amount=row['amount'], commodity=currency, per='total'))
-                entry = dict(date=row['date'], status='pending' if choice and choice['action']=='pending' else 'confirmed', description=row['description'], sources=[source],
-                             postings=[posting,dict(account=account,amount=money_text(signed(row)),commodity=currency)] if choice else deepcopy(item['postings']))
+                    line.update(amount=money_text(original), commodity=row['foreignCurrency'],cost=dict(amount=row['amount'], commodity=currency, per='total'))
+                entry = empty_entry(root, date=row['date'], status='pending' if choice and choice['action']=='pending' else 'confirmed', description=row['description'], evidence=[source],
+                                    postings=[line,posting(account,money_text(signed(row)),currency)] if choice else deepcopy(item['postings']))
                 if row.get('reference'):
-                    entry['reference'] = row['reference']
-                if row.get('citation',{}).get('row'):
-                    entry['source-row'] = row['citation']['row']
-                elif row.get('page'):
-                    entry['source-page'] = row['page']
+                    entry['references'] = {'reference': row['reference'], 'order-id': []}
+                cited_row = (row.get('citation') or {}).get('row')
+                if cited_row or row.get('page'):
+                    entry['statement'] = {'end': None, 'serial': None, 'page': None,
+                                          'source-page': None if cited_row else row['page'], 'source-row': cited_row or None}
                 if row.get('foreignAmount'):
                     entry['original-amount'] = dict(amount=row['foreignAmount'],commodity=row['foreignCurrency'])
                 identity = add(entry)
@@ -111,9 +111,10 @@ def apply_bank(transaction, documents, lock_fd):
             members.append(member)
         declarations = documents[root/'data/accounts.json']
         if (not metadata.get('statement') or session.get('learn_mapping')) and statement.get('readerConfig'):
-            metadata['statement'] = deepcopy(statement['readerConfig'])
+            config = statement['readerConfig']
+            metadata['statement'] = {'reader': config['reader'], 'identifier': config.get('identifier'), 'options': deepcopy(config.get('options'))}
         if any(p['account']=='Expenses:Uncategorized' for e in actual.values() for p in e['postings']):
-            declarations['accounts'].setdefault('Expenses:Uncategorized', {})
+            declarations['accounts'].setdefault('Expenses:Uncategorized', {'category': None})
         for code in {p['commodity'] for e in actual.values() for p in e['postings']}:
             if code not in declarations['commodities']:
                 declarations['commodities'].append(code)
@@ -123,15 +124,16 @@ def apply_bank(transaction, documents, lock_fd):
                 reason = item.get('duplicate_reason') or ('several-candidates' if len(item['candidates'])>1 else 'amount-date-gap' if item['candidates'][0]['dayDistance']>3 else 'dissimilar-name')
                 for candidate in item['candidates']:
                     link_pair(actual,identity,candidate['entryId'],reason)
-        assertion = dict(id=new_id(used_ids),date=end,status='confirmed',description='Statement closing balance',sources=[source],postings=[dict(account=account,amount='0.00',commodity=currency,**{'assert':dict(amount=statement['closingBalance'],commodity=currency)})])
+        assertion = empty_entry(root, id=new_id(used_ids),date=end,status='confirmed',description='Statement closing balance',evidence=[source],
+                                postings=[posting(account,'0.00',currency,assertion=dict(amount=statement['closingBalance'],commodity=currency))])
         # Billed debt is a membership total, not the account balance on that date:
         # unbilled purchases may already exist, or arrive on the next statement.
         if not card_debt(statement):
             documents.setdefault(root/'data/expenses'/f'{end[:4]}.json',[]).append(assertion)
         summary = dict(id=new_id(used_ids),kind='bank',account=account,start=statement['periodStart'],end=end,source=source,reader=statement['reader'],rows=len(members),members=members,
-                       **{'opening-balance':statement['openingBalance'],'closing-balance':statement['closingBalance'],'debits':statement['debits'],'credits':statement['credits'],'assertion-id':assertion['id']})
+                       **{'source-balance-style':None,'opening-balance':statement['openingBalance'],'closing-balance':statement['closingBalance'],'debits':statement['debits'],'credits':statement['credits'],'assertion-id':assertion['id']})
         if card_debt(statement):
-            summary.pop('assertion-id')
+            summary['assertion-id'] = None
             summary['source-balance-style'] = 'debt'
         documents[root/'data/card-statements.json'].append(summary)
         documents[root/'data/card-statements.json'].sort(key=lambda s:s['end'])

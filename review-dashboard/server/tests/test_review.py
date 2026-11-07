@@ -7,7 +7,7 @@ import subprocess
 import threading
 from unittest.mock import patch
 
-from support import Fixture
+from support import Fixture, entry as store_entry, posting, metadata
 from store import dump, load, read_json, entries
 from audit import records, event, append
 from ledger_lock import ledger_lock
@@ -19,26 +19,25 @@ AT = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)
 
 class ReviewTests(Fixture):
     def seed(self, *, pair=False, statement=False):
-        rows = [dict(id=f'{i:016x}', date=f'2026-10-{20+i:02d}', status='pending', description=f'Willow Workshop {i}',
-                     sources=[f'Bills/receipt-{i}.md'], notes=[f'Invented note {i}'],
-                     postings=[dict(account='Expenses:Food', amount='12.50', commodity='INR'), dict(account='Assets:Cash', amount='-12.50', commodity='INR')]) for i in range(1, 4)]
+        rows = [store_entry(f'{i:016x}', f'2026-10-{20+i:02d}', f'Willow Workshop {i}', [posting('Expenses:Food', '12.50'), posting('Assets:Cash', '-12.50')],
+                            status='pending', evidence=[f'Bills/receipt-{i}.md'], notes=[f'Invented note {i}']) for i in range(1, 4)]
         for row in rows:
-            (self.ledger / row['sources'][0]).write_text('Fictional evidence')
+            (self.ledger / row['evidence'][0]).write_text('Fictional evidence')
         if pair:
             link_pair({e['id']:e for e in rows}, rows[0]['id'], rows[1]['id'], 'amount-date-gap')
         if statement:
             # A real membership statement on the second entry, separate card and
             # zero opening; its financial postings must survive merge unchanged.
             declarations = read_json(self.ledger/'data/accounts.json')
-            declarations['accounts']['Liabilities:Card'] = dict(kind='card', currency='INR', label='Mosaic Card')
+            declarations['accounts']['Liabilities:Card'] = metadata('Liabilities:Card', kind='card', currency='INR', label='Mosaic Card')
             dump(self.ledger/'data/accounts.json', declarations)
             rows[1]['postings'][1]['account'] = 'Liabilities:Card'
-            rows[1].update({'statement-end':'2026-10-28','serial-number':'RW-1','statement-page':1})
-            rows[1]['sources'].append('Bills/statement.pdf')
+            rows[1]['statement'] = {'end':'2026-10-28','serial':'RW-1','page':1,'source-page':None,'source-row':None}
+            rows[1]['evidence'].append('Bills/statement.pdf')
             (self.ledger/'Bills/statement.pdf').write_bytes(b'%PDF-fictional offline membership fixture')
-            rows.insert(0,dict(id='0000000000000004',date='2026-10-01',status='confirmed',description='Card opening',postings=[dict(account='Liabilities:Card',amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')]))
+            rows.insert(0,store_entry('0000000000000004','2026-10-01','Card opening',[posting('Liabilities:Card','0.00'),posting('Equity:Opening Balances','0.00')]))
             declarations['accounts']['Equity:Opening Balances']={};dump(self.ledger/'data/accounts.json',declarations)
-            dump(self.ledger/'data/card-statements.json',[dict(id='0000000000000005',account='Liabilities:Card',start='2026-10-01',end='2026-10-28',source='Bills/statement.pdf',**{'previous-balance':'0.00','purchases':'12.50','credits':'0.00','total-due':'12.50','rows':1})])
+            dump(self.ledger/'data/card-statements.json',[dict(kind='card',id='0000000000000005',account='Liabilities:Card',start='2026-10-01',end='2026-10-28',source='Bills/statement.pdf',**{'previous-balance':'0.00','purchases':'12.50','cash-advances':None,'credits':'0.00','total-due':'12.50','rows':1})])
         dump(self.ledger/'data/expenses/2026.json',rows)
         self.jj('commit','-m','Fictional review baseline')
         return rows
@@ -80,7 +79,7 @@ class ReviewTests(Fixture):
         updated=read_json(self.ledger/'data/expenses/2026.json')[0]
         self.assertEqual(updated['status'],'confirmed');self.assertEqual(updated['description'],'Willow class')
         self.assertEqual(updated['postings'][0],{**unchanged['postings'][0],'account':'Expenses:Education'})
-        self.assertEqual(updated['postings'][1:],unchanged['postings'][1:]);self.assertEqual(updated['sources'],unchanged['sources'])
+        self.assertEqual(updated['postings'][1:],unchanged['postings'][1:]);self.assertEqual(updated['evidence'],unchanged['evidence'])
         self.assertEqual(updated['notes'],['Invented note 1','Checked receipt','Confirmed category'])
         self.check_commit(before,'resolve');self.assertEqual(snapshot(self.ledger)['count'],2)
 
@@ -96,7 +95,7 @@ class ReviewTests(Fixture):
         result=apply(self.settings,self.body('merge',one,two));state=snapshot(self.ledger)
         self.assertNotIn(one,state['entries']);kept=next(e for e in entries(load(self.ledger)) if e['id']==two)
         self.assertEqual(kept['postings'],prior['postings']);self.assertEqual(kept['status'],prior['status'])
-        self.assertEqual(kept['notes'],['Invented note 2','Invented note 1']);self.assertIn('Bills/receipt-1.md',kept['sources'])
+        self.assertEqual(kept['notes'],['Invented note 2','Invented note 1']);self.assertIn('Bills/receipt-1.md',kept['evidence'])
         self.assertEqual(result['changes'][0]['kept_id'],two);self.assertTrue(clean(self.ledger))
         self.assertEqual(snapshot(self.ledger)['important'],0)
 
@@ -114,16 +113,16 @@ class ReviewTests(Fixture):
     def test_merge_keeps_evidence_paths_when_the_kept_entry_date_is_unchanged(self):
         rows=self.seed(pair=True);one,two=[r['id'] for r in rows[:2]]
         for entry in rows[:2]:
-            old=self.ledger/entry['sources'][0];target=self.ledger/'Bills'/entry['date']/old.name
-            target.parent.mkdir(parents=True,exist_ok=True);old.rename(target);entry['sources']=[str(target.relative_to(self.ledger))]
+            old=self.ledger/entry['evidence'][0];target=self.ledger/'Bills'/entry['date']/old.name
+            target.parent.mkdir(parents=True,exist_ok=True);old.rename(target);entry['evidence']=[str(target.relative_to(self.ledger))]
         dump(self.ledger/'data/expenses/2026.json',rows);self.jj('commit','-m','Dated duplicate evidence')
-        expected=deepcopy(rows[1]['sources']);apply(self.settings,self.body('merge',one,two))
+        expected=deepcopy(rows[1]['evidence']);apply(self.settings,self.body('merge',one,two))
         kept=next(e for e in entries(load(self.ledger)) if e['id']==one)
-        self.assertTrue(all(source in kept['sources'] and (self.ledger/source).is_file() for source in expected))
+        self.assertTrue(all(source in kept['evidence'] and (self.ledger/source).is_file() for source in expected))
 
     def test_recent_doubt_boundary_reviewed_and_large_backlog(self):
         rows=self.seed();rows[0]['status']='confirmed';rows[0]['postings'][0]['account']='Assets:Wallet'
-        declarations=read_json(self.ledger/'data/accounts.json');declarations['accounts']['Assets:Wallet']=dict(kind='wallet',currency='INR');dump(self.ledger/'data/accounts.json',declarations)
+        declarations=read_json(self.ledger/'data/accounts.json');declarations['accounts']['Assets:Wallet']=metadata('Assets:Wallet',kind='wallet',currency='INR');dump(self.ledger/'data/accounts.json',declarations)
         dump(self.ledger/'data/expenses/2026.json',rows)
         self.assertEqual(snapshot(self.ledger,clock=lambda:AT)['important'],0)
         for i,offset in enumerate([timedelta(days=7),timedelta(days=7,microseconds=1),timedelta(days=6)]):
@@ -256,9 +255,9 @@ class ReviewTests(Fixture):
 
     def test_review_amounts_retain_separate_currencies_and_refund_kind(self):
         rows=self.seed();declarations=read_json(self.ledger/'data/accounts.json')
-        declarations['accounts']['Assets:Travel']=dict(kind='bank',currency='USD')
+        declarations['accounts']['Assets:Travel']=metadata('Assets:Travel',kind='bank',currency='USD')
         dump(self.ledger/'data/accounts.json',declarations)
-        rows[0]['postings'] += [dict(account='Expenses:Food',amount='7.00',commodity='USD'),dict(account='Assets:Travel',amount='-7.00',commodity='USD')]
+        rows[0]['postings'] += [posting('Expenses:Food','7.00','USD'),posting('Assets:Travel','-7.00','USD')]
         rows[1]['postings'][0]['amount']='-12.50';rows[1]['postings'][1]['amount']='12.50'
         dump(self.ledger/'data/expenses/2026.json',rows)
         state=snapshot(self.ledger)
@@ -273,7 +272,7 @@ class ReviewTests(Fixture):
         with self.assertRaisesRegex(ValueError,'Conflicting decisions'):import_preview(self.ledger,conflicting)
 
         # Legacy version-2 exports compacted whitespace and named absent evidence.
-        rows[2].pop('sources');rows[2]['description']='Willow  Workshop 3'
+        rows[2]['evidence']=[];rows[2]['description']='Willow  Workshop 3'
         dump(self.ledger/'data/expenses/2026.json',rows)
         legacy=dict(id='old-derived-id',description='Willow Workshop 3',originalDate=rows[2]['date'],source='Derived ledger entry',sourceReference='',currentAccount='Expenses:Food',amount=12.5,decision=self.decide())
         self.assertEqual(import_preview(self.ledger,dict(reviewVersion=2,transactions=[legacy]))['valid'],1)

@@ -23,8 +23,21 @@ KIND_WORDS = {'bank', 'banks', 'card', 'cards', 'credit', 'cash', 'wallet', 'wal
               'investment', 'investments', 'person', 'people', 'account', 'accounts'}
 
 
+def new_rule(**values):
+    """A format 2 rule with every field present: the given values over empty defaults."""
+    rule = {'id': None, 'date': None, 'status': 'confirmed', 'description': None, 'schedule': None, 'amount': 'fixed',
+            'lifecycle': 'active', 'origin': None, 'created': None, 'removal': None, 'bill': None, 'evidence': [],
+            'references': None, 'classification': None, 'original-amount': None, 'reimbursement': None,
+            'excluded-from-estimate': None, 'notes': [], 'postings': []}
+    unknown = set(values) - set(rule)
+    if unknown:
+        raise ValueError('Unknown rule fields: ' + ', '.join(sorted(unknown)))
+    rule.update(values)
+    return rule
+
+
 def active(rule):
-    return rule.get('lifecycle', 'active') == 'active'
+    return rule['lifecycle'] == 'active'
 
 
 def words(text):
@@ -76,7 +89,7 @@ def simple_payment(rule, accounts):
     """Varying amounts need exactly one expense and one payer in one currency."""
     main, payer = main_postings(rule), paying(rule, accounts)
     return (len(rule['postings']) == 2 and len(main) == 1 and payer is not None
-            and all(not p.get('cost') and not p.get('assert') for p in rule['postings'])
+            and all(not p['cost'] and not p['assert'] for p in rule['postings'])
             and main[0]['commodity'] == payer['commodity']
             and Decimal(main[0]['amount']) == -Decimal(payer['amount']))
 
@@ -89,10 +102,10 @@ def payment_history(rule, actual, accounts):
     """
     currency = main_postings(rule)[0]['commodity']
     def matches(entry):
-        link = entry.get('rule')
-        return ((entry.get('status') == 'confirmed' or link and link.get('id') == rule['id']) and simple_payment(entry, accounts)
+        link = entry['rule']
+        return ((entry['status'] == 'confirmed' or link and link['id'] == rule['id']) and simple_payment(entry, accounts)
                 and main_postings(entry)[0]['commodity'] == currency
-                and (link.get('id') == rule['id'] if link else
+                and (link['id'] == rule['id'] if link else
                      same_payment(entry, rule, accounts) and payee_match(entry, rule)))
     # Stable reverse order also respects ledger ordering for same-day payments.
     return [e for i,e in sorted(((i,e) for i,e in enumerate(actual) if matches(e)), key=lambda pair: (pair[1]['date'],pair[0]), reverse=True)]
@@ -104,7 +117,7 @@ def recompute_estimate(rule, actual, accounts):
     The store postings are the estimate's sole financial source of truth.
     Call with the transaction's final actual set, excluding undone payments.
     """
-    if rule.get('amount') != 'varies': return
+    if rule['amount'] != 'varies': return
     if not simple_payment(rule, accounts):
         raise ValueError('Only simple two-posting payments in one currency can vary')
     history = payment_history(rule, actual, accounts)[:3]
@@ -119,7 +132,7 @@ def recompute_estimate(rule, actual, accounts):
 
 
 def varying_details(rule, actual, accounts):
-    if rule.get('amount') != 'varies': return {}
+    if rule['amount'] != 'varies': return {}
     history = payment_history(rule, actual, accounts)[:12]
     recent = [Decimal(main_postings(e)[0]['amount']) for e in history[:3]]
     return dict(varying=dict(history=[dict(id=e['id'], date=e['date'], amount=main_postings(e)[0]['amount']) for e in history],
@@ -128,7 +141,7 @@ def varying_details(rule, actual, accounts):
 
 
 def amount_check(rule, value, actual, accounts):
-    if rule.get('amount') != 'varies': return None
+    if rule['amount'] != 'varies': return None
     recent = [Decimal(main_postings(e)[0]['amount']) for e in payment_history(rule, actual, accounts)[:6]]
     value = Decimal(value)
     if recent and (value > 2 * max(recent) or value < min(recent) / 2):
@@ -144,14 +157,14 @@ def amount_doubt(check):
 
 def step_months(rule):
     s = rule['schedule']
-    return s.get('interval', 1) * (12 if s['every'] == 'year' else 1)
+    return (s.get('interval') or 1) * (12 if s['every'] == 'year' else 1)
 
 
 def occurrence(rule, index=0):
     s = rule['schedule']; start = date.fromisoformat(s['from'])
     month = start.year*12 + start.month-1 + index*step_months(rule)
     year, month0 = divmod(month, 12)
-    anchor = s.get('anchor-day', start.day)
+    anchor = s.get('anchor-day') or start.day
     return date(year, month0+1, min(anchor, monthrange(year, month0+1)[1])).isoformat()
 
 
@@ -162,7 +175,7 @@ def advance(rule, through):
     index = max(0, ((through.year-start.year)*12+through.month-start.month)//step_months(rule))
     while occurrence(rule, index) <= through.isoformat(): index += 1
     result = deepcopy(rule)
-    result['schedule']['anchor-day'] = rule['schedule'].get('anchor-day', start.day)
+    result['schedule']['anchor-day'] = rule['schedule'].get('anchor-day') or start.day
     result['date'] = result['schedule']['from'] = occurrence(rule, index)
     return result
 
@@ -177,10 +190,10 @@ def period_for(rule, payment_date):
 def periodic_schedules(rule):
     """Keep native, unbounded cadences; split only explicit February year anchors."""
     s = rule['schedule']; start = date.fromisoformat(s['from'])
-    anchor = s.get('anchor-day', start.day)
+    anchor = s.get('anchor-day') or start.day
     # Native schedules already clamp from their original day without drifting.
     # In particular, leave legacy schedules byte-identical, even on the 29th–31st.
-    if 'anchor-day' not in s or anchor < 29 or s['every'] == 'week':
+    if s.get('anchor-day') is None or anchor < 29 or s['every'] == 'week':
         return [s]
     step = step_months(rule)
     if step % 12 == 0:
@@ -246,7 +259,7 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
     commodities = currency_codes() | {p['commodity'] for rule in rules for p in rule['postings']}
     explicit = {c.upper() for c in re.findall(r'\b[A-Za-z]{3}\b', text)} & commodities
     payment_words = set().union(*(words(alias) for meta in accounts.values() if meta.get('kind') in PAYING_KINDS
-                                  for alias in [meta.get('kind',''),meta.get('label',''),*meta.get('aliases',[])]))
+                                  for alias in [meta.get('kind') or '',meta.get('label') or '',*(meta.get('aliases') or [])]))
     current = [rule for rule in rules if active(rule)]
     # A word is distinctive when at most two rules' names use it and it names no category
     # group, account kind or paying account; shared words only rank.
@@ -268,7 +281,7 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
         payer = paying(rule, accounts)
         if payer:
             meta = accounts[payer['account']]
-            matched_alias = next((alias for alias in [meta.get('label', ''), *meta.get('aliases', [])] if alias and words(alias) <= tokens), None)
+            matched_alias = next((alias for alias in [meta.get('label') or '', *(meta.get('aliases') or [])] if alias and words(alias) <= tokens), None)
             if matched_alias: score += 3
         compared = amounts(rule)
         if payer: compared.setdefault(payer['commodity'], abs(Decimal(payer['amount'])))
@@ -292,26 +305,26 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
 
 
 def suppressed(entry, rules, accounts):
-    removed = [r for r in rules if r.get('lifecycle') == 'removed' and same_payment(entry,r,accounts) and payee_match(entry,r)]
+    removed = [r for r in rules if r['lifecycle'] == 'removed' and same_payment(entry,r,accounts) and payee_match(entry,r)]
     return max(removed, key=lambda r:r['removal']['date']) if removed else None
 
 
 def candidate(entry, actual, rules, accounts, settings, today, text=''):
     """Return a new rule or a weaker suggestion; never writes or calls an agent."""
-    if entry.get('status') != 'confirmed' or not identity(entry, accounts): return None
-    removed_evidence = {identity for rule in rules if rule.get('lifecycle') == 'removed'
-                        for identity in rule['removal']['evidence']}
+    if entry['status'] != 'confirmed' or not identity(entry, accounts): return None
+    removed_evidence = {identity for rule in rules if rule['lifecycle'] == 'removed'
+                        for identity in rule['removal']['entry-ids']}
     if entry['id'] in removed_evidence: return None
     main_accounts = {p['account'] for p in main_postings(entry)}
     if any(active(r) and main_accounts & {p['account'] for p in main_postings(r)} for r in rules): return None
-    if any(r.get('lifecycle') in ('paused','ended') and same_payment(entry,r,accounts) and payee_match(entry,r) for r in rules): return None
+    if any(r['lifecycle'] in ('paused','ended') and same_payment(entry,r,accounts) and payee_match(entry,r) for r in rules): return None
     if any(p['account'] == prefix or p['account'].startswith(prefix+':') for prefix in settings.get('never-automatic',[]) for p in main_postings(entry)): return None
     removal = suppressed(entry,rules,accounts)
-    history = [e for e in actual if e['id'] != entry['id'] and e['id'] not in removed_evidence and e['date'] < entry['date'] and e.get('status') == 'confirmed'
+    history = [e for e in actual if e['id'] != entry['id'] and e['id'] not in removed_evidence and e['date'] < entry['date'] and e['status'] == 'confirmed'
                and same_payment(e,entry,accounts) and payee_match(e,entry) and within_ten(entry,e)]
     if removal:
         if entry['date'] <= removal['removal']['date']: return None
-        history = [e for e in history if e['date'] > removal['removal']['date'] and e['id'] not in removal['removal']['evidence']]
+        history = [e for e in history if e['date'] > removal['removal']['date'] and e['id'] not in removal['removal']['entry-ids']]
     qualifying_words = bool(words(text) & {'subscription','membership','renewal'}) and not any(w.startswith('cancel') for w in words(text))
     previous = max(history,key=lambda e:e['date']) if history else None
     if removal and not previous: return None
@@ -321,13 +334,14 @@ def candidate(entry, actual, rules, accounts, settings, today, text=''):
     recent = 0 <= (date.fromisoformat(today)-date.fromisoformat(entry['date'])).days <= 40
     automatic = qualifying_words or recent and consecutive and 25 <= days <= 35
     if removal: automatic = bool(recent and consecutive and 25 <= days <= 35)
-    origin = dict(kind='subscription-words' if qualifying_words else 'monthly-history', evidence=[previous['id'],entry['id']] if previous else [entry['id']])
-    if qualifying_words: origin['words'] = text
-    if removal: origin['came_back'] = True
-    rule = dict(id=secrets.token_hex(8), date=entry['date'], status='confirmed', description=entry['description'],
-                schedule={'every':'year' if qualifying_words and words(text)&{'yearly','annual'} else 'month','from':entry['date']},
-                lifecycle='active',origin=origin,created=today,postings=deepcopy(entry['postings']))
-    for p in rule['postings']: p.pop('assert',None)
+    origin = {'kind': 'subscription-words' if qualifying_words else 'monthly-history',
+              'words': text if qualifying_words else None,
+              'entry-ids': [previous['id'], entry['id']] if previous else [entry['id']], 'came-back': bool(removal)}
+    rule = new_rule(id=secrets.token_hex(8), date=entry['date'], status='confirmed', description=entry['description'],
+                    schedule={'every': 'year' if qualifying_words and words(text) & {'yearly', 'annual'} else 'month',
+                              'from': entry['date'], 'interval': 1, 'anchor-day': None},
+                    origin=origin, created=today, postings=deepcopy(entry['postings']))
+    for p in rule['postings']: p['assert'] = None
     return dict(rule=advance(rule,entry['date']), automatic=bool(automatic), reason='monthly-history' if automatic else 'Confirm an irregular or older payment pattern')
 
 
@@ -346,7 +360,7 @@ def stale_rules(actual, rules, accounts):
     for rule in rules:
         if not active(rule): continue
         def paid_date(entry):
-            link = entry.get('rule', {})
+            link = entry['rule'] or {}
             return max(entry['date'], link['occurrence']) if link.get('id') == rule['id'] else entry['date']
         matches = [e for e in actual if same_payment(e,rule,accounts) and paid_date(e) >= rule['date']]
         if matches: result.append((rule,max(matches,key=paid_date)))

@@ -2,7 +2,8 @@
 import json
 import re
 from datetime import date, timedelta
-from ledger_manifest import read_manifest, module_settings, old_ledger_path
+from pathlib import Path
+from ledger_manifest import read_manifest, old_ledger_path
 
 
 class LookupStore:
@@ -17,6 +18,7 @@ class LookupStore:
         for rule in json.loads((self.ledger / 'data/forecast.json').read_text()):
             self.USED_VISIBLE.update(p['account'] for p in rule.get('postings', []))
         self.DECLARED = json.loads((self.ledger / 'data/accounts.json').read_text())['accounts']
+        self.AGENT_FIELDS = self.agent_fields()
         self.ACCOUNTS = [a for a in self.DECLARED if a in self.USED_VISIBLE or a not in self.USED_ANYWHERE]
         try:
             self.OLD = self.old_path.read_text().splitlines() if self.old_path else []
@@ -36,6 +38,21 @@ class LookupStore:
         if not self.old_path:
             del self.tools['search_old_ledger']
 
+    def agent_fields(self):
+        """The agent's fields of each extension ledger.json asks for (lookups show only those)."""
+        result = {}
+        for name, settings in (self.manifest.get('extensions') or {}).items():
+            if not settings.get('ask'):
+                continue
+            built_in = Path(__file__).resolve().parents[2] / 'extensions' / f'{name}.json'
+            path = built_in if built_in.is_file() and name == 'fuel' else self.ledger / 'extensions' / f'{name}.json'
+            try:
+                fields = json.loads(path.read_text())['fields']
+            except (OSError, ValueError, KeyError):
+                continue
+            result[name] = [key for key, field in fields.items() if field.get('filled-by') == 'agent']
+        return result
+
     def posting_text(self, p):
         text = f"{p['account']}  {p.get('amount', '')} {p.get('commodity', '')}".rstrip()
         if p.get('cost'):
@@ -46,9 +63,17 @@ class LookupStore:
     def compact(self, e):
         out = {'date': e['date'], 'status': e['status'], 'description': e['description'],
                'postings': [self.posting_text(p) for p in e['postings']]}
-        for k in ('order-id', 'classification', 'original-amount', 'fuel-filled-litres', 'trip-km'):
-            if k in e and (k not in ('fuel-filled-litres', 'trip-km') or module_settings(self.manifest)['fuel']):
+        for k in ('references', 'classification', 'original-amount'):
+            if e.get(k) is not None:
                 out[k] = e[k]
+        extensions = {}
+        for name, fields in self.AGENT_FIELDS.items():
+            group = (e.get('extensions') or {}).get(name) or {}
+            values = {key: group[key] for key in fields if group.get(key) is not None}
+            if values:
+                extensions[name] = values
+        if extensions:
+            out['extensions'] = extensions
         if e.get('notes'):
             out['notes'] = [n[:200] for n in e['notes'][:6]]
         return out
@@ -59,7 +84,8 @@ class LookupStore:
 
 
     def haystack(self, e):
-        parts = [e['description'], e.get('classification', ''), e.get('order-id', ''), *e.get('notes', []),
+        references = e.get('references') or {}
+        parts = [e['description'], e.get('classification') or '', references.get('reference') or '', *references.get('order-id', []), *e.get('notes', []),
                  *(p['account'] for p in e['postings']), *(p.get('amount', '') for p in e['postings'])]
         return self.tokens(' '.join(parts))
 
@@ -83,8 +109,8 @@ class LookupStore:
 
     def list_accounts(self, contains='', limit=150):
         needle = contains.lower()
-        return [dict(account=a, **{k: self.DECLARED[a][k] for k in ('kind', 'currency', 'label', 'aliases') if k in self.DECLARED[a]})
-                for a in self.ACCOUNTS if needle in ' '.join([a, self.DECLARED[a].get('label', ''), *self.DECLARED[a].get('aliases', [])]).lower()][:min(int(limit), 400)]
+        return [dict(account=a, **{k: self.DECLARED[a][k] for k in ('kind', 'currency', 'label', 'aliases') if self.DECLARED[a].get(k) not in (None, [])})
+                for a in self.ACCOUNTS if needle in ' '.join([a, self.DECLARED[a].get('label') or '', *(self.DECLARED[a].get('aliases') or [])]).lower()][:min(int(limit), 400)]
 
 
     def search_old_ledger(self, query, limit=10):

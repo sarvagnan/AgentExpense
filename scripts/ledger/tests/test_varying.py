@@ -11,12 +11,16 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from recurring import recompute_estimate, payment_history, varying_details, amount_check, advance
 from generate_ledger import forecast_templates,render_entry
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from test_ledger import entry as format2_entry, posting as full_posting, rule as format2_rule
 
 ACCOUNTS={'Assets:Purse':{'kind':'cash','currency':'EUR'}}
 def payment(number,day,value,**extra):
-    return dict(id=f'{number:016x}',date=day,status='confirmed',description='Willow Energy',postings=[dict(account='Expenses:Utilities',amount=value,commodity='EUR'),dict(account='Assets:Purse',amount='-'+value,commodity='EUR')],**extra)
+    return format2_entry(f'{number:016x}',day,description='Willow Energy',postings=[full_posting('Expenses:Utilities',value,'EUR'),full_posting('Assets:Purse','-'+value,'EUR')],**extra)
 def rule():
-    return dict(payment(0xf000000000000001,'2026-11-12','50.00'),amount='varies',schedule={'every':'month','from':'2026-11-12'},notes=['Keep these notes.'])
+    value=format2_rule('f000000000000001','2026-11-12',description='Willow Energy',notes=['Keep these notes.'],postings=payment(1,'2026-11-12','50.00')['postings'])
+    value['amount']='varies'
+    return value
 
 class VaryingTests(unittest.TestCase):
     def test_median_outlier_fewer_none_links_and_history_identity(self):
@@ -39,9 +43,9 @@ class VaryingTests(unittest.TestCase):
         # The old 10 is outside the most recent six (20..70).
         for value in ('10.00','140.00'):self.assertIsNone(amount_check(r,value,rows,ACCOUNTS))
         for value in ('9.99','140.01'):self.assertIsNotNone(amount_check(r,value,rows,ACCOUNTS))
-        fixed=deepcopy(r);fixed.pop('amount');before=deepcopy(fixed)
+        fixed=deepcopy(r);fixed['amount']='fixed';before=deepcopy(fixed)
         recompute_estimate(fixed,rows,ACCOUNTS);self.assertEqual(fixed,before);self.assertIsNone(amount_check(fixed,'1000.00',rows,ACCOUNTS))
-        broken=deepcopy(r);broken['postings'].append(dict(account='Expenses:Fees',amount='1.00',commodity='EUR'))
+        broken=deepcopy(r);broken['postings'].append(full_posting('Expenses:Fees','1.00','EUR'))
         with self.assertRaisesRegex(ValueError,'two-posting'):recompute_estimate(broken,rows,ACCOUNTS)
 
     def forecast(self,r,start,end):
@@ -54,13 +58,13 @@ class VaryingTests(unittest.TestCase):
         r=rule();plain=self.forecast(r,'2026-11-01','2027-02-01');self.assertIn('2026-11-12',plain);self.assertEqual(plain.count('50.00 EUR'),6)
         for pay_by in (None,'2026-11-20','2026-12-16'):
             with self.subTest(pay_by=pay_by):
-                r['bill']=dict(amount='77.00',received='2026-11-01',occurrence='2026-11-12',sources=[],**({'pay_by':pay_by} if pay_by else {}))
+                r['bill']={'amount':'77.00','received':'2026-11-01','pay-by':pay_by,'occurrence':'2026-11-12','evidence':[]}
                 output=self.forecast(r,'2026-11-01','2027-02-01')
                 self.assertIn(pay_by or '2026-11-12',output);self.assertEqual(output.count('77.00 EUR'),2);self.assertEqual(output.count('50.00 EUR'),4)
                 if pay_by:self.assertNotIn('2026-11-12',output)
         # Clamped month-end advances must not emit the paid occurrence again.
-        r=advance(dict(rule(),date='2026-01-31',schedule={'every':'month','from':'2026-01-31'}),'2026-01-31')
-        r['bill']=dict(amount='77.00',received='2026-02-01',occurrence=r['date'],sources=[])
+        r=advance(dict(rule(),date='2026-01-31',schedule={'every':'month','from':'2026-01-31','interval':1,'anchor-day':None}),'2026-01-31')
+        r['bill']={'amount':'77.00','received':'2026-02-01','pay-by':None,'occurrence':r['date'],'evidence':[]}
         output=self.forecast(r,'2026-02-01','2026-05-01');self.assertIn('2026-02-28',output);self.assertIn('2026-03-31',output);self.assertEqual(output.count('77.00 EUR'),2)
 
     def test_same_day_order_and_linked_pending_payment_are_retained(self):
@@ -71,7 +75,7 @@ class VaryingTests(unittest.TestCase):
 
     def test_bill_bounds_clamped_quarterly_main_rule_after_its_occurrence(self):
         r=rule();r.update(date='2026-11-30',schedule={'every':'month','interval':3,'from':'2026-11-30','anchor-day':31})
-        r['bill']=dict(amount='77.00',received='2026-11-01',occurrence=r['date'],sources=[])
+        r['bill']={'amount':'77.00','received':'2026-11-01','pay-by':None,'occurrence':r['date'],'evidence':[]}
         output=self.forecast(r,'2026-11-01','2027-08-01')
         self.assertEqual(output.count('2026-11-30'),1);self.assertIn('2027-02-28',output);self.assertIn('2027-05-31',output);self.assertEqual(output.count('50.00 EUR'),4)
         # The same phases remain unbounded well beyond the first forecast year.

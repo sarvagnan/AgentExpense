@@ -24,7 +24,7 @@ def word_statement(text, metadata, locale='en'):
     candidates = []
     for account, meta in metadata.items():
         if meta.get('kind') not in ('bank','card'): continue
-        if any(re.search(r'(?<!\w)'+re.escape(n.casefold())+r'(?!\w)',low) for n in [meta.get('label',account.split(':')[-1]), *meta.get('aliases',[])] if n and n.casefold() not in ('bank','card')):
+        if any(re.search(r'(?<!\w)'+re.escape(n.casefold())+r'(?!\w)',low) for n in [meta.get('label') or account.split(':')[-1], *(meta.get('aliases') or [])] if n and n.casefold() not in ('bank','card')):
             candidates.append(account)
     statement = bool(re.search(r'\b(?:bank|card)\s+statement\b|\bstatement\s+(?:for|of)\b',low)) or has_month and bool(candidates)
     return dict(kind='statement' if statement else 'expense', account=candidates[0] if len(candidates)==1 else None)
@@ -65,9 +65,9 @@ def interpret(settings, drafts, draft, choices=None, passwords=None):
             # Generic extension recognition is usable only with an account's
             # existing column mapping. A broken configured mapping still stops.
             hits = [(r,h) for r,h in hits if r.id not in ('generic-csv','generic-sheet') or any(
-                m.get('statement',{}).get('reader')==r.id and m.get('statement',{}).get('options',{}).get('columns')
+                (m.get('statement') or {}).get('reader')==r.id and ((m.get('statement') or {}).get('options') or {}).get('columns')
                 for a,m in metadata.items() if not result['account'] or a==result['account'])]
-            hits = [(r,h) for r,h in hits if not r.personal or any(m.get('statement',{}).get('reader')==r.id for m in metadata.values())]
+            hits = [(r,h) for r,h in hits if not r.personal or any((m.get('statement') or {}).get('reader')==r.id for m in metadata.values())]
             recognised = hits[0][0] if hits else None
             kind = choice.get('kind')
             if kind not in (None,'statement','receipt'): raise ValueError('Choose Statement or Receipt')
@@ -78,7 +78,7 @@ def interpret(settings, drafts, draft, choices=None, passwords=None):
                 results.append(result);continue
             if recognised:
                 result.update(reader=recognised.id,reader_name=recognised.name,builtin=not recognised.personal)
-                candidates = [a for a,m in metadata.items() if m.get('kind') in recognised.kinds and m.get('statement',{}).get('reader')==recognised.id]
+                candidates = [a for a,m in metadata.items() if m.get('kind') in recognised.kinds and (m.get('statement') or {}).get('reader')==recognised.id]
                 account = result['account']
                 parsed = None
                 # A single cheap recognition result can belong to several account
@@ -87,13 +87,13 @@ def interpret(settings, drafts, draft, choices=None, passwords=None):
                 for candidate in candidates:
                     meta = deepcopy(metadata[candidate])
                     if meta.get('kind') not in recognised.kinds: continue
-                    if not meta.get('statement',{}).get('reader'): continue
+                    if not (meta.get('statement') or {}).get('reader'): continue
                     try:
                         statement=recognised.read(source,meta)
                         parsed_candidates.append((candidate,statement))
                     except (ValueError,KeyError,TypeError,OSError): pass
                 if len(parsed_candidates)>1:
-                    identified=[pair for pair in parsed_candidates if pair[1].get('identifier',pair[1].get('card_last4'))==metadata[pair[0]].get('statement',{}).get('identifier') and pair[1].get('identifier',pair[1].get('card_last4'))]
+                    identified=[pair for pair in parsed_candidates if pair[1].get('identifier',pair[1].get('card_last4'))==(metadata[pair[0]].get('statement') or {}).get('identifier') and pair[1].get('identifier',pair[1].get('card_last4'))]
                     if len(identified)==1: parsed_candidates=identified
                     elif account: parsed_candidates=[pair for pair in parsed_candidates if pair[0]==account]
                 if len(parsed_candidates)==1:
@@ -120,7 +120,7 @@ def interpret(settings, drafts, draft, choices=None, passwords=None):
                         if not account:
                             try: identifier=card_identifier(text)
                             except ValueError: identifier=None
-                            matching=[a for a,m in metadata.items() if identifier and m.get('statement',{}).get('identifier')==identifier]
+                            matching=[a for a,m in metadata.items() if identifier and (m.get('statement') or {}).get('identifier')==identifier]
                             if len(matching)==1: account=matching[0];result['account']=account
                     if account: result['source_account']=account
                     result['checks']=['printed_totals']

@@ -5,7 +5,7 @@ import {Dialog,Icon,PageHeader,dayLabel,money,evidenceHref,EvidenceName} from '.
 import {formatTimestamp} from '../date-time';
 import {postReview,requestId,type Decision,type Entry,type Item,type History,type Preview,type ReviewChange,type useReview} from './api';
 import '../styles/server-review.css';
-import {moduleSettings} from '../../scripts/ledger-modules.mjs';
+import {hasExtension} from '../../scripts/ledger-modules.mjs';
 import FuelLog from './fuel-log';
 import {reviewExportRows} from '../../scripts/review-export.mjs';
 
@@ -74,7 +74,7 @@ export default function Review({live}:{live:ReturnType<typeof useReview>}){
  const fresh=data.count===0&&data.history.length===0&&pendingLegacy.length===0&&Object.keys(drafts).length===0&&!outbox;
  const kept=merge?.entries.find(e=>e.id===merge.kept_id),removed=merge?.entries.find(e=>e.id!==merge.kept_id);
  return <section className="page server-review" onDragOver={e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();}} onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)void f.text().then(t=>stagePreview(JSON.parse(t))).catch(()=>setNotice('Choose a JSON review export.'));}}>
-  <PageHeader title="Review" subtitle={fresh?'A second look at entries already in your records.':`${data.count} waiting · ${data.important?`${data.important} important`:'none important'}`}>{moduleSettings(dashboard.meta.ledger).fuel&&<button className="button" onClick={()=>setFuelOpen(true)}><Icon name="fuel"/>Fuel Log</button>}{!fresh&&<><button className="button" onClick={exportWork}>Export decisions</button><button className="button plain" disabled={busy} onClick={()=>file.current?.click()}>Import</button></>}</PageHeader>
+  <PageHeader title="Review" subtitle={fresh?'A second look at entries already in your records.':`${data.count} waiting · ${data.important?`${data.important} important`:'none important'}`}>{hasExtension(dashboard.meta.ledger,'fuel')&&<button className="button" onClick={()=>setFuelOpen(true)}><Icon name="fuel"/>Fuel Log</button>}{!fresh&&<><button className="button" onClick={exportWork}>Export decisions</button><button className="button plain" disabled={busy} onClick={()=>file.current?.click()}>Import</button></>}</PageHeader>
   <input ref={file} type="file" className="sr-only" tabIndex={-1} aria-label="Import review decisions" accept="application/json,.json" onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void f.text().then(t=>stagePreview(JSON.parse(t))).catch(()=>setNotice('Choose a JSON review export.'));}}/>
   <div className="server-review-content">
    {error&&<p className="message error" role="alert">{error}<button className="button" onClick={()=>void refresh()}>Refresh</button></p>}

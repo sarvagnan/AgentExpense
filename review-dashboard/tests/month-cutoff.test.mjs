@@ -7,6 +7,9 @@ import {join} from 'node:path';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {disposableDashboard, sourceApplication, createTestServer} from './test-isolation.mjs';
+import * as store from './store-fixtures.mjs';
+// New entries carry every listed extension of the persona, empty.
+const blankExtensions = rows => Object.fromEntries(Object.keys(rows.find(row => row.extensions)?.extensions ?? {}).map(name => [name, null]));
 
 async function fixture(t, persona = 'jordan') {
   const copy = await disposableDashboard();
@@ -27,12 +30,12 @@ test('current comparisons use the same signed expenses through today, in each cu
   const f = await fixture(t, 'sam');
   const initial = await f.build('2026-07-17');
   const fileRows = JSON.parse(await readFile(f.file, 'utf8'));
-  const expense = (id, date, amount, currency, payer) => ({id, date, status: 'confirmed', description: 'Fictional comparison',
-    postings: [{account: 'Expenses:Food:Groceries', amount, commodity: currency}, {account: payer, amount: String(-Number(amount)), commodity: currency}]});
+  const expense = (id, date, amount, currency, payer) => store.entry({id, date, status: 'confirmed', description: 'Fictional comparison',
+    postings: [store.posting('Expenses:Food:Groceries', amount, currency), store.posting(payer, (-Number(amount)).toFixed(2), currency)]});
   // Use existing fixture accounts; the added refund must reduce both total and category.
   const sample = initial.transactions.find(row => row.currency === 'GBP' && row.kind === 'Expense');
   const account = sample.ledgerAccount;
-  const refund = expense('eeeeeeeeeeeeeee1', '2026-06-17', '-8.00', 'GBP', sample.paymentAccount);
+  const refund = {...expense('eeeeeeeeeeeeeee1', '2026-06-17', '-8.00', 'GBP', sample.paymentAccount), extensions: blankExtensions(fileRows)};
   refund.postings[0].account = account;
   fileRows.push(refund);
   fileRows.sort((a, b) => a.date.localeCompare(b.date));
@@ -70,8 +73,8 @@ test('stale ledger keeps overdue commitments expected; today variable is consume
   assert.equal(forecast.variableAfterDay, 14);
   const sample = first.transactions.find(row => row.currency === 'USD' && row.kind === 'Expense');
   const rows = JSON.parse(await readFile(f.file, 'utf8'));
-  rows.push({id: 'eeeeeeeeeeeeeee2', date: '2026-11-15', status: 'confirmed', description: 'Fictional today purchase',
-    postings: [{account: sample.ledgerAccount, amount: '1.00', commodity: 'USD'}, {account: sample.paymentAccount, amount: '-1.00', commodity: 'USD'}]});
+  rows.push(store.entry({extensions: blankExtensions(rows), id: 'eeeeeeeeeeeeeee2', date: '2026-11-15', description: 'Fictional today purchase',
+    postings: [store.posting(sample.ledgerAccount, '1.00', 'USD'), store.posting(sample.paymentAccount, '-1.00', 'USD')]}));
   await writeFile(f.file, JSON.stringify(rows));
   const second = await f.build('2026-11-15');
   assert.equal(second.forecasts.find(row => row.currency === 'USD').variableAfterDay, 15);
@@ -140,11 +143,11 @@ test('a mid-month latest entry leaves later overdue rules expected at today', as
   const data = await f.build('2026-11-15');
   const sample = data.transactions.find(row => row.currency === 'USD' && row.kind === 'Expense');
   const rows = JSON.parse(await readFile(f.file, 'utf8'));
-  rows.push({id: 'eeeeeeeeeeeeeee3', date: '2026-11-05', status: 'confirmed', description: 'Fictional mid-month purchase',
-    postings: [{account: sample.ledgerAccount, amount: '2.00', commodity: 'USD'}, {account: sample.paymentAccount, amount: '-2.00', commodity: 'USD'}]});
+  rows.push(store.entry({extensions: blankExtensions(rows), id: 'eeeeeeeeeeeeeee3', date: '2026-11-05', description: 'Fictional mid-month purchase',
+    postings: [store.posting(sample.ledgerAccount, '2.00', 'USD'), store.posting(sample.paymentAccount, '-2.00', 'USD')]}));
   await writeFile(f.file, JSON.stringify(rows));
   const rules = JSON.parse(await readFile(join(f.root, 'data/forecast.json'), 'utf8'));
-  const rule = rules.find(rule => !rule.lifecycle || rule.lifecycle === 'active');
+  const rule = rules.find(rule => rule.lifecycle === 'active');
   rule.date = rule.schedule.from = '2026-11-10';
   await writeFile(join(f.root, 'data/forecast.json'), JSON.stringify(rules));
   const current = await f.build('2026-11-15');
@@ -159,8 +162,8 @@ test('a zero previous same-day total retains the comparison period without a per
   const first = await f.build('2026-11-01');
   const sample = first.transactions.find(row => row.currency === 'USD' && row.kind === 'Expense');
   const rows = JSON.parse(await readFile(f.file, 'utf8'));
-  rows.push({id: 'eeeeeeeeeeeeeee4', date: '2026-11-01', status: 'confirmed', description: 'Fictional first-day purchase',
-    postings: [{account: sample.ledgerAccount, amount: '2.00', commodity: 'USD'}, {account: sample.paymentAccount, amount: '-2.00', commodity: 'USD'}]});
+  rows.push(store.entry({extensions: blankExtensions(rows), id: 'eeeeeeeeeeeeeee4', date: '2026-11-01', description: 'Fictional first-day purchase',
+    postings: [store.posting(sample.ledgerAccount, '2.00', 'USD'), store.posting(sample.paymentAccount, '-2.00', 'USD')]}));
   await writeFile(f.file, JSON.stringify(rows));
   const data = await f.build('2026-11-01');
   assert.equal(data.months.find(row => row.month === '2026-11' && row.currency === 'USD').comparison.total, 0);

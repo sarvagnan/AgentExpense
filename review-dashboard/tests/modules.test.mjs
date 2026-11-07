@@ -7,6 +7,7 @@ import {after, test} from 'node:test';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {moduleSettings} from '../scripts/ledger-manifest.mjs';
+import {hasExtension} from '../scripts/ledger-modules.mjs';
 import {buildSentence, draftPieces, availablePatterns} from '../app/live/builder.ts';
 import {fuelLedgerEntry} from '../app/fuel-links.ts';
 import {personaData} from './persona-data.mjs';
@@ -27,7 +28,8 @@ return read.call(this,file,...args); }; syncBuiltinESMExports();`);
     const root = join(copy.application,name);
     await cp(join(sourceApplication,'fixtures/ledgers',name),root,{recursive:true});
     const manifest = JSON.parse(await readFile(join(root,'ledger.json'),'utf8'));
-    assert.deepEqual(moduleSettings(manifest),{fuel:false,investments:false,history:{oldLedger:null},weeklyReview:false});
+    assert.deepEqual(moduleSettings(manifest),{investments:false,history:{oldLedger:null},weeklyReview:false});
+    assert.equal(hasExtension(manifest,'fuel'),false);
     // Present but invalid inputs must also be ignored, never used to infer a flag.
     await mkdir(join(root,'data/prices'),{recursive:true});
     for (const file of ['fuel-log.json','prices/mutual-funds.prices','prices/fund-sources.json']) await writeFile(join(root,'data',file),'invalid disabled input');
@@ -86,23 +88,23 @@ test('fuel on builds existing readings and refuses missing or invalid fuel data'
     const stderr=String(error.stderr);assert.match(stderr,pattern);if(absent)assert.doesNotMatch(stderr,absent);return true;});
   const log=await readFile(join(root,'data/fuel-log.json'),'utf8');
   await rm(join(root,'data/fuel-log.json'));
-  refuses(/Fuel is enabled; supply a valid data\/fuel-log\.json: the file is missing\./);
+  refuses(/The fuel extension is listed; supply a valid data\/fuel-log\.json: the file is missing\./);
   await writeFile(join(root,'data/fuel-log.json'),'{}');
-  refuses(/Fuel is enabled; supply a valid data\/fuel-log\.json: entries must be a list of objects\./);
+  refuses(/The fuel extension is listed; supply a valid data\/fuel-log\.json: entries must be a list of objects\./);
   // Parse errors name the problem without quoting the log's contents.
   await writeFile(join(root,'data/fuel-log.json'),'{"entries": [{"note": "fictional private words"}');
-  refuses(/Fuel is enabled; supply a valid data\/fuel-log\.json: it is not valid JSON\./,/fictional private words/);
+  refuses(/The fuel extension is listed; supply a valid data\/fuel-log\.json: it is not valid JSON\./,/fictional private words/);
   // A store problem names itself rather than blaming a valid fuel log.
   await writeFile(join(root,'data/fuel-log.json'),log);
   const rules=JSON.parse(await readFile(join(root,'data/forecast.json'),'utf8'));
   rules.find(rule=>rule.origin).origin.kind='unknown-origin';
   await writeFile(join(root,'data/forecast.json'),JSON.stringify(rules,null,2)+'\n');
-  refuses(/Invalid rule\.origin\.kind\./,/supply a valid/);
+  refuses(/Invalid data\/forecast\.json\.\d+\.origin\.kind\./,/supply a valid/);
 });
 
 test('fuel switches gate composer pieces, recovered edits and confirmed links', () => {
-  const on = {modules:{fuel:true},patterns:{},people:[],accounts:[]};
-  const off = {...on,modules:{fuel:false}};
+  const on = {extensions:{fuel:{ask:true}},patterns:{},people:[],accounts:[]};
+  const off = {...on,extensions:{}};
   assert.equal(buildSentence('fuel 100 8l 200km',on).pattern,'fuel');
   const built = buildSentence('fuel 100 8l 200km',off,{vehicle:'old car',outlet:'old outlet'});
   assert.equal(built.pattern,'new');
@@ -118,8 +120,9 @@ test('Review and investment sections render only when enabled; unpriced units re
   const dataModule = await server.ssrLoadModule('/app/data.ts');
   const {default:Review} = await server.ssrLoadModule('/app/review/page.tsx');
   const {default:Accounts} = await server.ssrLoadModule('/app/account-summary.tsx');
-  const show = (modules, view) => {
+  const show = ({fuel, ...modules}, view) => {
     const data = structuredClone(asha.dashboard); data.meta.ledger.modules = modules;
+    data.meta.ledger.extensions = fuel ? {fuel:{ask:true}} : {};
     if (modules.investments === false) data.prices = [];
     dataModule.setData({dashboard:data,review:asha.review,fuel:asha.fuel});
     return renderToStaticMarkup(createElement(view,view===Review?{live:{data:{export_entries:{},count:0,important:0,items:[],entries:{},decisions:{},accounts:[],history:[]},error:'',refresh:async()=>null}}:{}));
@@ -135,7 +138,7 @@ test('Review and investment sections render only when enabled; unpriced units re
   const fund = Object.entries(data.meta.accounts).find(([,meta])=>meta.kind==='investment');
   const accounts = {...data.meta.accounts}; delete accounts[fund[0]];
   data.meta.accounts = {[fund[0]]:fund[1],...Object.fromEntries(Object.entries(accounts).filter(([,meta])=>meta.kind!=='bank'))};
-  data.meta.ledger.modules = {investments:{prices:null},fuel:false}; data.prices=[];
+  data.meta.ledger.modules = {investments:{prices:null}}; data.meta.ledger.extensions = {}; data.prices=[];
   dataModule.setData({dashboard:data,review:asha.review,fuel:{meta:{},entries:[]}});
   const html = renderToStaticMarkup(createElement(Accounts));
   assert.match(html,/Showing recorded cost. No recorded prices available./);
@@ -162,7 +165,7 @@ test('runtime loader skips fuel requests when off and requests fuel when on', as
   const original = globalThis.fetch;
   try {
     for (const enabled of [false,true]) {
-      const data = structuredClone(asha.dashboard); data.meta.ledger.modules.fuel=enabled;
+      const data = structuredClone(asha.dashboard); data.meta.ledger.extensions = enabled ? {fuel:{ask:true}} : {};
       const requested=[];
       globalThis.fetch=async url => {
         requested.push(url);

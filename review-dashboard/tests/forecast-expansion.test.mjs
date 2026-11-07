@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { expandForecast, scheduleText } from '../scripts/expense-store.mjs';
 
-const rule = (from, every = 'month', interval) => ({ id: from, date: from, description: from, schedule: { from, every, ...(interval === undefined ? {} : { interval }) }, postings: [{ amount: 1 }] });
+const rule = (from, every = 'month', interval) => ({ id: from, date: from, description: from, lifecycle: 'active', schedule: { from, every, interval: interval ?? 1, 'anchor-day': null }, postings: [{ amount: 1 }] });
 const dates = (rules, start, end) => expandForecast(rules, start, end).map(row => row.date);
 
 test('monthly 29th/30th/31st dates clamp in February and recover the anchor in March', () => {

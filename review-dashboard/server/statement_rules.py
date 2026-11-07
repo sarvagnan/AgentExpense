@@ -3,10 +3,10 @@ from collections import Counter
 from copy import deepcopy
 from datetime import date
 from difflib import SequenceMatcher
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 import re
 from reconcile_statement import activity, card_amount, reconcile, select_account
-from store import entries
+from store import entries, posting
 
 
 def normal(value):
@@ -18,7 +18,7 @@ def foreign(entry, currency):
         return entry['original-amount']
     totals = {}
     for p in entry['postings']:
-        if p['commodity'] != currency and p.get('cost', {}).get('commodity') == currency:
+        if p['commodity'] != currency and (p.get('cost') or {}).get('commodity') == currency:
             totals[p['commodity']] = totals.get(p['commodity'], Decimal(0)) + Decimal(p['amount'])
     if len(totals) == 1:
         commodity, amount = next(iter(totals.items()))
@@ -43,8 +43,8 @@ def scaled_postings(entry, row, account):
     for i, p in enumerate(noncard):
         amount = -total - allocated if i == len(noncard)-1 else (Decimal(p['amount']) * total / old).quantize(Decimal('.01'))
         allocated += amount
-        result.append(dict(account=p['account'], amount=f'{amount:.2f}', commodity=currency))
-    return result + [dict(account=account, amount=f'{total:.2f}', commodity=currency)]
+        result.append(posting(p['account'], f'{amount:.2f}', currency))
+    return result + [posting(account, f'{total:.2f}', currency)]
 
 
 def plan(documents, statement, root):
@@ -58,7 +58,7 @@ def plan(documents, statement, root):
     report = reconcile(documents, rows, end=statement['periodEnd'], start=statement['periodStart'], total_due=statement['totalDue'], root=root, account=account, balance_style=False)
     actual = entries(documents)
     by_id = {e['id']: e for e in actual}
-    available = [e for e in actual if 'statement-end' not in e and activity(e, account)]
+    available = [e for e in actual if not (e['statement'] or {}).get('end') and activity(e, account)]
     used, decisions = set(), {}
     buckets = {item['row']['serial']: item for key in ('alreadyMembers', 'serialMatches', 'candidateRows', 'newRows') for item in report[key]}
     def settle(row, rule, why, entry=None, postings=None):
@@ -107,14 +107,14 @@ def plan(documents, statement, root):
                 continue
         if candidates or bucket.get('warnings'):
             decisions[row['serial']] = dict(row=row, rule='needs_you', why='The amount is close, but the date or merchant needs your confirmation.' if len(candidates)==1 else 'Several entries could match this row. Choose the charge or leave it pending.', entry_id=None, entry_description=None, postings=None, needs_user=True, decision=None, candidates=candidates)
-    history = [e for e in actual if e.get('statement-end', '9999') < statement['periodEnd'] and activity(e, account)]
+    history = [e for e in actual if ((e['statement'] or {}).get('end') or '9999') < statement['periodEnd'] and activity(e, account)]
     for row in rows:
         if row['serial'] in decisions:
             continue
         n = normal(row['description'])
         precedents = [e for e in history if normal(e['description'].split(' — ')[-1]) == n or normal(e['description']) == n]
         if precedents:
-            last = max(precedents, key=lambda e: (e['date'], e['statement-end']))
+            last = max(precedents, key=lambda e: (e['date'], e['statement']['end']))
             postings = None if row.get('foreignAmount') else scaled_postings(last, row, account)
             if postings:
                 settle(row, 'booked_before', f"Same description as {last['date']}: use its accounts.", postings=postings)
@@ -131,7 +131,7 @@ def plan(documents, statement, root):
                 continue
         merchants = [e for e in history if any(note.startswith('statement merchant: ') and normal(note.removeprefix('statement merchant: ')) == n for note in e.get('notes', []))]
         if merchants:
-            last = max(merchants, key=lambda e: (e['date'], e['statement-end']))
+            last = max(merchants, key=lambda e: (e['date'], e['statement']['end']))
             postings = None if row.get('foreignAmount') else scaled_postings(last, row, account)
             if postings:
                 settle(row, 'familiar_merchant', f"Statement merchant seen on {last['date']}; use the same posting proportions.", postings=postings)
@@ -143,6 +143,30 @@ def plan(documents, statement, root):
     return dict(items=result, unmatched=unmatched, counts=dict(Counter(i['rule'] for i in result)))
 
 
+def billed_shares(amounts, billed):
+    """The billed total split across foreign postings in proportion to their signed amounts.
+
+    Shares are rounded to the billed amount's places with the largest-remainder method,
+    so they net to the billed amount exactly (with the sign of the postings' net); each
+    keeps its posting's sign. A share that would round to zero or flip sign refuses.
+    """
+    net = sum(amounts, Decimal(0))
+    if net == 0 or billed <= 0:
+        raise ValueError('The billed amount can\'t be split across postings that net to zero. Use Edit entry.')
+    step = Decimal(1).scaleb(min(billed.as_tuple().exponent, -2))
+    exact = [amount * billed / abs(net) / step for amount in amounts]
+    floors = [value.to_integral_value(rounding=ROUND_FLOOR) for value in exact]
+    target = (billed / step) * (1 if net > 0 else -1)
+    missing = int(target - sum(floors, Decimal(0)))
+    order = sorted(range(len(exact)), key=lambda index: (-(exact[index] - floors[index]), index))
+    for index in order[:missing]:
+        floors[index] += 1
+    shares = [units * step for units in floors]
+    if sum(shares, Decimal(0)) != target * step or any(share == 0 or (share > 0) != (amount > 0) for share, amount in zip(shares, amounts)):
+        raise ValueError('The billed amount can\'t be split across these postings exactly. Use Edit entry.')
+    return shares
+
+
 def convert(entry, row, account):
     currency = next(p['commodity'] for p in entry['postings'] if p['account'] == account)
     old = card_amount(entry, account)
@@ -152,13 +176,14 @@ def convert(entry, row, account):
     foreign_posts = [p for p in entry['postings'] if p['commodity'] == row['foreignCurrency']]
     if abs(sum((Decimal(p['amount']) for p in foreign_posts), Decimal(0))) != Decimal(row['foreignAmount']):
         raise ValueError('Foreign allocation changed since review')
-    if len(foreign_posts) == 1:
-        foreign_posts[0]['cost'] = dict(amount=row['amount'], commodity=currency, per='total')
-    else:
-        rate = Decimal(row['amount']) / Decimal(row['foreignAmount'])
-        for p in foreign_posts:
-            p['cost'] = dict(amount=f'{rate:.10f}', commodity=currency, per='unit')
+    shares = billed_shares([Decimal(p['amount']) for p in foreign_posts], Decimal(row['amount']))
+    net = sum((Decimal(p['amount']) for p in foreign_posts), Decimal(0))
+    if (net > 0) != (row['direction'] == 'Debit'):
+        raise ValueError('The billed amount can\'t balance these postings: the card charge and the foreign amount point opposite ways. Use Edit entry.')
+    for p, share in zip(foreign_posts, shares):
+        # A total cost is positive; hledger applies the posting's sign.
+        p['cost'] = dict(amount=format(abs(share), 'f'), commodity=currency, per='total')
     for p in entry['postings']:
         if p['account'] == account:
             p['amount'] = '-' + row['amount'] if row['direction'] == 'Debit' else row['amount']
-    entry.setdefault('notes', []).append(f"statement charge: {row['amount']} {currency} for {row['foreignAmount']} {row['foreignCurrency']}; replaces {abs(old):.2f} {currency} prior card posting")
+    entry['notes'].append(f"statement charge: {row['amount']} {currency} for {row['foreignAmount']} {row['foreignCurrency']}; replaces {abs(old):.2f} {currency} prior card posting")

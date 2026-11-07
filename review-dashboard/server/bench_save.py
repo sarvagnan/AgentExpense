@@ -77,11 +77,12 @@ def percentile(values, fraction):
 
 
 def answer(description, account, amount, payer='Assets:Cash', day=AGENT_DATE):
-    return dict(status='ready', question=None, explanation=None, attachment_names=[], doubts=[], new_accounts=[],
-                entry=dict(date=day, status='confirmed', description=description, order_id=None, reference=None,
-                           classification=None, original_amount=None, fuel_filled_litres=None, trip_km=None, notes=[],
-                           postings=[dict(account=account, amount=amount, commodity='INR', cost=None),
-                                     dict(account=payer, amount='-' + amount, commodity='INR', cost=None)]))
+    # The generated ledger lists the fuel extension and asks the agent for it.
+    return {'status': 'ready', 'question': None, 'explanation': None, 'attachment-names': [], 'doubts': [], 'new-accounts': [],
+            'entry': {'date': day, 'status': 'confirmed', 'description': description, 'references': None,
+                      'classification': None, 'original-amount': None, 'extensions': {'fuel': None}, 'notes': [],
+                      'postings': [dict(account=account, amount=amount, commodity='INR', cost=None),
+                                   dict(account=payer, amount='-' + amount, commodity='INR', cost=None)]}}
 
 
 class Bench:
@@ -228,7 +229,7 @@ class Bench:
         opened = self.ok(self.client.post(f'/api/entries/{entry["id"]}/correction-form'))
         form = deepcopy(opened['hand_form'])
         form['entry']['description'] = entry['description'] + ' (checked)'
-        body = dict(version=opened['correction']['version'], proposal=form, sources=entry.get('sources', []), approved_accounts=[])
+        body = dict(version=opened['correction']['version'], proposal=form, sources=entry['evidence'], approved_accounts=[])
         started = time.perf_counter()
         self.ok(self.client.post(f'/api/entries/{entry["id"]}/corrections/{secrets.token_hex(16)}', json=body))
         self.record('edit', time.perf_counter() - started, {'edit'}, since)
@@ -272,7 +273,7 @@ class Bench:
         end = add_months(date.fromisoformat(prior['end']), 1, 28)
         rows, purchases, credits = [], Decimal(0), Decimal(0)
         for entry in self.actual():
-            if not start.isoformat() <= entry['date'] <= end.isoformat() or entry.get('statement-end'):
+            if not start.isoformat() <= entry['date'] <= end.isoformat() or (entry['statement'] or {}).get('end'):
                 continue
             card = [p for p in entry['postings'] if p['account'] == CARD]
             if len(card) != 1 or any(p['account'].startswith('Equity:') for p in entry['postings']):
@@ -340,7 +341,7 @@ class Bench:
             documents = self.documents()
             actual = self.actual()
             cutoff = (date.fromisoformat(AGENT_DATE) - timedelta(days=60)).isoformat()
-            editable = [e for e in actual if e['date'] >= cutoff and not e.get('rule') and not e.get('statement-end') and e['status'] == 'confirmed'
+            editable = [e for e in actual if e['date'] >= cutoff and not e.get('rule') and not (e['statement'] or {}).get('end') and e['status'] == 'confirmed'
                         and len(e['postings']) == 2 and any(p['account'] == 'Assets:Cash' for p in e['postings'])]
             pending = [e['id'] for e in actual if e['status'] == 'pending']
             varying = [r for r in documents[self.ledger / 'data/forecast.json'] if r.get('amount') == 'varies' and not r.get('bill')]

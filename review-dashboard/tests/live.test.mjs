@@ -10,7 +10,7 @@ import { loadExpenseStore } from '../scripts/expense-store.mjs';
 import { gzipSync } from 'node:zlib';
 import { buildSentence, draftPieces, PATTERN_DEFS, payLabel } from '../app/live/builder.ts';
 const PAYS = {savings:bank, card, cash:'Pocket', wallet};
-const data={modules:{fuel:true},patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
+const data={extensions:{fuel:{ask:true}},patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
 const build=(text,edits={},files=false)=>buildSentence(text,data,edits,files,'2026-10-30');
 test('runtime data decoding survives a retired document blob origin',async()=>{
  const server=await createServer({optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
@@ -70,8 +70,8 @@ test('dates, payment hints, merchant text and word boundaries handle edge cases'
 test('pattern statistics use the selected store and are deterministic for fixtures',async()=>{
  const tx=(id,date,amount,pay=bank)=>({id,date,description:'Petrol',postings:[{account:'Expenses:Transport:Fuel',amount},{account:pay,amount:-amount}]});
  const items=[tx('a','2026-01-02',20),tx('b','2026-01-03',25),tx('c','2026-01-04',30),tx('d','2026-01-05',35,'Pocket')];
- const b=buildPatterns(items,metadata,{modules:{fuel:true}});assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{},merchants:{},rules:[]});
- const {transactions,accounts}=await loadExpenseStore();const actual=buildPatterns(transactions,accounts,{modules:{fuel:true}});for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x,accounts)===id).length);
+ const b=buildPatterns(items,metadata,{extensions:{fuel:{ask:true}}});assert.equal(b.patterns.fuel.count,4);assert.equal(b.patterns.fuel.usualPay,bank);assert.equal(b.patterns.fuel.usualShare,3);assert.deepEqual(b.patterns.fuel.last.map(x=>x.amount),['35','30','25']);assert.equal(b.patterns.fuel.usualExpense,'Expenses:Transport:Fuel');assert.deepEqual(buildPatterns([]),{patterns:{},people:[],accounts:[],payments:{},merchants:{},rules:[]});
+ const {transactions,accounts}=await loadExpenseStore();const actual=buildPatterns(transactions,accounts,{extensions:{fuel:{ask:true}}});for(const [id,st]of Object.entries(actual.patterns))assert.equal(st.count,transactions.filter(x=>patternOf(x,accounts)===id).length);
 });
 test('API URLs, action errors, timeouts and atomic concurrent data reload',async()=>{
  const server=await createServer({optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});const original=globalThis.fetch;
@@ -90,7 +90,7 @@ test('API URLs, action errors, timeouts and atomic concurrent data reload',async
   let writeSignal;globalThis.fetch=async(_url,init)=>new Promise((_,reject)=>{assert.equal(init.keepalive,true);writeSignal=init.signal;init.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')));});
   const stopWrite=new AbortController();const writing=request('drafts',{method:'POST',body:'{}',signal:stopWrite.signal});stopWrite.abort();await assert.rejects(writing,e=>e.name==='AbortError');assert.equal(writeSignal.aborted,true,'Writes retain transport cancellation');
   const m=await server.ssrLoadModule('/app/data.ts');let notified=0;const off=m.subscribeData(()=>notified++);let calls=0;
-  globalThis.fetch=async(url,init)=>{calls++;assert.equal(init.cache,'no-store');return new Response(JSON.stringify({tag:'new',url,meta:{ledger:{modules:{fuel:true}}}}));};
+  globalThis.fetch=async(url,init)=>{calls++;assert.equal(init.cache,'no-store');return new Response(JSON.stringify({tag:'new',url,meta:{ledger:{extensions:{fuel:{ask:true}}}}}));};
   const a=m.reloadData(),b=m.reloadData(),c=m.reloadData();assert.notEqual(a,b,'A reload asked for during a read gets a read that starts after it');assert.equal(b,c,'Callers during one read share one follow-up');await Promise.all([a,b]);assert.equal(calls,6,'Two whole snapshots: the first read and one shared follow-up');assert.equal(notified,2);const prior=m.dashboard;
   globalThis.fetch=async()=>new Response('error',{status:500});await assert.rejects(m.reloadData(),/HTTP 500/);assert.equal(m.dashboard,prior);assert.equal(notified,2,'A failed read publishes nothing');off();
  }finally{globalThis.fetch=original;await server.close();}
@@ -155,8 +155,8 @@ test('metadata labels, history names and ambiguity determine composer suggestion
  const shared = {...data,payments:{...metadata,'Other:Checking':{kind:'bank',label:'Other',aliases:['checking']}}};
  assert.equal(buildSentence('fuel 100 checking',shared).fields.pay.value,'');
  assert.equal(buildSentence('purchase 100 日常',{...data,payments:{[bank]:{kind:'bank',label:'日常'}}}).fields.pay.value,bank);
- const history = buildPatterns([{description:'Fern Station', date:'2026-01-01',postings:[{account:'Expenses:Fuel',amount:100},{account:bank,amount:-100}]}],metadata,{modules:{fuel:true}});
- const result = buildSentence('Fern Station 100',{...history,modules:{fuel:true}});
+ const history = buildPatterns([{description:'Fern Station', date:'2026-01-01',postings:[{account:'Expenses:Fuel',amount:100},{account:bank,amount:-100}]}],metadata,{extensions:{fuel:{ask:true}}});
+ const result = buildSentence('Fern Station 100',{...history,extensions:{fuel:{ask:true}}});
  assert.equal(result.pattern,'fuel'); assert.equal(result.fields.outlet.value,'Fern Station');
  assert.equal(patternOf({description:'Rewards', postings:[{account:'Income:Cashback', amount:-10}, {account:card, amount:10}]},metadata), 'rewards');
 });
@@ -165,11 +165,11 @@ test('merchant defaults use latest actual entry, forecast fallback and no patter
  const expense='Expenses:Subscriptions:Paper Lantern',other='Expenses:Subscriptions:Cloud Nest';
  const tx=(date,description,amount,pay,category=expense)=>({date,description,postings:[{account:category,amount},{account:pay,amount:-amount,currency:metadata[pay].currency}]});
  const actual=[tx('2026-01-01','Paper Lantern',10,bank),tx('2026-05-01','Paper Lantern',12,card)];
- const forecasts=[tx('2027-01-01','Paper Lantern',99,bank),tx('2026-06-01','Cloud Nest',8,bank,other)];
+ const forecasts=[tx('2027-01-01','Paper Lantern',99,bank),tx('2026-06-01','Cloud Nest',8,bank,other)].map(rule=>({...rule,lifecycle:'active'}));
  const data=buildPatterns(actual,{...metadata,[expense]:{},[other]:{}},{},forecasts);
  const latest=buildSentence('Paper Lantern renewed',data,{},false,'2026-11-02');assert.equal(latest.fields.pay.value,card);assert.equal(latest.fields.amount.value,'12');assert.equal(latest.fields.currency.value,metadata[card].currency);assert.equal(latest.fields.category.value,expense);
  const fallback=buildSentence('Cloud Nest subscription',data,{},false,'2026-11-02');assert.equal(fallback.fields.pay.value,bank);assert.equal(fallback.fields.amount.value,'8');assert.equal(fallback.fields.category.value,other);
  const unknown=buildSentence('Unknown Workshop subscription',data,{},false,'2026-11-02');assert.equal(unknown.fields.pay.value,'');assert.equal(unknown.fields.category.value,'');
- const fuel=buildPatterns([tx('2026-01-01','Fable Fuels',20,bank,'Expenses:Transport:Fuel')],metadata,{modules:{fuel:true}});const unknownFuel=buildSentence('Fuel at Unknown Workshop', {...fuel,modules:{fuel:true}}, {}, false, '2026-11-02');assert.equal(unknownFuel.fields.pay.value,'');assert.equal(unknownFuel.fields.category.value,'');assert.equal(buildSentence('Fable Fuels', {...fuel,modules:{fuel:true}}, {}, false, '2026-11-02').fields.pay.value,bank);
+ const fuel=buildPatterns([tx('2026-01-01','Fable Fuels',20,bank,'Expenses:Transport:Fuel')],metadata,{extensions:{fuel:{ask:true}}});const unknownFuel=buildSentence('Fuel at Unknown Workshop', {...fuel,extensions:{fuel:{ask:true}}}, {}, false, '2026-11-02');assert.equal(unknownFuel.fields.pay.value,'');assert.equal(unknownFuel.fields.category.value,'');assert.equal(buildSentence('Fable Fuels', {...fuel,extensions:{fuel:{ask:true}}}, {}, false, '2026-11-02').fields.pay.value,bank);
  for(const phrase of ['payment from','repayment','paid me','my share'])assert.equal(buildSentence(`${phrase} Casey coffee 20`,data,{},false,'2026-11-02').pattern,'payback');
 });

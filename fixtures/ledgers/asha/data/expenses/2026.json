@@ -4,15 +4,25 @@
     "date": "2026-06-01",
     "status": "confirmed",
     "description": "Fictional opening balances",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-01/fictional-confirmation-1.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "48000.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "1200.00", "commodity": "INR"},
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "300.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "0.00", "commodity": "INR"},
-      {"account": "Equity:Opening Balances", "amount": "-49500.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "48000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "1200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "300.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "0.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Equity:Opening Balances", "amount": "-49500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -20,12 +30,22 @@
     "date": "2026-06-02",
     "status": "confirmed",
     "description": "Juniper Studio salary",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-02/fictional-confirmation-2.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
-      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -33,12 +53,22 @@
     "date": "2026-06-03",
     "status": "confirmed",
     "description": "Fern Court rent",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-03/fictional-confirmation-3.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -46,20 +76,23 @@
     "date": "2026-06-06",
     "status": "confirmed",
     "description": "Orchid Market groceries",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-06/fictional-confirmation-4.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-001",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
-    "variable-estimate": {
-      "excluded": true,
-      "reason": "fictional annual pantry plan"
-    },
+    "statement": {"end": "2026-10-28", "serial": "MC-001", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": {"reason": "fictional annual pantry plan"},
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "778.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-778.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "778.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-778.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -67,12 +100,22 @@
     "date": "2026-06-10",
     "status": "confirmed",
     "description": "Moss Cafe lunch",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-10/fictional-confirmation-5.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "186.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-186.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "186.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-186.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -80,16 +123,23 @@
     "date": "2026-06-14",
     "status": "confirmed",
     "description": "Paper Lantern subscription",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-14/fictional-confirmation-6.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-002",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-002", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -97,15 +147,24 @@
     "date": "2026-06-18",
     "status": "confirmed",
     "description": "Fable Fuels petrol",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-18/fictional-confirmation-7.md"
     ],
+    "statement": null,
+    "references": null,
     "classification": "user-confirmed match from fuel log",
-    "fuel-filled-litres": "8.00",
-    "trip-km": "240.0",
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {
+      "fuel": {"litres": "8.00", "trip-km": "240.0"}
+    },
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -113,12 +172,22 @@
     "date": "2026-06-20",
     "status": "confirmed",
     "description": "Wallet top-up",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-20/fictional-confirmation-8.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -126,12 +195,22 @@
     "date": "2026-06-23",
     "status": "confirmed",
     "description": "Willow Stall snacks",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-23/fictional-confirmation-9.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -139,16 +218,23 @@
     "date": "2026-06-25",
     "status": "confirmed",
     "description": "Card bill payment",
-    "sources": [
+    "evidence": [
       "Bills/2026-06-25/fictional-confirmation-10.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-003",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-003", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -156,12 +242,22 @@
     "date": "2026-07-02",
     "status": "confirmed",
     "description": "Juniper Studio salary",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-02/fictional-confirmation-11.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
-      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -169,12 +265,22 @@
     "date": "2026-07-03",
     "status": "confirmed",
     "description": "Fern Court rent",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-03/fictional-confirmation-12.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -182,16 +288,23 @@
     "date": "2026-07-06",
     "status": "confirmed",
     "description": "Orchid Market groceries",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-06/fictional-confirmation-13.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-004",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-004", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "781.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-781.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "781.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-781.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -199,12 +312,22 @@
     "date": "2026-07-10",
     "status": "confirmed",
     "description": "Moss Cafe lunch",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-10/fictional-confirmation-14.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "187.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-187.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "187.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-187.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -212,16 +335,23 @@
     "date": "2026-07-14",
     "status": "confirmed",
     "description": "Paper Lantern subscription",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-14/fictional-confirmation-15.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-005",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-005", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -229,12 +359,22 @@
     "date": "2026-07-16",
     "status": "confirmed",
     "description": "Demo Index units",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-16/fictional-confirmation-41.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Investments:Mutual Funds:Demo Index", "amount": "5.000", "commodity": "DEMOFUND", "cost": {"amount": "500", "commodity": "INR", "per": "total"}},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Assets:Investments:Mutual Funds:Demo Index", "amount": "5.000", "commodity": "DEMOFUND", "cost": {"amount": "500", "commodity": "INR", "per": "total"}, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -242,15 +382,24 @@
     "date": "2026-07-18",
     "status": "confirmed",
     "description": "Fable Fuels petrol",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-18/fictional-confirmation-16.md"
     ],
+    "statement": null,
+    "references": null,
     "classification": "user-confirmed match from fuel log",
-    "fuel-filled-litres": "8.00",
-    "trip-km": "240.0",
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {
+      "fuel": {"litres": "8.00", "trip-km": "240.0"}
+    },
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -258,12 +407,22 @@
     "date": "2026-07-20",
     "status": "confirmed",
     "description": "Wallet top-up",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-20/fictional-confirmation-17.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -271,12 +430,22 @@
     "date": "2026-07-23",
     "status": "confirmed",
     "description": "Willow Stall snacks",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-23/fictional-confirmation-18.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -284,16 +453,23 @@
     "date": "2026-07-25",
     "status": "confirmed",
     "description": "Card bill payment",
-    "sources": [
+    "evidence": [
       "Bills/2026-07-25/fictional-confirmation-19.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-006",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-006", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -301,12 +477,22 @@
     "date": "2026-08-02",
     "status": "confirmed",
     "description": "Juniper Studio salary",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-02/fictional-confirmation-20.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
-      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -314,12 +500,22 @@
     "date": "2026-08-03",
     "status": "confirmed",
     "description": "Fern Court rent",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-03/fictional-confirmation-21.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -327,16 +523,23 @@
     "date": "2026-08-06",
     "status": "confirmed",
     "description": "Orchid Market groceries",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-06/fictional-confirmation-22.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-007",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-007", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "784.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-784.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "784.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-784.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -344,12 +547,22 @@
     "date": "2026-08-10",
     "status": "confirmed",
     "description": "Moss Cafe lunch",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-10/fictional-confirmation-23.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "188.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-188.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "188.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-188.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -357,14 +570,22 @@
     "date": "2026-08-12",
     "status": "confirmed",
     "description": "Advance for Dev Sen shared supplies",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-12/fictional-confirmation-38.md"
     ],
-    "reimbursement-group": "demo-shared-supplies",
-    "reimbursement-label": "Shared supplies",
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": {"group": "demo-shared-supplies", "label": "Shared supplies"},
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Reimbursements:Dev Sen", "amount": "640.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-640.00", "commodity": "INR"}
+      {"account": "Assets:Reimbursements:Dev Sen", "amount": "640.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-640.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -372,9 +593,20 @@
     "date": "2026-08-12",
     "status": "confirmed",
     "description": "Willow Energy bill payment",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Utilities:Willow Energy", "amount": "600.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-600.00", "commodity": "INR"}
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "600.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-600.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -382,9 +614,20 @@
     "date": "2026-08-12",
     "status": "confirmed",
     "description": "Fictional utility allowance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Cash", "amount": "600.00", "commodity": "INR"},
-      {"account": "Income:Utility Allowance", "amount": "-600.00", "commodity": "INR"}
+      {"account": "Assets:Cash", "amount": "600.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Utility Allowance", "amount": "-600.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -392,16 +635,23 @@
     "date": "2026-08-14",
     "status": "confirmed",
     "description": "Paper Lantern subscription",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-14/fictional-confirmation-24.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-008",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-008", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -409,15 +659,24 @@
     "date": "2026-08-18",
     "status": "confirmed",
     "description": "Fable Fuels petrol",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-18/fictional-confirmation-25.md"
     ],
+    "statement": null,
+    "references": null,
     "classification": "user-confirmed match from fuel log",
-    "fuel-filled-litres": "8.00",
-    "trip-km": "240.0",
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {
+      "fuel": {"litres": "8.00", "trip-km": "240.0"}
+    },
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -425,12 +684,22 @@
     "date": "2026-08-20",
     "status": "confirmed",
     "description": "Wallet top-up",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-20/fictional-confirmation-26.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -438,12 +707,22 @@
     "date": "2026-08-23",
     "status": "confirmed",
     "description": "Willow Stall snacks",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-23/fictional-confirmation-27.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -451,16 +730,23 @@
     "date": "2026-08-25",
     "status": "confirmed",
     "description": "Card bill payment",
-    "sources": [
+    "evidence": [
       "Bills/2026-08-25/fictional-confirmation-28.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-009",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-009", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -468,12 +754,22 @@
     "date": "2026-09-01",
     "status": "confirmed",
     "description": "Maple Workshop",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "INR"}
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -481,12 +777,22 @@
     "date": "2026-09-02",
     "status": "confirmed",
     "description": "Juniper Studio salary",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-02/fictional-confirmation-29.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR"},
-      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Salary", "amount": "-24000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -494,12 +800,22 @@
     "date": "2026-09-03",
     "status": "confirmed",
     "description": "Fern Court rent",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-03/fictional-confirmation-30.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -507,16 +823,23 @@
     "date": "2026-09-06",
     "status": "confirmed",
     "description": "Orchid Market groceries",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-06/fictional-confirmation-31.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-010",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-010", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "787.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-787.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "787.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-787.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -524,12 +847,22 @@
     "date": "2026-09-10",
     "status": "confirmed",
     "description": "Moss Cafe lunch",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-10/fictional-confirmation-32.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "189.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-189.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "189.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-189.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -537,14 +870,22 @@
     "date": "2026-09-12",
     "status": "confirmed",
     "description": "Dev Sen reimbursement",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-12/fictional-confirmation-39.md"
     ],
-    "reimbursement-group": "demo-shared-supplies",
-    "reimbursement-label": "Shared supplies",
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": {"group": "demo-shared-supplies", "label": "Shared supplies"},
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "640.00", "commodity": "INR"},
-      {"account": "Assets:Reimbursements:Dev Sen", "amount": "-640.00", "commodity": "INR"}
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "640.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Reimbursements:Dev Sen", "amount": "-640.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -552,9 +893,20 @@
     "date": "2026-09-12",
     "status": "confirmed",
     "description": "Willow Energy bill payment",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Utilities:Willow Energy", "amount": "2400.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-2400.00", "commodity": "INR"}
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "2400.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-2400.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -562,9 +914,20 @@
     "date": "2026-09-12",
     "status": "confirmed",
     "description": "Fictional utility allowance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Cash", "amount": "2400.00", "commodity": "INR"},
-      {"account": "Income:Utility Allowance", "amount": "-2400.00", "commodity": "INR"}
+      {"account": "Assets:Cash", "amount": "2400.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Utility Allowance", "amount": "-2400.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -572,16 +935,23 @@
     "date": "2026-09-14",
     "status": "confirmed",
     "description": "Paper Lantern subscription",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-14/fictional-confirmation-33.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-011",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-011", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -589,12 +959,22 @@
     "date": "2026-09-15",
     "status": "confirmed",
     "description": "Cedar Studio membership",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR"}
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -602,15 +982,24 @@
     "date": "2026-09-18",
     "status": "confirmed",
     "description": "Fable Fuels petrol",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-18/fictional-confirmation-34.md"
     ],
+    "statement": null,
+    "references": null,
     "classification": "user-confirmed match from fuel log",
-    "fuel-filled-litres": "8.00",
-    "trip-km": "240.0",
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {
+      "fuel": {"litres": "8.00", "trip-km": "240.0"}
+    },
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR"}
+      {"account": "Expenses:Transport:Fuel", "amount": "840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-840.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -618,12 +1007,22 @@
     "date": "2026-09-20",
     "status": "confirmed",
     "description": "Wallet top-up",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-20/fictional-confirmation-35.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR"}
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-250.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -631,12 +1030,22 @@
     "date": "2026-09-23",
     "status": "confirmed",
     "description": "Willow Stall snacks",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-23/fictional-confirmation-36.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR"},
-      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR"}
+      {"account": "Expenses:Food:Dining & Delivery", "amount": "110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Wallets:Shopping Wallet", "amount": "-110.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -644,16 +1053,23 @@
     "date": "2026-09-25",
     "status": "confirmed",
     "description": "Card bill payment",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-25/fictional-confirmation-37.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-012",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-012", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR"}
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-500.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -661,12 +1077,22 @@
     "date": "2026-09-27",
     "status": "pending",
     "description": "Willow repair awaiting classification",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-27/fictional-confirmation-40.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "265.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-265.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "265.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-265.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -674,11 +1100,21 @@
     "date": "2026-09-27",
     "status": "confirmed",
     "description": "Demo Index holdings check",
-    "sources": [
+    "evidence": [
       "Bills/2026-09-27/fictional-holdings-check.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Investments:Mutual Funds:Demo Index", "amount": "0.000", "commodity": "DEMOFUND", "assert": {"amount": "5.000", "commodity": "DEMOFUND"}}
+      {"account": "Assets:Investments:Mutual Funds:Demo Index", "amount": "0.000", "commodity": "DEMOFUND", "cost": null, "assert": {"amount": "5.000", "commodity": "DEMOFUND"}, "notes": []}
     ]
   },
   {
@@ -686,12 +1122,22 @@
     "date": "2026-10-01",
     "status": "pending",
     "description": "River Fern Market",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-01/river-fern-market-48.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "175.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-175.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "175.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-175.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -699,12 +1145,22 @@
     "date": "2026-10-02",
     "status": "pending",
     "description": "Paper Kite Services",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-02/paper-kite-services-49.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "212.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-212.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "212.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-212.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -712,12 +1168,22 @@
     "date": "2026-10-03",
     "status": "pending",
     "description": "Cedar Workshop",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-03/cedar-workshop-50.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "249.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-249.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "249.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-249.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -725,12 +1191,22 @@
     "date": "2026-10-04",
     "status": "pending",
     "description": "Amber Lane Supplies",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-04/amber-lane-supplies-51.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "286.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-286.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "286.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-286.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -738,12 +1214,22 @@
     "date": "2026-10-05",
     "status": "pending",
     "description": "River Fern Market",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-05/river-fern-market-52.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "323.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-323.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "323.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-323.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -751,12 +1237,22 @@
     "date": "2026-10-06",
     "status": "pending",
     "description": "Paper Kite Services",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-06/paper-kite-services-53.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "360.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-360.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "360.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-360.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -764,12 +1260,22 @@
     "date": "2026-10-07",
     "status": "pending",
     "description": "Cedar Workshop",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-07/cedar-workshop-54.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "397.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-397.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "397.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-397.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -777,12 +1283,22 @@
     "date": "2026-10-08",
     "status": "pending",
     "description": "Amber Lane Supplies",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-08/amber-lane-supplies-55.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "434.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-434.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "434.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-434.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -790,12 +1306,22 @@
     "date": "2026-10-09",
     "status": "pending",
     "description": "River Fern Market",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-09/river-fern-market-56.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "471.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-471.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "471.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-471.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -803,12 +1329,22 @@
     "date": "2026-10-10",
     "status": "pending",
     "description": "Paper Kite Services",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-10/paper-kite-services-57.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "508.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-508.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "508.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-508.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -816,12 +1352,22 @@
     "date": "2026-10-11",
     "status": "pending",
     "description": "Cedar Workshop",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-11/cedar-workshop-58.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "545.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-545.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "545.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-545.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -829,12 +1375,22 @@
     "date": "2026-10-12",
     "status": "pending",
     "description": "Amber Lane Supplies",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-12/amber-lane-supplies-59.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "582.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-582.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "582.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-582.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -842,9 +1398,20 @@
     "date": "2026-10-12",
     "status": "confirmed",
     "description": "Willow Energy bill payment",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Utilities:Willow Energy", "amount": "650.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-650.00", "commodity": "INR"}
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "650.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-650.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -852,9 +1419,20 @@
     "date": "2026-10-12",
     "status": "confirmed",
     "description": "Fictional utility allowance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Cash", "amount": "650.00", "commodity": "INR"},
-      {"account": "Income:Utility Allowance", "amount": "-650.00", "commodity": "INR"}
+      {"account": "Assets:Cash", "amount": "650.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Utility Allowance", "amount": "-650.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -862,12 +1440,22 @@
     "date": "2026-10-13",
     "status": "pending",
     "description": "River Fern Market",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-13/river-fern-market-60.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "619.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-619.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "619.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-619.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -875,12 +1463,22 @@
     "date": "2026-10-14",
     "status": "pending",
     "description": "Paper Kite Services",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-14/paper-kite-services-61.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "656.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-656.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "656.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-656.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -888,12 +1486,22 @@
     "date": "2026-10-15",
     "status": "pending",
     "description": "Cedar Workshop",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-15/cedar-workshop-62.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "693.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-693.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "693.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-693.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -901,12 +1509,22 @@
     "date": "2026-10-15",
     "status": "confirmed",
     "description": "Cedar Studio membership",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR"}
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -914,12 +1532,22 @@
     "date": "2026-10-16",
     "status": "pending",
     "description": "Amber Lane Supplies",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-16/amber-lane-supplies-63.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "730.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-730.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "730.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-730.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -927,12 +1555,22 @@
     "date": "2026-10-17",
     "status": "pending",
     "description": "River Fern Market",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-17/river-fern-market-64.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "767.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-767.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "767.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-767.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -940,12 +1578,22 @@
     "date": "2026-10-18",
     "status": "pending",
     "description": "Paper Kite Services",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-18/paper-kite-services-65.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "804.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-804.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "804.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-804.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -953,12 +1601,22 @@
     "date": "2026-10-19",
     "status": "pending",
     "description": "Cedar Workshop",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-19/cedar-workshop-66.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "841.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-841.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "841.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-841.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -966,12 +1624,22 @@
     "date": "2026-10-20",
     "status": "pending",
     "description": "Amber Lane Supplies",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-20/amber-lane-supplies-67.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "878.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-878.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "878.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-878.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -979,12 +1647,22 @@
     "date": "2026-10-20",
     "status": "confirmed",
     "description": "Maple Workshop",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "INR"}
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -992,21 +1670,26 @@
     "date": "2026-10-24",
     "status": "confirmed",
     "description": "Tamarind Pantry",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-24/tamarind-pantry-43.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
     "possible-duplicate-of": [
-      {
-        "id": "000000000000002c",
-        "reason": "amount-date-gap"
-      }
+      {"id": "000000000000002c", "reason": "amount-date-gap"}
     ],
     "notes": [
       "Pantry restock for the weekend."
     ],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "1328.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-1328.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "1328.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-1328.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -1014,21 +1697,26 @@
     "date": "2026-10-26",
     "status": "confirmed",
     "description": "Blue Kite Books",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-26/blue-kite-books-45.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
     "possible-duplicate-of": [
-      {
-        "id": "000000000000002e",
-        "reason": "dissimilar-name"
-      }
+      {"id": "000000000000002e", "reason": "dissimilar-name"}
     ],
     "notes": [
       "Books for the reading group."
     ],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "865.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-865.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "865.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-865.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -1036,12 +1724,22 @@
     "date": "2026-10-27",
     "status": "confirmed",
     "description": "Blue Kite Bookshop",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-27/blue-kite-books-46.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "865.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-865.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "865.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-865.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -1049,16 +1747,23 @@
     "date": "2026-10-28",
     "status": "confirmed",
     "description": "Tamarind Pantry",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-28/tamarind-pantry-44.md",
       "Bills/2026-10-28/mosaic-statement.pdf"
     ],
-    "serial-number": "MC-013",
-    "statement-page": 1,
-    "statement-end": "2026-10-28",
+    "statement": {"end": "2026-10-28", "serial": "MC-013", "page": 1, "source-page": null, "source-row": null},
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "1328.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-1328.00", "commodity": "INR"}
+      {"account": "Expenses:Groceries", "amount": "1328.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-1328.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -1066,12 +1771,22 @@
     "date": "2026-10-30",
     "status": "pending",
     "description": "Lantern Studio",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-30/lantern-studio-47.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "2460.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Nila Current", "amount": "-2460.00", "commodity": "INR"}
+      {"account": "Expenses:Uncategorized", "amount": "2460.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-2460.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   }
 ]

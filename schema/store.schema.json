@@ -1,931 +1,89 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/expense-ledger/store.schema.json",
-  "title": "Personal expense ledger JSON store",
-  "description": "UTF-8 without Unicode escapes, trailing newline, two-space indentation, fixed field order and one compact object per posting. Validate file roots using the corresponding $defs schema. Global ID uniqueness, year/order, canonical bytes and evidence existence are checked by check_store.py. No hledger tags are interpreted.",
-  "oneOf": [
-    {
-      "$ref": "#/$defs/accounts"
-    },
-    {
-      "$ref": "#/$defs/expenses"
-    },
-    {
-      "$ref": "#/$defs/forecast"
-    },
-    {
-      "$ref": "#/$defs/card-statements"
-    },
-    {
-      "$ref": "#/$defs/recurring-settings"
-    },
-    {
-      "$ref": "#/$defs/trash"
-    }
-  ],
+  "title": "AgentExpense ledger store, format 2",
+  "description": "Generated from scripts/ledger/store_models.py; do not edit. Validate each file with the $defs entry x-documents names for it. Every key is present: an empty value is null or []. x-set-by lists who writes each ledger field. This is the core schema: a ledger that lists extensions composes their groups into $defs.Extensions with schema/extension-types.json. docs/STORE.md describes every field.",
+  "x-format": 2,
+  "x-documents": {
+    "data/accounts.json": "#/$defs/Accounts",
+    "data/expenses/<year>.json": "#/$defs/ExpenseYear",
+    "data/forecast.json": "#/$defs/Forecast",
+    "data/card-statements.json": "#/$defs/Statements",
+    "data/recurring-settings.json": "#/$defs/RecurringSettings",
+    "data/trash.json": "#/$defs/Trash"
+  },
   "$defs": {
-    "posting": {
-      "type": "object",
+    "Accounts": {
       "additionalProperties": false,
-      "required": [
-        "account",
-        "amount",
-        "commodity"
-      ],
+      "description": "data/accounts.json: declared commodities and accounts.",
       "properties": {
-        "account": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "minLength": 1,
-          "description": "Exact declared hledger account name. Balance-sheet postings use the account currency; non-zero investment unit postings carry a cost in a currency (checked by store.py)."
-        },
-        "amount": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "minLength": 1,
-          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
-          "description": "Exact decimal text, including original trailing zeros; never a JSON number."
-        },
-        "commodity": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "minLength": 1,
-          "description": "Unquoted commodity symbol."
-        },
-        "cost": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "amount",
-            "commodity",
-            "per"
-          ],
-          "properties": {
-            "amount": {
-              "type": "string",
-              "not": {
-                "pattern": "[\\r\\n]"
-              },
-              "minLength": 1,
-              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
-              "description": "Exact decimal text for @/@@ cost, including trailing zeros when hledger infers them. Integer costs such as 100 are valid."
-            },
-            "commodity": {
-              "type": "string",
-              "not": {
-                "pattern": "[\\r\\n]"
-              },
-              "minLength": 1,
-              "description": "hledger commodity symbol without journal quotes."
-            },
-            "per": {
-              "enum": [
-                "total",
-                "unit"
-              ],
-              "description": "total emits @@; unit emits @."
-            }
-          }
-        },
-        "assert": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "amount",
-            "commodity"
-          ],
-          "properties": {
-            "amount": {
-              "type": "string",
-              "not": {
-                "pattern": "[\\r\\n]"
-              },
-              "minLength": 1,
-              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
-              "description": "Exact decimal text, including original trailing zeros; never a JSON number."
-            },
-            "commodity": {
-              "type": "string",
-              "not": {
-                "pattern": "[\\r\\n]"
-              },
-              "minLength": 1,
-              "description": "hledger commodity symbol without journal quotes."
-            }
-          },
-          "description": "Partial balance assertion (=), never an assignment; amount is the expected running balance."
-        },
-        "notes": {
-          "type": "array",
+        "commodities": {
+          "description": "Commodity directive arguments verbatim, in order.",
           "items": {
-            "type": "string",
-            "not": {
-              "pattern": "[\\r\\n]"
-            }
+            "minLength": 1,
+            "type": "string"
           },
-          "description": "Posting comment text, without the semicolon, in original order."
-        }
-      }
-    },
-    "entry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "date",
-        "status",
-        "description",
-        "postings"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{16}$",
-          "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
-        },
-        "date": {
-          "type": "string",
-          "format": "date",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-          "description": "Transaction date; file year must match. For forecasts this equals schedule.from."
-        },
-        "status": {
-          "enum": [
-            "confirmed",
-            "pending"
-          ],
-          "description": "confirmed emits *; pending emits !. Forecast status records confirmation without emitting a status marker."
-        },
-        "description": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "minLength": 1,
-          "description": "Original description verbatim. Forecasts retain the forecast item comment here."
-        },
-        "sources": {
           "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "not": {
-              "pattern": "[\\r\\n]"
-            }
-          },
-          "description": "All source: comment values verbatim, including non-path descriptions, in original order."
+          "uniqueItems": true
         },
-        "serial-number": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original serial-number: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "serial-number"
-        },
-        "source-row": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Positive row number in the source bank workbook.",
-          "x-ledger-label": "source-row"
-        },
-        "source-page": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Positive page number in the entry's first source.",
-          "x-ledger-label": "source-page"
-        },
-        "statement-end": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original statement-end: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "statement-end"
-        },
-        "reference": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original reference: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "reference"
-        },
-        "order-id": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original order-id: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "order-id"
-        },
-        "classification": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original classification: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "classification"
-        },
-        "original-amount": {
-          "type": "object",
+        "accounts": {
           "additionalProperties": false,
-          "required": [
-            "amount",
-            "commodity"
-          ],
-          "properties": {
-            "amount": {
-              "type": "string",
-              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
-              "not": {
-                "pattern": "[\\r\\n]"
-              }
+          "description": "Declared accounts in order, keyed by name.",
+          "patternProperties": {
+            "^(?!(?:Income|Equity|Expenses)(?::|$))[^\\r\\n:]+(?::[^\\r\\n:]+)*$": {
+              "$ref": "#/$defs/BalanceSheetAccount"
             },
-            "commodity": {
-              "type": "string",
-              "pattern": "^[^\\s\";=@]+$",
-              "not": {
-                "pattern": "[\\r\\n]"
-              }
-            }
-          },
-          "description": "Original currency amount, preserving exact decimal spelling.",
-          "x-ledger-label": "original amount"
-        },
-        "fuel-filled-litres": {
-          "type": "string",
-          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
-          "description": "Physical reading as exact decimal text.",
-          "x-ledger-label": "fuel-filled-litres",
-          "not": {
-            "pattern": "[\\r\\n]"
-          }
-        },
-        "trip-km": {
-          "type": "string",
-          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
-          "description": "Physical reading as exact decimal text.",
-          "x-ledger-label": "trip-km",
-          "not": {
-            "pattern": "[\\r\\n]"
-          }
-        },
-        "reimbursement-group": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original reimbursement-group: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "reimbursement-group"
-        },
-        "reimbursement-label": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original reimbursement-label: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "reimbursement-label"
-        },
-        "variable-estimate": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "excluded",
-            "reason"
-          ],
-          "properties": {
-            "excluded": {
-              "const": true
+            "^(?:Income|Equity)(?::[^\\r\\n:]+)*$": {
+              "$ref": "#/$defs/PlainAccount"
             },
-            "reason": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[^\\r\\n]+$",
-              "not": {
-                "pattern": "[\\r\\n]"
-              }
+            "^Expenses(?::[^\\r\\n:]+)*$": {
+              "$ref": "#/$defs/ExpenseAccount"
             }
           },
-          "x-ledger-label": "variable-estimate"
-        },
-        "policy-term": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "years"
-          ],
-          "properties": {
-            "years": {
-              "type": "integer",
-              "minimum": 1
-            }
-          },
-          "x-ledger-label": "policy-term"
-        },
-        "notes": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "not": {
-              "pattern": "[\\r\\n]"
-            }
-          },
-          "description": "All unstructured comment lines verbatim without semicolon, in original order; repeated structured labels also remain here."
-        },
-        "postings": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/posting"
-          },
-          "description": "Posting order is preserved; every posting is serialized on a single JSON line."
-        },
-        "statement-page": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Positive page number of the row in the billing statement PDF.",
-          "x-ledger-label": "statement-page"
-        },
-        "possible-duplicate-of": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/duplicate-link"
-          },
-          "description": "Unsettled pairs, stored only on the lexicographically smaller actual entry ID; sorted by target ID. Review removes settled links. Reserved reasons support later reader/history imports."
-        },
-        "rule": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "id",
-            "occurrence"
-          ],
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{16}$"
-            },
-            "occurrence": {
-              "type": "string",
-              "format": "date",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-            }
-          }
+          "type": "object"
         }
       },
-      "description": "One actual entry. Year files are chronological; same-date array order is the posting sequence."
-    },
-    "rule": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "date",
-        "status",
-        "description",
-        "postings",
-        "schedule"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{16}$",
-          "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
-        },
-        "date": {
-          "type": "string",
-          "format": "date",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-          "description": "Transaction date; file year must match. For forecasts this equals schedule.from."
-        },
-        "status": {
-          "enum": [
-            "confirmed",
-            "pending"
-          ],
-          "description": "confirmed emits *; pending emits !. Forecast status records confirmation without emitting a status marker."
-        },
-        "description": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "minLength": 1,
-          "description": "Original description verbatim. Forecasts retain the forecast item comment here."
-        },
-        "sources": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "not": {
-              "pattern": "[\\r\\n]"
-            }
-          },
-          "description": "All source: comment values verbatim, including non-path descriptions, in original order."
-        },
-        "serial-number": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original serial-number: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "serial-number"
-        },
-        "source-row": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Positive row number in the source bank workbook.",
-          "x-ledger-label": "source-row"
-        },
-        "source-page": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Positive page number in the entry's first source.",
-          "x-ledger-label": "source-page"
-        },
-        "statement-end": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original statement-end: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "statement-end"
-        },
-        "reference": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original reference: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "reference"
-        },
-        "order-id": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original order-id: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "order-id"
-        },
-        "classification": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original classification: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "classification"
-        },
-        "original-amount": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "amount",
-            "commodity"
-          ],
-          "properties": {
-            "amount": {
-              "type": "string",
-              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
-              "not": {
-                "pattern": "[\\r\\n]"
-              }
-            },
-            "commodity": {
-              "type": "string",
-              "pattern": "^[^\\s\";=@]+$",
-              "not": {
-                "pattern": "[\\r\\n]"
-              }
-            }
-          },
-          "description": "Original currency amount, preserving exact decimal spelling.",
-          "x-ledger-label": "original amount"
-        },
-        "fuel-filled-litres": {
-          "type": "string",
-          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
-          "description": "Physical reading as exact decimal text.",
-          "x-ledger-label": "fuel-filled-litres",
-          "not": {
-            "pattern": "[\\r\\n]"
-          }
-        },
-        "trip-km": {
-          "type": "string",
-          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
-          "description": "Physical reading as exact decimal text.",
-          "x-ledger-label": "trip-km",
-          "not": {
-            "pattern": "[\\r\\n]"
-          }
-        },
-        "reimbursement-group": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original reimbursement-group: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "reimbursement-group"
-        },
-        "reimbursement-label": {
-          "type": "string",
-          "not": {
-            "pattern": "[\\r\\n]"
-          },
-          "description": "Original reimbursement-label: comment value verbatim; first occurrence only. Further occurrences remain in notes.",
-          "x-ledger-label": "reimbursement-label"
-        },
-        "variable-estimate": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "excluded",
-            "reason"
-          ],
-          "properties": {
-            "excluded": {
-              "const": true
-            },
-            "reason": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[^\\r\\n]+$",
-              "not": {
-                "pattern": "[\\r\\n]"
-              }
-            }
-          },
-          "x-ledger-label": "variable-estimate"
-        },
-        "policy-term": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "years"
-          ],
-          "properties": {
-            "years": {
-              "type": "integer",
-              "minimum": 1
-            }
-          },
-          "x-ledger-label": "policy-term"
-        },
-        "notes": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "not": {
-              "pattern": "[\\r\\n]"
-            }
-          },
-          "description": "All unstructured comment lines verbatim without semicolon, in original order; repeated structured labels also remain here."
-        },
-        "postings": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/posting"
-          },
-          "description": "Posting order is preserved; every posting is serialized on a single JSON line."
-        },
-        "schedule": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "every",
-            "from"
-          ],
-          "properties": {
-            "every": {
-              "enum": [
-                "month",
-                "year"
-              ],
-              "description": "Calendar unit, rendered as monthly/yearly when interval is 1."
-            },
-            "from": {
-              "type": "string",
-              "format": "date",
-              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-              "description": "First recurrence date; original hledger schedule boundary."
-            },
-            "interval": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Calendar-unit multiplier, default 1 and canonically omitted when 1. Emits every N months/years. The two migrated quarterly rules use 3.",
-              "default": 1
-            },
-            "anchor-day": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 31
-            }
-          }
-        },
-        "statement-page": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Positive page number of the row in the billing statement PDF.",
-          "x-ledger-label": "statement-page"
-        },
-        "lifecycle": {
-          "enum": [
-            "active",
-            "paused",
-            "ended",
-            "removed"
-          ]
-        },
-        "created": {
-          "type": "string",
-          "format": "date",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-        },
-        "origin": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind"
-          ],
-          "properties": {
-            "kind": {
-              "enum": [
-                "owner",
-                "subscription-words",
-                "monthly-history",
-                "history-pass"
-              ]
-            },
-            "words": {
-              "type": "string"
-            },
-            "evidence": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "pattern": "^[0-9a-f]{16}$"
-              }
-            },
-            "came_back": {
-              "type": "boolean"
-            }
-          }
-        },
-        "removal": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "date",
-            "evidence"
-          ],
-          "properties": {
-            "date": {
-              "type": "string",
-              "format": "date",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-            },
-            "evidence": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "pattern": "^[0-9a-f]{16}$"
-              }
-            }
-          }
-        },
-        "amount": {
-          "const": "varies",
-          "description": "Absent means fixed; varies is restricted to a simple two-posting payment in one currency."
-        },
-        "bill": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "amount",
-            "received",
-            "occurrence",
-            "sources"
-          ],
-          "properties": {
-            "amount": {
-              "type": "string",
-              "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$"
-            },
-            "received": {
-              "type": "string",
-              "format": "date",
-              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-            },
-            "pay_by": {
-              "type": "string",
-              "format": "date",
-              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-            },
-            "occurrence": {
-              "type": "string",
-              "format": "date",
-              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-            },
-            "sources": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "minLength": 1,
-                "not": {
-                  "pattern": "[\\r\\n]"
-                }
-              }
-            }
-          }
-        }
-      },
-      "description": "Forecast-only periodic rule; array order preserves original rule order."
-    },
-    "expenses": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/entry"
-      },
-      "description": "One calendar year of actual transactions."
-    },
-    "forecast": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/rule"
-      },
-      "description": "Forecast rules, retained in original rule order."
-    },
-    "accounts": {
-      "type": "object",
-      "additionalProperties": false,
       "required": [
         "commodities",
         "accounts"
       ],
-      "properties": {
-        "commodities": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "not": {
-              "pattern": "[\\r\\n]"
-            },
-            "minLength": 1
-          },
-          "description": "Hand-kept commodity directive arguments verbatim, including precision and quotes. Not inferred from postings."
-        },
-        "accounts": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
-            "not": {
-              "pattern": "[\\r\\n]"
-            }
-          },
-          "patternProperties": {
-            "^(Income|Equity)(:|$)": {
-              "type": "object",
-              "additionalProperties": false
-            },
-            "^Expenses(:|$)": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "category": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "not": {
-                    "pattern": "[\\r\\n]"
-                  },
-                  "description": "Display category inherited by descendants unless they declare their own. Does not change journal accounts."
-                }
-              }
-            }
-          },
-          "additionalProperties": {
-            "$ref": "#/$defs/account-metadata"
-          },
-          "description": "Declared accounts in insertion order. Expenses may declare a display category; Income and Equity have empty metadata; every other root requires balance-sheet metadata."
-        }
-      }
+      "type": "object"
     },
-    "card-statement": {
-      "type": "object",
+    "Assertion": {
       "additionalProperties": false,
-      "required": [
-        "id",
-        "account",
-        "start",
-        "end",
-        "source",
-        "previous-balance",
-        "purchases",
-        "credits",
-        "total-due",
-        "rows"
-      ],
+      "description": "A confirmed balance: the account's running balance in this commodity after this posting.",
       "properties": {
-        "id": {
+        "amount": {
+          "description": "The expected balance, exact decimal text.",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
           "type": "string",
-          "pattern": "^[0-9a-f]{16}$",
-          "description": "Permanent random ID, globally unique across actuals, forecasts and statements."
+          "x-set-by": [
+            "statement",
+            "person"
+          ]
         },
-        "account": {
+        "commodity": {
+          "description": "The asserted commodity: the account currency or investment units.",
+          "pattern": "^[^\\r\\n\"]+$",
           "type": "string",
-          "minLength": 1,
-          "pattern": "^[^:\\r\\n]+(?::[^:\\r\\n]+)*$",
-          "description": "Declared account with kind card; membership is keyed by this account and end."
-        },
-        "start": {
-          "type": "string",
-          "format": "date",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-        },
-        "end": {
-          "type": "string",
-          "format": "date",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-        },
-        "source": {
-          "type": "string",
-          "pattern": "^Bills/.+\\.pdf$",
-          "description": "Exact filed statement PDF path; checked for existence."
-        },
-        "previous-balance": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
-          "description": "Exact nonnegative amount in the card account currency printed in the statement summary, including two decimal places."
-        },
-        "purchases": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
-          "description": "Exact nonnegative amount in the card account currency printed in the statement summary, including two decimal places."
-        },
-        "cash-advances": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
-          "description": "Additional cash advances added to the summary equation; omit when zero.",
-          "not": {
-            "const": "0.00"
-          }
-        },
-        "credits": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
-          "description": "Exact nonnegative amount in the card account currency printed in the statement summary, including two decimal places."
-        },
-        "total-due": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
-          "description": "Exact nonnegative amount in the card account currency printed in the statement summary, including two decimal places."
-        },
-        "rows": {
-          "type": "integer",
-          "minimum": 1
+          "x-set-by": [
+            "statement",
+            "person"
+          ]
         }
       },
-      "description": "Hand-kept printed statement summary, independent of transaction dates. previous-balance + purchases + cash-advances - credits = total-due. Omit zero optional amounts."
-    },
-    "card-statements": {
-      "type": "array",
-      "items": {
-        "oneOf": [
-          {
-            "$ref": "#/$defs/card-statement"
-          },
-          {
-            "$ref": "#/$defs/bank-statement"
-          }
-        ]
-      },
-      "description": "Filed card and balance-style account statements, in end-date order. Legacy card summaries remain unchanged."
-    },
-    "account-metadata": {
-      "type": "object",
-      "additionalProperties": false,
       "required": [
-        "kind",
-        "currency"
+        "amount",
+        "commodity"
       ],
+      "type": "object"
+    },
+    "BalanceSheetAccount": {
+      "additionalProperties": false,
+      "description": "Metadata of an Assets or Liabilities account (or another balance-sheet root).",
       "properties": {
         "kind": {
+          "description": "What the account is.",
           "enum": [
             "bank",
             "card",
@@ -934,410 +92,1835 @@
             "loan",
             "investment",
             "person"
-          ]
+          ],
+          "type": "string"
         },
         "currency": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[^\\s\";=@]+$"
+          "description": "Its currency; a declared commodity.",
+          "pattern": "^[^\\s\";=@]+$",
+          "type": "string"
         },
         "label": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[^\\r\\n]+$"
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Display name, or null."
         },
         "aliases": {
-          "type": "array",
-          "uniqueItems": true,
+          "description": "Lowercase words people use for it.",
           "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^[^A-Z\\r\\n]+$"
-          }
+            "pattern": "^[^A-Z\\r\\n]+$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
         },
         "statement": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "reader"
-          ],
-          "properties": {
-            "reader": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[^\\r\\n]+$"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StatementReader"
             },
-            "identifier": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[^\\r\\n]+$"
-            },
-            "options": {
-              "type": "object",
-              "description": "Trusted reader configuration: column mapping, date/number format, source sheet and summary cells."
+            {
+              "type": "null"
             }
-          }
+          ],
+          "description": "Statement reader settings, or null."
         }
-      }
-    },
-    "duplicate-link": {
-      "type": "object",
-      "additionalProperties": false,
+      },
       "required": [
-        "id",
-        "reason"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{16}$"
-        },
-        "reason": {
-          "enum": [
-            "amount-date-gap",
-            "dissimilar-name",
-            "several-candidates",
-            "overlapping-statements",
-            "imported-after-start"
-          ]
-        }
-      }
-    },
-    "statement-citation": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "page",
-            "line"
-          ],
-          "properties": {
-            "page": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "line": {
-              "type": "integer",
-              "minimum": 1
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "sheet",
-            "row"
-          ],
-          "properties": {
-            "sheet": {
-              "type": "string",
-              "minLength": 1
-            },
-            "row": {
-              "type": "integer",
-              "minimum": 1
-            }
-          }
-        }
-      ]
-    },
-    "bank-statement": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
         "kind",
+        "currency",
+        "label",
+        "aliases",
+        "statement"
+      ],
+      "type": "object"
+    },
+    "BankStatement": {
+      "additionalProperties": false,
+      "description": "A filed balance-style statement with its rows.",
+      "properties": {
+        "kind": {
+          "const": "bank",
+          "description": "Always \"bank\".",
+          "type": "string"
+        },
+        "id": {
+          "description": "Permanent random ID.",
+          "pattern": "^[0-9a-f]{16}$",
+          "type": "string"
+        },
+        "account": {
+          "description": "The bank or card account.",
+          "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
+          "type": "string"
+        },
+        "start": {
+          "description": "First day of the period.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string"
+        },
+        "end": {
+          "description": "Last day of the period.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string"
+        },
+        "source": {
+          "description": "The filed statement.",
+          "pattern": "^Bills/[^\\r\\n]+\\.[A-Za-z0-9]+$",
+          "type": "string"
+        },
+        "source-balance-style": {
+          "anyOf": [
+            {
+              "const": "debt",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "\"debt\" for card debt printed as positive balances, or null."
+        },
+        "opening-balance": {
+          "description": "Printed opening balance.",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
+          "type": "string"
+        },
+        "closing-balance": {
+          "description": "Printed closing balance.",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
+          "type": "string"
+        },
+        "debits": {
+          "description": "Printed debits.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$",
+          "type": "string"
+        },
+        "credits": {
+          "description": "Printed credits.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$",
+          "type": "string"
+        },
+        "rows": {
+          "description": "Number of rows.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "members": {
+          "description": "The rows, in order.",
+          "items": {
+            "$ref": "#/$defs/StatementMember"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "assertion-id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{16}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The closing-balance entry; null only for debt-style statements."
+        },
+        "reader": {
+          "description": "The reader that read it.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
         "account",
         "start",
         "end",
         "source",
+        "source-balance-style",
         "opening-balance",
         "closing-balance",
         "debits",
         "credits",
         "rows",
         "members",
+        "assertion-id",
         "reader"
       ],
-      "allOf": [
-        {
-          "if": {"required": ["source-balance-style"]},
-          "then": {"not": {"required": ["assertion-id"]}},
-          "else": {"required": ["assertion-id"]}
-        }
-      ],
+      "type": "object"
+    },
+    "Bill": {
+      "additionalProperties": false,
+      "description": "A received, unpaid bill for the current occurrence of a varying rule.",
       "properties": {
-        "id": {
+        "amount": {
+          "description": "The billed amount, exact decimal text.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$",
           "type": "string",
-          "pattern": "^[0-9a-f]{16}$",
-          "description": "Permanent random ID, globally unique across actuals, forecasts and statements."
+          "x-set-by": [
+            "person"
+          ]
         },
+        "received": {
+          "description": "When the bill arrived.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "pay-by": {
+          "anyOf": [
+            {
+              "format": "date",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Due date, or null.",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "occurrence": {
+          "description": "The occurrence it bills; equals the rule date.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "evidence": {
+          "description": "Filed bill paths.",
+          "items": {
+            "pattern": "^[^\\r\\n]+$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "x-set-by": [
+            "server"
+          ]
+        }
+      },
+      "required": [
+        "amount",
+        "received",
+        "pay-by",
+        "occurrence",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "CardStatement": {
+      "additionalProperties": false,
+      "description": "A filed card statement summary; its rows are the entries whose statement.end is its end.",
+      "properties": {
         "kind": {
-          "const": "bank"
+          "const": "card",
+          "description": "Always \"card\".",
+          "type": "string"
         },
-        "source-balance-style": {
-          "const": "debt",
-          "description": "Printed card debt normalized to signed units. Coverage and continuity use billed membership, not purchase-date overlap or a closing account-balance assertion."
+        "id": {
+          "description": "Permanent random ID.",
+          "pattern": "^[0-9a-f]{16}$",
+          "type": "string"
         },
         "account": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[^:\\r\\n]+(?::[^:\\r\\n]+)*$",
-          "description": "Declared bank or card account; signed-balance membership is keyed by this account and end."
+          "description": "The card account.",
+          "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
+          "type": "string"
         },
         "start": {
-          "type": "string",
+          "description": "First day of the period.",
           "format": "date",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string"
         },
         "end": {
-          "type": "string",
+          "description": "Last day of the period.",
           "format": "date",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string"
         },
         "source": {
-          "type": "string",
-          "pattern": "^Bills/[^\\r\\n]+\\.[A-Za-z0-9]+$"
+          "description": "The filed statement PDF.",
+          "pattern": "^Bills/[^\\r\\n]+\\.pdf$",
+          "type": "string"
         },
-        "opening-balance": {
-          "type": "string",
-          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$"
+        "previous-balance": {
+          "description": "Printed previous balance.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "type": "string"
         },
-        "closing-balance": {
-          "type": "string",
-          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$"
+        "purchases": {
+          "description": "Printed purchases.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "type": "string"
         },
-        "debits": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$"
+        "cash-advances": {
+          "anyOf": [
+            {
+              "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Printed cash advances, or null when none."
         },
         "credits": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$"
+          "description": "Printed payments and credits.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "type": "string"
+        },
+        "total-due": {
+          "description": "Printed total due.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+          "type": "string"
         },
         "rows": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "members": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "date",
-              "serial",
-              "description",
-              "amount",
-              "direction",
-              "citation",
-              "disposition"
-            ],
-            "properties": {
-              "date": {
-                "type": "string",
-                "format": "date",
-                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-                "description": "Transaction date; file year must match. For forecasts this equals schedule.from."
-              },
-              "serial": {
-                "type": "string",
-                "minLength": 1
-              },
-              "description": {
-                "type": "string",
-                "not": {
-                  "pattern": "[\\r\\n]"
-                },
-                "minLength": 1,
-                "description": "Original description verbatim. Forecasts retain the forecast item comment here."
-              },
-              "amount": {
-                "type": "string",
-                "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$"
-              },
-              "direction": {
-                "enum": [
-                  "Debit",
-                  "Credit"
-                ]
-              },
-              "citation": {
-                "$ref": "#/$defs/statement-citation"
-              },
-              "reference": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "balance": {
-                "oneOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "entry-id": {
-                "type": "string",
-                "pattern": "^[0-9a-f]{16}$",
-                "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
-              },
-              "disposition": {
-                "enum": [
-                  "recorded",
-                  "already-in-ledger",
-                  "pre-start",
-                  "overlap-pending"
-                ]
-              },
-              "review-candidates": {
-                "type": "array",
-                "minItems": 1,
-                "uniqueItems": true,
-                "items": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{16}$",
-                  "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
-                }
-              }
-            }
-          }
-        },
-        "assertion-id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{16}$",
-          "description": "Random secrets.token_hex(8); globally unique across actuals and forecasts."
-        },
-        "reader": {
-          "type": "string",
-          "minLength": 1
+          "description": "Number of rows billed.",
+          "minimum": 1,
+          "type": "integer"
         }
-      }
+      },
+      "required": [
+        "kind",
+        "id",
+        "account",
+        "start",
+        "end",
+        "source",
+        "previous-balance",
+        "purchases",
+        "cash-advances",
+        "credits",
+        "total-due",
+        "rows"
+      ],
+      "type": "object"
     },
-    "recurring-settings": {
-      "type": "object",
+    "Cost": {
       "additionalProperties": false,
+      "description": "The posting's price in another commodity: the whole price (hledger @@) or the price of one unit (@).",
+      "properties": {
+        "amount": {
+          "description": "Exact decimal text in the cost commodity, as written.",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "commodity": {
+          "description": "The commodity the posting was paid in.",
+          "pattern": "^[^\\r\\n\"]+$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "per": {
+          "description": "\"total\": the amount is the whole price. \"unit\": the price of one unit; only where it balances exactly.",
+          "enum": [
+            "total",
+            "unit"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "server",
+            "statement",
+            "history"
+          ]
+        }
+      },
+      "required": [
+        "amount",
+        "commodity",
+        "per"
+      ],
+      "type": "object"
+    },
+    "DuplicateLink": {
+      "additionalProperties": false,
+      "description": "An unsettled possible duplicate.",
+      "properties": {
+        "id": {
+          "description": "The other entry, whose ID is greater than this one.",
+          "pattern": "^[0-9a-f]{16}$",
+          "type": "string",
+          "x-set-by": [
+            "statement",
+            "person",
+            "server"
+          ]
+        },
+        "reason": {
+          "description": "Why the pair needs a look.",
+          "enum": [
+            "amount-date-gap",
+            "dissimilar-name",
+            "several-candidates",
+            "overlapping-statements",
+            "imported-after-start"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "statement",
+            "person",
+            "server"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "Entry": {
+      "additionalProperties": false,
+      "description": "One actual entry in data/expenses/<year>.json.",
+      "properties": {
+        "id": {
+          "description": "Permanent random ID, unique across entries, rules, statements and Trash.",
+          "pattern": "^[0-9a-f]{16}$",
+          "type": "string",
+          "x-set-by": [
+            "server"
+          ]
+        },
+        "date": {
+          "description": "The calendar date printed on the evidence or the payment. Its year names the file.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "status": {
+          "description": "\"pending\" when the classification still needs review.",
+          "enum": [
+            "confirmed",
+            "pending"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement",
+            "person"
+          ]
+        },
+        "description": {
+          "description": "The payee or what was paid for, as the evidence names it.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "evidence": {
+          "description": "Filed evidence paths under Bills/, or older free-text sources, in order.",
+          "items": {
+            "pattern": "^[^\\r\\n]+$",
+            "type": "string"
+          },
+          "type": "array",
+          "x-set-by": [
+            "server",
+            "statement",
+            "person"
+          ]
+        },
+        "statement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StatementRow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where a statement or import recorded it, or null.",
+          "x-set-by": [
+            "statement"
+          ]
+        },
+        "references": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/References"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identifiers on the evidence, or null.",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "classification": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A short note on how the expense was classified, or null.",
+          "x-set-by": [
+            "agent"
+          ]
+        },
+        "original-amount": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The amount in another currency, as printed, when the payment was converted.",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "reimbursement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reimbursement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reimbursement this entry belongs to, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "excluded-from-estimate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EstimateExclusion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Left out of the variable-spending estimate, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions",
+          "description": "The ledger's extension groups, in ledger.json order.",
+          "x-set-by": [
+            "agent",
+            "person"
+          ]
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The recurring rule occurrence it pays, or null.",
+          "x-set-by": [
+            "server",
+            "person"
+          ]
+        },
+        "possible-duplicate-of": {
+          "description": "Unsettled possible duplicates, sorted by ID.",
+          "items": {
+            "$ref": "#/$defs/DuplicateLink"
+          },
+          "type": "array",
+          "x-set-by": [
+            "statement",
+            "person",
+            "server"
+          ]
+        },
+        "notes": {
+          "description": "Comment lines, in order.",
+          "items": {
+            "pattern": "^[^\\r\\n]*$",
+            "type": "string"
+          },
+          "type": "array",
+          "x-set-by": [
+            "agent",
+            "statement",
+            "person",
+            "server"
+          ]
+        },
+        "postings": {
+          "description": "At least one posting, in order.",
+          "items": {
+            "$ref": "#/$defs/Posting"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-set-by": [
+            "agent",
+            "statement",
+            "person"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "date",
+        "status",
+        "description",
+        "evidence",
+        "statement",
+        "references",
+        "classification",
+        "original-amount",
+        "reimbursement",
+        "excluded-from-estimate",
+        "extensions",
+        "rule",
+        "possible-duplicate-of",
+        "notes",
+        "postings"
+      ],
+      "type": "object"
+    },
+    "EstimateExclusion": {
+      "additionalProperties": false,
+      "description": "The entry is left out of the variable-spending estimate.",
+      "properties": {
+        "reason": {
+          "description": "Why, in a few words (for example, forecast separately).",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string",
+          "x-set-by": [
+            "history"
+          ]
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ExpenseAccount": {
+      "additionalProperties": false,
+      "description": "Metadata of an Expenses account.",
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Display category inherited by sub-accounts, or null."
+        }
+      },
+      "required": [
+        "category"
+      ],
+      "type": "object"
+    },
+    "ExpenseYear": {
+      "description": "data/expenses/<year>.json: one calendar year of entries in date order.",
+      "items": {
+        "$ref": "#/$defs/Entry"
+      },
+      "type": "array"
+    },
+    "Extensions": {
+      "additionalProperties": false,
+      "description": "One group per extension the ledger lists in ledger.json, in that order; each is null when empty.\nThe core lists none, so an entry of a ledger without extensions has {}.",
+      "properties": {},
+      "type": "object"
+    },
+    "Forecast": {
+      "description": "data/forecast.json: the recurring rules in order.",
+      "items": {
+        "$ref": "#/$defs/Rule"
+      },
+      "type": "array"
+    },
+    "KeptFile": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "A file other entries still cite.",
+          "pattern": "^Bills/[^.][^\\r\\n]*$",
+          "type": "string"
+        },
+        "citations": {
+          "description": "How many other entries cite it.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "citations"
+      ],
+      "type": "object"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "description": "An amount in a commodity.",
+      "properties": {
+        "amount": {
+          "description": "Exact decimal text, as printed.",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "commodity": {
+          "description": "The commodity code.",
+          "pattern": "^[^\\s\";=@]+$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        }
+      },
+      "required": [
+        "amount",
+        "commodity"
+      ],
+      "type": "object"
+    },
+    "Origin": {
+      "additionalProperties": false,
+      "description": "How the rule came to exist.",
+      "properties": {
+        "kind": {
+          "description": "What proposed it.",
+          "enum": [
+            "owner",
+            "subscription-words",
+            "monthly-history",
+            "history-pass"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "words": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The typed words that proposed it, or null.",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "entry-ids": {
+          "description": "Entries it was proposed from.",
+          "items": {
+            "pattern": "^[0-9a-f]{16}$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "came-back": {
+          "description": "True when a removed rule was proposed again.",
+          "type": "boolean",
+          "x-set-by": [
+            "server"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "words",
+        "entry-ids",
+        "came-back"
+      ],
+      "type": "object"
+    },
+    "PageCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "description": "Page in the statement.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "line": {
+          "description": "Line on the page.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "page",
+        "line"
+      ],
+      "type": "object"
+    },
+    "PlainAccount": {
+      "additionalProperties": false,
+      "description": "Income and Equity accounts carry no metadata.",
+      "properties": {},
+      "type": "object"
+    },
+    "Posting": {
+      "additionalProperties": false,
+      "description": "One line of an entry or rule. Written on one line in the store file.",
+      "properties": {
+        "account": {
+          "description": "A declared account name.",
+          "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement",
+            "person"
+          ]
+        },
+        "amount": {
+          "description": "Signed exact decimal text: positive into the account, negative out of it.",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement",
+            "person"
+          ]
+        },
+        "commodity": {
+          "description": "The posting's commodity: the account currency, or units for an investment.",
+          "pattern": "^[^\\r\\n\"]+$",
+          "type": "string",
+          "x-set-by": [
+            "agent",
+            "statement",
+            "person"
+          ]
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its price in another commodity, or null.",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "assert": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Assertion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A confirmed balance after this posting, or null.",
+          "x-set-by": [
+            "statement",
+            "person"
+          ]
+        },
+        "notes": {
+          "description": "Comment lines under the posting, in order.",
+          "items": {
+            "pattern": "^[^\\r\\n]*$",
+            "type": "string"
+          },
+          "type": "array",
+          "x-set-by": [
+            "history"
+          ]
+        }
+      },
+      "required": [
+        "account",
+        "amount",
+        "commodity",
+        "cost",
+        "assert",
+        "notes"
+      ],
+      "type": "object"
+    },
+    "RecurringSettings": {
+      "additionalProperties": false,
+      "description": "data/recurring-settings.json.",
+      "properties": {
+        "never-automatic": {
+          "description": "Account prefixes never matched automatically.",
+          "items": {
+            "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
       "required": [
         "never-automatic"
       ],
+      "type": "object"
+    },
+    "References": {
+      "additionalProperties": false,
+      "description": "Identifiers printed by the payee or the bank.",
       "properties": {
-        "never-automatic": {
+        "reference": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A payment or bank reference printed on the evidence, or null.",
+          "x-set-by": [
+            "agent",
+            "statement"
+          ]
+        },
+        "order-id": {
+          "description": "The payee's order or invoice numbers, in order; [] when none.",
+          "items": {
+            "pattern": "^[^\\r\\n]+$",
+            "type": "string"
+          },
           "type": "array",
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$"
-          }
+          "x-set-by": [
+            "agent"
+          ]
         }
-      }
-    },
-    "trash-item": {
-      "type": "object",
-      "additionalProperties": false,
+      },
       "required": [
-        "id",
-        "entry",
-        "removed_at",
-        "reason",
-        "files",
-        "kept",
-        "index",
-        "rule_changes",
-        "duplicate_links"
+        "reference",
+        "order-id"
       ],
+      "type": "object"
+    },
+    "Reimbursement": {
+      "additionalProperties": false,
+      "description": "A shared cost that someone repays, grouped with its other parts.",
+      "properties": {
+        "group": {
+          "description": "Identifier shared by the entries of one reimbursement.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "label": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Display label for the group, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        }
+      },
+      "required": [
+        "group",
+        "label"
+      ],
+      "type": "object"
+    },
+    "Removal": {
+      "additionalProperties": false,
+      "description": "Why a removed rule was removed.",
+      "properties": {
+        "date": {
+          "description": "When it was removed.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "entry-ids": {
+          "description": "Entries that showed it had stopped.",
+          "items": {
+            "pattern": "^[0-9a-f]{16}$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        }
+      },
+      "required": [
+        "date",
+        "entry-ids"
+      ],
+      "type": "object"
+    },
+    "Rule": {
+      "additionalProperties": false,
+      "description": "One recurring rule in data/forecast.json. Its postings are the estimate.",
       "properties": {
         "id": {
+          "description": "Permanent random ID.",
+          "pattern": "^[0-9a-f]{16}$",
           "type": "string",
-          "pattern": "^[a-f0-9]{32}$"
+          "x-set-by": [
+            "server"
+          ]
+        },
+        "date": {
+          "description": "The next occurrence; equals schedule.from.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "status": {
+          "description": "Whether the owner confirmed it.",
+          "enum": [
+            "confirmed",
+            "pending"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "description": {
+          "description": "What the payment is for.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "schedule": {
+          "$ref": "#/$defs/Schedule",
+          "description": "When it recurs.",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "amount": {
+          "description": "\"varies\": the postings hold the median of the last three payments.",
+          "enum": [
+            "fixed",
+            "varies"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "lifecycle": {
+          "description": "Only active rules forecast and match.",
+          "enum": [
+            "active",
+            "paused",
+            "ended",
+            "removed"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Origin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How it was proposed, or null for older rules.",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "created": {
+          "anyOf": [
+            {
+              "format": "date",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it was made, or null for older rules.",
+          "x-set-by": [
+            "server"
+          ]
+        },
+        "removal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Removal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Removal evidence; required when removed.",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "bill": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bill"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A received unpaid bill, or null.",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "evidence": {
+          "description": "Evidence carried by older rules.",
+          "items": {
+            "pattern": "^[^\\r\\n]+$",
+            "type": "string"
+          },
+          "type": "array",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "references": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/References"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identifiers carried by older rules, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "classification": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Carried by older rules, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "original-amount": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Carried by older rules, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "reimbursement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reimbursement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Carried by older rules, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "excluded-from-estimate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EstimateExclusion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Left out of the variable-spending estimate, or null.",
+          "x-set-by": [
+            "history"
+          ]
+        },
+        "notes": {
+          "description": "Comment lines, in order.",
+          "items": {
+            "pattern": "^[^\\r\\n]*$",
+            "type": "string"
+          },
+          "type": "array",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "postings": {
+          "description": "The estimated postings of one occurrence.",
+          "items": {
+            "$ref": "#/$defs/Posting"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "date",
+        "status",
+        "description",
+        "schedule",
+        "amount",
+        "lifecycle",
+        "origin",
+        "created",
+        "removal",
+        "bill",
+        "evidence",
+        "references",
+        "classification",
+        "original-amount",
+        "reimbursement",
+        "excluded-from-estimate",
+        "notes",
+        "postings"
+      ],
+      "type": "object"
+    },
+    "RuleChange": {
+      "additionalProperties": false,
+      "description": "A rule before and after an operation; null when it did not exist.",
+      "properties": {
+        "id": {
+          "description": "The rule ID.",
+          "pattern": "^[0-9a-f]{16}$",
+          "type": "string"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The rule before, or null."
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The rule after, or null."
+        }
+      },
+      "required": [
+        "id",
+        "before",
+        "after"
+      ],
+      "type": "object"
+    },
+    "RuleLink": {
+      "additionalProperties": false,
+      "description": "The recurring rule occurrence this entry pays.",
+      "properties": {
+        "id": {
+          "description": "The rule ID.",
+          "pattern": "^[0-9a-f]{16}$",
+          "type": "string",
+          "x-set-by": [
+            "server",
+            "person"
+          ]
+        },
+        "occurrence": {
+          "description": "The occurrence date it pays.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string",
+          "x-set-by": [
+            "server",
+            "person"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "occurrence"
+      ],
+      "type": "object"
+    },
+    "Schedule": {
+      "additionalProperties": false,
+      "description": "When a rule recurs.",
+      "properties": {
+        "every": {
+          "description": "The calendar unit.",
+          "enum": [
+            "month",
+            "year"
+          ],
+          "type": "string",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "from": {
+          "description": "The current occurrence; equals the rule date.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        },
+        "interval": {
+          "description": "Units between occurrences; 1 for monthly or yearly.",
+          "minimum": 1,
+          "type": "integer",
+          "x-set-by": [
+            "person"
+          ]
+        },
+        "anchor-day": {
+          "anyOf": [
+            {
+              "maximum": 31,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Day of month it falls on when a short month moved it, or null.",
+          "x-set-by": [
+            "person",
+            "server"
+          ]
+        }
+      },
+      "required": [
+        "every",
+        "from",
+        "interval",
+        "anchor-day"
+      ],
+      "type": "object"
+    },
+    "SheetCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "sheet": {
+          "description": "Worksheet name.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "row": {
+          "description": "Row in the sheet.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sheet",
+        "row"
+      ],
+      "type": "object"
+    },
+    "StatementMember": {
+      "additionalProperties": false,
+      "description": "One row of a balance-style statement.",
+      "properties": {
+        "date": {
+          "description": "Printed date.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string"
+        },
+        "serial": {
+          "description": "Row serial.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "description": {
+          "description": "Printed description.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "amount": {
+          "description": "Printed amount.",
+          "pattern": "^(0|[1-9][0-9]*)\\.[0-9]+$",
+          "type": "string"
+        },
+        "direction": {
+          "description": "Debit or Credit.",
+          "enum": [
+            "Debit",
+            "Credit"
+          ],
+          "type": "string"
+        },
+        "citation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageCitation"
+            },
+            {
+              "$ref": "#/$defs/SheetCitation"
+            }
+          ],
+          "description": "Where the row is printed."
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Printed reference, or null."
+        },
+        "balance": {
+          "anyOf": [
+            {
+              "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Printed running balance, or null."
+        },
+        "entry-id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{16}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The entry recorded for it, or null."
+        },
+        "disposition": {
+          "description": "What Apply did with it.",
+          "enum": [
+            "recorded",
+            "already-in-ledger",
+            "pre-start",
+            "overlap-pending"
+          ],
+          "type": "string"
+        },
+        "review-candidates": {
+          "description": "Entries to compare in Review.",
+          "items": {
+            "pattern": "^[0-9a-f]{16}$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "date",
+        "serial",
+        "description",
+        "amount",
+        "direction",
+        "citation",
+        "reference",
+        "balance",
+        "entry-id",
+        "disposition",
+        "review-candidates"
+      ],
+      "type": "object"
+    },
+    "StatementReader": {
+      "additionalProperties": false,
+      "description": "How to read this account's statements.",
+      "properties": {
+        "reader": {
+          "description": "The reader name.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string"
+        },
+        "identifier": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Text that identifies the account on its statements, or null."
+        },
+        "options": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Trusted reader configuration, or null."
+        }
+      },
+      "required": [
+        "reader",
+        "identifier",
+        "options"
+      ],
+      "type": "object"
+    },
+    "StatementRow": {
+      "additionalProperties": false,
+      "description": "Where the entry was read from a statement or an imported file.",
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "End date of the filed card statement that bills this entry.",
+          "x-set-by": [
+            "statement"
+          ]
+        },
+        "serial": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The row's serial number printed on the statement.",
+          "x-set-by": [
+            "statement"
+          ]
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Page of the row in the filed card statement PDF.",
+          "x-set-by": [
+            "statement"
+          ]
+        },
+        "source-page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Page of the row in the entry's first evidence file.",
+          "x-set-by": [
+            "statement"
+          ]
+        },
+        "source-row": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Row number in an imported bank workbook.",
+          "x-set-by": [
+            "statement"
+          ]
+        }
+      },
+      "required": [
+        "end",
+        "serial",
+        "page",
+        "source-page",
+        "source-row"
+      ],
+      "type": "object"
+    },
+    "Statements": {
+      "description": "data/card-statements.json: filed statements in end-date order.",
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CardStatement"
+          },
+          {
+            "$ref": "#/$defs/BankStatement"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "Trash": {
+      "description": "data/trash.json: deleted entries.",
+      "items": {
+        "$ref": "#/$defs/TrashItem"
+      },
+      "type": "array"
+    },
+    "TrashFile": {
+      "additionalProperties": false,
+      "properties": {
+        "original": {
+          "description": "Where the file was filed.",
+          "pattern": "^Bills/[^.][^\\r\\n]*$",
+          "type": "string"
+        },
+        "stored": {
+          "description": "Where Trash keeps it.",
+          "pattern": "^data/trash-files/[a-f0-9]{32}/[^/\\r\\n]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "original",
+        "stored"
+      ],
+      "type": "object"
+    },
+    "TrashItem": {
+      "additionalProperties": false,
+      "description": "One deleted entry, restorable until its time limit.",
+      "properties": {
+        "id": {
+          "description": "The Delete operation ID.",
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
         },
         "entry": {
-          "$ref": "#/$defs/entry"
+          "$ref": "#/$defs/Entry",
+          "description": "The entry as it was."
         },
-        "removed_at": {
-          "type": "string",
-          "format": "date-time"
+        "removed-at": {
+          "description": "When it was deleted.",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)$",
+          "type": "string"
         },
-        "added_at": {
-          "type": [
-            "string",
-            "null"
+        "added-at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "format": "date-time"
+          "description": "When it was added, or null when unknown."
         },
         "reason": {
+          "description": "The reason given, or \"\".",
           "type": "string"
         },
         "index": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "rule_changes": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        },
-        "duplicate_links": {
-          "type": "object"
+          "description": "Its position among same-day entries.",
+          "minimum": 0,
+          "type": "integer"
         },
         "files": {
-          "type": "array",
+          "description": "Evidence only it cited, moved to Trash.",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "original",
-              "stored"
-            ],
-            "properties": {
-              "original": {
-                "type": "string",
-                "pattern": "^Bills/[^.].*"
-              },
-              "stored": {
-                "type": "string",
-                "pattern": "^data/trash-files/[a-f0-9]{32}/[^/]+$"
-              }
-            }
-          }
+            "$ref": "#/$defs/TrashFile"
+          },
+          "type": "array"
         },
         "kept": {
-          "type": "array",
+          "description": "Evidence other entries still cite.",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "path",
-              "citations"
-            ],
-            "properties": {
-              "path": {
-                "type": "string",
-                "pattern": "^Bills/[^.].*"
+            "$ref": "#/$defs/KeptFile"
+          },
+          "type": "array"
+        },
+        "rule-changes": {
+          "description": "Rules the Delete changed.",
+          "items": {
+            "$ref": "#/$defs/RuleChange"
+          },
+          "type": "array"
+        },
+        "duplicate-links": {
+          "description": "Duplicate links removed from other entries, by entry ID.",
+          "patternProperties": {
+            "^[0-9a-f]{16}$": {
+              "items": {
+                "$ref": "#/$defs/DuplicateLink"
               },
-              "citations": {
-                "type": "integer",
-                "minimum": 1
-              }
+              "type": "array"
             }
-          }
+          },
+          "type": "object"
         }
-      }
-    },
-    "trash": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/trash-item"
-      }
+      },
+      "required": [
+        "id",
+        "entry",
+        "removed-at",
+        "added-at",
+        "reason",
+        "index",
+        "files",
+        "kept",
+        "rule-changes",
+        "duplicate-links"
+      ],
+      "type": "object"
     }
   }
 }

@@ -11,7 +11,9 @@ Start with [SETUP.md](../SETUP.md) to set up a ledger with a coding agent, and t
 | [policy/BOOKKEEPING.md](../policy/BOOKKEEPING.md) | The general bookkeeping policy; a ledger's `AGENTS.md` adds personal rules |
 | [Ledger template](../templates/ledger/README.md) | What a new ledger holds; its [readers](../templates/ledger/readers/README.md) and [private checks](../templates/ledger/checks/README.md) |
 | [CURRENCIES.md](CURRENCIES.md) | Account currencies, formatting, separate totals and currency-change commands |
-| [MODULES.md](MODULES.md) | Optional fuel, investments, history lookup and weekly review |
+| [MODULES.md](MODULES.md) | Optional investments, history lookup and weekly review; fuel |
+| [EXTENSIONS.md](EXTENSIONS.md) | Ledger-specific entry fields: built-in fuel and a ledger's own extensions |
+| [STORE.md](STORE.md) | The ledger store (format 2): every document and field, the layout and the agent's answer |
 | [RULES.md](RULES.md) | Recurring rules, varying amounts and saved bills |
 | [READERS.md](READERS.md) | Statement readers (interface 1), generic CSV and spreadsheet options, unknown formats |
 | [ADAPTERS.md](ADAPTERS.md) | The in-app agent: choosing an adapter, isolation, sign-in and checks |

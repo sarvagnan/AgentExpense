@@ -14,7 +14,7 @@ from statement_readers import Registry, check_statement
 from statements import Statements
 from store import load, dump
 from audit import records
-from support import Fixture
+from support import Fixture, meta, entry as store_entry, posting
 from cited_statement_fixtures import answer, file_bytes
 
 ACCOUNT='Assets:Deposits:Cited Export'
@@ -24,7 +24,7 @@ class StatementReading(Fixture):
     def setUp(self):
         super().setUp()
         self.currency=json.loads((self.ledger/'ledger.json').read_text())['defaultCurrency']
-        self.meta=dict(kind='bank',currency=self.currency,label='Cited Export')
+        self.meta=meta(kind='bank',currency=self.currency,label='Cited Export')
         docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][ACCOUNT]=self.meta
         dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json'])
         self.jj('commit','-m','Fictional statement reading baseline')
@@ -107,7 +107,7 @@ class StatementReading(Fixture):
         sessions.work(threading.Event());result=sessions.get(session['id'])
         self.assertEqual(result['state'],'found',result.get('error'));self.assertTrue(result['agent_verified'])
         self.assertEqual(len(self.calls()),1);self.assertIsNotNone(result['learning'])
-        self.assertNotIn('statement',load(self.ledger)[self.ledger/'data/accounts.json']['accounts'][ACCOUNT])
+        self.assertIsNone(load(self.ledger)[self.ledger/'data/accounts.json']['accounts'][ACCOUNT]['statement'])
         sessions.learn(session['id'],True)
         for row in result['plan']['items']:
             if row['needs_user']:sessions.decide(session['id'],row['row']['serial'],dict(action='pending'))
@@ -126,7 +126,7 @@ class StatementReading(Fixture):
         sessions.queue_apply(s['id']);sessions.work(threading.Event())
         self.assertEqual(sessions.get(s['id'])['state'],'failed');self.assertIn('source changed',sessions.get(s['id'])['error'])
         sessions.discard(s['id'])
-        self.assertNotIn('statement',load(self.ledger)[self.ledger/'data/accounts.json']['accounts'][ACCOUNT])
+        self.assertIsNone(load(self.ledger)[self.ledger/'data/accounts.json']['accounts'][ACCOUNT]['statement'])
         self.assertEqual(records(self.ledger),[])
 
     def test_unknown_add_interpretation_is_read_only_and_queues_own_session(self):
@@ -173,7 +173,7 @@ class StatementReading(Fixture):
                     if item['needs_user']:sessions.decide(s['id'],item['row']['serial'],dict(action='pending'))
                 sessions.queue_apply(s['id']);sessions.work(threading.Event());s=sessions.get(s['id'])
                 self.assertEqual(s['state'],'applied',s.get('error'))
-                self.assertNotIn('statement',load(self.ledger)[self.ledger/'data/accounts.json']['accounts'][account])
+                self.assertIsNone(load(self.ledger)[self.ledger/'data/accounts.json']['accounts'][account]['statement'])
 
     def test_card_debt_figures_are_verified_before_signed_normalization(self):
         source,_=self.source();read=answer(self.currency)
@@ -188,7 +188,7 @@ class StatementReading(Fixture):
     def test_recognised_parse_failure_never_calls_agent(self):
         from statement_fixtures import statement_pdf
         card='Liabilities:Plastic:Recognised'
-        docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][card]=dict(kind='card',currency=self.currency,statement=dict(reader='example-card-pdf',identifier='5678'))
+        docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][card]=meta(kind='card',currency=self.currency,statement=dict(reader='example-card-pdf',identifier='5678'))
         dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json'])
         sessions=Statements(self.settings);s=sessions.create(statement_pdf(),'Recognised.pdf')
         with patch('statement_readers.Reader.read',side_effect=ValueError('Invalid printed layout')),patch('agent.run') as run,patch('statements.plan') as plan:
@@ -275,8 +275,8 @@ class StatementReading(Fixture):
             with ledger_lock(self.ledger):
                 docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts']['Equity:Opening Balances']={}
                 docs[self.ledger/'data/expenses/2026.json']=[
-                    dict(id='a'*16,date='2026-01-01',status='confirmed',description='Concurrent opening',postings=[dict(account=ACCOUNT,amount='100.00',commodity=self.currency),dict(account='Equity:Opening Balances',amount='-100.00',commodity=self.currency)]),
-                    dict(id='b'*16,date='2026-01-02',status='confirmed',description='Fable Shop',reference='CITED-001',postings=[dict(account='Expenses:Food',amount='10.00',commodity=self.currency),dict(account=ACCOUNT,amount='-10.00',commodity=self.currency)])]
+                    store_entry('a'*16,'2026-01-01','Concurrent opening',[posting(ACCOUNT,'100.00',self.currency),posting('Equity:Opening Balances','-100.00',self.currency)]),
+                    store_entry('b'*16,'2026-01-02','Fable Shop',[posting('Expenses:Food','10.00',self.currency),posting(ACCOUNT,'-10.00',self.currency)],references={'reference':'CITED-001','order-id':[]})]
                 for path,value in docs.items():dump(path,value)
                 self.jj('commit','-m','Fictional concurrent addition')
             return result

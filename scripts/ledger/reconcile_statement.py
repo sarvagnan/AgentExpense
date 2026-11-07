@@ -9,14 +9,14 @@ import json
 from pathlib import Path
 import re
 
-from store import ROOT, entries, load, read_json
+from store import ROOT, empty_entry, entries, load, posting, read_json
 
 READER = 'example-card-pdf'
 
 
 def statement_accounts(documents, root, reader=READER):
     return {account: meta for account, meta in documents[root / 'data/accounts.json']['accounts'].items()
-            if meta.get('kind') in (('card',) if reader == READER else ('card', 'bank')) and (reader is None or meta.get('statement', {}).get('reader') == reader)}
+            if meta.get('kind') in (('card',) if reader == READER else ('card', 'bank')) and (reader is None or (meta.get('statement') or {}).get('reader') == reader)}
 
 
 def select_account(documents, root, identifier=None, account=None):
@@ -24,7 +24,7 @@ def select_account(documents, root, identifier=None, account=None):
         metadata = documents[root / 'data/accounts.json']['accounts'].get(account, {})
         if metadata.get('kind') not in ('bank', 'card') or not metadata.get('currency'):
             raise ValueError('Choose a declared bank or card account for this statement.')
-        if identifier and (not metadata.get('statement', {}).get('reader') or metadata.get('statement', {}).get('identifier') not in (None, identifier)):
+        if identifier and (not (metadata.get('statement') or {}).get('reader') or (metadata.get('statement') or {}).get('identifier') not in (None, identifier)):
             raise ValueError('The printed identifier does not match the selected account.')
         return account
     candidates = statement_accounts(documents, root)
@@ -130,7 +130,7 @@ def card_amount(entry: dict, account: str) -> Decimal | None:
 def activity(entry: dict, account: str) -> bool:
     return (any(p['account'] == account for p in entry['postings'])
             and not any(p['account'].startswith('Equity:Opening Balances') for p in entry['postings'])
-            and not all(Decimal(p['amount']) == 0 and 'assert' in p for p in entry['postings']))
+            and not all(Decimal(p['amount']) == 0 and p['assert'] for p in entry['postings']))
 
 
 def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str | None = None, identifier: str | None = None,
@@ -175,9 +175,10 @@ def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str
         previous = -card_amount(openings[0], account)
     serials = {}
     for entry in actuals:
-        if entry.get('serial-number'):
-            serials.setdefault(entry['serial-number'], []).append(entry)
-    unbilled = [e for e in actuals if 'statement-end' not in e and activity(e, account)]
+        serial = (entry['statement'] or {}).get('serial')
+        if serial:
+            serials.setdefault(serial, []).append(entry)
+    unbilled = [e for e in actuals if not (e['statement'] or {}).get('end') and activity(e, account)]
     matched_ids = set()
     serial_ids = set()
     result = dict(alreadyMembers=[], serialMatches=[], candidateRows=[], newRows=[], warnings=[])
@@ -187,7 +188,7 @@ def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str
         matches = [e for e in serials.get(row['serial'], []) if activity(e, account)]
         if len(matches) > 1:
             raise ValueError(f"Ambiguous store serial: {row['serial']}")
-        fields = {'statement-end': end, 'serial-number': row['serial'], 'statement-page': row['page']}
+        fields = {'end': end, 'serial': row['serial'], 'page': row['page']}
         if not matches:
             rest.append((row, signed, fields))
             continue
@@ -198,16 +199,16 @@ def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str
         problems = []
         if card_amount(entry, account) != signed:
             problems.append('Serial matches but amount/direction differs; do not apply membership')
-        if entry.get('statement-end') == end:
-            if entry.get('statement-page') != row['page']:
-                problems.append('Stored statement-page differs from extracted row')
-            if source and source not in entry.get('sources', []):
+        if (entry['statement'] or {}).get('end') == end:
+            if entry['statement']['page'] != row['page']:
+                problems.append('Stored statement.page differs from extracted row')
+            if source and source not in entry['evidence']:
                 problems.append('Stored member is missing the statement PDF source')
             bucket = 'alreadyMembers'
         else:
             bucket = 'serialMatches'
-            if 'statement-end' in entry:
-                proposal['existingStatementEnd'] = entry['statement-end']
+            if (entry['statement'] or {}).get('end'):
+                proposal['existingStatementEnd'] = entry['statement']['end']
                 problems.append('Different statement membership requires owner review')
         if problems:
             proposal['warnings'] = problems
@@ -234,12 +235,11 @@ def reconcile(documents: dict, rows: list, *, end: str, start: str, account: str
             # Posting amounts require a decimal point; retain all supplied precision.
             amount += '' if '.' in amount else '.00'
             expense_amount += '' if '.' in expense_amount else '.00'
-            proposal = dict(date=row['date'], status='pending', description=row['description'], **fields,
-                            notes=['Pending classification from statement row; allocate an id and cite the filed PDF before adding.'],
-                            postings=[dict(account='Expenses:Uncategorized', amount=expense_amount, commodity=currency),
-                                      dict(account=account, amount=amount, commodity=currency)])
-            if source:
-                proposal['sources'] = [source]
+            proposal = empty_entry(root, date=row['date'], status='pending', description=row['description'],
+                                   statement={**fields, 'source-page': None, 'source-row': None},
+                                   evidence=[source] if source else [],
+                                   notes=['Pending classification from statement row; allocate an id and cite the filed PDF before adding.'],
+                                   postings=[posting('Expenses:Uncategorized', expense_amount, currency), posting(account, amount, currency)])
             result['newRows'].append(dict(row=row, proposedEntry=proposal))
     candidate_usage = {}
     for item in result['candidateRows']:

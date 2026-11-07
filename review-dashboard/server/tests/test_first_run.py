@@ -75,7 +75,7 @@ class FirstRun(Fixture):
             self.assertTrue(clean(self.ledger))
             documents = load(self.ledger)
             declared = documents[self.ledger / 'data/accounts.json']
-            self.assertEqual(declared['accounts']['Assets:Bank:Meadow Savings'], dict(kind='bank', currency='EUR', label='Meadow Savings', aliases=['meadow savings']))
+            self.assertEqual(declared['accounts']['Assets:Bank:Meadow Savings'], dict(kind='bank', currency='EUR', label='Meadow Savings', aliases=['meadow savings'], statement=None))
             self.assertEqual(declared['accounts']['Assets:People:Casey Morgan']['kind'], 'person')
             self.assertIn('Assets:Cash', declared['accounts'])
             self.assertIn('Equity:Opening Balances', declared['accounts'])

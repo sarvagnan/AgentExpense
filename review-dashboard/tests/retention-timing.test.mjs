@@ -79,7 +79,7 @@ test('Trash thirty-second expiry poll holds rows under the pointer until departu
 });
 test('Delete and Restore wait for a new dashboard snapshot after a held pre-write reload',async()=>{
  const old=deferred(),exports={};let reads=0;
- vm.runInNewContext(compile('../app/data.ts'),{exports,Response,ReadableStream,Uint8Array,DecompressionStream,fetch:async url=>url.includes('dashboard')?(++reads===1?old.promise:new Response(JSON.stringify({meta:{ledger:{}},transactions:[]}))):new Response('{}'),require:name=>name.includes('ledger-modules')?{moduleSettings:()=>({fuel:false})}:name.includes('account-metadata')?{setCurrentAccounts(){}}:name.includes('formatting')?{setMoneySettings(){}}:{setDateLocale(){}}});
+ vm.runInNewContext(compile('../app/data.ts'),{exports,Response,ReadableStream,Uint8Array,DecompressionStream,fetch:async url=>url.includes('dashboard')?(++reads===1?old.promise:new Response(JSON.stringify({meta:{ledger:{}},transactions:[]}))):new Response('{}'),require:name=>name.includes('ledger-modules')?{moduleSettings:()=>({}),hasExtension:()=>false}:name.includes('account-metadata')?{setCurrentAccounts(){}}:name.includes('formatting')?{setMoneySettings(){}}:{setDateLocale(){}}});
  const before=exports.reloadData();let completed=false;const after=exports.reloadData().then(()=>{completed=true;});
  await new Promise(r=>setImmediate(r));assert.equal(reads,1);assert.equal(completed,false,'A write cannot reuse the pending old snapshot');
  old.resolve(new Response(JSON.stringify({meta:{ledger:{}},transactions:[{id:'removed'}]})));await before;await after;

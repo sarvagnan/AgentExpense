@@ -58,7 +58,7 @@ async function port() {
 async function staging(persona) {
   const root=join(artifacts,persona),app=join(root,'application'),dash=join(app,'review-dashboard'),ledger=join(app,'ledger');
   await mkdir(app,{recursive:true});
-  for(const path of ['scripts','schema','migrations','policy','templates','readers','Makefile','.node-version','VERSION'])await cp(join(source,path),join(app,path),{recursive:true,filter,preserveTimestamps:true});
+  for(const path of ['scripts','schema','extensions','migrations','policy','templates','readers','Makefile','.node-version','VERSION'])await cp(join(source,path),join(app,path),{recursive:true,filter,preserveTimestamps:true});
   for(const path of ['app','public','scripts','server','tests','index.html','package.json','package-lock.json','tsconfig.json','vite.config.ts'])await cp(join(source,'review-dashboard',path),join(dash,path),{recursive:true,filter,preserveTimestamps:true});
   // Private dependency directory; package links are read-only inputs. Vite caches stay local.
   const {readdir,symlink}=await import('node:fs/promises');
@@ -70,7 +70,7 @@ async function staging(persona) {
   const jjConfig=join(root,'jj.toml');await writeFile(jjConfig,'[user]\nname = "Browser Fixture"\nemail = "browser@example.invalid"\n');
   const fake=join(root,'fake-agent');await writeFile(fake,`#!${python}\n`+(await readFile(join(source,'review-dashboard/server/tests/fake_agent.py'),'utf8')).split('\n').slice(1).join('\n'),{mode:0o755});
   const config=join(root,'fake.json');await writeFile(config,JSON.stringify({steps:[]}));
-  const env={...process.env,DASHBOARD_DATA_DIR:dash,npm_config_update_notifier:'false',DASHBOARD_TODAY:process.env.DASHBOARD_TODAY || '2026-11-01',PYTHONDONTWRITEBYTECODE:'1',VIRTUAL_ENV:venv,PATH:join(venv,'bin')+':'+process.env.PATH,UV_OFFLINE:'1',UV_NO_SYNC:'1',UV_CACHE_DIR:join(root,'uv-cache'),npm_config_cache:join(root,'npm-cache'),NODE_COMPILE_CACHE:join(root,'node-cache'),EXPENSES_TEST_ORACLE_CACHE:join(root,'hledger-oracles'),JJ_CONFIG:jjConfig,LEDGER_DIR:ledger,EXPENSES_STATE_DIR:join(root,'state'),EXPENSES_CODEX_HOME:join(root,'agent-home'),EXPENSES_CODEX:fake,EXPENSES_FAKE_CONFIG:config,EXPENSES_DEV:'1',EXPENSES_BASE_PATH:'/expenses/',EXPENSES_AGENT_TIMEOUT:'10',BROWSER_PERSONA:persona};
+  const env={...process.env,DASHBOARD_DATA_DIR:dash,npm_config_update_notifier:'false',DASHBOARD_TODAY:process.env.DASHBOARD_TODAY || '2026-11-01',PYTHONDONTWRITEBYTECODE:'1',VIRTUAL_ENV:venv,LEDGER_PYTHON:join(venv,'bin/python'),PATH:join(venv,'bin')+':'+process.env.PATH,UV_OFFLINE:'1',UV_NO_SYNC:'1',UV_CACHE_DIR:join(root,'uv-cache'),npm_config_cache:join(root,'npm-cache'),NODE_COMPILE_CACHE:join(root,'node-cache'),EXPENSES_TEST_ORACLE_CACHE:join(root,'hledger-oracles'),JJ_CONFIG:jjConfig,LEDGER_DIR:ledger,EXPENSES_STATE_DIR:join(root,'state'),EXPENSES_CODEX_HOME:join(root,'agent-home'),EXPENSES_CODEX:fake,EXPENSES_FAKE_CONFIG:config,EXPENSES_DEV:'1',EXPENSES_BASE_PATH:'/expenses/',EXPENSES_AGENT_TIMEOUT:'10',BROWSER_PERSONA:persona};
   await run('jj',['git','init','--colocate',ledger],{cwd:app,env});
   await run('jj',['-R',ledger,'commit','-m','Fictional browser baseline'],{cwd:app,env});
   await run('jj',['-R',ledger,'bookmark','set','main','-r','@-'],{cwd:app,env});

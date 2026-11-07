@@ -28,7 +28,7 @@ class AuditTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(prefix='expense-audit-')
         self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
         from store import dump
-        dump(self.root/'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
+        dump(self.root/'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR', extensions={}))
 
     def add(self,line):
         with ledger_lock(self.root): append(self.root,line)
@@ -189,7 +189,9 @@ class AuditTests(unittest.TestCase):
 
     def test_mixed_rule_verdicts_are_append_only_locked_and_do_not_mutate_rules(self):
         from store import dump
-        rule={'id':'f000000000000001','description':'Willow club'}
+        from test_ledger import rule as new_rule
+        rule=new_rule(identity='f000000000000001',description='Willow club')
+        dump(self.root/'data/accounts.json',{'commodities':['INR'],'accounts':{'Expenses:Test':{'category':None},'Liabilities:Credit Cards:Example Card':{'kind':'card','currency':'INR','label':None,'aliases':[],'statement':None}}})
         dump(self.root/'data/forecast.json',[rule])
         one=draft();self.add(one)
         operation=event('rule',rule_action='made',request_id='1'*32,request_hash='2'*64,rule_changes=[dict(id=rule['id'],before=None,after=rule)])

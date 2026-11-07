@@ -41,13 +41,13 @@ def currency_changes(root, code, account=None):
                 if posting['commodity'] == old:
                     delta += Decimal(posting['amount'])
                     posting['commodity'] = code
-                elif posting.get('cost', {}).get('commodity') == old:
+                elif (posting.get('cost') or {}).get('commodity') == old:
                     cost = posting['cost']
                     quantity = Decimal(posting['amount'])
                     value = abs(Decimal(cost['amount'])) * (abs(quantity) if cost['per'] == 'unit' else 1)
                     delta += value * (-1 if quantity < 0 else 1)
                     cost['commodity'] = code
-                if posting.get('assert', {}).get('commodity') == old:
+                if (posting.get('assert') or {}).get('commodity') == old:
                     posting['assert']['commodity'] = code
             if delta:
                 if not equity:
@@ -59,7 +59,8 @@ def currency_changes(root, code, account=None):
                     equity[0]['commodity'] = code
                 else:
                     equity[0]['amount'] = format(remainder, '.2f')
-                    entry['postings'].append(dict(account='Equity:Opening Balances', amount=format(-delta, '.2f'), commodity=code))
+                    entry['postings'].append({'account': 'Equity:Opening Balances', 'amount': format(-delta, '.2f'), 'commodity': code,
+                                              'cost': None, 'assert': None, 'notes': []})
             changed[path] = rows
     if any(s['account'] == account for s in documents[root / 'data/card-statements.json']):
         raise ValueError(f'{account}: currency is fixed by a filed statement')

@@ -25,7 +25,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ledger_lock import ledger_lock
 from project_paths import APPLICATION_ROOT
-from store import ROOT, dump, load, new_id, read_json, validate
+from store import ROOT, dump, empty_entry, load, new_id, posting, read_json, validate
+from account_metadata import empty
 
 KINDS = ('bank', 'card', 'cash', 'wallet', 'loan', 'investment', 'person')
 PARENTS = {'bank': 'Assets:Bank', 'card': 'Liabilities:Credit Cards', 'cash': 'Assets:Cash', 'wallet': 'Assets:Wallets',
@@ -71,7 +72,7 @@ def account_changes(root, *, kind=None, label=None, currency=None, aliases=(), r
             raise ValueError('Give --kind and --label for a balance-sheet account, or only --account for a category.')
         if account.startswith(('Assets:', 'Liabilities:')):
             raise ValueError('Assets and Liabilities accounts need --kind and --label.')
-        name, meta = account, {}
+        name, meta = account, empty(account)
     else:
         if kind not in KINDS:
             raise ValueError('--kind must be one of ' + ', '.join(KINDS))
@@ -85,7 +86,7 @@ def account_changes(root, *, kind=None, label=None, currency=None, aliases=(), r
             currency = currency.upper()
             if currency not in currencies():
                 raise ValueError(f'--currency must be an ISO 4217 code such as USD; {currency!r} is not one.')
-        meta = dict(kind=kind, currency=currency, label=label.strip())
+        meta = dict(kind=kind, currency=currency, label=label.strip(), aliases=[], statement=None)
         words = [a.strip().lower() for a in aliases if a.strip()]
         if words:
             meta['aliases'] = list(dict.fromkeys(words))
@@ -97,11 +98,11 @@ def account_changes(root, *, kind=None, label=None, currency=None, aliases=(), r
             known = readers if readers is not None else reader_ids(root)
             if reader not in known:
                 raise ValueError(f'Unknown statement reader {reader!r}; known readers: {", ".join(sorted(known))}.')
-            meta['statement'] = {'reader': reader, **({'identifier': identifier.strip()} if identifier else {})}
+            meta['statement'] = {'reader': reader, 'identifier': identifier.strip() if identifier else None, 'options': None}
     check_account_name(name)
     if name in declared['accounts']:
         raise ValueError(f'{name} is already declared.')
-    if meta and any(existing.startswith(name + ':') or name.startswith(existing + ':')
+    if meta.get('kind') and any(existing.startswith(name + ':') or name.startswith(existing + ':')
                     for existing, other in declared['accounts'].items() if other.get('kind')):
         raise ValueError(f'{name} would nest inside or around another balance-sheet account.')
     declared['accounts'][name] = meta
@@ -122,7 +123,7 @@ def find_account(accounts, key):
     if key in accounts:
         return key
     matches = [name for name, meta in accounts.items()
-               if meta.get('kind') and key.strip().lower() in {(meta.get('label') or '').lower(), *meta.get('aliases', [])}]
+               if meta.get('kind') and key.strip().lower() in {(meta.get('label') or '').lower(), *(meta.get('aliases') or [])}]
     if len(matches) != 1:
         raise ValueError(f'{key!r} matches {"no" if not matches else "more than one"} declared account; use its full name.')
     return matches[0]
@@ -185,9 +186,9 @@ def opening_changes(root, start, balances, *, documents=None, manifest=None):
         negated = amount_text(str(-number), currency)[1]
         identity = new_id(used)
         used.add(identity)
-        held = {'account': name, 'amount': text, 'commodity': currency, 'assert': {'amount': text, 'commodity': currency}}
-        entries.append(dict(id=identity, date=start, status='confirmed', description='Opening balance', postings=[
-            held, dict(account=OPENING, amount=negated, commodity=currency)]))
+        held = posting(name, text, currency, assertion={'amount': text, 'commodity': currency})
+        entries.append(empty_entry(root, id=identity, date=start, status='confirmed', description='Opening balance', postings=[
+            held, posting(OPENING, negated, currency)]))
     entries.sort(key=lambda entry: entry['date'])
     if OPENING not in declared['accounts']:
         declared['accounts'][OPENING] = {}

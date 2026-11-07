@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agent import AgentFailure, SCHEMA, schema_for, codex_environment, command_for, run
+from agent import AgentFailure, schema_for, codex_environment, command_for, run
 from agent_check import (DiagnosticUnavailable, NESTED_TOOLS, OFFLINE_PROMPT, PolicyFailure,
                          PROBE_SCHEMA, check_live, check_offline,
                          configured_features, debug_command, fixture, home_problems,
@@ -328,8 +328,8 @@ class AgentIsolationTests(unittest.TestCase):
             home = work / 'service-home'
             fake.write_text(f'#!{sys.executable}\nimport os\nassert os.environ[\"CODEX_HOME\"] == {str(home)!r}\n' + source)
             fake.chmod(0o755)
-            answer = dict(status='not_expense', question=None, entry=None, new_accounts=[],
-                          doubts=[], attachment_names=[], explanation='Fixture diagnostic')
+            answer = {'status': 'not_expense', 'question': None, 'entry': None, 'new-accounts': [],
+                      'doubts': [], 'attachment-names': [], 'explanation': 'Fixture diagnostic'}
             config = work / 'fake.json'
             config.write_text(json.dumps({'steps': [{'answer': answer}]}))
             settings = replace(Settings(), ledger=ledger, old_ledger=old, codex=str(fake), codex_home=home, state_dir=work / 'state')

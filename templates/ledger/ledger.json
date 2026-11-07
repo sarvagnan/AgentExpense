@@ -4,7 +4,6 @@
   "name": "{{name}}",
   "defaultCurrency": "{{currency}}",
   "modules": {
-    "fuel": false,
     "investments": {
       "prices": null
     },
@@ -13,6 +12,7 @@
     },
     "weeklyReview": false
   },
+  "extensions": {},
   "review": {
     "storageKey": null
   }

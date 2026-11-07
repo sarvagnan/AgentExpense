@@ -1,0 +1,8 @@
+{
+  "name": "fuel",
+  "description": "Readings from a fuel receipt or the vehicle.",
+  "fields": {
+    "litres": {"type": "decimal", "filled-by": "agent", "description": "Fuel filled, in litres, as printed on the receipt.", "journal-tag": "fuel-filled-litres"},
+    "trip-km": {"type": "decimal", "filled-by": "agent", "description": "The trip meter reading in kilometres, when the person gives it.", "journal-tag": "trip-km"}
+  }
+}

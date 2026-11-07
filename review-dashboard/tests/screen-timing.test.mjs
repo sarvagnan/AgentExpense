@@ -105,13 +105,13 @@ function handHarness(){
   handForm:(id,token,form)=>{calls.push(['form',id,token,form.entry.date]);return hold('form');},discard:id=>{calls.push(['discard',id]);return hold('discard');}};
  const element=(type,props)=>({type,props});
  const h=hookHarness('../app/live/hand-finish.tsx',{
-  './balance-refusal':{BalanceNotice:'notice',balanceSource:()=>''},'../date-time':{formatCalendarDate:x=>x},'../ui':{Icon:'icon',plural:(n,one)=>`${n} ${n===1?one:one+'s'}`},'../data':{dashboard:{meta:{ledger:{id:'fixture',defaultCurrency:'USD'},accounts:{}},transactions:[]}},'../account-labels':{accountFieldLabel:account=>account},
+  './balance-refusal':{BalanceNotice:'notice',balanceSource:()=>''},'../date-time':{formatCalendarDate:x=>x},'../ui':{Icon:'icon',plural:(n,one)=>`${n} ${n===1?one:one+'s'}`},'../data':{dashboard:{meta:{ledger:{id:'fixture',defaultCurrency:'USD'},accounts:{}},transactions:[]}},'../account-labels':{accountFieldLabel:account=>account},'../extensions':{ExtensionFields:'extension-fields'},
   './api':{api,ApiError,apiUrl:path=>'/expenses/api/'+path,fileUrl:()=>'',upload:async()=>{}},'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
  },{sessionStorage:{getItem:key=>stored.get(key)??null,setItem:(key,value)=>stored.set(key,value),removeItem:key=>stored.delete(key)},fetch:async()=>({ok:true})});
  let done=0;const draft={id:'d'.repeat(32),files:[],state:'failed'};
  const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
  h.render(m=>m.default({draft,onDone:async()=>{done++;}}));
- const form={entry:{date:'2026-11-02',description:'Fictional lunch',postings:[],notes:[]},new_accounts:[],attachment_names:[]};
+ const form={entry:{date:'2026-11-02',description:'Fictional lunch',postings:[],notes:[]},'new-accounts':[],'attachment-names':[]};
  return {h,calls,holds,stored,form,get done(){return done;},nodes:()=>nodes(h.current),button:text=>nodes(h.current).find(n=>n.type==='button'&&n.props.children===text)};
 }
 

@@ -40,15 +40,53 @@ def oracle_cache():
 
 
 def ready(*, new=True):
-    return dict(status='ready', question=None, explanation=None,
-                attachment_names=['Cafe-Receipt'], doubts=['No bank reference supplied'],
-                new_accounts=['Expenses:Food:Cafe'] if new else [],
-                entry=dict(date='2026-10-29', status='confirmed', description='Cafe — lunch — cash',
-                           order_id=None, reference=None, classification=None, original_amount=None,
-                           fuel_filled_litres=None, trip_km=None, notes=['User confirmed payment'],
-                           postings=[dict(account='Expenses:Food:Cafe' if new else 'Expenses:Food',
-                                          amount='100', commodity='INR', cost=None),
-                                     dict(account='Assets:Cash', amount='-100', commodity='INR', cost=None)]))
+    """A format 2 answer (kebab-case); the fixture ledger asks for the fuel extension."""
+    return {'status': 'ready', 'question': None, 'entry': {
+                'date': '2026-10-29', 'status': 'confirmed', 'description': 'Cafe — lunch — cash',
+                'references': None, 'classification': None, 'original-amount': None, 'extensions': {'fuel': None},
+                'notes': ['User confirmed payment'],
+                'postings': [dict(account='Expenses:Food:Cafe' if new else 'Expenses:Food', amount='100.00', commodity='INR', cost=None),
+                             dict(account='Assets:Cash', amount='-100.00', commodity='INR', cost=None)]},
+            'new-accounts': ['Expenses:Food:Cafe'] if new else [], 'doubts': ['No bank reference supplied'],
+            'attachment-names': ['Cafe-Receipt'], 'explanation': None}
+
+
+def entry(identity, day, description, postings, **fields):
+    """A format 2 entry for the fixture ledger (which lists the fuel extension)."""
+    value = {'id': identity, 'date': day, 'status': 'confirmed', 'description': description, 'evidence': [], 'statement': None,
+             'references': None, 'classification': None, 'original-amount': None, 'reimbursement': None,
+             'excluded-from-estimate': None, 'extensions': {'fuel': None}, 'rule': None, 'possible-duplicate-of': [],
+             'notes': [], 'postings': postings}
+    value.update(fields)
+    return value
+
+
+def posting(account, amount, commodity='INR', **extra):
+    value = {'account': account, 'amount': amount, 'commodity': commodity, 'cost': None, 'assert': None, 'notes': []}
+    value.update(extra)
+    return value
+
+
+def rule(identity, day, description, postings, **fields):
+    """A format 2 recurring rule."""
+    value = {'id': identity, 'date': day, 'status': 'confirmed', 'description': description,
+             'schedule': {'every': 'month', 'from': day, 'interval': 1, 'anchor-day': None}, 'amount': 'fixed',
+             'lifecycle': 'active', 'origin': None, 'created': None, 'removal': None, 'bill': None, 'evidence': [],
+             'references': None, 'classification': None, 'original-amount': None, 'reimbursement': None,
+             'excluded-from-estimate': None, 'notes': [], 'postings': postings}
+    value.update(fields)
+    return value
+
+
+def metadata(account, **values):
+    """Account metadata written in full."""
+    from account_metadata import complete
+    return complete(account, values)
+
+
+def meta(**values):
+    """Balance-sheet account metadata written in full."""
+    return metadata('Assets', **values)
 
 
 def png():
@@ -73,6 +111,7 @@ class Fixture(unittest.TestCase):
         self.application.mkdir()
         shutil.copytree(APPLICATION / 'scripts', self.application / 'scripts', ignore=shutil.ignore_patterns('__pycache__', '.fixture-*', '.app-fixture-*'))
         shutil.copytree(APPLICATION / 'schema', self.application / 'schema')
+        shutil.copytree(APPLICATION / 'extensions', self.application / 'extensions')
         shutil.copytree(APPLICATION / 'migrations', self.application / 'migrations')
         shutil.copytree(APPLICATION / 'policy', self.application / 'policy')
         shutil.copytree(APPLICATION / 'templates', self.application / 'templates')
@@ -86,8 +125,8 @@ class Fixture(unittest.TestCase):
         self.ledger = self.application / 'ledger'
         (self.ledger / 'data/expenses').mkdir(parents=True)
         from ledger_manifest import CURRENT_FORMAT
-        dump(self.ledger / 'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR', modules={'fuel': True}))
-        dump(self.ledger / 'data/accounts.json', {'commodities': ['INR', 'USD'], 'accounts': {'Assets:Cash': dict(kind='cash', currency='INR'), 'Expenses:Food': {}}})
+        dump(self.ledger / 'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR', extensions={'fuel': {'ask': True}}))
+        dump(self.ledger / 'data/accounts.json', {'commodities': ['INR', 'USD'], 'accounts': {'Assets:Cash': metadata('Assets:Cash', kind='cash', currency='INR'), 'Expenses:Food': {'category': None}}})
         dump(self.ledger / 'data/expenses/2026.json', [])
         dump(self.ledger / 'data/forecast.json', [])
         dump(self.ledger / 'data/card-statements.json', [])

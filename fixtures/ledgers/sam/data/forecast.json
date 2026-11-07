@@ -4,16 +4,23 @@
     "date": "2026-10-03",
     "status": "confirmed",
     "description": "Birch Courtyard Rent",
-    "schedule": {
-      "every": "month",
-      "from": "2026-10-03"
-    },
-    "origin": {
-      "kind": "owner"
-    },
+    "schedule": {"every": "month", "from": "2026-10-03", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
+    "lifecycle": "active",
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Home:Rent", "amount": "1320.00", "commodity": "EUR"},
-      {"account": "Assets:Bank:Birken Current", "amount": "-1320.00", "commodity": "EUR"}
+      {"account": "Expenses:Home:Rent", "amount": "1320.00", "commodity": "EUR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Birken Current", "amount": "-1320.00", "commodity": "EUR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -21,17 +28,23 @@
     "date": "2026-11-20",
     "status": "confirmed",
     "description": "Cedar Archive membership",
-    "schedule": {
-      "every": "month",
-      "from": "2026-11-20"
-    },
+    "schedule": {"every": "month", "from": "2026-11-20", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
     "lifecycle": "paused",
-    "origin": {
-      "kind": "owner"
-    },
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "EUR"},
-      {"account": "Assets:Bank:Birken Current", "amount": "-8.00", "commodity": "EUR"}
+      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "EUR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Birken Current", "amount": "-8.00", "commodity": "EUR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -39,20 +52,25 @@
     "date": "2026-11-12",
     "status": "confirmed",
     "description": "Willow Energy",
-    "schedule": {
-      "every": "month",
-      "from": "2026-11-12"
-    },
-    "origin": {
-      "kind": "owner"
-    },
+    "schedule": {"every": "month", "from": "2026-11-12", "interval": 1, "anchor-day": null},
+    "amount": "varies",
+    "lifecycle": "active",
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
     "notes": [
       "Amounts vary with household use."
     ],
     "postings": [
-      {"account": "Expenses:Utilities:Willow Energy", "amount": "48.00", "commodity": "GBP"},
-      {"account": "Assets:Bank:Bramble Current", "amount": "-48.00", "commodity": "GBP"}
-    ],
-    "amount": "varies"
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "48.00", "commodity": "GBP", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Bramble Current", "amount": "-48.00", "commodity": "GBP", "cost": null, "assert": null, "notes": []}
+    ]
   }
 ]

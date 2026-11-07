@@ -1,8 +1,8 @@
 /** Evidence labels come from explicit membership and source fields. */
 export function sourceKind(transaction) {
   const source = transaction.sources?.[0] || '';
-  if (transaction['statement-end']) return 'Statement';
-  if (transaction['source-row']) return 'Bank import';
+  if (transaction.statement?.end) return 'Statement';
+  if (transaction.statement?.['source-row']) return 'Bank import';
   if (/^Bills\/.*\.md$/i.test(source) || /user-(?:provided|confirmed)/i.test(source)) return 'User confirmed';
   if (source.startsWith('Bills/')) return 'Receipt';
   return 'Derived';

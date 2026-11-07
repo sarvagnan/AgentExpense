@@ -14,7 +14,7 @@ import threading
 import time
 from unittest.mock import patch
 from pypdf import PdfReader, PdfWriter
-from support import Fixture, APPLICATION, ready
+from support import Fixture, APPLICATION, ready, meta, entry as store_entry, posting
 from statements import Statements, StatementTransaction
 from statement_pdf import parse_text
 from statement_fixtures import TEXT, statement_pdf, statement_answer
@@ -35,7 +35,7 @@ class StatementTests(Fixture):
     def test_two_cards_without_identifiers_stop_before_any_agent(self):
         from store import dump
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'].update({name:dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf')) for name in (CARD,'Borrowed:Travel')})
+        declarations['accounts'].update({name:meta(kind='card',currency='INR',statement=dict(reader='example-card-pdf')) for name in (CARD,'Borrowed:Travel')})
         dump(self.ledger/'data/accounts.json',declarations)
         sessions=Statements(self.settings)
         session=sessions.create(statement_pdf(),'Statement.pdf')
@@ -47,11 +47,11 @@ class StatementTests(Fixture):
     def test_printed_identifier_selects_one_of_two_unconventional_cards(self):
         from store import dump
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'].update({CARD:dict(kind='card',currency='INR',label='Travel',statement=dict(reader='example-card-pdf',identifier='5678')),
-                                         'Borrowed:Other':dict(kind='card',currency='INR',label='Other',statement=dict(reader='example-card-pdf',identifier='1234')),
+        declarations['accounts'].update({CARD:meta(kind='card',currency='INR',label='Travel',statement=dict(reader='example-card-pdf',identifier='5678')),
+                                         'Borrowed:Other':meta(kind='card',currency='INR',label='Other',statement=dict(reader='example-card-pdf',identifier='1234')),
                                          'Equity:Opening Balances':{}})
         dump(self.ledger/'data/accounts.json',declarations)
-        dump(self.ledger/'data/expenses/2026.json',[dict(id='a'*16,date='2026-01-01',status='confirmed',description='Opening',postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
+        dump(self.ledger/'data/expenses/2026.json',[store_entry('a'*16,'2026-01-01','Opening',[posting(CARD,'0.00'),posting('Equity:Opening Balances','0.00')])])
         sessions=Statements(self.settings)
         session=sessions.create(statement_pdf(),'Statement.pdf')
         with patch('agent.run') as run:
@@ -66,9 +66,9 @@ class StatementTests(Fixture):
         from store import dump
         from statements import fingerprint
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'].update({CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf', identifier='5678')), 'Equity:Opening Balances': {}})
+        declarations['accounts'].update({CARD: meta(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf', identifier='5678')), 'Equity:Opening Balances': {}})
         dump(self.ledger/'data/accounts.json',declarations)
-        dump(self.ledger/'data/expenses/2026.json',[dict(id='a'*16,date='2026-09-01',status='confirmed',description='Fixture card opening',postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
+        dump(self.ledger/'data/expenses/2026.json',[store_entry('a'*16,'2026-09-01','Fixture card opening',[posting(CARD,'0.00'),posting('Equity:Opening Balances','0.00')])])
         self.jj('commit','-m','Foreign row fixture baseline')
         sessions=Statements(self.settings)
         writer=PdfWriter();writer.add_blank_page(width=100,height=100);output=io.BytesIO();writer.write(output)
@@ -80,9 +80,9 @@ class StatementTests(Fixture):
         s.update(state='review',fingerprint=fingerprint(self.ledger),extraction='parser',statement=statement,plan=dict(items=[dict(row=row,rule='needs_you',entry_id=None,postings=None,needs_user=True,decision=dict(action='pending',account='Expenses:Uncategorized'))],counts=dict(needs_you=1)))
         sessions.put(s);sessions.queue_apply(s['id']);sessions.work(threading.Event())
         self.assertEqual(sessions.get(s['id'])['state'],'applied',sessions.get(s['id']).get('error'))
-        added=next(e for e in entries(load(self.ledger)) if e.get('serial-number')==row['serial'])
+        added=next(e for e in entries(load(self.ledger)) if (e['statement'] or {}).get('serial')==row['serial'])
         self.assertEqual(added['status'],'pending');self.assertEqual(added['original-amount'],dict(amount='10.00',commodity='USD'))
-        self.assertEqual(added['postings'][0],dict(account='Expenses:Uncategorized',amount='10.00',commodity='USD',cost=dict(amount='900.00',commodity='INR',per='total')))
+        self.assertEqual(added['postings'][0],posting('Expenses:Uncategorized','10.00','USD',cost=dict(amount='900.00',commodity='INR',per='total')))
         self.assertEqual(added['postings'][1]['amount'],'-900.00')
         self.assertTrue(clean(self.ledger))
 
@@ -107,9 +107,9 @@ class StatementTests(Fixture):
     def test_locked_example_pdf_is_checked_decided_filed_and_audited(self):
         from store import dump
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'].update({CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf', identifier='5678')), 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}})
+        declarations['accounts'].update({CARD: meta(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf', identifier='5678')), 'Assets:Bank:Savings Account': meta(kind='bank', currency='INR'), 'Equity:Opening Balances': {}})
         dump(self.ledger/'data/accounts.json', declarations)
-        dump(self.ledger/'data/expenses/2026.json', [dict(id='a'*16, date='2026-01-01', status='confirmed', description='Example opening', postings=[dict(account=CARD,amount='0.00',commodity='INR'),dict(account='Equity:Opening Balances',amount='0.00',commodity='INR')])])
+        dump(self.ledger/'data/expenses/2026.json', [store_entry('a'*16, '2026-01-01', 'Example opening', [posting(CARD,'0.00'),posting('Equity:Opening Balances','0.00')])])
         self.jj('commit','-m','Example card baseline')
         sessions=Statements(self.settings)
         pdf=statement_pdf(password='invented-test-password')
@@ -136,7 +136,7 @@ class StatementTests(Fixture):
         self.assertTrue((self.ledger/s['result']['source']).exists())
         docs=load(self.ledger)
         self.assertEqual(docs[self.ledger/'data/card-statements.json'][0]['account'], CARD)
-        self.assertEqual(len([e for e in entries(docs) if e.get('statement-end')=='2026-01-28']), 2)
+        self.assertEqual(len([e for e in entries(docs) if (e['statement'] or {}).get('end')=='2026-01-28']), 2)
         from reconcile_statement import reconciliation_path
         self.assertTrue(reconciliation_path(self.ledger,'2026-01-28',CARD,{'label':'Test Card'}).exists())
         self.assertEqual(records(self.ledger)[0]['kind'], 'statement')
@@ -147,7 +147,7 @@ class StatementTests(Fixture):
     def test_totals_failure_cannot_reach_reconciliation_rules(self):
         from store import dump
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'][CARD] = dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
+        declarations['accounts'][CARD] = meta(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
         dump(self.ledger/'data/accounts.json',declarations)
         sessions=Statements(self.settings)
         s=sessions.create(statement_pdf(TEXT.replace('Purchases: 120.00','Purchases: 121.00')), 'CardStatement-2026-01-28.pdf')

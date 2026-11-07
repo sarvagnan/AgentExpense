@@ -11,7 +11,7 @@ import threading
 from unittest.mock import patch
 
 from persona_guard import persona_sensitive
-from support import Fixture, ready
+from support import Fixture, ready, entry as store_entry, posting, rule as store_rule, meta
 from store import dump, entries, load, read_json
 from audit import append, event, records
 from drafts import Drafts
@@ -21,9 +21,13 @@ from transactions import Transaction, clean
 
 
 def payment_rule(day='2026-10-15', amount='100.00', life='active'):
-    return dict(id='f000000000000001',date=day,status='confirmed',description='Willow club',lifecycle=life,
-                schedule=dict(every='month',**{'from':day}),origin=dict(kind='owner'),
-                postings=[dict(account='Expenses:Food',amount=amount,commodity='INR'),dict(account='Assets:Cash',amount='-'+amount,commodity='INR')])
+    return store_rule('f000000000000001',day,'Willow club',[posting('Expenses:Food',amount),posting('Assets:Cash','-'+amount)],
+                      lifecycle=life,origin={'kind':'owner','words':None,'entry-ids':[],'came-back':False})
+
+
+def as_entry(rule, **changes):
+    """A payment entry with the rule's description and postings."""
+    return store_entry(rule['id'],rule['date'],rule['description'],deepcopy(rule['postings']),**changes)
 
 
 class RuleTests(Fixture):
@@ -94,7 +98,7 @@ class RuleTests(Fixture):
     def test_automatic_words_hand_add_and_dont_make_rule_preserves_entry(self):
         self.seed(False)
         draft=Drafts(self.ledger).create('Willow annual membership');drafts=Drafts(self.ledger);drafts.save_time(draft)
-        proposal=ready(new=False);proposal['attachment_names']=[];proposal['entry']['description']='Willow club'
+        proposal=ready(new=False);proposal['attachment-names']=[];proposal['entry']['description']='Willow club'
         draft.update(proposal=proposal,finished_by=dict(actor='user',reason='agent unavailable'));drafts.put(draft)
         with ledger_lock(self.ledger) as fd:result=Transaction(self.settings,drafts,draft).apply(proposal,fd)
         rule=read_json(self.ledger/'data/forecast.json')[0]
@@ -102,7 +106,7 @@ class RuleTests(Fixture):
         self.assertEqual(len(result['made_rules']),1);entry=deepcopy(entries(load(self.ledger))[0])
         self.op('removed',rule_id=rule['id'])
         self.assertEqual(entries(load(self.ledger))[0],entry);removed=read_json(self.ledger/'data/forecast.json')[0]
-        self.assertEqual(removed['removal']['evidence'],[entry['id']]);self.assertEqual(removed['lifecycle'],'removed')
+        self.assertEqual(removed['removal']['entry-ids'],[entry['id']]);self.assertEqual(removed['lifecycle'],'removed')
         self.assertEqual(self.op('backfill')['changed'],0)
 
     def test_backdated_addition_then_delete_does_not_block_later_saves(self):
@@ -110,7 +114,7 @@ class RuleTests(Fixture):
         drafts=Drafts(self.ledger)
         def add(day, text):
             draft=drafts.create(text);drafts.save_time(draft)
-            proposal=ready(new=False);proposal['attachment_names']=[]
+            proposal=ready(new=False);proposal['attachment-names']=[]
             proposal['entry'].update(date=day,description='Willow club')
             draft.update(proposal=proposal,finished_by=dict(actor='user',reason='agent unavailable'))
             drafts.put(draft)
@@ -134,13 +138,13 @@ class RuleTests(Fixture):
     def test_agent_and_hand_additions_link_and_advance_and_paused_offer(self):
         r=payment_rule(day='2026-10-01');r['description']='Cafe';self.seed(r)
         with self.client() as client:
-            proposal=ready(new=False);proposal['attachment_names']=[];self.set_answers(proposal)
+            proposal=ready(new=False);proposal['attachment-names']=[];self.set_answers(proposal)
             identity=self.create(client,upload=False);self.save(client,identity);result=self.wait(client,identity,'added')['result']
             self.assertEqual(result['rule']['id'],r['id']);self.assertEqual(result['next_due'],'2026-11-01')
             self.assertEqual(len(self.calls()),1)
         self.op('paused',rule_id=r['id'])
         drafts=Drafts(self.ledger);draft=drafts.create('Cafe');drafts.save_time(draft)
-        proposal=ready(new=False);proposal['attachment_names']=[];proposal['entry']['date']='2026-11-05';draft.update(proposal=proposal,finished_by=dict(actor='user',reason='paused agent'))
+        proposal=ready(new=False);proposal['attachment-names']=[];proposal['entry']['date']='2026-11-05';draft.update(proposal=proposal,finished_by=dict(actor='user',reason='paused agent'))
         with ledger_lock(self.ledger) as fd:result=Transaction(self.settings,drafts,draft).apply(proposal,fd)
         self.assertEqual(result['resume_rules'][0]['id'],r['id']);self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['lifecycle'],'paused')
         line=records(self.ledger)[-1]
@@ -164,7 +168,7 @@ class RuleTests(Fixture):
         self.assertEqual(len(read_json(self.ledger/'data/forecast.json')),2)
 
     def test_backfill_catch_up_noop(self):
-        a=payment_rule();a.pop('schedule');a.pop('origin');a.pop('lifecycle');a['id']='0000000000000001';a['date']='2026-09-15'
+        a=as_entry(payment_rule(),id='0000000000000001',date='2026-09-15')
         b={**deepcopy(a),'id':'0000000000000002','date':'2026-10-15'};self.seed(False,[a,b])
         clock=lambda:datetime(2026,11,1,tzinfo=timezone.utc)
         made=operate(self.settings,secrets.token_hex(16),{'action':'backfill'},clock=clock)
@@ -293,15 +297,15 @@ class RuleTests(Fixture):
 
     def test_review_merge_preserves_rule_link_and_retargets_suppression_evidence(self):
         from review import apply as review_apply, snapshot as review_snapshot, link_pair
-        a=payment_rule();a.pop('schedule');a.pop('origin');a.pop('lifecycle');a.update(id='0000000000000001',date='2026-10-15')
+        a=as_entry(payment_rule(),id='0000000000000001',date='2026-10-15')
         b={**deepcopy(a),'id':'0000000000000002'}
-        r=payment_rule(day='2026-11-15');r.update(lifecycle='removed',origin=dict(kind='monthly-history',evidence=[b['id']]),removal=dict(date='2026-10-20',evidence=[b['id']]))
+        r=payment_rule(day='2026-11-15');r.update(lifecycle='removed',origin={'kind':'monthly-history','words':None,'entry-ids':[b['id']],'came-back':False},removal={'date':'2026-10-20','entry-ids':[b['id']]})
         b['rule']=dict(id=r['id'],occurrence=b['date']);link_pair({a['id']:a,b['id']:b},a['id'],b['id'],'several-candidates')
         self.seed(r,[a,b]);state=review_snapshot(self.ledger)
         result=review_apply(self.settings,dict(request_id=secrets.token_hex(16),action='merge',entry_id=a['id'],other_id=b['id'],versions={i:state['entries'][i]['version'] for i in (a['id'],b['id'])}))
         actual=entries(load(self.ledger));self.assertEqual(len(actual),1);self.assertEqual(actual[0]['rule']['id'],r['id'])
         saved=read_json(self.ledger/'data/forecast.json')[0]
-        self.assertEqual(saved['origin']['evidence'],[actual[0]['id']]);self.assertEqual(saved['removal']['evidence'],[actual[0]['id']]);self.assertTrue(records(self.ledger)[-1]['rule_changes'])
+        self.assertEqual(saved['origin']['entry-ids'],[actual[0]['id']]);self.assertEqual(saved['removal']['entry-ids'],[actual[0]['id']]);self.assertTrue(records(self.ledger)[-1]['rule_changes'])
 
     @persona_sensitive
     def test_persona_backfill_and_catch_up_use_real_checked_services(self):
@@ -311,6 +315,7 @@ class RuleTests(Fixture):
                 source=APPLICATION/'fixtures/ledgers'/persona
                 shutil.rmtree(self.ledger/'data');shutil.copytree(source/'data',self.ledger/'data')
                 shutil.copyfile(source/'ledger.json',self.ledger/'ledger.json');shutil.copyfile(source/'AGENTS.md',self.ledger/'AGENTS.md')
+                if (source/'extensions').is_dir():shutil.copytree(source/'extensions',self.ledger/'extensions',dirs_exist_ok=True)
                 if (source/'Bills').is_dir():shutil.copytree(source/'Bills',self.ledger/'Bills',dirs_exist_ok=True)
                 self.jj('commit','-m','Fictional '+persona+' history baseline')
                 clock=lambda:datetime(2026,11,2,tzinfo=timezone.utc)
@@ -330,7 +335,7 @@ class RuleTests(Fixture):
         rule=payment_rule()
         rows=[]
         for i,day in enumerate(('2026-09-03','2026-10-22'),1):
-            entry=deepcopy(rule);entry.pop('schedule');entry.pop('origin');entry.pop('lifecycle');entry.update(id=f'{i:016x}',date=day);rows.append(entry)
+            entry=as_entry(rule,id=f'{i:016x}',date=day);rows.append(entry)
         self.seed(False,rows)
         clock=lambda:datetime(2026,11,2,tzinfo=timezone.utc)
         suggestion=snapshot(self.settings,clock)['suggestions'][0]['rule']
@@ -339,12 +344,12 @@ class RuleTests(Fixture):
         result=operate(self.settings,operation,body,clock=clock)
         self.assertTrue(operate(self.settings,operation,body,clock=clock)['replayed'])
         stored=read_json(self.ledger/'data/forecast.json')[0]
-        self.assertEqual(stored['description'],rule['description']);self.assertEqual(stored['postings'],rule['postings']);self.assertEqual(stored['lifecycle'],'removed');self.assertEqual(stored['removal']['evidence'],[e['id'] for e in rows])
+        self.assertEqual(stored['description'],rule['description']);self.assertEqual(stored['postings'],rule['postings']);self.assertEqual(stored['lifecycle'],'removed');self.assertEqual(stored['removal']['entry-ids'],[e['id'] for e in rows])
         self.assertEqual(snapshot(self.settings,clock)['suggestions'],[])
         line=records(self.ledger)[-1];self.assertEqual(line['rule_action'],'removed');self.assertIsNone(line['rule_changes'][0]['before']);self.assertTrue(clean(self.ledger))
         with self.assertRaisesRegex(ValueError,'different payload'):operate(self.settings,operation,dict(action='removed',rule=suggestion),clock=clock)
         with self.assertRaisesRegex(ValueError,'suggestion changed'):operate(self.settings,secrets.token_hex(16),dict(action='removed',rule=suggestion),clock=clock)
-        for invalid in ([1],{'origin':[]},{'origin':{'evidence':'invalid'}}):
+        for invalid in ([1],{'origin':[]},{'origin':{'entry-ids':'invalid'}}):
             with self.assertRaisesRegex(ValueError,'suggestion'):operate(self.settings,secrets.token_hex(16),dict(action='removed',rule=invalid),clock=clock)
 
     def test_declined_guess_is_only_an_editing_draft_choice(self):
@@ -361,7 +366,7 @@ class RuleTests(Fixture):
 
     def test_new_owner_rule_allocates_an_id_and_rejects_only_real_collisions(self):
         self.seed(False,[])
-        proposed=payment_rule();proposed.pop('id')
+        proposed=payment_rule();proposed['id']=None
         operation=secrets.token_hex(16);body=dict(action='made',rule=proposed)
         result=operate(self.settings,operation,body)
         saved=read_json(self.ledger/'data/forecast.json')[0]

@@ -10,7 +10,8 @@
       "label": "Bramble Current",
       "aliases": [
         "bramble current"
-      ]
+      ],
+      "statement": null
     },
     "Liabilities:Credit Cards:Bramble Card": {
       "kind": "card",
@@ -19,10 +20,7 @@
       "aliases": [
         "bramble card"
       ],
-      "statement": {
-        "reader": "example-card-pdf",
-        "identifier": "6201"
-      }
+      "statement": {"reader": "example-card-pdf", "identifier": "6201", "options": null}
     },
     "Assets:Bank:Birken Current": {
       "kind": "bank",
@@ -30,7 +28,8 @@
       "label": "Birken Current",
       "aliases": [
         "birken current"
-      ]
+      ],
+      "statement": null
     },
     "Liabilities:Credit Cards:Birken Card": {
       "kind": "card",
@@ -39,23 +38,20 @@
       "aliases": [
         "birken card"
       ],
-      "statement": {
-        "reader": "example-card-pdf",
-        "identifier": "6202"
-      }
+      "statement": {"reader": "example-card-pdf", "identifier": "6202", "options": null}
     },
     "Equity:Opening Balances": {},
     "Income:Salary": {},
-    "Expenses:Home:Rent": {},
-    "Expenses:Food:Groceries": {},
-    "Expenses:Travel:Transit": {},
-    "Expenses:Other:Books": {},
-    "Expenses:Uncategorized": {},
-    "Expenses:Subscriptions:Cedar Studio": {},
-    "Expenses:Learning:Maple Workshop": {},
-    "Expenses:Memberships:Cedar Archive": {},
+    "Expenses:Home:Rent": {"category": null},
+    "Expenses:Food:Groceries": {"category": null},
+    "Expenses:Travel:Transit": {"category": null},
+    "Expenses:Other:Books": {"category": null},
+    "Expenses:Uncategorized": {"category": null},
+    "Expenses:Subscriptions:Cedar Studio": {"category": null},
+    "Expenses:Learning:Maple Workshop": {"category": null},
+    "Expenses:Memberships:Cedar Archive": {"category": null},
     "Income:Learning Allowance": {},
-    "Expenses:Utilities:Willow Energy": {},
+    "Expenses:Utilities:Willow Energy": {"category": null},
     "Income:Utility Allowance": {}
   }
 }

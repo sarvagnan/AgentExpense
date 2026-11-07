@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
 import { accountGroup, accountActivity, balanceAccounts, valueSeries } from '../app/account-balances.ts';
 import { toTransaction } from '../scripts/expense-store.mjs';
+import { entry, posting } from './store-fixtures.mjs';
 const transaction = (id, date, sequence, amount, currency = 'INR') => ({ id, date, sequence, description: id, postings: [{ account: 'Assets:Bank:Savings Account', currency, amount }] });
 test('balances include opening entries, exclude future postings and separate currencies', () => {
  const entries = [transaction('opening', '2026-08-01', 0, 100), transaction('debit', '2026-09-01', 1, -20), transaction('future', '2026-10-01', 2, -90), transaction('usd', '2026-09-01', 3, 5, 'USD')];
@@ -22,9 +23,8 @@ test('running balances retain earlier history and stable same-day order; repeate
  assert.deepEqual(accountActivity(entries, 'Assets:Bank:Savings Account', 'INR', '2026-09-02').map(row => [row.entry.id, row.balance]), [['opening', 100], ['early', 100.3], ['late', 90.3]]);
 });
 test('card liabilities and their activity use the entry date', () => {
- const purchase = { ...toTransaction({ id: '0000000000000001', date: '2026-08-28', status: 'confirmed', description: 'Printed date',
-  postings: [{ account: 'Expenses:Subscriptions:Test', commodity: 'INR', amount: '100.00' },
-   { account: 'Liabilities:Credit Cards:Rewards Card', commodity: 'INR', amount: '-100.00' }] }), sequence: 0 };
+ const purchase = { ...toTransaction(entry({ date: '2026-08-28', description: 'Printed date',
+  postings: [posting('Expenses:Subscriptions:Test', '100.00'), posting('Liabilities:Credit Cards:Rewards Card', '-100.00')] })), sequence: 0 };
  assert.equal(balanceAccounts([purchase], '2026-08-27').length, 0);
  assert.equal(balanceAccounts([purchase], '2026-08-28')[0].balance, -100);
  assert.deepEqual(accountActivity([purchase], 'Liabilities:Credit Cards:Rewards Card', 'INR', '2026-08-28')

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from unittest.mock import patch
 
-from support import Fixture, ready, png
+from support import Fixture, ready, png, entry as store_entry, posting, rule as store_rule
 from store import load, entries, dump
 from drafts import Drafts
 from corrections import apply, open_form, wire_entry
@@ -24,20 +24,18 @@ from receipts import read, choose
 class CorrectionTests(Fixture):
     def seed(self, *, day='2026-10-29', evidence=True, rule=False):
         self.currency=json.loads((self.ledger/'ledger.json').read_text())['defaultCurrency']
-        e=deepcopy(ready(new=False)['entry']);e={k:v for k,v in e.items() if v is not None};e['id']='a'*16;e['date']=day
-        e.pop('fuel_filled_litres',None);e.pop('trip_km',None)
-        for p in e['postings']: p['amount']+='.00';p.pop('cost')
-        e['classification']='owner classification';e['reference']='original-ref'
+        e=store_entry('a'*16,day,'Cafe — lunch — cash',[posting('Expenses:Food','100.00'),posting('Assets:Cash','-100.00')],
+                      classification='owner classification',references={'reference':'original-ref','order-id':[]},notes=['User confirmed payment'])
         if evidence:
-            source=f'Bills/{day}/Willow.png';path=self.ledger/source;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(png());e['sources']=[source]
+            source=f'Bills/{day}/Willow.png';path=self.ledger/source;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(png());e['evidence']=[source]
         if rule:
-            r=dict(id='f'*16,date='2026-11-29',status='confirmed',description=e['description'],postings=deepcopy(e['postings']),schedule={'every':'month','from':'2026-11-29','anchor-day':29})
+            r=store_rule('f'*16,'2026-11-29',e['description'],deepcopy(e['postings']),schedule={'every':'month','from':'2026-11-29','interval':1,'anchor-day':29})
             e['rule']=dict(id=r['id'],occurrence=day);dump(self.ledger/'data/forecast.json',[r])
         dump(self.ledger/f'data/expenses/{day[:4]}.json',[e]);self.jj('commit','-m','Fictional correction baseline')
         return e
 
     def body(self,e):
-        return dict(version=entry_hash(e),proposal=wire_entry(self.settings,e),sources=e.get('sources',[]),approved_accounts=[],reason='Corrected from the receipt')
+        return dict(version=entry_hash(e),proposal=wire_entry(self.settings,e),sources=e['evidence'],approved_accounts=[],reason='Corrected from the receipt')
 
     def save(self,e,body=None,op=None):
         return apply(self.settings,e['id'],op or secrets.token_hex(16),body or self.body(e))
@@ -46,9 +44,9 @@ class CorrectionTests(Fixture):
         before=self.seed(rule=True);body=self.body(before);body['proposal']['entry'].update(date='2027-01-02',description='Willow corrected')
         op=secrets.token_hex(16);result=self.save(before,body,op)
         current=entries(load(self.ledger))[0]
-        self.assertEqual(current['id'],before['id']);self.assertEqual(current['reference'],before['reference']);self.assertEqual(current['classification'],before['classification'])
-        self.assertEqual(current['postings'],before['postings']);self.assertEqual(current['sources'],['Bills/2027-01-02/Willow.png'])
-        self.assertFalse((self.ledger/before['sources'][0]).exists());self.assertTrue((self.ledger/current['sources'][0]).is_file())
+        self.assertEqual(current['id'],before['id']);self.assertEqual(current['references'],before['references']);self.assertEqual(current['classification'],before['classification'])
+        self.assertEqual(current['postings'],before['postings']);self.assertEqual(current['evidence'],['Bills/2027-01-02/Willow.png'])
+        self.assertFalse((self.ledger/before['evidence'][0]).exists());self.assertTrue((self.ledger/current['evidence'][0]).is_file())
         self.assertEqual(load(self.ledger)[self.ledger/'data/expenses/2026.json'],[])
         line=records(self.ledger)[-1];self.assertEqual(line['kind'],'correction');self.assertEqual(line['before'],before);self.assertEqual(line['after'],current)
         message=self.jj('log','-r','@-','--no-graph','-T','description')
@@ -77,10 +75,10 @@ class CorrectionTests(Fixture):
         e=self.seed();docs=load(self.ledger);after=deepcopy(e);after['date']='2027-01-02'
         target=self.ledger/'Bills/2027-01-02/Willow.png';target.parent.mkdir(parents=True);target.write_bytes(b'collision')
         self.assertEqual(move_evidence(docs,self.ledger,e,after)[0][1].name,'Willow-2.png')
-        for value in [dict(sources=e['sources']),dict(notes=e['sources'])]:
+        for value in [dict(evidence=e['evidence']),dict(notes=e['evidence'])]:
             docs[self.ledger/'data/forecast.json']=[value];candidate=deepcopy(e);candidate['date']='2027-01-02'
             self.assertEqual(move_evidence(docs,self.ledger,e,candidate),[])
-        docs[self.ledger/'data/forecast.json']=[];docs[self.ledger/'data/card-statements.json']=[dict(source=e['sources'][0])]
+        docs[self.ledger/'data/forecast.json']=[];docs[self.ledger/'data/card-statements.json']=[dict(source=e['evidence'][0])]
         self.assertEqual(move_evidence(docs,self.ledger,e,deepcopy(after)),[])
 
     def test_statement_financial_fields_lock_and_metadata_retention(self):
@@ -95,10 +93,10 @@ class CorrectionTests(Fixture):
         e=self.seed(rule=True);body=self.body(e);body['proposal']['entry']['notes'].append('A corrected note');result=self.save(e,body)
         self.assertEqual(result['rule']['status'],'kept');self.assertEqual(result['rule']['next_due'],'2026-11-29')
         e=entries(load(self.ledger))[0];body=self.body(e);body['proposal']['entry']['postings'][0]['amount']='90.00';body['proposal']['entry']['postings'][1]['amount']='-90.00'
-        result=self.save(e,body);self.assertEqual(result['rule']['status'],'dropped');self.assertNotIn('rule',entries(load(self.ledger))[0])
+        result=self.save(e,body);self.assertEqual(result['rule']['status'],'dropped');self.assertIsNone(entries(load(self.ledger))[0]['rule'])
 
     def test_new_account_consent_and_cli_same_service(self):
-        e=self.seed();body=self.body(e);body['proposal']['entry']['postings'][0]['account']='Expenses:Learning';body['proposal']['new_accounts']=['Expenses:Learning']
+        e=self.seed();body=self.body(e);body['proposal']['entry']['postings'][0]['account']='Expenses:Learning';body['proposal']['new-accounts']=['Expenses:Learning']
         with self.assertRaisesRegex(ValueError,'Tick every'):self.save(e,body)
         body['approved_accounts']=['Expenses:Learning'];self.save(e,body)
         path=self.base/'correction.json';e=entries(load(self.ledger))[0];body=self.body(e);body['proposal']['entry']['notes'].append('Operator correction');path.write_text(json.dumps(body))
@@ -114,14 +112,14 @@ class CorrectionTests(Fixture):
             response=client.post(f'/api/drafts/{draft["id"]}/hand-form',json=dict(claim_token=token,proposal=form));self.assertTrue(response.json()['unchanged'])
             form['entry']['description']='Corrected by hand'
             upload=client.post(f'/api/drafts/{draft["id"]}/files',data=dict(claim_token=token),files=[('files',('More.png',png(),'image/png'))]);self.assertEqual(upload.status_code,201,upload.text)
-            form['attachment_names']=['More']
+            form['attachment-names']=['More']
             response=client.post(f'/api/drafts/{draft["id"]}/hand-form',json=dict(claim_token=token,proposal=form));self.assertTrue(response.json()['ok'],response.text)
             refused=client.post(f'/api/drafts/{draft["id"]}/hand-add',json=dict(claim_token=token,proposal_hash=response.json()['proposal_hash'],approved_accounts=[]));self.assertEqual(refused.status_code,409)
             with ledger_lock(self.ledger) as fd:
                 with self.assertRaisesRegex(ValueError,'correction service'):Transaction(self.settings,drafts=client.app.state.drafts,draft=client.app.state.drafts.get(draft['id'])).apply(form,fd)
-            body=dict(version=draft['correction']['version'],proposal=form,sources=e['sources'],approved_accounts=[],draft_id=draft['id'])
+            body=dict(version=draft['correction']['version'],proposal=form,sources=e['evidence'],approved_accounts=[],draft_id=draft['id'])
             result=client.post(f'/api/entries/{e["id"]}/corrections/{secrets.token_hex(16)}',json=body);self.assertEqual(result.status_code,200,result.text)
-            self.assertEqual(len(entries(load(self.ledger))[0]['sources']),2)
+            self.assertEqual(len(entries(load(self.ledger))[0]['evidence']),2)
 
     def test_typed_date_declines_monotonic_and_no_rule_effects(self):
         e=self.seed(rule=True,evidence=False);rule=load(self.ledger)[self.ledger/'data/forecast.json'][0]
@@ -133,33 +131,62 @@ class CorrectionTests(Fixture):
             response=client.post('/api/drafts/'+draft['id']+'/usual',json={'rule_id':rule['id']});self.assertEqual(response.status_code,409)
         drafts=Drafts(self.ledger);d=drafts.create('Willow monthly membership',pieces={'fields':{'date':{'value':'2026-09-29'}}});queue_usual(self.settings,drafts,d,dict(rule_id=rule['id']))
         self.assertEqual(d['proposal']['entry']['date'],'2026-09-29')
-        d=drafts.create('Willow monthly membership');d['declined_rules']=[rule['id']];d['finished_by']=dict(actor='user',reason='hand');d['hand_form']=wire_entry(self.settings,e);d['hand_form']['entry']['date']='2026-12-29';d['hand_form']['attachment_names']=[];drafts.save_time(d)
+        d=drafts.create('Willow monthly membership');d['declined_rules']=[rule['id']];d['finished_by']=dict(actor='user',reason='hand');d['hand_form']=wire_entry(self.settings,e);d['hand_form']['entry']['date']='2026-12-29';d['hand_form']['attachment-names']=[];drafts.save_time(d)
         with ledger_lock(self.ledger) as fd: result=Transaction(self.settings,drafts,d).apply(d['hand_form'],fd)
-        self.assertIsNone(result.get('rule'));self.assertEqual(result.get('resume_rules',[]),[]);self.assertNotIn('rule',next(e for e in entries(load(self.ledger)) if e['id']==result['entry_id']));self.assertEqual(len(load(self.ledger)[self.ledger/'data/forecast.json']),1)
+        self.assertIsNone(result.get('rule'));self.assertEqual(result.get('resume_rules',[]),[]);self.assertIsNone(next(e for e in entries(load(self.ledger)) if e['id']==result['entry_id'])['rule']);self.assertEqual(len(load(self.ledger)[self.ledger/'data/forecast.json']),1)
 
     def test_statement_correction_preserves_membership_and_refuses_money_changes(self):
         from test_review import ReviewTests
-        rows=ReviewTests.seed(self,statement=True);e=next(r for r in rows if r.get('statement-end'))
+        rows=ReviewTests.seed(self,statement=True);e=next(r for r in rows if (r['statement'] or {}).get('end'))
         body=self.body(e);body['proposal']['entry'].update(description='Corrected statement workshop',date='2027-01-02')
         result=self.save(e,body);after=next(r for r in entries(load(self.ledger)) if r['id']==e['id'])
-        for key in ('statement-end','serial-number','statement-page','sources','postings'): self.assertEqual(after[key],e[key])
+        for key in ('statement','evidence','postings'): self.assertEqual(after[key],e[key])
         body=self.body(after);body['proposal']['entry']['postings'][0]['amount']='99.00';body['proposal']['entry']['postings'][1]['amount']='-99.00'
         with self.assertRaisesRegex(ValueError,'filed statement'):self.save(after,body)
 
     def test_unit_cost_hidden_fields_and_account_metadata_survive(self):
         e=self.seed();declarations=load(self.ledger)[self.ledger/'data/accounts.json'];foreign=next(c for c in declarations['commodities'] if c!=self.currency)
         e['postings'][0].update(amount='20.00',commodity=foreign,cost=dict(amount='5.00',commodity=self.currency,per='unit'))
-        e['original-amount']=dict(amount='20.00',commodity=foreign);e['order-id']='original-order';e['source-row']=7;e['source-page']=2
+        e['original-amount']=dict(amount='20.00',commodity=foreign);e['references']={'reference':'original-ref','order-id':['original-order']}
+        e['statement']={'end':None,'serial':None,'page':None,'source-page':2,'source-row':7}
         dump(self.ledger/'data/expenses/2026.json',[e]);self.jj('commit','-m','Fictional unit conversion baseline')
         body=self.body(e);body['proposal']['entry']['notes'].append('A receipt note');self.save(e,body)
         after=entries(load(self.ledger))[0]
-        for key in ('postings','original-amount','order-id','source-row','source-page'):self.assertEqual(after[key],e[key])
+        for key in ('postings','original-amount','references','statement'):self.assertEqual(after[key],e[key])
         self.assertEqual(load(self.ledger)[self.ledger/'data/accounts.json'],declarations)
-        after.update({'fuel-filled-litres':'5.00','trip-km':'50.00'});dump(self.ledger/'data/expenses/2026.json',[after])
-        manifest=json.loads((self.ledger/'ledger.json').read_text());manifest['modules']['fuel']=False;dump(self.ledger/'ledger.json',manifest);self.jj('commit','-m','Historical optional module metadata')
+        after['extensions']={'fuel':{'litres':'5.00','trip-km':'50.00'}};dump(self.ledger/'data/expenses/2026.json',[after])
+        manifest=json.loads((self.ledger/'ledger.json').read_text());manifest['extensions']['fuel']['ask']=False;dump(self.ledger/'ledger.json',manifest);self.jj('commit','-m','An extension the agent is no longer asked for')
         body=self.body(after);body['proposal']['entry']['description']='Corrected history label';self.save(after,body)
         updated=entries(load(self.ledger))[0]
-        for key in ('fuel-filled-litres','trip-km'):self.assertEqual(updated.get(key),after[key])
+        self.assertEqual(updated['extensions'],after['extensions'])
+
+    def test_edit_entry_sets_and_clears_every_extension_type(self):
+        work={'name':'work','description':'Fictional client work.','fields':{
+            'rate':{'type':'decimal','filled-by':'agent','description':'Hourly rate.','journal-tag':'work-rate'},
+            'client':{'type':'text','filled-by':'agent','description':'The client.','journal-tag':'work-client'},
+            'hours':{'type':'whole-number','filled-by':'person','description':'Hours worked.','journal-tag':'work-hours'},
+            'billed-on':{'type':'date','filled-by':'person','description':'When it was billed.','journal-tag':'work-billed-on'},
+            'billable':{'type':'yes-no','filled-by':'person','description':'Whether it is billed.','journal-tag':'work-billable'},
+            'stage':{'type':'choice','values':['draft','sent'],'filled-by':'person','description':'Billing stage.','journal-tag':'work-stage'}}}
+        e=self.seed()
+        (self.ledger/'extensions').mkdir(exist_ok=True);(self.ledger/'extensions/work.json').write_text(json.dumps(work)+'\n')
+        manifest=json.loads((self.ledger/'ledger.json').read_text());manifest['extensions']['work']={'ask':False};dump(self.ledger/'ledger.json',manifest)
+        e['extensions']={'fuel':None,'work':None};dump(self.ledger/'data/expenses/2026.json',[e]);self.jj('commit','-m','A fictional custom extension')
+        body=self.body(e);self.assertEqual(body['proposal']['entry']['extensions'],{'fuel':None,'work':None})
+        values={'rate':'12.50','client':'Fictional Studio','hours':3,'billed-on':'2026-11-02','billable':True,'stage':'sent'}
+        body['proposal']['entry']['extensions']['work']=values;self.save(e,body)
+        after=entries(load(self.ledger))[0];self.assertEqual(after['extensions'],{'fuel':None,'work':values})
+        journal=(self.ledger/'expense_ledger.ledger').read_text()
+        for line in ('; work-rate: 12.50','; work-client: Fictional Studio','; work-hours: 3','; work-billed-on: 2026-11-02','; work-billable: yes','; work-stage: sent'):self.assertIn(line,journal)
+        body=self.body(after);self.assertEqual(body['proposal']['entry']['extensions']['work'],values)
+        all_empty=self.body(after);all_empty['proposal']['entry']['extensions']['work']=dict.fromkeys(values)
+        with self.assertRaisesRegex(ValueError,'must be null'):self.save(after,all_empty)
+        body['proposal']['entry']['extensions']['work']=None;self.save(after,body)
+        self.assertEqual(entries(load(self.ledger))[0]['extensions'],{'fuel':None,'work':None})
+        for invalid in ({'hours':'3'},{'billable':'yes'},{'stage':'paid'},{'billed-on':'2026-02-30'},{'rate':'12.5.0'}):
+            with self.subTest(invalid=invalid):
+                body=self.body(after);body['proposal']['entry']['extensions']['work']={**values,**invalid}
+                with self.assertRaises(ValueError):self.save(after,body)
 
     def test_old_addition_and_old_correction_never_advance_latest_rule(self):
         e=self.seed(rule=True);drafts=Drafts(self.ledger);d=drafts.create('Usual payment');queue_usual(self.settings,drafts,d,dict(rule_id='f'*16,date='2026-11-29'))
@@ -174,8 +201,8 @@ class CorrectionTests(Fixture):
     def test_declined_removed_rule_still_covers_its_payment(self):
         from rules_service import addition_effects
         e=self.seed(rule=True);docs=load(self.ledger);rule=docs[self.ledger/'data/forecast.json'][0]
-        rule.update(lifecycle='removed',removal=dict(date='2026-10-01',evidence=[]))
-        entry=deepcopy(e);entry.update(id='b'*16,date='2026-11-29');entry.pop('rule');docs[self.ledger/'data/expenses/2026.json'].append(entry)
+        rule.update(lifecycle='removed',removal={'date':'2026-10-01','entry-ids':[]})
+        entry=deepcopy(e);entry.update(id='b'*16,date='2026-11-29');entry['rule']=None;docs[self.ledger/'data/expenses/2026.json'].append(entry)
         for path,value in docs.items():dump(path,value)
         drafts=Drafts(self.ledger);draft=drafts.create('Willow monthly membership');draft['declined_rules']=[rule['id']];draft['client_time']='2026-11-30T12:00:00+00:00'
         result=addition_effects(self.ledger,entry['id'],draft)
@@ -222,7 +249,7 @@ class ReceiptTests(Fixture):
         answer.update(values)
         self.set_answers(answer)
         drafts=Drafts(self.ledger);draft=drafts.create('Usual payment')
-        draft.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id'],sources=e.get('sources',[])),receipt_reading=dict(state='queued',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e.get('sources',[])))
+        draft.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id'],sources=e['evidence']),receipt_reading=dict(state='queued',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e['evidence']))
         drafts.put(draft);worker=Worker(self.settings,drafts)
         read(worker,draft)
         return drafts,drafts.get(draft['id']),worker
@@ -231,7 +258,7 @@ class ReceiptTests(Fixture):
         e=self.seed();drafts,d,worker=self.receipt(e)
         self.assertEqual(d['receipt_reading']['state'],'done')
         after=entries(load(self.ledger))[0]
-        self.assertEqual(after['postings'],e['postings']);self.assertEqual(after['reference'],'original-ref');self.assertIn('Receipt reference: receipt-reference',after['notes'])
+        self.assertEqual(after['postings'],e['postings']);self.assertEqual(after['references']['reference'],'original-ref');self.assertIn('Receipt reference: receipt-reference',after['notes'])
         self.assertIn('Willow recipient',' '.join(after['notes']));self.assertEqual(records(self.ledger)[-1]['receipt']['choice'],'agree')
         self.assertIn('(receipt details for '+e['id']+')',self.jj('log','-r','@-','--no-graph','-T','description'))
         self.assertTrue(self.calls());self.assertFalse((drafts.folder(d['id'])/'files').exists() and list((drafts.folder(d['id'])/'files').iterdir()))
@@ -251,12 +278,20 @@ class ReceiptTests(Fixture):
                 self.assertEqual(records(self.ledger)[-1]['receipt']['choice'],choice)
                 self.assertEqual(choose(self.settings,drafts,result,choice)['receipt_reading']['state'],'done')
 
+    def test_a_receipt_with_a_whole_amount_is_used_as_a_decimal(self):
+        # The reader returns the printed amount as typed; "Use the receipt" writes it as the store's decimal.
+        e=self.seed();drafts,d,worker=self.receipt(e,amount='500')
+        self.assertEqual(d['receipt_reading']['state'],'question')
+        result=choose(self.settings,drafts,d,'use');self.assertEqual(result['receipt_reading']['state'],'done')
+        after=entries(load(self.ledger))[0]
+        self.assertEqual([p['amount'] for p in after['postings']],['500.00','-500.00'])
+
     def test_unreadable_and_unsafe_evidence_change_nothing(self):
         e=self.seed();drafts,d,worker=self.receipt(e,read_ok=False)
         self.assertEqual(d['receipt_reading']['state'],'unreadable');self.assertEqual(records(self.ledger),[])
         for source in ['../outside.png','Bills/../outside.png','/tmp/outside.png']:
             with self.assertRaises(ValueError):safe_evidence(self.ledger,source)
-        (self.ledger/'Bills/link.png').symlink_to(self.ledger/e['sources'][0])
+        (self.ledger/'Bills/link.png').symlink_to(self.ledger/e['evidence'][0])
         with self.assertRaisesRegex(ValueError,'symlink'):safe_evidence(self.ledger,'Bills/link.png')
         (self.ledger/'Bills/link.png').unlink()
         outside=self.base/'outside';outside.mkdir();(self.ledger/'Bills/linked').symlink_to(outside,target_is_directory=True)
@@ -287,7 +322,7 @@ class ReceiptTests(Fixture):
         e=self.seed()
         with self.client(worker=False) as client:
             drafts=client.app.state.drafts;d=drafts.create('Receipt lifecycle')
-            d.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id']),receipt_reading=dict(state='reading',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e['sources']))
+            d.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id']),receipt_reading=dict(state='reading',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e['evidence']))
             drafts.put(d)
             response=client.delete('/api/drafts/'+d['id']);self.assertEqual(response.status_code,409)
             d['receipt_reading']['state']='question';drafts.put(d)
@@ -299,7 +334,7 @@ class ReceiptTests(Fixture):
             shutil.rmtree(worker.drafts.folder(draft['id']));vanished.set();raise FileNotFoundError('removed temporary receipt record')
         with patch('receipts.read',side_effect=missing),self.client() as client:
             drafts=client.app.state.drafts;d=drafts.create('Receipt recovery')
-            d.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id']),receipt_reading=dict(state='queued',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e['sources']))
+            d.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id']),receipt_reading=dict(state='queued',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e['evidence']))
             drafts.put(d);client.app.state.worker.wake.set();self.assertTrue(vanished.wait(5));client.app.state.worker.thread.join(.2)
             self.assertTrue(client.app.state.worker.thread.is_alive())
 

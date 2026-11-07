@@ -14,7 +14,9 @@ from settings import Settings
 from agent import now
 from currency_settings import update_settings
 from ledger_lock import ledger_lock
-from store import read_json
+from store import read_json, empty_entry, posting
+from account_metadata import complete
+from answers import answer_extensions
 import uvicorn
 
 settings = Settings.from_env()
@@ -25,6 +27,59 @@ assert Path(settings.codex).name == 'fake-agent'
 add_clock_shift=0
 app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime.now(timezone.utc)+timedelta(seconds=add_clock_shift))
 from fastapi.responses import Response
+
+
+# Format 2 store and answer values (docs/STORE.md): every key present.
+def meta(account, **values):
+    """Account metadata written in full for its root."""
+    return complete(account, values)
+
+
+def store_entry(**values):
+    return empty_entry(settings.ledger, **values)
+
+
+def statement_row(**values):
+    return {'end': None, 'serial': None, 'page': None, 'source-page': None, 'source-row': None, **values}
+
+
+def store_rule(day, description, postings, **values):
+    from recurring import new_rule
+    return new_rule(date=day, description=description, postings=postings,
+                    schedule={'every': 'month', 'from': day, 'interval': 1, 'anchor-day': None}, **values)
+
+
+def origin(kind, words=None):
+    return {'kind': kind, 'words': words, 'entry-ids': [], 'came-back': False}
+
+
+def card_summary(identity, account, start, end, source, purchases):
+    return {'kind': 'card', 'id': identity, 'account': account, 'start': start, 'end': end, 'source': source,
+            'previous-balance': '0.00', 'purchases': purchases, 'cash-advances': None, 'credits': '0.00',
+            'total-due': purchases, 'rows': 1}
+
+
+def bank_member(**values):
+    return {'reference': None, 'balance': None, 'entry-id': None, 'review-candidates': [], **values}
+
+
+def answer_envelope(status='ready', *, question=None, entry=None, names=(), new_accounts=()):
+    """The agent's kebab-case answer."""
+    return {'status': status, 'question': question, 'entry': entry, 'new-accounts': list(new_accounts), 'doubts': [],
+            'attachment-names': list(names), 'explanation': None}
+
+
+def answer_entry(description, postings, day='2026-11-02'):
+    """An answer entry with the extensions this ledger asks the agent for."""
+    entry = {'date': day, 'status': 'confirmed', 'description': description, 'references': None, 'classification': None,
+             'original-amount': None}
+    extensions = answer_extensions(settings.ledger)
+    if extensions is not None:
+        entry['extensions'] = extensions
+    entry['notes'] = []
+    entry['postings'] = [dict(account=p['account'], amount=p['amount'], commodity=p['commodity'], cost=p.get('cost')) for p in postings]
+    return entry
+
 
 @app.post('/__test/formatting')
 def formatting_module():
@@ -47,8 +102,7 @@ def gate(body: dict):
     # check while this host changes the fake CLI's capabilities.
     app.state.agent_gate.close()
     app.state.agent_gate.stop.clear()
-    answer = dict(status='question', question='Which account did you pay from?', explanation=None,
-                  attachment_names=[], doubts=[], new_accounts=[], entry=None)
+    answer = answer_envelope('question', question='Which account did you pay from?')
     config.write_text(json.dumps(dict(version='fixture-'+secrets.token_hex(4), steps=[dict(answer=answer)],
                                      signed_out=mode == 'signed out', extra_tool='exec_command' if mode == 'paused' else None,
                                      probe_fail=mode == 'unavailable')))
@@ -144,9 +198,7 @@ def openings(body: dict):
         for i,(label,amount) in enumerate([('Alder Checking','1840.25'),('Meadow Savings','4650.00'),('Lumen Card','-337.50')],1):
             account=next(name for name,meta in accounts.items() if meta.get('label')==label)
             from decimal import Decimal
-            rows.append(dict(id=f'{i:016x}',date=manifest['startDate'],status='confirmed',description=label+' opening balance',postings=[dict(account=account,amount=amount,commodity='USD',assert_=None),dict(account='Equity:Opening Balances',amount=str(-Decimal(amount)),commodity='USD')]))
-            rows[-1]['postings'][0].pop('assert_')
-            rows[-1]['postings'][0]['assert']=dict(amount=amount,commodity='USD')
+            rows.append(store_entry(id=f'{i:016x}',date=manifest['startDate'],description=label+' opening balance',postings=[posting(account,amount,'USD',assertion=dict(amount=amount,commodity='USD')),posting('Equity:Opening Balances',str(-Decimal(amount)),'USD')]))
         changes={settings.ledger/'data/expenses/2026.json':rows}
     else:
         changes=original
@@ -163,7 +215,7 @@ def scenario(body: dict):
     currency = accounts[original_card]['currency']
     account = next((a for a in accounts if a.startswith('Liabilities:Credit Cards:Workflow ')), 'Liabilities:Credit Cards:Workflow '+secrets.token_hex(4))
     workflow_new = account not in accounts
-    accounts[account] = dict(kind='card',currency=currency,label=accounts[original_card].get('label','Workflow Card'),statement=dict(reader='example-card-pdf',identifier='9001'))
+    accounts[account] = meta(account,kind='card',currency=currency,label=accounts[original_card].get('label') or 'Workflow Card',statement=dict(reader='example-card-pdf',identifier='9001'))
     foreign = 'EUR' if currency != 'EUR' else 'GBP'
     expense = next(a for a in accounts if a.startswith('Expenses:'))
     source = next(a for a,m in accounts.items() if m.get('kind')=='bank')
@@ -174,7 +226,7 @@ def scenario(body: dict):
             documents['commodities'].append(code);changed=True
     if not destination:
         destination='Assets:Bank:Willow Transfer'
-        accounts[destination]=dict(kind='bank',currency=foreign,label='Willow Transfer')
+        accounts[destination]=meta(destination,kind='bank',currency=foreign,label='Willow Transfer')
         changed=True
     if changed:
         changes={settings.ledger/'data/accounts.json':documents}
@@ -182,30 +234,27 @@ def scenario(body: dict):
             path=settings.ledger/'data/expenses/2026.json'
             rows=read_json(path)
             if not any(p['account']==destination for file in (settings.ledger/'data/expenses').glob('*.json') for row in read_json(file) for p in row['postings']):
-                rows.append(dict(id='e'*16,date='2026-11-01',status='confirmed',description='Workflow destination opening',postings=[dict(account=destination,amount='0.00',commodity=accounts[destination]['currency']),dict(account='Equity:Opening Balances',amount='0.00',commodity=accounts[destination]['currency'])]))
-            rows.append(dict(id='f'*16,date='2026-11-01',status='confirmed',description='Workflow card opening',postings=[dict(account=account,amount='0.00',commodity=currency),dict(account='Equity:Opening Balances',amount='0.00',commodity=currency)]))
+                rows.append(store_entry(id='e'*16,date='2026-11-01',description='Workflow destination opening',postings=[posting(destination,'0.00',accounts[destination]['currency']),posting('Equity:Opening Balances','0.00',accounts[destination]['currency'])]))
+            rows.append(store_entry(id='f'*16,date='2026-11-01',description='Workflow card opening',postings=[posting(account,'0.00',currency),posting('Equity:Opening Balances','0.00',currency)]))
             changes[path]=rows
         update_settings(settings,lambda:changes,dict(fixture=True),'Browser currency workflow accounts')
-    answer=dict(status='ready',question=None,explanation=None,attachment_names=[body['attachment']+'-'+account.split()[-1]] if body.get('attachment') else [],doubts=[],new_accounts=[],
-                entry=dict(date='2026-11-02',status='confirmed',description='Copper Finch Café',order_id=None,reference=None,classification=None,original_amount=None,notes=[],
-                           postings=[dict(account=expense,amount='18.60',commodity=currency,cost=None),dict(account=account,amount='-18.60',commodity=currency,cost=None)]))
-    if module_settings(read_manifest(settings.ledger))['fuel']:
-        answer['entry'].update(fuel_filled_litres=None,trip_km=None)
+    answer=answer_envelope(names=[body['attachment']+'-'+account.split()[-1]] if body.get('attachment') else [],
+                           entry=answer_entry('Copper Finch Café',[posting(expense,'18.60',currency),posting(account,'-18.60',currency)]))
     mode=body['mode']
     if mode=='new-root':
         answer['entry']['postings'][0]['account']='Shared:Accounts Receivable:Finch'
-        answer['new_accounts']=['Shared:Accounts Receivable:Finch']
+        answer['new-accounts']=['Shared:Accounts Receivable:Finch']
     if mode=='question':
         answer.update(status='question',question='Which account did you pay from?',entry=None)
     elif mode=='conversion':
         answer.update(status='question',question='How much was charged?')
-        answer['entry'].update(description='Juniper Table',original_amount=dict(amount='46.80',commodity=foreign))
+        answer['entry'].update(description='Juniper Table',**{'original-amount':dict(amount='46.80',commodity=foreign)})
         answer['entry']['postings'][0].update(amount='46.80',commodity=foreign)
-        answer['entry']['postings'][1]['amount']='0'
+        answer['entry']['postings'][1]['amount']='0.00'
     elif mode=='transfer':
         answer.update(status='question',question='How much arrived?')
         answer['entry']['description']='Move money between accounts'
-        answer['entry']['postings']=[dict(account=source,amount='-1000',commodity=accounts[source]['currency'],cost=None),dict(account=destination,amount='0',commodity=accounts[destination]['currency'],cost=None)]
+        answer['entry']['postings']=[dict(account=source,amount='-1000.00',commodity=accounts[source]['currency'],cost=None),dict(account=destination,amount='0.00',commodity=accounts[destination]['currency'],cost=None)]
     data=json.loads(config.read_text());data['steps']=[dict(kind='exit')] if mode=='failure' else [dict(answer=answer)]
     config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
     return dict(account=account,currency=currency,foreign=foreign,source=source,destination=destination,sourceLabel=accounts[source].get('label') or source.split(':')[-1],destinationLabel=accounts[destination].get('label') or destination.split(':')[-1],sourceCurrency=accounts[source]['currency'],destinationCurrency=accounts[destination]['currency'])
@@ -302,7 +351,7 @@ def reader_scenario(body: dict):
     tag = body.get('tag','development')
     assert isinstance(tag,str) and len(tag)<100 and all(c.isalnum() or c=='-' for c in tag)
     account = 'Assets:Bank:Statement Workflow '+tag+' '+extension
-    documents['accounts'][account] = dict(kind='bank',currency=currency,label='Statement Workflow',statement=dict(reader='generic-csv' if extension=='csv' else 'generic-sheet',options=dict(header_row=2,sheet='Activity',columns=dict(date='Date',description='Description',debit='Debit',credit='Credit',balance='Balance',reference='Reference'),period=dict(start='2026-10-28',end='2026-11-28'))))
+    documents['accounts'][account] = meta(account,kind='bank',currency=currency,label='Statement Workflow',statement=dict(reader='generic-csv' if extension=='csv' else 'generic-sheet',options=dict(header_row=2,sheet='Activity',columns=dict(date='Date',description='Description',debit='Debit',credit='Credit',balance='Balance',reference='Reference'),period=dict(start='2026-10-28',end='2026-11-28'))))
     manifest=read_json(settings.ledger/'ledger.json');manifest['startDate']='2026-11-01'
     update_settings(settings,lambda:{settings.ledger/'data/accounts.json':documents,settings.ledger/'ledger.json':manifest},dict(reader=True),'Fictional statement reader account')
     return dict(account=account,currency=currency,reader='Generic CSV' if extension=='csv' else 'Generic spreadsheet')
@@ -348,7 +397,7 @@ def agent_statement_scenario(body: dict):
     assert isinstance(tag,str) and len(tag)<100 and all(c.isalnum() or c=='-' for c in tag)
     account='Assets:Deposits:Agent Export '+tag
     documents=read_json(settings.ledger/'data/accounts.json')
-    documents['accounts'][account]=dict(kind='bank',currency=currency,label='Agent Export')
+    documents['accounts'][account]=meta(account,kind='bank',currency=currency,label='Agent Export')
     manifest=read_json(settings.ledger/'ledger.json');manifest['startDate']='2026-01-01'
     update_settings(settings,lambda:{settings.ledger/'data/accounts.json':documents,settings.ledger/'ledger.json':manifest},dict(reader=True),'Fictional unmapped statement account')
     data=json.loads(config.read_text());data['steps']=[dict(answer=answer(currency))]
@@ -380,9 +429,7 @@ def early_card_scenario(body: dict):
     use_agent=body.get('agent',False)
     account='Liabilities:Cards:Early Purchases '+tag+(' agent' if use_agent else ' reader')
     documents=read_json(settings.ledger/'data/accounts.json')
-    meta=dict(kind='card',currency=currency,label='Early Purchases')
-    if not use_agent:meta['statement']=dict(reader='example-card-pdf',identifier='9771')
-    documents['accounts'][account]=meta
+    documents['accounts'][account]=meta(account,kind='card',currency=currency,label='Early Purchases',statement=None if use_agent else dict(reader='example-card-pdf',identifier='9771'))
     update_settings(settings,lambda:{settings.ledger/'data/accounts.json':documents},dict(reader=True),'Fictional early card account')
     if use_agent:
         rows=table(currency);rows[0][1]='2026-11-01';rows[0][3]='2026-11-28';rows[3][1]='108.00'
@@ -430,10 +477,10 @@ def recurring_controls(body: dict):
     labels=['Birch rent','Clover music','Clover lessons','Fable support','Lantern journal','Cedar archive','Fern rent','Hawthorn dues','Iris cover','Juniper ended']
     for i,label in enumerate(labels,1):
         category='Expenses:Rule Workflow:'+label
-        accounts[category]={}
+        accounts[category]=meta(category)
         amount=['100.00','40.00','41.00','15.00','10.00','20.00','60.00','30.00','25.00','18.00'][i-1]
         day='2026-11-02' if i in (1,8) else '2026-11-01' if i in (7,9) else '2026-11-15'
-        r=dict(id=f'f00000000000a{i:03x}',date=day,status='confirmed',description=label,lifecycle='paused' if i==6 else 'ended' if i==10 else 'active',origin=dict(kind='owner'),schedule=dict(every='month',**{'from':day}),postings=[dict(account=category,amount=amount,commodity=currency),dict(account=pay,amount='-'+amount,commodity=currency)])
+        r=store_rule(day,label,[posting(category,amount,currency),posting(pay,'-'+amount,currency)],id=f'f00000000000a{i:03x}',lifecycle='paused' if i==6 else 'ended' if i==10 else 'active',origin=origin('owner'))
         if i==4:r['postings'][-1]['account']='Equity:Rule Unassigned'
         if i==5:
             r['postings'][0].update(commodity=foreign,cost=dict(amount='12.00',commodity=currency,per='total'))
@@ -442,15 +489,15 @@ def recurring_controls(body: dict):
     path=settings.ledger/'data/expenses/2026.json'
     rows=read_json(path)
     stale=rules[6]
-    rows.append(dict(id='000000000000a001',date='2026-11-01',status='confirmed',description=stale['description'],postings=deepcopy(stale['postings'])))
+    rows.append(store_entry(id='000000000000a001',date='2026-11-01',description=stale['description'],postings=deepcopy(stale['postings'])))
     # Weak history is a proposal; dismissal must survive reload.
     for tag in ('Mallow workshop','Olive workshop'):
-        category='Expenses:Rule Workflow:'+tag;accounts[category]={}
+        category='Expenses:Rule Workflow:'+tag;accounts[category]=meta(category)
         for i,day in enumerate(('2026-09-03','2026-10-22')):
-            rows.append(dict(id=f'000000000000a{(2 if tag.startswith("Mallow") else 4)+i:03x}',date=day,status='confirmed',description=tag,postings=[dict(account=category,amount='12.00',commodity=currency),dict(account=pay,amount='-12.00',commodity=currency)]))
+            rows.append(store_entry(id=f'000000000000a{(2 if tag.startswith("Mallow") else 4)+i:03x}',date=day,description=tag,postings=[posting(category,'12.00',currency),posting(pay,'-12.00',currency)]))
     rows.sort(key=lambda r:r['date'])
     # A rule made automatically with an outstanding review proposal.
-    automatic=rules[8];automatic['origin']=dict(kind='subscription-words',words='annual cover subscription')
+    automatic=rules[8];automatic['origin']=origin('subscription-words','annual cover subscription')
     proposal=event('rule-review',rule_id=automatic['id'],rule_verdict='propose-removal',reason='The owner should check whether this cover is still needed.',reviewer='Offline fixture reviewer')
     changes={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/forecast.json':rules,path:rows}
     audit=audit_path(settings.ledger,proposal)
@@ -471,11 +518,10 @@ def recurring_controls(body: dict):
     if mode=='paused':
         template=rules[5];description=template['description'];postings=deepcopy(template['postings'])
     else:
-        category='Expenses:Rule Workflow:New membership';declarations['accounts'][category]={}
+        category='Expenses:Rule Workflow:New membership';declarations['accounts'][category]=meta(category)
         update_settings(settings,lambda:{settings.ledger/'data/accounts.json':declarations},dict(category=True),'Fictional recurring agent category')
-        description='Pine studio';postings=[dict(account=category,amount='22.00',commodity=currency),dict(account=pay,amount='-22.00',commodity=currency)]
-    answer=dict(status='ready',question=None,explanation=None,attachment_names=[],doubts=[],new_accounts=[],entry=dict(date='2026-11-02',status='confirmed',description=description,order_id=None,reference=None,classification=None,original_amount=None,notes=[],postings=[dict(p,cost=None) for p in postings]))
-    if module_settings(read_manifest(settings.ledger))['fuel']:answer['entry'].update(fuel_filled_litres=None,trip_km=None)
+        description='Pine studio';postings=[posting(category,'22.00',currency),posting(pay,'-22.00',currency)]
+    answer=answer_envelope(entry=answer_entry(description,postings))
     data=json.loads(config.read_text());data['steps']=[dict(answer=answer)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
     return dict(currency=currency,pay=pay,foreign=foreign,rules=rules)
 
@@ -484,8 +530,7 @@ def recurring_controls(body: dict):
 def rule_agent(body: dict):
     from ledger_manifest import module_settings, read_manifest
     rule=next(r for r in read_json(settings.ledger/'data/forecast.json') if r['description']=='Cedar archive')
-    answer=dict(status='ready',question=None,explanation=None,attachment_names=[],doubts=[],new_accounts=[],entry=dict(date='2026-11-02',status='confirmed',description=rule['description'],order_id=None,reference=None,classification=None,original_amount=None,notes=[],postings=[dict(p,cost=None) for p in rule['postings']]))
-    if module_settings(read_manifest(settings.ledger))['fuel']:answer['entry'].update(fuel_filled_litres=None,trip_km=None)
+    answer=answer_envelope(entry=answer_entry(rule['description'],rule['postings']))
     data=json.loads(config.read_text());data['steps']=[dict(answer=answer)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
     return dict(ok=True)
 
@@ -504,12 +549,12 @@ def correction_statement(body: dict):
     from copy import deepcopy
     from ledger_manifest import read_manifest
     currency=read_manifest(settings.ledger)['defaultCurrency'];declarations=read_json(settings.ledger/'data/accounts.json')
-    account='Liabilities:Correction Card';category='Expenses:Correction Workshop';declarations['accounts'].update({account:dict(kind='card',currency=currency,label='Correction Card'),category:{},'Equity:Opening Balances':{}})
+    account='Liabilities:Correction Card';category='Expenses:Correction Workshop';declarations['accounts'].update({account:meta(account,kind='card',currency=currency,label='Correction Card'),category:meta(category),'Equity:Opening Balances':{}})
     source='Bills/2026-11-01/Correction-Statement.pdf';path=settings.ledger/source
-    entry=dict(id='000000000000d001',date='2026-11-01',status='confirmed',description='Willow statement workshop',sources=[source],postings=[dict(account=category,amount='10.00',commodity=currency),dict(account=account,amount='-10.00',commodity=currency)],**{'statement-end':'2026-11-01','serial-number':'COR-1','statement-page':1})
-    opening=dict(id='000000000000d002',date='2026-11-01',status='confirmed',description='Correction card opening',postings=[dict(account=account,amount='0.00',commodity=currency),dict(account='Equity:Opening Balances',amount='0.00',commodity=currency)])
+    entry=store_entry(id='000000000000d001',date='2026-11-01',description='Willow statement workshop',evidence=[source],statement=statement_row(end='2026-11-01',serial='COR-1',page=1),postings=[posting(category,'10.00',currency),posting(account,'-10.00',currency)])
+    opening=store_entry(id='000000000000d002',date='2026-11-01',description='Correction card opening',postings=[posting(account,'0.00',currency),posting('Equity:Opening Balances','0.00',currency)])
     rows=read_json(settings.ledger/'data/expenses/2026.json')+[opening,entry];rows.sort(key=lambda e:e['date'])
-    summaries=read_json(settings.ledger/'data/card-statements.json')+[dict(id='000000000000d003',account=account,start='2026-11-01',end='2026-11-01',source=source,**{'previous-balance':'0.00','purchases':'10.00','credits':'0.00','total-due':'10.00','rows':1})]
+    summaries=read_json(settings.ledger/'data/card-statements.json')+[card_summary('000000000000d003',account,'2026-11-01','2026-11-01',source,'10.00')]
     def install():
         sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
         from statement_fixtures import statement_pdf
@@ -530,16 +575,16 @@ def confirmed_balances(body: dict):
     # The rule's name needs a distinctive word: 'cedar' names the paying account and 'learning' a category group.
     category='Expenses:Learning:Cedar Tutoring'
     declarations=read_json(settings.ledger/'data/accounts.json')
-    declarations['accounts'].update({account:dict(kind='bank',currency=currency,label='Cedar Current'),category:{},'Equity:Opening Balances':{}})
-    p=lambda a,n:dict(account=a,amount=n,commodity=currency)
+    declarations['accounts'].update({account:meta(account,kind='bank',currency=currency,label='Cedar Current'),category:meta(category),'Equity:Opening Balances':{}})
+    p=lambda a,n,**extra:posting(a,n,currency,**extra)
     source='Bills/2026-10-31/cedar-statement.csv'
-    opening=dict(id='000000000000b001',date='2026-09-30',status='confirmed',description='Cedar opening balance',postings=[p(account,'1000.00'),p('Equity:Opening Balances','-1000.00')])
-    opening['postings'][0]['assert']=dict(amount='1000.00',commodity=currency)
-    paid=dict(id='000000000000b002',date='2026-10-29',status='confirmed',description='Cedar learning payment',postings=[p(category,'100.00'),p(account,'-100.00')],sources=[source])
-    closing=dict(id='000000000000b003',date='2026-10-31',status='confirmed',description='Cedar monthly balance',postings=[dict(p(account,'0.00'),**{'assert':dict(amount='900.00',commodity=currency)})],sources=[source])
-    summary=dict(id='000000000000b004',kind='bank',account=account,start='2026-10-01',end='2026-10-31',source=source,reader='generic-csv',**{'opening-balance':'1000.00','closing-balance':'900.00','assertion-id':closing['id']},debits='100.00',credits='0.00',rows=1,members=[dict(date=paid['date'],serial='1',description=paid['description'],amount='100.00',direction='Debit',citation=dict(sheet='CSV',row=2),disposition='recorded',**{'entry-id':paid['id']})])
+    opening=store_entry(id='000000000000b001',date='2026-09-30',description='Cedar opening balance',postings=[p(account,'1000.00',assertion=dict(amount='1000.00',commodity=currency)),p('Equity:Opening Balances','-1000.00')])
+    paid=store_entry(id='000000000000b002',date='2026-10-29',description='Cedar learning payment',evidence=[source],postings=[p(category,'100.00'),p(account,'-100.00')])
+    closing=store_entry(id='000000000000b003',date='2026-10-31',description='Cedar monthly balance',evidence=[source],postings=[p(account,'0.00',assertion=dict(amount='900.00',commodity=currency))])
+    summary={'kind':'bank','id':'000000000000b004','account':account,'start':'2026-10-01','end':'2026-10-31','source':source,'source-balance-style':None,'opening-balance':'1000.00','closing-balance':'900.00','debits':'100.00','credits':'0.00','rows':1,
+             'members':[bank_member(date=paid['date'],serial='1',description=paid['description'],amount='100.00',direction='Debit',citation=dict(sheet='CSV',row=2),disposition='recorded',**{'entry-id':paid['id']})],'assertion-id':closing['id'],'reader':'generic-csv'}
     rows=read_json(settings.ledger/'data/expenses/2026.json')+[opening,paid,closing];rows.sort(key=lambda e:e['date'])
-    rule=dict(id='f00000000000b001',date='2026-11-29',status='confirmed',description='Cedar tutoring',postings=deepcopy(paid['postings']),schedule={'every':'month','from':'2026-11-29'})
+    rule=store_rule('2026-11-29','Cedar tutoring',deepcopy(paid['postings']),id='f00000000000b001')
     changes={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':rows,settings.ledger/'data/card-statements.json':read_json(settings.ledger/'data/card-statements.json')+[summary],settings.ledger/'data/forecast.json':[rule]}
     # The normal settings fixture writer owns the lock and verified commit.
     def install():
@@ -548,7 +593,7 @@ def confirmed_balances(body: dict):
         return changes
     update_settings(settings,install,dict(confirmed=True),'Fictional monthly bank statement')
     from corrections import wire_entry
-    proposal=wire_entry(settings,paid);proposal['entry']['date']='2026-10-30';proposal['attachment_names']=[]
+    proposal=wire_entry(settings,paid);proposal['entry']['date']='2026-10-30';proposal['attachment-names']=[]
     data=json.loads(config.read_text());data['steps']=[dict(answer=proposal)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
     return dict(account=account,currency=currency,entry_id=paid['id'],rule_id=rule['id'],proposal=proposal)
 
@@ -559,7 +604,7 @@ def confirmed_receipt(body: dict):
     from replacements import entry_hash
     rows=read_json(settings.ledger/'data/expenses/2026.json')
     entry=deepcopy(next(e for e in rows if e['id']=='000000000000b002'))
-    entry.update(id='000000000000b005',date='2026-11-02');entry.pop('sources',None)
+    entry.update(id='000000000000b005',date='2026-11-02',evidence=[])
     rows.append(entry);rows.sort(key=lambda e:e['date'])
     update_settings(settings,lambda:{settings.ledger/'data/expenses/2026.json':rows},dict(receipt=True),'Fictional later bank payment')
     code=entry['postings'][0]['commodity']
@@ -582,12 +627,12 @@ def varying_rules(body: dict):
         currency=next(m['currency'] for m in declarations['accounts'].values() if m.get('currency') and m['currency']!=currency)
     # Two distinctive words, shared with no paying account in any persona, so typing the name proposes the rule.
     pay='Assets:Bank:Quarry Bills';category='Expenses:Utilities:Hearth Energy'
-    declarations['accounts'].update({pay:dict(kind='bank',currency=currency,label='Quarry Bills'),category:{}})
-    rule=dict(id='f00000000000e001',date='2026-11-15',status='confirmed',description='Hearth Energy',amount='varies',schedule={'every':'month','from':'2026-11-15'},notes=['Keep original rule notes.'],postings=[dict(account=category,amount='110.00',commodity=currency),dict(account=pay,amount='-110.00',commodity=currency)])
+    declarations['accounts'].update({pay:meta(pay,kind='bank',currency=currency,label='Quarry Bills'),category:meta(category)})
+    rule=store_rule('2026-11-15','Hearth Energy',[posting(category,'110.00',currency),posting(pay,'-110.00',currency)],id='f00000000000e001',amount='varies',notes=['Keep original rule notes.'])
     rows=deepcopy(original[settings.ledger/'data/expenses/2026.json'])
     for i,(day,value) in enumerate([('2026-07-15','90.00'),('2026-08-15','100.00'),('2026-09-15','600.00'),('2026-10-15','110.00')],1):
         postings=[dict(p,amount=('-' if p['amount'].startswith('-') else '')+value) for p in rule['postings']]
-        rows.append(dict(id=f'000000000000e00{i}',date=day,status='confirmed',description=rule['description'],postings=postings))
+        rows.append(store_entry(id=f'000000000000e00{i}',date=day,description=rule['description'],postings=postings))
     rows.sort(key=lambda e:e['date'])
     documents={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/forecast.json':[rule],settings.ledger/'data/expenses/2026.json':rows}
     update_settings(settings,lambda:documents,dict(varying=True),'Fictional varying bill history')
@@ -606,27 +651,26 @@ def retention_fixture(body: dict):
     from ledger_manifest import read_manifest
     root=settings.ledger;docs=load(root);declarations=docs[root/'data/accounts.json'];accounts=declarations['accounts'];code=read_manifest(root)['defaultCurrency']
     pay='Assets:Bank:Willow everyday';bank='Assets:Bank:Willow retention';card='Liabilities:Cards:Willow retention';category='Expenses:Willow retention'
-    for account,kind in [(pay,'bank'),(bank,'bank'),(card,'card')]:accounts[account]=dict(kind=kind,currency=code,label=account.split(':')[-1])
-    accounts[category]={}
+    for account,kind in [(pay,'bank'),(bank,'bank'),(card,'card')]:accounts[account]=meta(account,kind=kind,currency=code,label=account.split(':')[-1])
+    accounts[category]=meta(category)
     def entry(n,description,day='2026-11-01',account=pay,value='12.34'):
-        return dict(id=f'6fc000000000{n:04x}',date=day,status='confirmed',description=description,postings=[dict(account=category,amount=value,commodity=code),dict(account=account,amount='-'+value,commodity=code)])
-    plain=entry(1,'Willow lunch');plain['sources']=['Bills/2026-11-01/Willow-only.txt','Bills/2026-11-01/Willow-shared.txt']
-    shared=entry(2,'Willow market');shared['sources']=['Bills/2026-11-01/Willow-shared.txt']
-    old=entry(3,'Willow older payment');old['sources']=['Bills/2026-11-01/Willow-older.txt'];locked=entry(4,'Willow bank-confirmed payment','2026-10-20',bank)
-    assertion=dict(id='6fc0000000000005',date='2026-10-31',status='confirmed',description='Willow monthly bank balance',postings=[dict(account=bank,amount='0.00',commodity=code,assert_=None)])
-    assertion['postings'][0].pop('assert_');assertion['postings'][0]['assert']=dict(amount='-12.34',commodity=code)
-    member=entry(6,'Willow statement payment','2026-10-20',card);member.update({'statement-end':'2026-10-31','serial-number':'W-1','statement-page':1,'sources':['Bills/2026-10-31/Willow-statement.pdf']})
-    summary=dict(id='6fc0000000000007',account=card,start='2026-10-01',end='2026-10-31',source=member['sources'][0],**{'previous-balance':'0.00','purchases':'12.34','credits':'0.00','total-due':'12.34','rows':1})
+        return store_entry(id=f'6fc000000000{n:04x}',date=day,description=description,postings=[posting(category,value,code),posting(account,'-'+value,code)])
+    plain=entry(1,'Willow lunch');plain['evidence']=['Bills/2026-11-01/Willow-only.txt','Bills/2026-11-01/Willow-shared.txt']
+    shared=entry(2,'Willow market');shared['evidence']=['Bills/2026-11-01/Willow-shared.txt']
+    old=entry(3,'Willow older payment');old['evidence']=['Bills/2026-11-01/Willow-older.txt'];locked=entry(4,'Willow bank-confirmed payment','2026-10-20',bank)
+    assertion=store_entry(id='6fc0000000000005',date='2026-10-31',description='Willow monthly bank balance',postings=[posting(bank,'0.00',code,assertion=dict(amount='-12.34',commodity=code))])
+    member=entry(6,'Willow statement payment','2026-10-20',card);member.update(statement=statement_row(end='2026-10-31',serial='W-1',page=1),evidence=['Bills/2026-10-31/Willow-statement.pdf'])
+    summary=card_summary('6fc0000000000007',card,'2026-10-01','2026-10-31',member['evidence'][0],'12.34')
     docs[root/'data/card-statements.json'].append(summary);docs[root/'data/card-statements.json'].sort(key=lambda s:s['end'])
     accounts.setdefault('Equity:Opening Balances',{})
-    opening=dict(id='6fc0000000000008',date='2026-10-01',status='confirmed',description='Willow card opening',postings=[dict(account=card,amount='0.00',commodity=code),dict(account='Equity:Opening Balances',amount='0.00',commodity=code)])
+    opening=store_entry(id='6fc0000000000008',date='2026-10-01',description='Willow card opening',postings=[posting(card,'0.00',code),posting('Equity:Opening Balances','0.00',code)])
     rows=docs[root/'data/expenses/2026.json'];rows.extend([plain,shared,old,locked,assertion,member,opening]);rows.sort(key=lambda e:e['date'])
     lines=[];added=[]
     for row in (plain,shared,old,locked,member):
-        d=app.state.drafts.create(row['description']);d.update(state='added',saved_at=now(),completed_at=now(),result=dict(outcome='ready',entry_id=row['id'],description=row['description'],sources=row.get('sources',[]),total='12.34 '+code,payment_account=row['postings'][1]['account']))
+        d=app.state.drafts.create(row['description']);d.update(state='added',saved_at=now(),completed_at=now(),result=dict(outcome='ready',entry_id=row['id'],description=row['description'],sources=row['evidence'],total='12.34 '+code,payment_account=row['postings'][1]['account']))
         app.state.drafts.put(d);record=draft_event(d,'added');record['time']=(datetime.now(timezone.utc)-timedelta(days=8 if row is old else 0)).isoformat();lines.append(record);added.append(d['id'])
     def install():
-        for source in {s for e in [plain,shared,old,member] for s in e.get('sources',[])}:
+        for source in {s for e in [plain,shared,old,member] for s in e['evidence']}:
             target=root/source;target.parent.mkdir(parents=True,exist_ok=True)
             if target.suffix=='.pdf':
                 from pypdf import PdfWriter
@@ -669,8 +713,7 @@ def retention_confirm(body: dict):
     from store import load,entries
     docs=load(settings.ledger);account='Assets:Bank:Willow everyday';code=docs[settings.ledger/'data/accounts.json']['accounts'][account]['currency']
     balance=sum((Decimal(p['amount']) for e in entries(docs) for p in e['postings'] if p['account']==account),Decimal(0))
-    row=dict(id='6fc0000000000009',date='2026-11-01',status='confirmed',description='Willow newly confirmed bank balance',postings=[dict(account=account,amount='0.00',commodity=code,assert_=None)])
-    row['postings'][0].pop('assert_');row['postings'][0]['assert']=dict(amount=format(balance,'f'),commodity=code)
+    row=store_entry(id='6fc0000000000009',date='2026-11-01',description='Willow newly confirmed bank balance',postings=[posting(account,'0.00',code,assertion=dict(amount=format(balance,'f'),commodity=code))])
     docs[settings.ledger/'data/expenses/2026.json'].append(row);docs[settings.ledger/'data/expenses/2026.json'].sort(key=lambda e:e['date'])
     return update_settings(settings,lambda:docs,dict(confirmed=True),'Confirm fictional retention balance')
 
@@ -709,31 +752,31 @@ def account_groups(body: dict):
     everyday,reserve,card,wallet,person='Assets:Bank:Rowan Everyday','Assets:Bank:Rowan Reserve','Liabilities:Credit Cards:Rowan Card','Assets:Wallets:Rowan Wallet','Assets:Reimbursements:Robin Vale'
     supplies='Expenses:Groups:Rowan Supplies'
     declarations=read_json(settings.ledger/'data/accounts.json')
-    declarations['accounts'].update({everyday:dict(kind='bank',currency=currency,label='Rowan Everyday'),reserve:dict(kind='bank',currency=currency,label='Rowan Reserve for the long weekend away fund'),
-        card:dict(kind='card',currency=currency,label='Rowan Card'),wallet:dict(kind='wallet',currency=currency,label='Rowan Wallet'),person:dict(kind='person',currency=currency,label='Robin Vale'),supplies:{},'Equity:Opening Balances':{}})
+    declarations['accounts'].update({everyday:meta(everyday,kind='bank',currency=currency,label='Rowan Everyday'),reserve:meta(reserve,kind='bank',currency=currency,label='Rowan Reserve for the long weekend away fund'),
+        card:meta(card,kind='card',currency=currency,label='Rowan Card'),wallet:meta(wallet,kind='wallet',currency=currency,label='Rowan Wallet'),person:meta(person,kind='person',currency=currency,label='Robin Vale'),supplies:meta(supplies),'Equity:Opening Balances':{}})
     pdf,csv=ACCOUNT_GROUP_FILES
-    p=lambda a,n,**extra:dict(account=a,amount=n,commodity=currency,**extra)
-    e=lambda n,day,text,postings,**extra:dict(id=f'00000000000c6a{n:02x}',date=f'2026-{day}',status='confirmed',description=text,postings=postings,**extra)
+    p=lambda a,n,**extra:posting(a,n,currency,**extra)
+    e=lambda n,day,text,postings,**extra:store_entry(id=f'00000000000c6a{n:02x}',date=f'2026-{day}',description=text,postings=postings,**extra)
     rows=[
         e(1,'09-30','Rowan opening balances',[p(everyday,'1000.00'),p(reserve,'500.00'),p(card,'0.00'),p(wallet,'50.00'),p(person,'0.00'),p('Equity:Opening Balances','-1550.00')]),
-        e(2,'10-03','Rowan supplies on the card',[p(supplies,'40.00'),p(card,'-40.00')],sources=[pdf],**{'statement-end':'2026-10-08','serial-number':'ROWAN-1','statement-page':1}),
-        e(3,'10-12','Rowan Card payment',[p(card,'40.00'),p(everyday,'-40.00')],sources=[csv]),
-        e(4,'10-13','Lent to Robin Vale',[p(person,'30.00'),p(everyday,'-30.00')],sources=[csv]),
-        e(5,'10-14','Move to Rowan Reserve',[p(reserve,'100.00'),p(everyday,'-100.00')],sources=[csv]),
-        e(6,'10-15','Rowan Wallet top-up',[p(wallet,'20.00'),p(everyday,'-20.00')],sources=[csv]),
+        e(2,'10-03','Rowan supplies on the card',[p(supplies,'40.00'),p(card,'-40.00')],evidence=[pdf],statement=statement_row(end='2026-10-08',serial='ROWAN-1',page=1)),
+        e(3,'10-12','Rowan Card payment',[p(card,'40.00'),p(everyday,'-40.00')],evidence=[csv]),
+        e(4,'10-13','Lent to Robin Vale',[p(person,'30.00'),p(everyday,'-30.00')],evidence=[csv]),
+        e(5,'10-14','Move to Rowan Reserve',[p(reserve,'100.00'),p(everyday,'-100.00')],evidence=[csv]),
+        e(6,'10-15','Rowan Wallet top-up',[p(wallet,'20.00'),p(everyday,'-20.00')],evidence=[csv]),
         e(7,'10-16','Rowan supplies from the wallet',[p(supplies,'15.00'),p(wallet,'-15.00')]),
         e(8,'10-18','Rowan supplies on the card again',[p(supplies,'25.50'),p(card,'-25.50')]),
-        e(9,'10-20','Robin Vale paid back',[p(everyday,'30.00'),p(person,'-30.00')],sources=[csv]),
-        e(10,'10-20','Rowan Everyday statement balance',[p(everyday,'0.00',**{'assert':dict(amount='840.00',commodity=currency)})],sources=[csv]),
+        e(9,'10-20','Robin Vale paid back',[p(everyday,'30.00'),p(person,'-30.00')],evidence=[csv]),
+        e(10,'10-20','Rowan Everyday statement balance',[p(everyday,'0.00',assertion=dict(amount='840.00',commodity=currency))],evidence=[csv]),
         e(11,'10-31','Rowan supplies from the bank',[p(supplies,'10.00'),p(everyday,'-10.00')]),
     ]
-    members=[dict(date=row['date'],serial=str(i),description=row['description'],amount=next(x['amount'] for x in row['postings'] if x['account']==everyday).lstrip('-'),
+    members=[bank_member(date=row['date'],serial=str(i),description=row['description'],amount=next(x['amount'] for x in row['postings'] if x['account']==everyday).lstrip('-'),
                   direction='Credit' if not next(x['amount'] for x in row['postings'] if x['account']==everyday).startswith('-') else 'Debit',
                   citation=dict(sheet='CSV',row=i+1),disposition='recorded',**{'entry-id':row['id']}) for i,row in enumerate([rows[k] for k in (2,3,4,5,8)],1)]
     summaries=read_json(settings.ledger/'data/card-statements.json')+[
-        dict(id='00000000000c6b01',account=card,start='2026-10-01',end='2026-10-08',source=pdf,**{'previous-balance':'0.00','purchases':'40.00','credits':'0.00','total-due':'40.00','rows':1}),
-        dict(id='00000000000c6b02',kind='bank',account=everyday,start='2026-10-09',end='2026-10-20',source=csv,reader='generic-csv',**{'opening-balance':'1000.00','closing-balance':'840.00','assertion-id':rows[9]['id']},
-             debits='190.00',credits='30.00',rows=len(members),members=members)]
+        card_summary('00000000000c6b01',card,'2026-10-01','2026-10-08',pdf,'40.00'),
+        {'kind':'bank','id':'00000000000c6b02','account':everyday,'start':'2026-10-09','end':'2026-10-20','source':csv,'source-balance-style':None,'opening-balance':'1000.00','closing-balance':'840.00',
+         'debits':'190.00','credits':'30.00','rows':len(members),'members':members,'assertion-id':rows[9]['id'],'reader':'generic-csv'}]
     summaries.sort(key=lambda s:s['end'])
     expenses=read_json(settings.ledger/'data/expenses/2026.json')+rows;expenses.sort(key=lambda r:r['date'])
     def install():

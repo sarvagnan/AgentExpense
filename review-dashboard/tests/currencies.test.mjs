@@ -11,6 +11,7 @@ import {accountActivity, balanceAccounts, priceOn, valueSeries} from '../app/acc
 import {parsePrices} from '../scripts/expense-store.mjs';
 import {currentAccounts,setCurrentAccounts} from '../scripts/account-metadata.mjs';
 import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
+import * as store from './store-fixtures.mjs';
 
 const sam = await personaData('sam');
 const jordan = await personaData('jordan');
@@ -158,10 +159,10 @@ test('USD income, investment funding, reimbursement and EUR forecasts stay in th
  await mkdir(join(root,'data/expenses'),{recursive:true});await mkdir(join(root,'data/prices'));
  const write=(file,data)=>writeFile(join(root,file),JSON.stringify(data));
  const accounts={Pocket:{kind:'bank',currency:'USD'},Travel:{kind:'bank',currency:'EUR'},Units:{kind:'investment',currency:'USD'},Friend:{kind:'person',currency:'USD'},'Equity:Opening Balances':{},'Expenses:Food':{},'Income:Salary':{}};
- await write('ledger.json',{format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000005',name:'Currency fixture',defaultCurrency:'USD',locale:'en-US',modules:{investments:{prices:'mutual-fund-nav'}}});
- await write('data/accounts.json',{commodities:['USD','EUR','FUND'],accounts});
- const p=(account,amount,commodity,cost)=>({account,amount:String(amount),commodity,...(cost?{cost}: {})});
- let id=0;const entry=(date,description,postings)=>({id:(++id).toString(16).padStart(16,'0'),date,status:'confirmed',description,postings});
+ await write('ledger.json',store.manifest({id:'00000000-0000-4000-8000-000000000005',name:'Currency fixture',defaultCurrency:'USD',locale:'en-US',modules:{investments:{prices:'mutual-fund-nav'}}}));
+ await write('data/accounts.json',{commodities:['USD','EUR','FUND'],accounts:store.accounts(accounts)});
+ const p=(account,amount,commodity,cost)=>store.posting(account,amount.toFixed(Number.isInteger(amount)&&commodity==='FUND'?3:2),commodity,cost?{cost}:{});
+ let id=0;const entry=(date,description,postings)=>store.entry({id:(++id).toString(16).padStart(16,'0'),date,description,postings});
  await write('data/expenses/2026.json',[
   entry('2026-10-01','Open dollars',[p('Pocket',1000,'USD'),p('Equity:Opening Balances',-1000,'USD')]),
   entry('2026-10-01','Open euros',[p('Travel',2000,'EUR'),p('Equity:Opening Balances',-2000,'EUR')]),
@@ -169,14 +170,14 @@ test('USD income, investment funding, reimbursement and EUR forecasts stay in th
   entry('2026-10-11','Fund',[p('Units',2,'FUND',{amount:'20',commodity:'USD',per:'total'}),p('Pocket',-20,'USD')]),
   {...entry('2026-10-11','Holdings check',[p('Units',0,'FUND')]),postings:[{...p('Units',0,'FUND'),assert:{amount:'2.000',commodity:'FUND'}}]},
   entry('2026-10-11','Zero units',[p('Units',0,'FUND')]),
-  {...entry('2026-10-12','Shared purchase',[p('Friend',30,'USD'),p('Pocket',-30,'USD')]),'reimbursement-group':'shared'},
-  {...entry('2026-10-13','Paid back',[p('Friend',-10,'USD'),p('Pocket',10,'USD')]),'reimbursement-group':'shared'},
+  {...entry('2026-10-12','Shared purchase',[p('Friend',30,'USD'),p('Pocket',-30,'USD')]),reimbursement:{group:'shared',label:null}},
+  {...entry('2026-10-13','Paid back',[p('Friend',-10,'USD'),p('Pocket',10,'USD')]),reimbursement:{group:'shared',label:null}},
   entry('2026-10-14','Meal',[p('Expenses:Food',40,'EUR'),p('Travel',-40,'EUR')]),
   entry('2026-10-31','Refund',[p('Expenses:Food',-6,'USD'),p('Pocket',6,'USD')]),
  ]);
  await write('data/forecast.json',[
-  {...entry('2026-11-01','Dollar commitment',[p('Expenses:Food',10,'USD'),p('Pocket',-10,'USD')]),schedule:{every:'month',from:'2026-11-01'}},
-  {...entry('2026-11-01','Euro commitment',[p('Expenses:Food',12,'EUR'),p('Travel',-12,'EUR')]),schedule:{every:'month',from:'2026-11-01'}},
+  store.rule({id:'f000000000000001',date:'2026-11-01',description:'Dollar commitment',postings:[p('Expenses:Food',10,'USD'),p('Pocket',-10,'USD')]}),
+  store.rule({id:'f000000000000002',date:'2026-11-01',description:'Euro commitment',postings:[p('Expenses:Food',12,'EUR'),p('Travel',-12,'EUR')]}),
  ]);
  await writeFile(join(root,'data/prices/mutual-funds.prices'),'P 2026-10-01 FUND 8 EUR\n');
  const env={...copy.env,LEDGER_DIR:root};

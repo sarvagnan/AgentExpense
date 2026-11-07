@@ -42,11 +42,7 @@ def link_pair(actual, one, two, reason):
 
 def unlink_pair(actual, one, two):
     owner, target = sorted((one, two))
-    links = [link for link in actual[owner].get('possible-duplicate-of', []) if link['id'] != target]
-    if links:
-        actual[owner]['possible-duplicate-of'] = links
-    else:
-        actual[owner].pop('possible-duplicate-of', None)
+    actual[owner]['possible-duplicate-of'] = [link for link in actual[owner]['possible-duplicate-of'] if link['id'] != target]
 
 
 def decision_state(lines):
@@ -85,9 +81,9 @@ def summary(entry, accounts, touched):
                 description=entry['description'], amount=str(amount), signedAmount=str(-totals[currency] if totals.get(currency) else -Decimal(payment['amount'])), currency=currency,
                 account=payment['account'], accountLabel=accounts.get(payment['account'], {}).get('label') or payment['account'].split(':')[-1],
                 currentAccount=review['account'] if review else '', kind=kind,
-                sources=entry.get('sources', []), source=next(iter(entry.get('sources', [])), 'Derived ledger entry'),
-                sourceReference=str(entry.get('serial-number', entry.get('source-row', entry.get('statement-page', entry.get('source-page', ''))))),
-                statement=bool(entry.get('statement-end')), notes=entry.get('notes', []), postings=entry['postings'], status=entry['status'])
+                sources=entry['evidence'], source=next(iter(entry['evidence']), 'Derived ledger entry'),
+                sourceReference=str(next((value for value in ((entry['statement'] or {}).get(key) for key in ('serial', 'source-row', 'page', 'source-page')) if value is not None), '')),
+                statement=bool((entry['statement'] or {}).get('end')), notes=entry.get('notes', []), postings=entry['postings'], status=entry['status'])
 
 
 def statement_members(documents, root):
@@ -123,7 +119,7 @@ def snapshot(root, *, clock=None):
         if identity in doubts:
             items.append(dict(id=identity, kind='doubt', important=True, reason='Added this week — the agent wasn’t sure', doubts=doubts[identity]['doubts'], added_at=doubts[identity]['time'], entries=[public[identity]]))
         elif entry['status'] == 'pending':
-            items.append(dict(id=identity, kind='pending', important=False, reason='Imported · category not chosen' if entry.get('sources') else 'Category not chosen', entries=[public[identity]]))
+            items.append(dict(id=identity, kind='pending', important=False, reason='Imported · category not chosen' if entry['evidence'] else 'Category not chosen', entries=[public[identity]]))
     for statement in documents[root/'data/card-statements.json']:
         for row in statement.get('members', []):
             if row['disposition'] == 'overlap-pending':
@@ -292,14 +288,14 @@ def apply(settings, body, *, clock=None):
                     raise ValueError('Choose a valid ledger account')
                 declarations = documents[root / 'data/accounts.json']['accounts']
                 if account not in declarations:
-                    from account_metadata import infer_kind, is_balance_sheet
+                    from account_metadata import empty, infer_kind, is_balance_sheet
                     from ledger_manifest import read_manifest
-                    metadata = {}
+                    metadata = empty(account)
                     if is_balance_sheet(account):
                         kind = infer_kind(account)
                         if kind is None:
                             raise ValueError('Create this account with its kind and currency before choosing it')
-                        metadata = dict(kind=kind, currency=read_manifest(root)['defaultCurrency'])
+                        metadata = empty(account, kind, read_manifest(root)['defaultCurrency'])
                     declarations[account] = metadata
                 old_account = postings[0]['account']
                 for posting in postings:
@@ -309,7 +305,7 @@ def apply(settings, body, *, clock=None):
                 if decision['label']:
                     entry['description'] = decision['label']
                 if decision['notes']:
-                    entry.setdefault('notes', []).extend(decision['notes'].splitlines())
+                    entry['notes'].extend(decision['notes'].splitlines())
             changes.append(dict(entry_id=entry_id, before_version=state['entries'][entry_id]['version'], after_version=digest(entry), decision=decision, original=state['entries'][entry_id]))
 
         if action in ('resolve', 'followup'):
@@ -324,11 +320,9 @@ def apply(settings, body, *, clock=None):
                     raise ValueError('This overlapping row is no longer waiting for review')
                 if any(m.get('entry-id') == entry['id'] for m in statement['members']):
                     raise ValueError('That entry is already assigned to another row')
-                row.pop('review-candidates')
-                row.update(disposition='already-in-ledger', **{'entry-id':entry['id']})
-                entry.setdefault('sources',[])
-                if statement['source'] not in entry['sources']:
-                    entry['sources'].append(statement['source'])
+                row.update(disposition='already-in-ledger', **{'entry-id':entry['id'], 'review-candidates':[]})
+                if statement['source'] not in entry['evidence']:
+                    entry['evidence'].append(statement['source'])
                 changes.append(dict(entry_id=entry['id'],before_version=state['entries'][entry['id']]['version'],after_version=digest(entry),reason='overlapping-statements'))
             elif entry['status'] == 'pending':
                 raise ValueError('Choose a category to resolve this pending entry')
@@ -366,7 +360,7 @@ def apply(settings, body, *, clock=None):
             if action == 'merge':
                 kept, removed = merge_order(first, second, records(root), root)
                 bank_members = statement_members(documents, root)
-                if (kept.get('statement-end') or kept['id'] in bank_members) and (removed.get('statement-end') or removed['id'] in bank_members):
+                if ((kept['statement'] or {}).get('end') or kept['id'] in bank_members) and ((removed['statement'] or {}).get('end') or removed['id'] in bank_members):
                     raise ValueError('Both entries belong to filed statements. Reconcile their membership before merging.')
                 kept_before, removed_before = deepcopy(kept), deepcopy(removed)
                 kept = deepcopy(kept)
@@ -376,27 +370,25 @@ def apply(settings, body, *, clock=None):
                     kept['rule'] = deepcopy(removed['rule'])
                 for rule in documents[root / 'data/forecast.json']:
                     for field in ('origin', 'removal'):
-                        if rule.get(field, {}).get('evidence'):
-                            rule[field]['evidence'] = list(dict.fromkeys(kept['id'] if identity == removed['id'] else identity for identity in rule[field]['evidence']))
-                sources = list(dict.fromkeys(kept.get('sources', []) + removed.get('sources', [])))
-                notes = list(dict.fromkeys(kept.get('notes', []) + removed.get('notes', [])))
-                if sources:
-                    kept['sources'] = sources
-                if notes:
-                    kept['notes'] = notes
+                        if (rule[field] or {}).get('entry-ids'):
+                            rule[field]['entry-ids'] = list(dict.fromkeys(kept['id'] if identity == removed['id'] else identity for identity in rule[field]['entry-ids']))
+                kept['evidence'] = list(dict.fromkeys(kept['evidence'] + removed['evidence']))
+                kept['notes'] = list(dict.fromkeys(kept['notes'] + removed['notes']))
                 from replacements import replace_entry, entry_hash, move_evidence
                 kept = replace_entry(documents,root,kept_before,kept,expected=entry_hash(kept_before),remove=removed_before,removed_expected=entry_hash(removed_before))
                 actual[kept['id']]=kept
                 evidence_moves = move_evidence(documents,root,kept_before,kept)
                 # Retarget other unsettled edges without leaving dangling IDs.
-                edges = [(e['id'], l['id'], l['reason']) for e in actual.values() for l in e.pop('possible-duplicate-of', [])]
+                edges = [(e['id'], l['id'], l['reason']) for e in actual.values() for l in e['possible-duplicate-of']]
+                for e in actual.values():
+                    e['possible-duplicate-of'] = []
                 for a, b, reason in edges:
                     a = kept['id'] if a == removed['id'] else a
                     b = kept['id'] if b == removed['id'] else b
                     if a != b:
                         link_pair(actual, a, b, reason)
                 actual.pop(removed['id'])
-                change.update(kept_id=kept['id'], removed_id=removed['id'], sources=removed.get('sources', []), notes=removed.get('notes', []))
+                change.update(kept_id=kept['id'], removed_id=removed['id'], sources=removed['evidence'], notes=removed['notes'])
             change['after_version'] = digest([actual.get(one), actual.get(two)])
             changes.append(change)
         else:
@@ -432,7 +424,7 @@ def apply(settings, body, *, clock=None):
 
 def merge_order(first, second, lines, root=None):
     bank_members = statement_members(load(root), root) if root else set()
-    first_member, second_member = bool(first.get('statement-end')) or first['id'] in bank_members, bool(second.get('statement-end')) or second['id'] in bank_members
+    first_member, second_member = bool((first['statement'] or {}).get('end')) or first['id'] in bank_members, bool((second['statement'] or {}).get('end')) or second['id'] in bank_members
     if first_member != second_member:
         return (first, second) if first_member else (second, first)
     # Existing imported entries have no addition event and predate live additions.

@@ -12,8 +12,10 @@ def validate_consent(record):
     if consent:
         if consent['proposal_hash'] != proposal_hash(record.get('proposal')):
             raise ValueError('Account consent does not match the exact proposal')
-        if set(consent['accounts']) - set(record['proposal']['new_accounts']):
+        # Older audit lines carry the format 1 answer (new_accounts); newer ones the kebab-case answer.
+        accounts = set(record['proposal'].get('new-accounts', record['proposal'].get('new_accounts', [])))
+        if set(consent['accounts']) - accounts:
             raise ValueError('Account consent names accounts outside the proposal')
 
-        if consent['method']=='hand-ticks' and set(consent['accounts']) != set(record['proposal']['new_accounts']):
+        if consent['method']=='hand-ticks' and set(consent['accounts']) != accounts:
             raise ValueError('Hand-finished consent must include every new account')

@@ -6,20 +6,19 @@ import path from 'node:path';
 import test from 'node:test';
 import { decimalNumber, isAssertionOnly, loadExpenseStore, parsePrices, toTransaction } from '../scripts/expense-store.mjs';
 import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
+import * as store from './store-fixtures.mjs';
 
-const entry = (overrides = {}) => ({ id: '0000000000000001', date: '2026-01-30', status: 'pending', description: 'Test purchase',
-  sources: ['statement.pdf', 'receipt.png'], classification: 'Pending receipt',
-  postings: [{ account: 'Expenses:Test', commodity: 'INR', amount: '100.00' },
-    { account: 'Liabilities:Credit Cards:Rewards Card', commodity: 'INR', amount: '-100.00' }], ...overrides });
-const rule = () => entry({ id: '0000000000000004', schedule: { every: 'month', from: '2026-01-30' } });
+const entry = (overrides = {}) => store.entry({ status: 'pending', evidence: ['statement.pdf', 'receipt.png'], classification: 'Pending receipt',
+  postings: [store.posting('Expenses:Test', '100.00'), store.posting('Liabilities:Credit Cards:Rewards Card', '-100.00')], ...overrides });
+const rule = () => store.rule({ id: '0000000000000004', postings: entry().postings });
 async function fixture(t, actuals = [entry()], rules = [rule()]) {
   // Scratch stores never live in the source checkout.
   const root = await temporaryDirectory('store-test-');
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'data/expenses'), { recursive: true });
   await mkdir(path.join(root, 'data/prices'));
-  await writeFile(path.join(root, 'ledger.json'), JSON.stringify({format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
-  await writeFile(path.join(root, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:{'Expenses:Test':{}}}));
+  await writeFile(path.join(root, 'ledger.json'), JSON.stringify(store.manifest()));
+  await writeFile(path.join(root, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:{'Expenses:Test':{category:null}}}));
   await writeFile(path.join(root, 'data/expenses/2026.json'), JSON.stringify(actuals));
   await writeFile(path.join(root, 'data/forecast.json'), JSON.stringify(rules));
   await writeFile(path.join(root, 'data/prices/mutual-funds.prices'), '; source note\nP 2026-01-01 "FUND" 12.3456 INR\n');
@@ -36,17 +35,17 @@ test('decimal strings use the hledger mantissa/scale conversion without early ro
 });
 
 test('the loader preserves IDs, structured fields, source order and entry dates', async (t) => {
-  const original = entry({ 'original-amount': { amount: '1.2300', commodity: 'USD' }, 'reimbursement-group': 'group', notes: ['classification: never read this'] });
+  const original = entry({ 'original-amount': { amount: '1.2300', commodity: 'USD' }, reimbursement: {group: 'group', label: null}, notes: ['classification: never read this'] });
   const root = await fixture(t, [original]);
   const manifest = JSON.parse(await readFile(path.join(root, 'ledger.json')));
   manifest.modules = {investments:{prices:'mutual-fund-nav'}};
   await writeFile(path.join(root, 'ledger.json'), JSON.stringify(manifest));
   const { transactions, rules, prices } = await loadExpenseStore(root);
   assert.equal(transactions[0].id, original.id);
-  assert.deepEqual(transactions[0].sources, original.sources);
+  assert.deepEqual(transactions[0].sources, original.evidence);
   assert.equal(transactions[0].classification, original.classification);
   assert.deepEqual(transactions[0]['original-amount'], original['original-amount']);
-  assert.equal(transactions[0]['reimbursement-group'], 'group');
+  assert.deepEqual(transactions[0].reimbursement, {group: 'group', label: null});
   assert.deepEqual(transactions[0].postings[1], { account: original.postings[1].account, currency: 'INR', amount: -100 });
   assert.equal(transactions[0].date, '2026-01-30', 'Entry/expense month stays in January');
   assert.deepEqual(rules[0].schedule, rule().schedule);
@@ -55,26 +54,26 @@ test('the loader preserves IDs, structured fields, source order and entry dates'
 });
 
 test('assertion-only is defined by all postings; it excludes zero assertions in any status or description', async (t) => {
-  const assertion = { account: 'Assets:Test', amount: '-0.00', commodity: 'INR', assert: { amount: '10.00', commodity: 'INR' } };
+  const assertion = store.posting('Assets:Test', '-0.00', 'INR', { assert: { amount: '10.00', commodity: 'INR' } });
   assert.equal(isAssertionOnly({ postings: [assertion, assertion] }), true);
   assert.equal(isAssertionOnly({ postings: [] }), false);
   assert.equal(isAssertionOnly({ postings: [{ ...assertion, amount: '1.00' }] }), false);
-  assert.equal(isAssertionOnly({ postings: [assertion, { ...assertion, assert: undefined }] }), false);
-  const root = await fixture(t, [entry({ postings: [assertion] }), entry({ id: '0000000000000002', postings: [{ ...assertion, assert: undefined }] })]);
+  assert.equal(isAssertionOnly({ postings: [assertion, { ...assertion, assert: null }] }), false);
+  const root = await fixture(t, [entry({ postings: [assertion] }), entry({ id: '0000000000000002', postings: [{ ...assertion, assert: null }] })]);
   const data = await loadExpenseStore(root);
   assert.deepEqual(data.transactions.map(row => row.id), ['0000000000000002']);
 });
 
-test('optional absent sources keep the original empty source list, with no notes inference', () => {
-  const row = entry();
-  delete row.sources;
+test('empty evidence is an empty source list, with no notes inference', () => {
+  const row = entry({ evidence: [] });
   assert.deepEqual(toTransaction(row).sources, []);
+  assert.throws(() => toTransaction({ ...entry(), evidence: undefined }), /evidence/);
   assert.throws(() => toTransaction(entry({ status: 'unknown' })), /status/);
   assert.throws(() => toTransaction(entry({ date: '2026-02-30' })), /date/);
 });
 
 test('investment costs retain signed total/unit cost calculation and two-decimal rounding', () => {
-  const fund = { account: 'Assets:Investments:Test', commodity: 'FUND', amount: '1.234', cost: { amount: '123.4567', commodity: 'INR', per: 'unit' } };
+  const fund = store.posting('Assets:Investments:Test', '1.234', 'FUND', { cost: { amount: '123.4567', commodity: 'INR', per: 'unit' } });
   assert.equal(toTransaction(entry({ postings: [fund] }), {'Assets:Investments:Test':{kind:'investment'}}).postings[0].cost, Number((123.4567 * 1.234).toFixed(2)));
   assert.equal(toTransaction(entry({ postings: [{ ...fund, amount: '-1.234', cost: { ...fund.cost, amount: '100.005', per: 'total' } }] }), {'Assets:Investments:Test':{kind:'investment'}}).postings[0].cost, Number((-100.005).toFixed(2)));
   const expense = { ...fund, account: 'Expenses:Test' };
@@ -90,8 +89,8 @@ test('year files load in order and preserve stable same-date array order', async
 
 test('duplicate/invalid IDs across actuals and rules and unordered actuals fail closed', async (t) => {
   for (const [actuals, rules, error] of [
-    [[entry(), entry()], [], /duplicate/], [[entry()], [entry({ schedule: rule().schedule })], /duplicate/],
-    [[entry({ id: 'bad' })], [], /ID/], [[entry({ id: 1234567890123456 })], [], /ID/],
+    [[entry(), entry()], [], /Duplicate/], [[entry()], [store.rule({ id: entry().id, postings: entry().postings })], /Duplicate/],
+    [[entry({ id: 'bad' })], [], /Invalid data\/expenses/], [[entry({ id: 1234567890123456 })], [], /Invalid data\/expenses/],
     [[entry(), entry({ id: '0000000000000002', date: '2025-01-01' })], [], /date order/],
   ]) {
     const root = await fixture(t, actuals, rules);
@@ -122,7 +121,8 @@ test('manifest gates run before store reads and fill independent defaults', asyn
   const { readManifest } = await import('../scripts/ledger-manifest.mjs');
   const root = await fixture(t);
   const manifest = await readManifest(root);
-  assert.deepEqual(manifest.modules, { fuel: false, weeklyReview: false, investments: { prices: null }, history: { oldLedger: null } });
+  assert.deepEqual(manifest.modules, { weeklyReview: false, investments: { prices: null }, history: { oldLedger: null } });
+  assert.deepEqual(manifest.extensions, {});
   assert.deepEqual(manifest.review, { storageKey: null });
   await rm(path.join(root, 'ledger.json'));
   await assert.rejects(loadExpenseStore(root), { message: 'This ledger uses format 0; run make upgrade-ledger.' });
@@ -133,20 +133,21 @@ test('manifest gates run before store reads and fill independent defaults', asyn
 test('account metadata accepts any root and requires kind and currency outside Income, Expenses and Equity', async t => {
   const root = await fixture(t);
   const file = path.join(root, 'data/accounts.json');
-  const person = { kind: 'person', currency: 'USD' };
+  const person = store.metadata('Custom', { kind: 'person', currency: 'USD' });
   const accounts = {
     'Dev Sen:Accounts Payable:Asha': person,
     'Dev Sen:Balances:Accounts Receivable:Asha': person,
     Custom: person,
     'IncomeExtra:Test': person,
-    Income: {}, 'Income:Salary': {}, 'Expenses:Test': {}, 'Equity:Opening Balances': {},
+    Income: {}, 'Income:Salary': {}, 'Expenses:Test': { category: null }, 'Equity:Opening Balances': {},
   };
   const write = value => writeFile(file, JSON.stringify({ commodities: ['INR', 'USD'], accounts: value }));
   await write(accounts);
   assert.deepEqual((await loadExpenseStore(root)).accounts, accounts);
   for (const [name, metadata] of [
-    ['Dev Sen:Accounts Payable:Asha', {}], ['Dev Sen:Balances:Accounts Receivable:Asha', { currency: 'USD' }],
-    ['Custom', { kind: 'person' }], ['IncomeExtra:Test', {}], ['Income:Salary', person], ['Expenses:Test', person],
+    ['Dev Sen:Accounts Payable:Asha', {}], ['Dev Sen:Balances:Accounts Receivable:Asha', { ...person, kind: undefined }],
+    ['Custom', { ...person, currency: undefined }], ['IncomeExtra:Test', {}], ['Income:Salary', person], ['Expenses:Test', person],
+    ['Custom', { kind: 'person', currency: 'USD' }], ['Expenses:Test', {}],
     ['Equity:Opening Balances', person], ['Custom', { kind: 'unknown', currency: 'USD' }],
     ...['', ':Custom', 'Custom:', 'Custom::Test', 'Custom\nTest', 'Custom:Test\n', 'Custom\rTest'].map(name => [name, person]),
   ]) {
@@ -158,14 +159,14 @@ test('account metadata accepts any root and requires kind and currency outside I
 test('the Node reader accepts display categories only on Expenses accounts', async t => {
   const root = await fixture(t);
   const file = path.join(root, 'data/accounts.json');
-  const accounts = {'Expenses': {category:'Everyday'}, 'Expenses:Test': {category:'Groceries'}, 'Income:Salary': {}, 'Equity:Opening Balances': {}};
+  const accounts = {'Expenses': {category:'Everyday'}, 'Expenses:Test': {category:'Groceries'}, 'Income:Salary': {}, 'Equity:Opening Balances': {}, 'Expenses:Other': {category: null}};
   const write = value => writeFile(file, JSON.stringify({commodities:['INR'], accounts:value}));
   await write(accounts);
   assert.deepEqual((await loadExpenseStore(root)).accounts, accounts);
   for (const [account, metadata] of [
-    ...['', ' ', '\t', 'Groceries\n', 'Groceries\rOther', 42, null].map(category => ['Expenses:Test', {category}]),
+    ...['', ' ', '\t', 'Groceries\n', 'Groceries\rOther', 42].map(category => ['Expenses:Test', {category}]),
     ['Income:Salary', {category:'Income'}], ['Equity:Opening Balances', {category:'Opening'}],
-    ['Assets:Checking:Alder', {kind:'bank', currency:'INR', category:'Groceries'}],
+    ['Assets:Checking:Alder', {...store.metadata('Assets', {kind:'bank', currency:'INR'}), category:'Groceries'}],
     ['Expenses:Test', {category:'Groceries', label:'Store'}],
   ]) {
     await write({...accounts, [account]:metadata});
@@ -204,7 +205,7 @@ test('possible duplicate links preserve metadata and reject dangling, reversed a
  const root=await fixture(t,[one,two],[]);
  const forecast=rule();forecast['possible-duplicate-of']=[{id:one.id,reason:'amount-date-gap'}];
  await writeFile(path.join(root,'data/forecast.json'),JSON.stringify([forecast]));
- await assert.rejects(loadExpenseStore(root),/Forecasts/);
+ await assert.rejects(loadExpenseStore(root),/unexpected possible-duplicate-of/);
  await writeFile(path.join(root,'data/forecast.json'),'[]');
  assert.deepEqual((await loadExpenseStore(root)).transactions[0]['possible-duplicate-of'],one['possible-duplicate-of']);
  for(const links of [[{id:one.id,reason:'amount-date-gap'}],[{id:'f'.repeat(16),reason:'amount-date-gap'}],[{id:two.id,reason:'unknown'}],one['possible-duplicate-of'].concat(one['possible-duplicate-of'])]){

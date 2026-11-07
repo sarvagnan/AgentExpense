@@ -80,14 +80,16 @@ def resolve(draft, root, amount=None, rate=None, estimate=True):
     entry = answer['entry']
     source = next(p for p in entry['postings'] if p['account'] == request['sourceAccount'])
     target = next(p for p in entry['postings'] if p['account'] == request['account'])
+    # The person's amount, written with the decimal point the store requires, as the server always has (1200.00).
+    text = format(charged, 'f') if '.' in format(charged, 'f') else format(charged, 'f') + '.00'
     if request['kind'] == 'expense':
-        source['cost'] = dict(amount=str(charged), commodity=request['currency'])
-        target.update(amount=str(-charged), commodity=request['currency'], cost=None)
+        source['cost'] = dict(amount=format(charged, 'f'), commodity=request['currency'])
+        target.update(amount='-' + text, commodity=request['currency'], cost=None)
         if estimate:
             entry['notes'].append('Currency estimate: statement will replace with the amount actually charged.')
     else:
-        source['cost'] = dict(amount=str(charged), commodity=request['currency'])
-        target.update(amount=str(charged), commodity=request['currency'], cost=None)
+        source['cost'] = dict(amount=format(charged, 'f'), commodity=request['currency'])
+        target.update(amount=text, commodity=request['currency'], cost=None)
     draft['questions'][-1].update(answer=f"{charged} {request['currency']} {'received' if request['kind']=='transfer' else 'charged'}" + (' (estimate)' if estimate and request['kind']=='expense' else ''))
     draft.pop('currency_request', None)
     draft.pop('currency_proposal', None)

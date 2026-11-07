@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from unittest.mock import patch
 
-from support import Fixture, ready
+from support import Fixture, ready, entry as store_entry, posting
 from audit import records
 from drafts import Drafts
 from retention_service import Retention, AdditionTimes
@@ -27,13 +27,13 @@ class RetentionTests(Fixture):
 
     def add(self, description='Willow lunch', source=None):
         d=self.drafts.create(description);d.update(saved_at=self.now.isoformat(),state='working')
-        a=ready(new=False);a['attachment_names']=[];a['entry']['description']=description
+        a=ready(new=False);a['attachment-names']=[];a['entry']['description']=description
         from ledger_lock import ledger_lock
         with ledger_lock(self.ledger) as fd: result=Transaction(self.settings,self.drafts,d).apply(a,fd)
         self.drafts.completed(d,result)
         entry=next(e for e in entries(load(self.ledger)) if e['id']==result['entry_id'])
         if source:
-            entry['sources']=[source];(self.ledger/source).parent.mkdir(parents=True,exist_ok=True);(self.ledger/source).write_bytes(b'Fictional receipt\n')
+            entry['evidence']=[source];(self.ledger/source).parent.mkdir(parents=True,exist_ok=True);(self.ledger/source).write_bytes(b'Fictional receipt\n')
             docs=load(self.ledger);docs[self.ledger/f"data/expenses/{entry['date'][:4]}.json"]=[entry];dump(self.ledger/f"data/expenses/{entry['date'][:4]}.json",[entry]);self.jj('commit','-m','File fictional evidence')
         return entry
 
@@ -44,17 +44,17 @@ class RetentionTests(Fixture):
         return self.op('delete',entry_id=entry['id'],version=entry_hash(entry))
 
     def test_delete_restore_exact_files_idempotent_and_commit_format(self):
-        e=self.add(source='Bills/2026-10-29/Willow.txt');before=deepcopy(e);file=(self.ledger/e['sources'][0]).read_bytes();expense_path=self.ledger/f"data/expenses/{e['date'][:4]}.json";expense_bytes=expense_path.read_bytes()
+        e=self.add(source='Bills/2026-10-29/Willow.txt');before=deepcopy(e);file=(self.ledger/e['evidence'][0]).read_bytes();expense_path=self.ledger/f"data/expenses/{e['date'][:4]}.json";expense_bytes=expense_path.read_bytes()
         op=secrets.token_hex(16);body=dict(action='delete',entry_id=e['id'],version=entry_hash(e),reason='Duplicate thought\nkept trace')
-        out=self.service.operate(op,body);self.assertEqual(entries(load(self.ledger)),[]);self.assertFalse((self.ledger/e['sources'][0]).exists());self.assertTrue(self.service.operate(op,body)['replayed'])
+        out=self.service.operate(op,body);self.assertEqual(entries(load(self.ledger)),[]);self.assertFalse((self.ledger/e['evidence'][0]).exists());self.assertTrue(self.service.operate(op,body)['replayed'])
         self.assertEqual(self.service.listing()['items'][0]['id'],out['item_id'])
-        result=self.op('restore',item_id=out['item_id']);self.assertEqual(entries(load(self.ledger)),[before]);self.assertEqual((self.ledger/e['sources'][0]).read_bytes(),file);self.assertEqual(expense_path.read_bytes(),expense_bytes)
-        self.assertIn('Files restored: '+e['sources'][0],self.jj('log','-r','@-','--no-graph','-T','description'));self.assertTrue(clean(self.ledger));self.assertEqual([r['retention_action'] for r in records(self.ledger) if r['kind']=='retention'],['deleted','restored'])
+        result=self.op('restore',item_id=out['item_id']);self.assertEqual(entries(load(self.ledger)),[before]);self.assertEqual((self.ledger/e['evidence'][0]).read_bytes(),file);self.assertEqual(expense_path.read_bytes(),expense_bytes)
+        self.assertIn('Files restored: '+e['evidence'][0],self.jj('log','-r','@-','--no-graph','-T','description'));self.assertTrue(clean(self.ledger));self.assertEqual([r['retention_action'] for r in records(self.ledger) if r['kind']=='retention'],['deleted','restored'])
 
     def test_delete_coverage_window_and_unknown(self):
         e=self.add();self.assertTrue(self.service.eligibility(e['id'])['offered'])
         self.now+=timedelta(days=8);self.assertIn('window',self.service.eligibility(e['id'])['reason']);self.now-=timedelta(days=8)
-        docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][e['postings'][1]['account']]['kind']='bank';dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json']);rows=docs[self.ledger/'data/expenses/2026.json'];assertion=deepcopy(e);assertion.update(id='e'*16,date='2026-10-31',description='Confirmed monthly balance',postings=[dict(e['postings'][1],amount='0.00',assert_='unused')]);assertion['postings'][0].pop('assert_');assertion['postings'][0]['assert']=dict(amount=e['postings'][1]['amount'],commodity=e['postings'][1]['commodity']);rows.append(assertion);dump(self.ledger/'data/expenses/2026.json',rows);self.jj('commit','-m','Confirm fictional bank balance')
+        docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][e['postings'][1]['account']]['kind']='bank';dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json']);rows=docs[self.ledger/'data/expenses/2026.json'];assertion=store_entry('e'*16,'2026-10-31','Confirmed monthly balance',[posting(e['postings'][1]['account'],'0.00',e['postings'][1]['commodity'],**{'assert':dict(amount=e['postings'][1]['amount'],commodity=e['postings'][1]['commodity'])})]);rows.append(assertion);dump(self.ledger/'data/expenses/2026.json',rows);self.jj('commit','-m','Confirm fictional bank balance')
         self.assertIn('confirmed',self.service.eligibility(e['id'])['reason'])
         with self.assertRaisesRegex(ValueError,'confirmed'):self.delete(e)
 
@@ -106,8 +106,8 @@ class RetentionTests(Fixture):
         e=self.add(source='Bills/2026-10-29/shared.txt');other=deepcopy(e);other['id']='c'*16
         dump(self.ledger/'data/expenses/2026.json',[e,other]);self.jj('commit','-m','Share fictional evidence');self.service.history.refresh()
         first=self.delete(e);second=self.delete(other)
-        self.assertTrue((self.ledger/e['sources'][0]).is_file())
-        self.op('remove',items=[first['item_id']]);self.assertTrue((self.ledger/e['sources'][0]).is_file())
+        self.assertTrue((self.ledger/e['evidence'][0]).is_file())
+        self.op('remove',items=[first['item_id']]);self.assertTrue((self.ledger/e['evidence'][0]).is_file())
         self.op('restore',item_id=second['item_id']);self.assertEqual(entries(load(self.ledger)),[other]);self.assertTrue(clean(self.ledger))
 
     def test_settings_preview_immediate_effects_and_permanent_removal(self):
@@ -174,7 +174,7 @@ class RetentionTests(Fixture):
         for key in ('finished_by','account_consent','usual_payment','usual_request','refusal','correction'):self.assertNotIn(key,restored)
         restored.update(state='working',saved_at=self.now.isoformat());self.drafts.put(restored)
         from ledger_lock import ledger_lock
-        answer=ready(new=False);answer['attachment_names']=[]
+        answer=ready(new=False);answer['attachment-names']=[]
         with ledger_lock(self.ledger) as fd: result=Transaction(self.settings,self.drafts,restored).apply(answer,fd)
         self.assertTrue(result['entry_id']);self.assertTrue(clean(self.ledger))
 
@@ -193,7 +193,7 @@ class RetentionTests(Fixture):
                 def save():
                     entered.set();self.assertTrue(release.wait(30))
                     d=self.drafts.create('Willow concurrent payment');d.update(state='working',saved_at=self.now.isoformat());self.drafts.put(d)
-                    answer=ready(new=False);answer['attachment_names']=[]
+                    answer=ready(new=False);answer['attachment-names']=[]
                     with ledger_lock(self.ledger) as fd: result=Transaction(self.settings,self.drafts,d).apply(answer,fd)
                     self.drafts.completed(d,result);return result
                 saving=pool.submit(worker.call,save)
@@ -212,10 +212,10 @@ class RetentionTests(Fixture):
 
     def test_shared_files_stay_and_restore_refused_has_audit_commit(self):
         e=self.add(source='Bills/2026-10-29/shared.txt');other=deepcopy(e);other['id']='c'*16;other['description']='Another fictional meal';dump(self.ledger/'data/expenses/2026.json',[e,other]);self.jj('commit','-m','Share fictional evidence')
-        out=self.delete(e);self.assertTrue((self.ledger/e['sources'][0]).exists());self.assertEqual(self.service.listing()['items'][0]['files'],e['sources'])
+        out=self.delete(e);self.assertTrue((self.ledger/e['evidence'][0]).exists());self.assertEqual(self.service.listing()['items'][0]['files'],e['evidence'])
         metadata=load(self.ledger)[self.ledger/'data/accounts.json'];metadata['accounts'][e['postings'][1]['account']]['kind']='bank';dump(self.ledger/'data/accounts.json',metadata)
-        assertion=dict(id='b'*16,date='2026-10-31',status='confirmed',description='Monthly confirmed balance',postings=[dict(account=e['postings'][1]['account'],amount='0.00',commodity=e['postings'][1]['commodity'],assert_=None)])
-        assertion['postings'][0].pop('assert_');assertion['postings'][0]['assert']=dict(amount=other['postings'][1]['amount'],commodity=e['postings'][1]['commodity']);dump(self.ledger/'data/expenses/2026.json',[other,assertion]);self.jj('commit','-m','Confirm remaining balance')
+        assertion=store_entry('b'*16,'2026-10-31','Monthly confirmed balance',[posting(e['postings'][1]['account'],'0.00',e['postings'][1]['commodity'],**{'assert':dict(amount=other['postings'][1]['amount'],commodity=e['postings'][1]['commodity'])})])
+        dump(self.ledger/'data/expenses/2026.json',[other,assertion]);self.jj('commit','-m','Confirm remaining balance')
         result=self.op('restore',item_id=out['item_id']);self.assertTrue(result['refused']);self.assertEqual(records(self.ledger)[-1]['retention_action'],'restore-refused');self.assertTrue(clean(self.ledger))
 
     def test_rollback_and_restart_after_commit_before_receipt(self):
@@ -244,7 +244,7 @@ class RetentionPaymentTests(Fixture):
                 r=self.seed(bill=bill)
                 if bill:
                     source='Bills/2026-11-01/Willow-bill.txt';(self.ledger/source).parent.mkdir(parents=True,exist_ok=True);(self.ledger/source).write_text('Fictional unpaid bill')
-                    r['bill']['sources']=[source];dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','File fictional bill evidence')
+                    r['bill']['evidence']=[source];dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','File fictional bill evidence')
                 drafts,d,result=self.usual(**({} if bill else dict(amount='120.00')))
                 after=deepcopy(self.rule());service=Retention(self.settings,drafts)
                 entry=next(e for e in entries(load(self.ledger)) if e['id']==result['entry_id'])
@@ -287,7 +287,7 @@ class ReceiptCancellationTests(Fixture):
         from receipts import read
         e=self.add(source='Bills/2026-10-29/reading.txt')
         d=next(d for d in self.drafts.all() if d.get('result',{}).get('entry_id')==e['id'])
-        d['receipt_reading']=dict(state='queued',queued_at=self.now.isoformat(),sources=e['sources'],entry_id=e['id']);self.drafts.put(d)
+        d['receipt_reading']=dict(state='queued',queued_at=self.now.isoformat(),sources=e['evidence'],entry_id=e['id']);self.drafts.put(d)
         worker=Worker(self.settings,self.drafts);entered=threading.Event();release=threading.Event();failures=[]
         def fake(*args,**kwargs):
             entered.set();self.assertTrue(release.wait(30))

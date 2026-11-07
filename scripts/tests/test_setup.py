@@ -88,7 +88,7 @@ class NewLedgerTests(SetupCase):
         accounts = json.loads((ledger / 'data/accounts.json').read_text())
         self.assertEqual(accounts['commodities'], ['EUR', 'USD'])
         self.assertEqual(accounts['accounts']['Liabilities:Credit Cards:Example Card']['statement'],
-                         {'reader': 'example-card-pdf', 'identifier': '4321'})
+                         {'reader': 'example-card-pdf', 'identifier': '4321', 'options': None})
         self.assertEqual(json.loads((ledger / 'ledger.json').read_text())['startDate'], '2026-11-05')
         self.assertIn('The working copy has no changes', self.jj(ledger, 'st'))
         code, output = self.make('add-account', 'ARGS=--kind bank --label Other --reader missing-reader', ledger=ledger)

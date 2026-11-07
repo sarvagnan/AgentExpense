@@ -5,11 +5,11 @@ import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { ledgerRoot } from '../../scripts/project-paths.mjs';
 
-import { moduleSettings, readManifest } from './ledger-manifest.mjs';
+import { hasExtension, readManifest } from './ledger-manifest.mjs';
 const manifest = await readManifest();
 const destination = dashboardDataPath('app/data/fuel-log.json');
 await mkdir(path.dirname(destination), { recursive: true });
-if (!moduleSettings(manifest).fuel) {
+if (!hasExtension(manifest, 'fuel')) {
   await rm(destination, {force: true});
 } else {
 // Store errors name their own cause; only problems with the fuel log itself are
@@ -17,7 +17,7 @@ if (!moduleSettings(manifest).fuel) {
 const {loadExpenseStore} = await import('./expense-store.mjs');
 const {transactionCurrency} = await import('./currency.mjs');
 const {transactions, accounts} = await loadExpenseStore();
-const invalid = (reason, cause) => new Error(`Fuel is enabled; supply a valid data/fuel-log.json: ${reason}`, {cause});
+const invalid = (reason, cause) => new Error(`The fuel extension is listed; supply a valid data/fuel-log.json: ${reason}`, {cause});
 let source, log;
 try { source = await readFile(path.join(ledgerRoot(), 'data/fuel-log.json'), 'utf8'); }
 catch (error) { throw invalid(error.code === 'ENOENT' ? 'the file is missing.' : error.message, error); }

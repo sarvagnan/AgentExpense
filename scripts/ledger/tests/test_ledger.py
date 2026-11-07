@@ -14,19 +14,62 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 CARD = 'Liabilities:Credit Cards:Example Card'
 
-from store import ROOT, canonical_text, dump, entries, load, new_id, read_json, store_paths
+from store import ROOT, canonical_text, dump, entries, load, new_id, read_json, serialize, store_paths
 from project_paths import APPLICATION_ROOT
 from ledger_manifest import CURRENT_FORMAT
 from generate_ledger import render_entry
 from check_store import check_card_statements
 from add_entry import add_entry
 from reconcile_statement import extract_rows, reconcile, text_report, validate_rows
+import store_models
+from format1 import POLICY
+EXTENSIONS = (store_models.LedgerExtension.of('fuel', True, store_models.read_definition(APPLICATION_ROOT / 'extensions/fuel.json')),
+              store_models.LedgerExtension.of('policy', False, POLICY))
+
+
+def posting(account, amount, commodity='INR', **extra):
+    """A format 2 posting; ``extra`` sets cost, assert or notes."""
+    value = {'account': account, 'amount': amount, 'commodity': commodity, 'cost': None, 'assert': None, 'notes': []}
+    value.update(extra)
+    return value
+
+
+def statement_row(end=None, serial=None, page=None, source_page=None, source_row=None):
+    """A format 2 statement group."""
+    return {'end': end, 'serial': serial, 'page': page, 'source-page': source_page, 'source-row': source_row}
 
 
 def entry(identity='0000000000000001', day='2026-01-02', amount='10.00', **fields):
-    return dict(id=identity, date=day, status='confirmed', description='Purchase',
-                postings=[dict(account='Expenses:Test', amount=amount, commodity='INR'),
-                          dict(account=CARD, amount='-' + amount, commodity='INR')], **fields)
+    """A format 2 entry (docs/STORE.md); ``fields`` replace the empty values by store name."""
+    value = {'id': identity, 'date': day, 'status': 'confirmed', 'description': 'Purchase', 'evidence': [], 'statement': None,
+             'references': None, 'classification': None, 'original-amount': None, 'reimbursement': None,
+             'excluded-from-estimate': None, 'extensions': {}, 'rule': None, 'possible-duplicate-of': [], 'notes': [],
+             'postings': [posting('Expenses:Test', amount), posting(CARD, '-' + amount)]}
+    value.update(fields)
+    return value
+
+
+def rule(identity='0000000000000001', day='2026-01-02', amount='10.00', **fields):
+    """A format 2 recurring rule; ``fields`` replace the empty values by store name."""
+    value = {'id': identity, 'date': day, 'status': 'confirmed', 'description': 'Purchase',
+             'schedule': {'every': 'month', 'from': day, 'interval': 1, 'anchor-day': None}, 'amount': 'fixed',
+             'lifecycle': 'active', 'origin': None, 'created': None, 'removal': None, 'bill': None, 'evidence': [],
+             'references': None, 'classification': None, 'original-amount': None, 'reimbursement': None,
+             'excluded-from-estimate': None, 'notes': [], 'postings': [posting('Expenses:Test', amount), posting(CARD, '-' + amount)]}
+    value.update(fields)
+    return value
+
+
+def write(path, value):
+    """Write JSON as given, without the store's checks (for invalid documents)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value))
+
+
+def accounts(**metadata):
+    """Account metadata written in full."""
+    from account_metadata import complete
+    return {name: complete(name, value) for name, value in metadata.items()}
 
 
 class Fixture(unittest.TestCase):
@@ -34,9 +77,9 @@ class Fixture(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-ledger-fixture-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        dump(self.root / 'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR'))
+        dump(self.root / 'ledger.json', dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000001', name='Offline fixture', defaultCurrency='INR', extensions={}))
         self.year = self.root / 'data/expenses/2026.json'
-        dump(self.root / 'data/accounts.json', dict(commodities=['INR', 'USD'], accounts={CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf')), 'Expenses:Test': {}, 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}}))
+        dump(self.root / 'data/accounts.json', dict(commodities=['INR', 'USD'], accounts=accounts(**{CARD: dict(kind='card', currency='INR', label='Test Card', statement=dict(reader='example-card-pdf')), 'Expenses:Test': {}, 'Assets:Bank:Savings Account': dict(kind='bank', currency='INR'), 'Equity:Opening Balances': {}})))
         dump(self.year, [entry()])
         dump(self.root / 'data/forecast.json', [])
         dump(self.root / 'data/card-statements.json', [])
@@ -57,8 +100,7 @@ class ValidationTests(Fixture):
         self.assertIn(ROOT / 'data/forecast.json', documents)
 
     def test_duplicate_id_across_namespaces(self):
-        rule = entry(schedule=dict(every='month', **{'from': '2026-01-02'}))
-        dump(self.root / 'data/forecast.json', [rule])
+        dump(self.root / 'data/forecast.json', [rule()])
         with self.assertRaisesRegex(ValueError, 'Duplicate id'):
             load(self.root)
 
@@ -78,15 +120,20 @@ class ValidationTests(Fixture):
             load(self.root)
 
     def test_unknown_and_removed_fields(self):
-        for field in ['typo', 'printed-transaction-date']:
+        for field in ['typo', 'printed-transaction-date', 'sources', 'statement-end', 'order-id']:
             with self.subTest(field=field):
-                dump(self.year, [entry(**{field: '2026-01-02'})])
-                with self.assertRaisesRegex(ValueError, 'Additional properties'):
+                write(self.year, [entry(**{field: '2026-01-02'})])
+                with self.assertRaisesRegex(ValueError, 'Extra inputs'):
                     load(self.root)
         value = entry()
         value['postings'][1]['date'] = '2026-01-03'
-        dump(self.year, [value])
-        with self.assertRaisesRegex(ValueError, 'Additional properties'):
+        write(self.year, [value])
+        with self.assertRaisesRegex(ValueError, 'Extra inputs'):
+            load(self.root)
+        missing = entry()
+        del missing['evidence']
+        write(self.year, [missing])
+        with self.assertRaisesRegex(ValueError, 'Field required'):
             load(self.root)
 
     def test_non_decimal_amount(self):
@@ -94,7 +141,7 @@ class ValidationTests(Fixture):
             with self.subTest(amount=invalid):
                 value = entry()
                 value['postings'][0]['amount'] = invalid
-                dump(self.year, [value])
+                write(self.year, [value])
                 with self.assertRaises(ValueError):
                     load(self.root)
 
@@ -104,28 +151,32 @@ class ValidationTests(Fixture):
             load(self.root)
 
     def test_typed_fields_reject_invalid_values_on_actuals_and_forecasts(self):
-        for field, bad in [('source-row', '1'), ('source-page', 0), ('statement-page', -1),
+        for field, bad in [('statement', statement_row(source_row='1')), ('statement', statement_row(source_page=0)), ('statement', statement_row(page=-1)),
+                           ('statement', statement_row()), ('references', {'reference': None, 'order-id': []}),
+                           ('references', {'reference': None, 'order-id': ['1', '1']}),
                            ('original-amount', '20 USD'), ('original-amount', {'amount': '1e3', 'commodity': 'USD'}),
-                           ('variable-estimate', {'excluded': False, 'reason': 'reason'}),
-                           ('variable-estimate', {'excluded': True, 'reason': 'reason\n'}),
+                           ('excluded-from-estimate', {'excluded': True, 'reason': 'reason'}),
+                           ('excluded-from-estimate', {'reason': 'reason\n'}),
                            ('original-amount', {'amount': '1.0\n', 'commodity': 'USD'}),
-                           ('policy-term', {'years': 0}), ('trip-km', 'not supplied'), ('trip-km', '1.0\n'), ('fuel-filled-litres', 'NaN')]:
+                           ('extensions', {'fuel': {'litres': 'NaN', 'trip-km': None}})]:
             for forecast in [False, True]:
-                with self.subTest(field=field, forecast=forecast):
-                    value = entry(**{field: bad})
-                    if forecast:
-                        value['schedule'] = {'every': 'month', 'from': value['date']}
-                    dump(self.year, [] if forecast else [value])
-                    dump(self.root / 'data/forecast.json', [value] if forecast else [])
+                if forecast and field in ('statement', 'extensions'):
+                    continue
+                with self.subTest(field=field, bad=bad, forecast=forecast):
+                    value = (rule if forecast else entry)(**{field: bad})
+                    write(self.year, [] if forecast else [value])
+                    write(self.root / 'data/forecast.json', [value] if forecast else [])
                     with self.assertRaises(ValueError):
                         load(self.root)
 
     def test_canonical_round_trip(self):
-        value = entry(**{'original-amount': {'commodity': 'USD', 'amount': '1.2300'}})
-        text = canonical_text([value])
+        value = entry(**{'original-amount': {'amount': '1.2300', 'commodity': 'USD'}})
+        text = serialize(self.year, [value], self.root)
         self.assertEqual(json.loads(text), [value])
         self.assertEqual(canonical_text(json.loads(text)), text)
-        self.assertIn('{"account": "Expenses:Test", "amount": "10.00", "commodity": "INR"}', text)
+        self.assertEqual(serialize(self.year, json.loads(text), self.root), text)
+        self.assertIn('{"account": "Expenses:Test", "amount": "10.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}', text)
+        self.assertIn('"original-amount": {"amount": "1.2300", "commodity": "USD"},', text)
 
     def test_format_cli_sorts_stably_and_is_idempotent(self):
         self.year.write_text(json.dumps([entry(day='2026-01-03'), entry(identity='0000000000000002'), entry(identity='0000000000000003')]))
@@ -138,13 +189,11 @@ class ValidationTests(Fixture):
 
 class GeneratorTests(unittest.TestCase):
     def test_card_member_and_typed_fields_golden(self):
-        value = entry(**{'sources': ['Bills/card.pdf'], 'serial-number': '00123', 'source-page': 1,
-                         'statement-page': 2, 'statement-end': '2026-01-28',
-                         'original-amount': dict(amount='1.2300', commodity='USD'),
-                         'fuel-filled-litres': '10.50', 'trip-km': '100.0',
-                         'variable-estimate': dict(excluded=True, reason='all text, including commas'),
-                         'policy-term': dict(years=1), 'notes': ['retained note']})
-        self.assertEqual('\n'.join(render_entry(value)), '''2026-01-02 * Purchase
+        value = entry(evidence=['Bills/card.pdf'], statement=statement_row('2026-01-28', '00123', 2, source_page=1),
+                      **{'original-amount': dict(amount='1.2300', commodity='USD'),
+                         'extensions': {'fuel': {'litres': '10.50', 'trip-km': '100.0'}, 'policy': {'term-years': 1}},
+                         'excluded-from-estimate': dict(reason='all text, including commas'), 'notes': ['retained note']})
+        self.assertEqual('\n'.join(render_entry(value, EXTENSIONS)), '''2026-01-02 * Purchase
     ; id: 0000000000000001
     ; source: Bills/card.pdf
     ; serial-number: 00123
@@ -154,32 +203,33 @@ class GeneratorTests(unittest.TestCase):
     ; original amount: 1.2300 USD
     ; fuel-filled-litres: 10.50
     ; trip-km: 100.0
+    ; policy-term: 1
     ; variable-estimate: excluded, all text, including commas
-    ; policy-term: 1 year
     ; retained note
     Expenses:Test                            10.00 INR
     Liabilities:Credit Cards:Example Card    -10.00 INR
 ''')
 
     def test_bank_row_golden(self):
-        value = entry(**{'source-row': 42, 'reference': '000123', 'order-id': '001', 'policy-term': {'years': 3}})
+        value = entry(statement=statement_row(source_row=42), references={'reference': '000123', 'order-id': ['001', '002']},
+                      extensions={'fuel': None, 'policy': {'term-years': 3}})
         value['postings'][1]['account'] = 'Assets:Bank:Savings Account'
-        self.assertEqual('\n'.join(render_entry(value)), '''2026-01-02 * Purchase
+        self.assertEqual('\n'.join(render_entry(value, EXTENSIONS)), '''2026-01-02 * Purchase
     ; id: 0000000000000001
     ; source-row: 42
     ; reference: 000123
     ; order-id: 001
-    ; policy-term: 3 years
+    ; order-id: 002
+    ; policy-term: 3
     Expenses:Test                  10.00 INR
     Assets:Bank:Savings Account    -10.00 INR
 ''')
 
     def test_forecast_interval_cost_and_assertion_golden(self):
-        value = entry(schedule={'every': 'month', 'interval': 3, 'from': '2026-01-02'})
-        value['postings'] = [dict(account='Assets:Fund', amount='1.000', commodity='FUND50',
-                                  cost=dict(amount='100', commodity='INR', per='total'),
-                                  **{'assert': dict(amount='2.000', commodity='FUND50')}, notes=['posting note']),
-                             dict(account='Assets:Bank:Savings Account', amount='-100.00', commodity='INR')]
+        value = rule(schedule={'every': 'month', 'interval': 3, 'from': '2026-01-02', 'anchor-day': None})
+        value['postings'] = [posting('Assets:Fund', '1.000', 'FUND50', cost=dict(amount='100', commodity='INR', per='total'),
+                                     **{'assert': dict(amount='2.000', commodity='FUND50')}, notes=['posting note']),
+                             posting('Assets:Bank:Savings Account', '-100.00')]
         self.assertEqual('\n'.join(render_entry(value)), '''~ every 3 months from 2026-01-02
     ; id: 0000000000000001
     ; forecast item: Purchase
@@ -196,10 +246,10 @@ class MembershipTests(Fixture):
         super().setUp()
         opening = entry(day='2026-01-01')
         opening['postings'][0]['account'] = 'Equity:Opening Balances'
-        member = entry(identity='0000000000000002', **{'statement-end': '2026-01-28', 'serial-number': '001', 'statement-page': 1, 'sources': ['Bills/card.pdf']})
+        member = entry(identity='0000000000000002', statement=statement_row('2026-01-28', '001', 1), evidence=['Bills/card.pdf'])
         self.actuals = [opening, member]
-        self.summary = dict(id='0000000000000003', account=CARD, start='2026-01-01', end='2026-01-28', source='Bills/card.pdf',
-                            **{'previous-balance': '10.00', 'purchases': '10.00', 'credits': '0.00', 'total-due': '20.00', 'rows': 1})
+        self.summary = dict(kind='card', id='0000000000000003', account=CARD, start='2026-01-01', end='2026-01-28', source='Bills/card.pdf',
+                            **{'previous-balance': '10.00', 'purchases': '10.00', 'cash-advances': None, 'credits': '0.00', 'total-due': '20.00', 'rows': 1})
 
     def check(self):
         dump(self.year, self.actuals)
@@ -212,12 +262,13 @@ class MembershipTests(Fixture):
             self.check()
 
     def test_extra_entry(self):
-        extra = deepcopy(self.actuals[1]); extra.update(id='0000000000000004', **{'serial-number': '002'})
+        extra = deepcopy(self.actuals[1]); extra['id'] = '0000000000000004'; extra['statement']['serial'] = '002'
         self.actuals.append(extra)
         with self.assertRaisesRegex(ValueError, 'row count 2 != 1'):
             self.check()
 
     def test_wrong_amount(self):
+        self.actuals[1]['postings'][0]['amount'] = '11.00'
         self.actuals[1]['postings'][1]['amount'] = '-11.00'
         with self.assertRaisesRegex(ValueError, 'purchases'):
             self.check()
@@ -234,25 +285,25 @@ class MembershipTests(Fixture):
             self.check()
 
     def test_unknown_statement_end(self):
-        self.actuals[1]['statement-end'] = '2026-02-28'
-        with self.assertRaisesRegex(ValueError, 'unknown statement-end'):
+        self.actuals[1]['statement']['end'] = '2026-02-28'
+        with self.assertRaisesRegex(ValueError, 'unknown statement.end'):
             self.check()
 
     def test_missing_pdf(self):
-        self.actuals[1]['sources'] = ['Bills/receipt.pdf']
+        self.actuals[1]['evidence'] = ['Bills/receipt.pdf']
         with self.assertRaisesRegex(ValueError, 'missing its statement PDF'):
             self.check()
 
     def test_missing_statement_page(self):
-        del self.actuals[1]['statement-page']
-        with self.assertRaisesRegex(ValueError, 'missing statement-page'):
+        self.actuals[1]['statement']['page'] = None
+        with self.assertRaisesRegex(ValueError, 'serial and page'):
             self.check()
 
     def test_unbilled_excludes_opening_assertions_and_future(self):
         unbilled = entry(identity='0000000000000004')
         self.actuals.append(unbilled)
         assertion = entry(identity='0000000000000005')
-        assertion['postings'] = [dict(account=CARD, amount='0.00', commodity='INR', **{'assert': dict(amount='-30.00', commodity='INR')})]
+        assertion['postings'] = [posting(CARD, '0.00', **{'assert': dict(amount='-30.00', commodity='INR')})]
         self.actuals.extend([assertion, entry(identity='0000000000000006', day='2026-02-01')])
         report = self.check()
         self.assertEqual([e['id'] for e in report['unbilled']], [unbilled['id']])
@@ -261,7 +312,7 @@ class MembershipTests(Fixture):
 
 class AddEntryTests(Fixture):
     def new_entry(self, **fields):
-        value = entry(**fields); del value['id']; return value
+        value = entry(**fields); value['id'] = None; return value
 
     def test_add_after_same_day_and_unique_id(self):
         dump(self.year, [entry(), entry(identity='0000000000000002'), entry(identity='0000000000000003', day='2026-01-03')])
@@ -269,9 +320,9 @@ class AddEntryTests(Fixture):
         self.assertRegex(identity, r'^[0-9a-f]{16}$')
         values = read_json(self.year)
         self.assertEqual([v['id'] for v in values], ['0000000000000001', '0000000000000002', identity, '0000000000000003'])
-        self.assertEqual({k:v for k,v in values[2].items() if k != 'id'}, self.new_entry())
+        self.assertEqual({k:v for k,v in values[2].items() if k != 'id'}, {k:v for k,v in self.new_entry().items() if k != 'id'})
         for path in store_paths(self.root):
-            self.assertEqual(path.read_text(), canonical_text(read_json(path)))
+            self.assertEqual(path.read_text(), serialize(path, read_json(path)))
 
     def test_new_year(self):
         identity = add_entry(self.new_entry(day='2027-01-01'), root=self.root)
@@ -289,14 +340,14 @@ class AddEntryTests(Fixture):
         with self.assertRaisesRegex(ValueError, 'Undeclared'):
             add_entry(unknown, root=self.root)
         with self.assertRaisesRegex(ValueError, 'evidence'):
-            add_entry(self.new_entry(sources=['Bills/missing.pdf']), root=self.root)
+            add_entry(self.new_entry(evidence=['Bills/missing.pdf']), root=self.root)
         self.assertEqual(before, self.snapshot())
 
     def test_unbalanced_entry_never_writes(self):
         before = self.snapshot()
         value = self.new_entry()
         value['postings'][0]['amount'] = '11.00'
-        with self.assertRaisesRegex(ValueError, 'strict hledger'):
+        with self.assertRaisesRegex(ValueError, 'balance exactly'):
             add_entry(value, root=self.root)
         self.assertEqual(self.snapshot(), before)
 
@@ -317,7 +368,7 @@ class AddEntryTests(Fixture):
 class ReconcileTests(Fixture):
     def test_serials_candidates_pending_and_unmatched(self):
         opening = entry(day='2026-01-01'); opening['postings'][0]['account'] = 'Equity:Opening Balances'
-        one = entry(identity='0000000000000002', **{'serial-number': 'serial'})
+        one = entry(identity='0000000000000002', statement=statement_row(serial='serial'))
         candidate = entry(identity='0000000000000003', day='2026-01-04')
         untouched = entry(identity='0000000000000004', day='2026-01-20')
         dump(self.year, [opening, one, candidate, untouched])
@@ -326,7 +377,7 @@ class ReconcileTests(Fixture):
         before = self.snapshot()
         report = reconcile(load(self.root), rows, end='2026-01-28', start='2026-01-01', root=self.root)
         self.assertEqual(report['serialMatches'][0]['entryId'], one['id'])
-        self.assertEqual(report['serialMatches'][0]['fields']['statement-page'], 2)
+        self.assertEqual(report['serialMatches'][0]['fields']['page'], 2)
         self.assertTrue(report['candidateRows'][0]['uniqueMatch'])
         self.assertEqual(report['newRows'][0]['proposedEntry']['status'], 'pending')
         self.assertEqual(report['newRows'][0]['proposedEntry']['description'], row['description'])
@@ -339,7 +390,7 @@ class ReconcileTests(Fixture):
 
     def test_ambiguous_candidates_and_serial_conflict_are_not_silently_applied(self):
         opening = entry(day='2026-01-01'); opening['postings'][0]['account'] = 'Equity:Opening Balances'
-        first = entry(identity='0000000000000002', **{'serial-number': 'old', 'statement-end': '2025-12-28'})
+        first = entry(identity='0000000000000002', statement=statement_row('2025-12-28', 'old', 1))
         second = entry(identity='0000000000000003')
         dump(self.year, [opening, first, second])
         row = dict(date='2026-01-02', serial='new1', description='Purchase', amount='10.00', direction='Debit', page=1)

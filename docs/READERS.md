@@ -205,9 +205,9 @@ shared checker proves the opening/row/closing arithmetic before a checklist exis
 
 ## Store, overlap and Apply
 
-`data/card-statements.json` remains the shared file for compatibility. Existing
-card objects and entry membership fields are unchanged; the 0 → 1 migration
-preserves them exactly. No rename or format bump is needed for unreleased format 1.
+`data/card-statements.json` remains the shared file for card and bank summaries.
+An entry's statement membership is its `statement` group (`end`, `serial`, `page`,
+`source-page`, `source-row`); [STORE.md](STORE.md) lists every key.
 
 New balance-style summaries contain `id`, `kind:"bank"`, `account`, `start`, `end`,
 `source`, `reader`, `opening-balance`, `closing-balance`, `debits`, `credits`, `rows`,

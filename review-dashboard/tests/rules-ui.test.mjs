@@ -7,9 +7,10 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {createTestServer} from './test-isolation.mjs';
 import {loadPublishedData} from './load-data.mjs';
 import {buildPatterns} from '../scripts/add-patterns.mjs';
+import {posting, rule as storeRule} from './store-fixtures.mjs';
 import {complexRule,nextDueForPayment,matchRules,paymentInPeriod,periodFor,ruleAmounts,ruleStatus,statusLabel,textAmounts} from '../scripts/recurring-ui.mjs';
 const accounts={'Assets:Purse':{kind:'cash',currency:'EUR',label:'Purse',aliases:['purse']},'Expenses:Club':{}};
-const rule=(changes={})=>({id:'f000000000000001',description:'Willow club',date:'2026-11-15',status:'confirmed',schedule:{every:'month',from:'2026-11-15'},postings:[{account:'Expenses:Club',amount:'20.00',commodity:'EUR'},{account:'Assets:Purse',amount:'-20.00',commodity:'EUR'}],...changes});
+const rule=(changes={})=>storeRule({description:'Willow club',date:'2026-11-15',postings:[posting('Expenses:Club','20.00','EUR'),posting('Assets:Purse','-20.00','EUR')],...changes});
 test('instant matching agrees with the authoritative matcher across names, dates, ranking, currencies and lifecycles',()=>{
   const rules=[rule(),rule({id:'f000000000000002',description:'Willow lessons',postings:[{account:'Expenses:Lessons',amount:'21.00',commodity:'EUR'},{account:'Assets:Purse',amount:'-21.00',commodity:'EUR'}]}),rule({id:'f000000000000003',description:'Paused thing',lifecycle:'paused'})];
   const examples=['Willow 20 EUR','20 EUR','purse 20','Willow purse 22 EUR','Willow 01/11/2026','Willow 1 nov','Willow 2026-11-01','Willow 20 USD','Paused thing 20 EUR','club 1 November 2026','Willow 1. November 2026 20,50 EUR'];

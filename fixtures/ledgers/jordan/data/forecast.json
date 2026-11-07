@@ -4,16 +4,23 @@
     "date": "2026-10-05",
     "status": "confirmed",
     "description": "October rent",
-    "schedule": {
-      "every": "month",
-      "from": "2026-10-05"
-    },
-    "origin": {
-      "kind": "owner"
-    },
+    "schedule": {"every": "month", "from": "2026-10-05", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
+    "lifecycle": "active",
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Housing:Rent", "amount": "800.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-800.00", "commodity": "USD"}
+      {"account": "Expenses:Housing:Rent", "amount": "800.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-800.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -21,17 +28,23 @@
     "date": "2026-11-20",
     "status": "confirmed",
     "description": "Cedar Archive membership",
-    "schedule": {
-      "every": "month",
-      "from": "2026-11-20"
-    },
+    "schedule": {"every": "month", "from": "2026-11-20", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
     "lifecycle": "paused",
-    "origin": {
-      "kind": "owner"
-    },
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-8.00", "commodity": "USD"}
+      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-8.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -39,16 +52,23 @@
     "date": "2026-11-18",
     "status": "confirmed",
     "description": "Lantern Notes subscription",
-    "schedule": {
-      "every": "month",
-      "from": "2026-11-18"
-    },
-    "origin": {
-      "kind": "owner"
-    },
+    "schedule": {"every": "month", "from": "2026-11-18", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
+    "lifecycle": "active",
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Subscriptions:Lantern Notes", "amount": "10.00", "commodity": "EUR", "cost": {"amount": "11.00", "commodity": "USD", "per": "total"}},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-11.00", "commodity": "USD"}
+      {"account": "Expenses:Subscriptions:Lantern Notes", "amount": "10.00", "commodity": "EUR", "cost": {"amount": "11.00", "commodity": "USD", "per": "total"}, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-11.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   }
 ]

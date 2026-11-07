@@ -30,12 +30,13 @@ class PublicationTests(unittest.TestCase):
                 dump(target, updated)
             self.assertEqual(observed, [previous])
             self.assertEqual(read_json(target), updated)
-            self.assertEqual(target.read_text(), canonical_text(updated))
+            # Not a store document (no data/ parent): the plain layout, no model.
+            self.assertEqual(target.read_text(), canonical_text(updated, flat=False))
             self.assertEqual(target.stat().st_mode & 0o777, 0o640)
             self.assertEqual(list(Path(folder).iterdir()), [target])
 
 
-from test_ledger import Fixture, entry
+from test_ledger import Fixture, entry, write
 from store import load
 from generate_ledger import render
 
@@ -50,7 +51,20 @@ class DuplicateLinkTests(Fixture):
         self.assertEqual(render(load(self.root),self.root),before)
         self.assertLess(canonical_text(rows).index('possible-duplicate-of'),canonical_text(rows).index('postings'))
         for links in ([dict(id=rows[0]['id'],reason='dissimilar-name')],[dict(id='f'*16,reason='amount-date-gap')],[dict(id=rows[1]['id'],reason='unknown')],rows[0]['possible-duplicate-of']*2):
-            rows[0]['possible-duplicate-of']=links;dump(self.year,rows)
+            rows[0]['possible-duplicate-of']=links;write(self.year,rows)
             with self.assertRaises(ValueError):load(self.root)
-        rows[0].pop('possible-duplicate-of');rows[1]['possible-duplicate-of']=[dict(id=rows[0]['id'],reason='amount-date-gap')];dump(self.year,rows)
-        with self.assertRaisesRegex(ValueError,'greater actual'):load(self.root)
+        rows[0]['possible-duplicate-of']=[];rows[1]['possible-duplicate-of']=[dict(id=rows[0]['id'],reason='amount-date-gap')];write(self.year,rows)
+        with self.assertRaisesRegex(ValueError,'greater than the entry ID'):load(self.root)
+
+
+FIXTURES = Path(__file__).resolve().parents[3] / 'fixtures/ledgers'
+
+
+@unittest.skipUnless(FIXTURES.is_dir(), 'the fixture ledgers are not in this application copy')
+class RoundTripTests(unittest.TestCase):
+    def test_every_fixture_document_round_trips_byte_for_byte(self):
+        from store import load, serialize
+        for root in sorted(path for path in FIXTURES.iterdir() if (path / 'ledger.json').is_file()):
+            for path, value in load(root).items():
+                with self.subTest(ledger=root.name, document=str(path.relative_to(root))):
+                    self.assertEqual(serialize(path, value, root), path.read_text(encoding='utf-8'))

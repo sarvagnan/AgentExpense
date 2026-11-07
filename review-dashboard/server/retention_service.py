@@ -14,6 +14,7 @@ from draft_time import client_context, saved_local
 from ledger_lock import ledger_lock
 from ledger_manifest import read_manifest
 from replacements import entry_hash, require_version, safe_evidence, cited, statement_locked
+import format1
 from rules_service import policy, digest, rule_changes, ignored_entries
 from store import load, entries
 from transactions import Transaction, LedgerBusy, clean, refresh
@@ -37,7 +38,7 @@ def coverage(documents, root, entry, *, restoring=False):
     if not payers:
         payers = {p['account'] for p in entry['postings'] if accounts.get(p['account'], {}).get('kind') in ('bank','card')}
     for row in entries(documents):
-        if row['date'] >= entry['date'] and any(p['account'] in payers and accounts.get(p['account'],{}).get('kind')=='bank' and 'assert' in p for p in row['postings']):
+        if row['date'] >= entry['date'] and any(p['account'] in payers and accounts.get(p['account'],{}).get('kind')=='bank' and p['assert'] for p in row['postings']):
             return 'A statement-confirmed balance covers this date for the paying account.'
     if restoring:
         for s in documents[root/'data/card-statements.json']:
@@ -47,7 +48,7 @@ def coverage(documents, root, entry, *, restoring=False):
             if accounts.get(s['account'],{}).get('kind') == 'card':
                 # A card statement also covers the purchases it billed from
                 # before its period, so it covers back to its earliest member.
-                members = [m['date'] for m in s.get('members', [])] + [e['date'] for e in entries(documents) if e.get('statement-end') == s['end'] and any(p['account'] == s['account'] for p in e['postings'])]
+                members = [m['date'] for m in s.get('members', [])] + [e['date'] for e in entries(documents) if (e['statement'] or {}).get('end') == s['end'] and any(p['account'] == s['account'] for p in e['postings'])]
                 start = min([start, *members])
             if start <= entry['date'] <= s['end']:
                 return 'A statement filed since removal covers this date without this entry.'
@@ -56,13 +57,13 @@ def coverage(documents, root, entry, *, restoring=False):
 
 def file_plan(documents, root, entry, reserved=()):
     owned, kept = [], []
-    for source in entry.get('sources', []):
+    for source in entry['evidence']:
         if not source.startswith('Bills/'):
             continue
         safe_evidence(root, source)
-        others = sum(source in e.get('sources', []) for e in entries(documents) if e['id'] != entry['id'])
-        others += sum(source in r.get('bill',{}).get('sources',[]) for r in documents[root/'data/forecast.json'])
-        others += sum(source in i['entry'].get('sources',[]) for i in documents.get(root/'data/trash.json',[]))
+        others = sum(source in e['evidence'] for e in entries(documents) if e['id'] != entry['id'])
+        others += sum(source in (r['bill'] or {}).get('evidence',[]) for r in documents[root/'data/forecast.json'])
+        others += sum(source in i['entry']['evidence'] for i in documents.get(root/'data/trash.json',[]))
         others += source in reserved
         if others:
             kept.append(dict(path=source, citations=others))
@@ -104,15 +105,15 @@ class Retention:
         link=entry.get('rule')
         rule=next((r for r in docs[root/'data/forecast.json'] if r['id']==(link or {}).get('id')),None)
         if rule and not any(e['id']!=entry['id'] and e.get('rule')==link for e in entries(docs)):
-            bill=next((r['bill'] for r in reversed(lines) if r['kind']=='rule' and r.get('rule_action')=='bill-paid' and r.get('entry_id')==entry['id']),None)
-            if bill: reserved=[s for s in bill['sources'] if s not in rule.get('bill',{}).get('sources',[])]
+            bill=format1.bill(next((r['bill'] for r in reversed(lines) if r['kind']=='rule' and r.get('rule_action')=='bill-paid' and r.get('entry_id')==entry['id']),None))
+            if bill: reserved=[s for s in bill['evidence'] if s not in (rule['bill'] or {}).get('evidence',[])]
         owned, kept=file_plan(docs, root, entry,reserved)
         return dict(entry_id=entry['id'],description=entry['description'],version=entry_hash(entry),offered=reason is None,reason=reason,lock='statement' if coverage(docs,root,entry) else 'clock',added_at=added,delete_until=until,restore_until=(utc(self.clock)+timedelta(days=settings['trash_days'])).isoformat(),limits=settings,files=owned,kept=kept,rule=entry.get('rule'))
 
     def listing(self):
         root=self.settings.ledger; settings=limits(read_manifest(root))
         docs=load(root)
-        rows=[dict(id=item['id'],kind='entry',description=item['entry']['description'],removed_at=item['removed_at'],reason=item['reason'],owned_files=[f['original'] for f in item['files']],kept_files=[f['path'] for f in item['kept']],files=[f['original'] for f in item['files']]+[f['path'] for f in item['kept']],entry_id=item['entry']['id']) for item in docs.get(root/'data/trash.json', [])]
+        rows=[dict(id=item['id'],kind='entry',description=item['entry']['description'],removed_at=item['removed-at'],reason=item['reason'],owned_files=[f['original'] for f in item['files']],kept_files=[f['path'] for f in item['kept']],files=[f['original'] for f in item['files']]+[f['path'] for f in item['kept']],entry_id=item['entry']['id']) for item in docs.get(root/'data/trash.json', [])]
         rows += [dict(id=d['id'],kind='queue',description=d['text'] or (d['files'][0]['original_name'] if d['files'] else 'Files only'),removed_at=d['trashed_at'],reason=d.get('trash_reason','Discarded'),files=[f['original_name'] for f in d['files']]) for d in self.drafts.all(include_discarded=True) if d.get('trashed_at')]
         if self.statements:
             rows += [dict(id=s['id'],kind='statement',description=s['original_name'],removed_at=s['trashed_at'],reason=s.get('trash_reason','Discarded'),files=[s['original_name']]) for s in self.statements.all() if s.get('trashed_at')]
@@ -196,9 +197,9 @@ class Retention:
                     others=[e for e in entries(docs) if e.get('rule')==link]
                     if not others:
                         rule['date']=rule['schedule']['from']=min(rule['date'],link['occurrence'])
-                        bill=next((r['bill'] for r in reversed(lines) if r['kind']=='rule' and r.get('rule_action')=='bill-paid' and r.get('entry_id')==entry['id']),None)
+                        bill=format1.bill(next((r['bill'] for r in reversed(lines) if r['kind']=='rule' and r.get('rule_action')=='bill-paid' and r.get('entry_id')==entry['id']),None))
                         if bill:
-                            if rule.get('bill') and rule['bill']!=bill: raise ValueError('A newer bill is saved; remove it before deleting this payment')
+                            if rule['bill'] and rule['bill']!=bill: raise ValueError('A newer bill is saved; remove it before deleting this payment')
                             rule['bill']=deepcopy(bill);rule['date']=rule['schedule']['from']=bill['occurrence']
                     self.estimate(docs,rule,lines)
                 # A restored bill can retain evidence formerly cited by its payment alone.
@@ -207,10 +208,10 @@ class Retention:
                 moves=[(root/f['original'],root/f['stored']) for f in files]
                 links={}
                 for other in entries(docs):
-                    if any(p['id']==entry['id'] for p in other.get('possible-duplicate-of',[])):
+                    if any(p['id']==entry['id'] for p in other['possible-duplicate-of']):
                         links[other['id']]=deepcopy(other['possible-duplicate-of']);other['possible-duplicate-of']=[p for p in other['possible-duplicate-of'] if p['id']!=entry['id']]
-                        if not other['possible-duplicate-of']: other.pop('possible-duplicate-of')
-                item=dict(id=op_id,entry=deepcopy(entry),removed_at=now.isoformat(),added_at=status['added_at'],reason=reason,index=index,files=files,kept=kept,rule_changes=rule_changes(before_rules,docs[root/'data/forecast.json']),duplicate_links=links)
+                item={'id':op_id,'entry':deepcopy(entry),'removed-at':now.isoformat(),'added-at':status['added_at'],'reason':reason,'index':index,'files':files,'kept':kept,
+                      'rule-changes':rule_changes(before_rules,docs[root/'data/forecast.json']),'duplicate-links':links}
                 trash.append(item);details=deepcopy(item);event_action='deleted';title=f"Delete {entry['description']} via dashboard"
                 for d in self.drafts.all(include_discarded=True):
                     if d.get('receipt_reading',{}).get('entry_id')==entry['id']:
@@ -235,15 +236,15 @@ class Retention:
                     # Reinsert at its original same-day position, never after a closing assertion.
                     first=next((i for i,e in enumerate(rows) if e['date']>=entry['date']),len(rows));last=next((i for i,e in enumerate(rows) if e['date']>entry['date']),len(rows))
                     rows.insert(max(first,min(item['index'],last)),entry)
-                    for identity,links in item['duplicate_links'].items():
+                    for identity,links in item['duplicate-links'].items():
                         other=next((e for e in entries(docs) if e['id']==identity),None)
-                        if other: other['possible-duplicate-of']=sorted({p['id']:p for p in [*other.get('possible-duplicate-of',[]),*links] if any(e['id']==p['id'] for e in entries(docs))}.values(),key=lambda p:p['id'])
-                    if entry.get('rule'):
+                        if other: other['possible-duplicate-of']=sorted({p['id']:p for p in [*other['possible-duplicate-of'],*links] if any(e['id']==p['id'] for e in entries(docs))}.values(),key=lambda p:p['id'])
+                    if entry['rule']:
                         from recurring import advance
                         rule=next(r for r in docs[root/'data/forecast.json'] if r['id']==entry['rule']['id'])
-                        paid_bill=next((r['bill'] for r in reversed(lines) if r['kind']=='rule' and r.get('rule_action')=='bill-paid' and r.get('entry_id')==entry['id']),None)
-                        if paid_bill and rule.get('bill')==paid_bill: rule.pop('bill')
-                        through=max([entry['rule']['occurrence'],*[e['rule']['occurrence'] for e in entries(docs) if e.get('rule',{}).get('id')==rule['id']]])
+                        paid_bill=format1.bill(next((r['bill'] for r in reversed(lines) if r['kind']=='rule' and r.get('rule_action')=='bill-paid' and r.get('entry_id')==entry['id']),None))
+                        if paid_bill and rule['bill']==paid_bill: rule['bill']=None
+                        through=max([entry['rule']['occurrence'],*[e['rule']['occurrence'] for e in entries(docs) if (e['rule'] or {}).get('id')==rule['id']]])
                         # An intervening rule edit or newer bill may already put
                         # its next occurrence beyond this restored payment.
                         if rule['date']<=through: rule.update(advance(rule,through))
@@ -282,7 +283,7 @@ class Retention:
                     removals.extend(self.trash_file(f['stored']) for f in item['files']);trash.remove(item)
                     for rule in docs[root/'data/forecast.json']:
                         for field in ('origin','removal'):
-                            if field in rule and 'evidence' in rule[field]: rule[field]['evidence']=[i for i in rule[field]['evidence'] if i!=item['entry']['id']]
+                            if rule[field]: rule[field]['entry-ids']=[i for i in rule[field]['entry-ids'] if i!=item['entry']['id']]
                 # A shared file may have stayed in Bills for another trashed entry.
                 # Remove it only when no live or remaining Trash record cites it.
                 removed_sources={source for item in details['items'] if item['kind']=='entry' for source in item['files'] if source.startswith('Bills/')}
@@ -301,7 +302,7 @@ class Retention:
             local=dict(created_at=now.isoformat(),**context)
             msg=[title,'','Saved: '+saved_local(local),'Entry: '+(result.get('entry_id') or ', '.join(selected) or 'none'),'Reason: '+json.dumps(reason,ensure_ascii=False)]
             if action in ('delete','restore'):
-                rule=next((r for r in docs[root/'data/forecast.json'] if r['id']==entry.get('rule',{}).get('id')),None)
+                rule=next((r for r in docs[root/'data/forecast.json'] if r['id']==(entry.get('rule') or {}).get('id')),None)
                 msg+=['Rule: '+(rule['date'] if rule else 'none')]
             if action=='delete': msg+=['Files to Trash: '+(', '.join(f['original'] for f in details['files']) or 'none'),'Files kept: '+(', '.join(f['path'] for f in details['kept']) or 'none')]
             if action=='restore': msg+=['Files restored: '+(', '.join(details.get('files_restored',[])) or 'none')]

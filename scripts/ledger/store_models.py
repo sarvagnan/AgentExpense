@@ -10,36 +10,57 @@ Every field of an entry, a posting and a recurring rule (and of the groups insid
 them) records who sets it in ``x-set-by``. The agent's answer model is derived from
 the entry model by selecting the fields the agent sets, so the two cannot drift.
 
+**Extensions.** The core entry knows nothing about ledger-specific facts such as
+fuel readings. An extension definition (``extensions/<name>.json``, built in or in
+the ledger) adds a group of typed fields to every entry of a ledger that lists it
+in ``ledger.json``. ``ledger_models`` composes each ledger's entry, Trash and
+answer models from the core and those definitions. ``schema/extension-types.json``
+maps each extension type to its JSON Schema; Python and Node both compose a
+ledger's store schema from it (``compose_store_schema`` and
+``review-dashboard/scripts/ledger-manifest.mjs``), and a test checks the
+composition equals what the models produce.
+
+The model validators check one entry or rule on its own: exact balance per
+commodity, costs, the statement row and duplicate links. Checks across documents
+(IDs, declared accounts, statement membership, rule links) stay in
+``store.validate`` and ``check_store.py``.
+
 The JSON Schemas in ``schema/`` are generated from these models:
 
-    uv run --locked --directory review-dashboard/server python ../../scripts/ledger/store_models.py --write
+    uv run --locked --project review-dashboard/server python scripts/ledger/store_models.py --write
 
 ``--check`` exits non-zero when a checked-in schema is out of date. docs/STORE.md
-describes every field. Nothing reads format 2 yet: the live app still reads
-format 1 through ``schema/store.schema.json``.
+describes every field and docs/EXTENSIONS.md the extensions.
 """
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from functools import cache
 import json
 from pathlib import Path
+import re
 import sys
 import types
 from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 from annotated_types import Ge, Le
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, RootModel, StringConstraints, create_model, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, RootModel, StringConstraints, TypeAdapter, create_model, model_validator
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, models_json_schema
 
 FORMAT = 2
-SCHEMA_DIR = Path(__file__).resolve().parents[2] / 'schema'
-STORE_SCHEMA = SCHEMA_DIR / 'store-2.schema.json'
-ANSWER_SCHEMA = SCHEMA_DIR / 'answer-2.schema.json'
-ANSWER_SCHEMA_WITHOUT_FUEL = SCHEMA_DIR / 'answer-2-without-fuel.schema.json'
+APPLICATION_ROOT = Path(__file__).resolve().parents[2]
+SCHEMA_DIR = APPLICATION_ROOT / 'schema'
+STORE_SCHEMA = SCHEMA_DIR / 'store.schema.json'
+ANSWER_SCHEMA = SCHEMA_DIR / 'answer.schema.json'
+EXTENSION_SCHEMA = SCHEMA_DIR / 'extension-definition.schema.json'
+EXTENSION_TYPES = SCHEMA_DIR / 'extension-types.json'
+BUILT_IN_EXTENSIONS = APPLICATION_ROOT / 'extensions'
 
 
 class Setter(StrEnum):
@@ -47,7 +68,7 @@ class Setter(StrEnum):
     AGENT = 'agent'          # the Add answer; the hand form and Edit entry fill the same answer
     SERVER = 'server'        # derived by the app on write, never taken from an answer
     STATEMENT = 'statement'  # statement Apply (card and balance-style) and the statement CLIs
-    PERSON = 'person'        # a person's own action outside the answer: Review, rule actions, setup
+    PERSON = 'person'        # a person's own action outside the answer: Review, rule actions, setup, Edit entry
     HISTORY = 'history'      # kept from older data; no current writer sets it, writers keep it
 
 
@@ -55,24 +76,17 @@ A, SV, ST, P, H = Setter.AGENT, Setter.SERVER, Setter.STATEMENT, Setter.PERSON, 
 
 
 def field(alias: str, description: str, set_by: tuple[Setter, ...] | None = None, *,
-          module: str | None = None, schema: dict | None = None, **constraints: Any) -> Any:
+          schema: dict | None = None, **constraints: Any) -> Any:
     """A required field with its kebab-case alias, meaning and, for ledger data, its setters."""
     extra = dict(schema or {})
     if set_by is not None:
         extra['x-set-by'] = [setter.value for setter in set_by]
-    if module:
-        extra['x-module'] = module
     return Field(alias=alias, description=description, json_schema_extra=extra or None, **constraints)
 
 
 def setters(info: FieldInfo) -> tuple[str, ...]:
     extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
     return tuple(extra.get('x-set-by', ()))
-
-
-def module_of(info: FieldInfo) -> str | None:
-    extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
-    return extra.get('x-module')
 
 
 class JsonExtra:
@@ -124,6 +138,8 @@ Number = Annotated[str, StringConstraints(pattern=r'^-?(0|[1-9][0-9]*)(\.[0-9]+)
 Unsigned = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.[0-9]+$')]
 Cents = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.[0-9]{2}$')]
 Positive = Annotated[int, Ge(1)]
+WholeNumber = Annotated[int, Ge(0)]
+Kebab = Annotated[str, StringConstraints(pattern=r'^[a-z][a-z0-9]*(-[a-z0-9]+)*$')]
 
 
 class Strict(BaseModel):
@@ -132,11 +148,11 @@ class Strict(BaseModel):
 
 
 class Group(Strict):
-    """A group of related optional facts: ``null`` when none is known, never all ``null``."""
+    """A group of related optional facts: ``null`` when none is known, never all ``null`` or ``[]``."""
 
     @model_validator(mode='after')
     def _not_empty(self):
-        if all(getattr(self, name) is None for name in type(self).model_fields):
+        if all(getattr(self, name) in (None, []) for name in type(self).model_fields):
             raise ValueError('a group with no values must be null')
         return self
 
@@ -166,6 +182,39 @@ class Posting(Strict):
     assertion: Assertion | None = field('assert', 'A confirmed balance after this posting, or null.', (ST, P))
     notes: list[Note] = field('notes', 'Comment lines under the posting, in order.', (H,))
 
+    @model_validator(mode='after')
+    def _cost_in_another_commodity(self):
+        if self.cost is not None and self.cost.commodity == self.commodity:
+            raise ValueError('a cost must be in a different commodity from its posting')
+        return self
+
+
+def balance(postings: list) -> dict[str, Decimal]:
+    """Each commodity's exact sum, with a costed posting counted in its cost commodity.
+
+    A total cost counts its amount, a unit cost its price times the quantity; either
+    is signed like the posting. Accepts models or store dictionaries. Only the
+    commodities that don't sum to zero are returned.
+    """
+    totals: dict[str, Decimal] = defaultdict(Decimal)
+    for posting in postings:
+        raw = posting if isinstance(posting, dict) else posting.model_dump(by_alias=True)
+        amount = Decimal(raw['amount'])
+        cost = raw.get('cost')
+        if cost is None:
+            totals[raw['commodity']] += amount
+            continue
+        price = abs(Decimal(cost['amount']))
+        value = price if cost['per'] == 'total' else price * abs(amount)
+        totals[cost['commodity']] += value if amount > 0 else -value if amount < 0 else 0
+    return {commodity: total for commodity, total in totals.items() if total != 0}
+
+
+def _balanced(postings: list) -> None:
+    unbalanced = balance(postings)
+    if unbalanced:
+        raise ValueError('the postings do not balance exactly in ' + ', '.join(sorted(unbalanced)))
+
 
 # Groups of an entry --------------------------------------------------------------------
 
@@ -180,20 +229,14 @@ class StatementRow(Group):
 
 class References(Group):
     """Identifiers printed by the payee or the bank."""
-    reference: Line | None = field('reference', 'A payment or bank reference printed on the evidence.', (A, ST))
-    order_id: Line | None = field('order-id', "The payee's order or invoice number.", (A,))
+    reference: Line | None = field('reference', 'A payment or bank reference printed on the evidence, or null.', (A, ST))
+    order_id: unique(Line) = field('order-id', "The payee's order or invoice numbers, in order; [] when none.", (A,))
 
 
 class Money(Strict):
     """An amount in a commodity."""
     amount: Number = field('amount', 'Exact decimal text, as printed.', (A, ST))
     commodity: Code = field('commodity', 'The commodity code.', (A, ST))
-
-
-class Fuel(Group):
-    """Vehicle readings from a fuel receipt (fuel module only)."""
-    litres: Number | None = field('litres', 'Fuel filled, in litres, exact decimal text.', (A,))
-    trip_km: Number | None = field('trip-km', 'Trip meter reading in kilometres, exact decimal text.', (A,))
 
 
 class Reimbursement(Strict):
@@ -220,6 +263,11 @@ class DuplicateLink(Strict):
         'reason', 'Why the pair needs a look.', (ST, P, SV))
 
 
+class Extensions(Strict):
+    """One group per extension the ledger lists in ledger.json, in that order; each is null when empty.
+    The core lists none, so an entry of a ledger without extensions has {}."""
+
+
 # Entry --------------------------------------------------------------------------------
 
 class Entry(Strict):
@@ -233,14 +281,24 @@ class Entry(Strict):
     references: References | None = field('references', 'Identifiers on the evidence, or null.', (A, ST))
     classification: Line | None = field('classification', 'A short note on how the expense was classified, or null.', (A,))
     original_amount: Money | None = field('original-amount', 'The amount in another currency, as printed, when the payment was converted.', (A, ST))
-    fuel: Fuel | None = field('fuel', 'Fuel readings, or null.', (A,), module='fuel')
     reimbursement: Reimbursement | None = field('reimbursement', 'The reimbursement this entry belongs to, or null.', (H,))
-    policy_term_years: Positive | None = field('policy-term-years', 'Years a policy payment covers, or null.', (H,))
     excluded_from_estimate: EstimateExclusion | None = field('excluded-from-estimate', 'Left out of the variable-spending estimate, or null.', (H,))
+    extensions: Extensions = field('extensions', "The ledger's extension groups, in ledger.json order.", (A, P))
     rule: RuleLink | None = field('rule', 'The recurring rule occurrence it pays, or null.', (SV, P))
     possible_duplicate_of: list[DuplicateLink] = field('possible-duplicate-of', 'Unsettled possible duplicates, sorted by ID.', (ST, P, SV))
     notes: list[Note] = field('notes', 'Comment lines, in order.', (A, ST, P, SV))
     postings: list[Posting] = field('postings', 'At least one posting, in order.', (A, ST, P), min_length=1)
+
+    @model_validator(mode='after')
+    def _one_entry(self):
+        _balanced(self.postings)
+        row = self.statement
+        if row is not None and row.end is not None and (row.serial is None or row.page is None):
+            raise ValueError('a card statement row needs its serial and page')
+        targets = [link.id for link in self.possible_duplicate_of]
+        if targets != sorted(set(targets)) or any(target <= self.id for target in targets):
+            raise ValueError('possible-duplicate-of needs unique, sorted IDs greater than the entry ID')
+        return self
 
 
 # Recurring rules ------------------------------------------------------------------------
@@ -294,10 +352,26 @@ class Rule(Strict):
     classification: Line | None = field('classification', 'Carried by older rules, or null.', (H,))
     original_amount: Money | None = field('original-amount', 'Carried by older rules, or null.', (H,))
     reimbursement: Reimbursement | None = field('reimbursement', 'Carried by older rules, or null.', (H,))
-    policy_term_years: Positive | None = field('policy-term-years', 'Years a policy payment covers, or null.', (H,))
     excluded_from_estimate: EstimateExclusion | None = field('excluded-from-estimate', 'Left out of the variable-spending estimate, or null.', (H,))
     notes: list[Note] = field('notes', 'Comment lines, in order.', (P,))
     postings: list[Posting] = field('postings', 'The estimated postings of one occurrence.', (P, SV), min_length=1)
+
+    @model_validator(mode='after')
+    def _one_rule(self):
+        _balanced(self.postings)
+        if self.date != self.schedule.start:
+            raise ValueError('a rule date must equal schedule.from')
+        if self.lifecycle == 'removed' and self.removal is None:
+            raise ValueError('a removed rule needs removal')
+        if any(posting.assertion is not None for posting in self.postings):
+            raise ValueError('rule postings have no assert')
+        if self.amount == 'varies' and (len(self.postings) != 2 or len({p.commodity for p in self.postings}) != 1
+                                        or any(p.cost is not None for p in self.postings)):
+            raise ValueError('only simple two-posting payments in one currency can vary')
+        if self.bill is not None and (self.amount != 'varies' or Decimal(self.bill.amount) <= 0
+                                      or self.bill.occurrence != self.date):
+            raise ValueError('a bill needs a varying rule, a positive amount and the current occurrence')
+        return self
 
 
 # Other store documents (no setters: they are not entries) --------------------------------
@@ -329,20 +403,30 @@ class PlainAccount(Strict):
     """Income and Equity accounts carry no metadata."""
 
 
+def account_metadata_model(name: str) -> type[Strict]:
+    """The metadata model an account's root needs."""
+    root = name.split(':')[0]
+    return PlainAccount if root in ('Income', 'Equity') else ExpenseAccount if root == 'Expenses' else BalanceSheetAccount
+
+
 class Accounts(Strict):
     """data/accounts.json: declared commodities and accounts."""
     commodities: unique(Annotated[str, StringConstraints(min_length=1)]) = field(
         'commodities', 'Commodity directive arguments verbatim, in order.')
     accounts: dict[Account, BalanceSheetAccount | ExpenseAccount | PlainAccount] = field(
-        'accounts', 'Declared accounts in order, keyed by name.', schema={'additionalProperties': False})
+        'accounts', 'Declared accounts in order, keyed by name.', schema={
+            # Each root's metadata, as the model validator below checks it, for JSON Schema readers (Node).
+            'additionalProperties': False, 'patternProperties': {
+                r'^(?:Income|Equity)(?::[^\r\n:]+)*$': {'$ref': '#/$defs/PlainAccount'},
+                r'^Expenses(?::[^\r\n:]+)*$': {'$ref': '#/$defs/ExpenseAccount'},
+                r'^(?!(?:Income|Equity|Expenses)(?::|$))[^\r\n:]+(?::[^\r\n:]+)*$': {'$ref': '#/$defs/BalanceSheetAccount'}}})
 
     @model_validator(mode='after')
     def _metadata_matches_root(self):
         for name, metadata in self.accounts.items():
-            root = name.split(':')[0]
-            expected = PlainAccount if root in ('Income', 'Equity') else ExpenseAccount if root == 'Expenses' else BalanceSheetAccount
+            expected = account_metadata_model(name)
             if type(metadata) is not expected:
-                raise ValueError(f'{name}: {root} accounts need {expected.__name__} metadata')
+                raise ValueError(f'{name}: {name.split(":")[0]} accounts need {expected.__name__} metadata')
         return self
 
 
@@ -477,13 +561,222 @@ DOCUMENTS = {
     'data/trash.json': Trash,
 }
 # Every model whose fields describe ledger data, so every field has a setter.
-LEDGER_DATA = (Entry, Posting, Cost, Assertion, StatementRow, References, Money, Fuel, Reimbursement,
-               EstimateExclusion, RuleLink, DuplicateLink, Rule, Schedule, Origin, Removal, Bill)
+LEDGER_DATA = (Entry, Posting, Cost, Assertion, StatementRow, References, Money, Reimbursement,
+               EstimateExclusion, Extensions, RuleLink, DuplicateLink, Rule, Schedule, Origin, Removal, Bill)
 
 
 def missing_setters(model: type[BaseModel]) -> list[str]:
     """Fields with no setter, as model.field names."""
     return [f'{model.__name__}.{info.alias or name}' for name, info in model.model_fields.items() if not setters(info)]
+
+
+# Extensions --------------------------------------------------------------------------
+
+# Labels the core journal already uses; an extension's journal tag must not clash with them.
+CORE_JOURNAL_LABELS = frozenset({
+    'id', 'forecast item', 'source', 'serial-number', 'source-row', 'source-page', 'statement-page', 'statement-end',
+    'reference', 'order-id', 'classification', 'original amount', 'reimbursement-group', 'reimbursement-label',
+    'variable-estimate'})
+# hledger reads a comment's tag as the word before the colon: "original amount:" is the tag
+# "amount" and "forecast item:" is "item". An extension tag may clash with neither form.
+CORE_JOURNAL_TAGS = CORE_JOURNAL_LABELS | frozenset(label.split()[-1] for label in CORE_JOURNAL_LABELS)
+RESERVED_NAMES = frozenset({'fuel'})  # built-in extensions; a ledger can't define its own with these names
+JournalTag = Annotated[str, StringConstraints(pattern=r'^[a-z][a-z0-9]*(-[a-z0-9]+)*$')]
+
+
+class PlainField(Strict):
+    """An extension field of a type without options."""
+    type: Literal['decimal', 'text', 'whole-number', 'date', 'yes-no'] = field(
+        'type', 'decimal: exact decimal text. text: one line. whole-number: 0 or more. date: YYYY-MM-DD. yes-no: true or false.')
+    filled_by: Literal['agent', 'person'] = field(
+        'filled-by', 'agent: the Add agent may fill it and the person can edit it. person: only Edit entry sets it.')
+    description: Line = field('description', 'What the field holds; the agent reads it for agent fields.')
+    journal_tag: JournalTag = field('journal-tag', 'The comment tag the journal prints the value under.')
+
+
+class ChoiceField(Strict):
+    """An extension field whose value is one of a fixed list."""
+    type: Literal['choice'] = field('type', 'One of values.')
+    filled_by: Literal['agent', 'person'] = field(
+        'filled-by', 'agent: the Add agent may fill it and the person can edit it. person: only Edit entry sets it.')
+    description: Line = field('description', 'What the field holds; the agent reads it for agent fields.')
+    journal_tag: JournalTag = field('journal-tag', 'The comment tag the journal prints the value under.')
+    values: Annotated[list[Line], AfterValidator(_unique), JsonExtra(uniqueItems=True), Field(min_length=1)] = field(
+        'values', 'The allowed values, in display order.')
+
+
+class ExtensionDefinition(Strict):
+    """extensions/<name>.json: a group of typed fields added to every entry of a ledger that lists it."""
+    name: Kebab = field('name', 'The extension name; it matches the file name.')
+    description: Line = field('description', 'What the extension is for.')
+    fields: Annotated[dict[Kebab, ChoiceField | PlainField], Field(min_length=1)] = field(
+        'fields', 'The fields, in display and journal order, keyed by kebab-case name.')
+
+    @model_validator(mode='after')
+    def _tags(self):
+        tags = [definition.journal_tag for definition in self.fields.values()]
+        if len(set(tags)) != len(tags):
+            raise ValueError('journal tags must differ')
+        clash = sorted(set(tags) & CORE_JOURNAL_TAGS)
+        if clash:
+            raise ValueError('journal tags clash with core labels: ' + ', '.join(clash))
+        return self
+
+
+def _choice_value(values: tuple[str, ...]):
+    def check(value: str) -> str:
+        if value not in values:
+            raise ValueError('must be one of: ' + ', '.join(values))
+        return value
+    return check
+
+
+_TYPES = {'decimal': Number, 'text': Line, 'whole-number': WholeNumber, 'date': Day, 'yes-no': bool, 'choice': str}
+
+
+def extension_type(definition: PlainField | ChoiceField) -> Any:
+    """The Python type of one extension field's value (without null)."""
+    if definition.type == 'choice':
+        values = tuple(definition.values)
+        return Annotated[str, AfterValidator(_choice_value(values)), JsonExtra(enum=list(values))]
+    return _TYPES[definition.type]
+
+
+def extension_types() -> dict[str, dict]:
+    """Each extension type's JSON Schema, generated from the Python types (schema/extension-types.json).
+
+    A choice field adds ``"enum": <values>`` to its type's schema.
+    """
+    return {kind: TypeAdapter(value).json_schema() for kind, value in _TYPES.items()}
+
+
+def pascal(name: str) -> str:
+    return ''.join(part.title() for part in name.split('-'))
+
+
+def snake(name: str) -> str:
+    return 'x_' + name.replace('-', '_')
+
+
+@cache
+def _definition(text: str) -> ExtensionDefinition:
+    return ExtensionDefinition.model_validate_json(text)
+
+
+@dataclass(frozen=True)
+class LedgerExtension:
+    """An extension a ledger lists, with its definition (as JSON text) and whether the agent is asked to fill it."""
+    name: str
+    ask: bool
+    text: str
+
+    @property
+    def definition(self) -> ExtensionDefinition:
+        return _definition(self.text)
+
+    @classmethod
+    def of(cls, name: str, ask: bool, definition: ExtensionDefinition | dict) -> 'LedgerExtension':
+        value = definition if isinstance(definition, dict) else definition.model_dump(mode='json', by_alias=True)
+        return cls(name, bool(ask), json.dumps(value, ensure_ascii=False))
+
+
+def read_definition(path: Path) -> ExtensionDefinition:
+    definition = ExtensionDefinition.model_validate_json(path.read_text(encoding='utf-8'))
+    if definition.name != path.stem:
+        raise ValueError(f'{path.name}: the name must match the file name')
+    return definition
+
+
+def built_in_extension(name: str) -> Path:
+    return BUILT_IN_EXTENSIONS / f'{name}.json'
+
+
+def ledger_extensions(root: Path, listed: dict) -> tuple[LedgerExtension, ...]:
+    """The definitions of the extensions ``ledger.json`` lists, in order, checked for clashes."""
+    result, owners = [], {}
+    for name, settings in listed.items():
+        built_in = built_in_extension(name)
+        own = Path(root) / 'extensions' / f'{name}.json'
+        if name in RESERVED_NAMES:
+            if own.exists():
+                raise ValueError(f'extensions/{name}.json: "{name}" is a built-in extension; choose another name')
+            path = built_in
+        else:
+            path = own
+        if not path.is_file():
+            raise ValueError(f'ledger.json lists the extension "{name}", but extensions/{name}.json is missing')
+        try:
+            definition = read_definition(path)
+        except ValueError as error:
+            raise ValueError(f'extensions/{name}.json is not a valid extension definition: {error}') from None
+        for tag in (item.journal_tag for item in definition.fields.values()):
+            if tag in owners:
+                raise ValueError(f'The journal tag "{tag}" of extension "{name}" clashes with extension "{owners[tag]}"')
+            owners[tag] = name
+        result.append(LedgerExtension.of(name, settings['ask'], definition))
+    return tuple(result)
+
+
+def extension_group(definition: ExtensionDefinition) -> type[Group]:
+    """The group model of one extension: every field nullable; null when none is known."""
+    fields = {snake(name): (extension_type(item) | None, field(
+        name, item.description, (A, P) if item.filled_by == 'agent' else (P,),
+        schema={'x-journal-tag': item.journal_tag})) for name, item in definition.fields.items()}
+    return create_model(pascal(definition.name) + 'Extension', __base__=Group, __doc__=definition.description, **fields)
+
+
+def _extensions_model(extensions: tuple[LedgerExtension, ...], groups: dict[str, type]) -> type[Strict]:
+    if not extensions:
+        return Extensions
+    fields = {snake(item.name): (groups[item.name] | None, field(item.name, item.definition.description, tuple(
+        Setter(setter) for setter in dict.fromkeys(s for f in groups[item.name].model_fields.values() for s in setters(f)))))
+        for item in extensions}
+    return create_model('Extensions', __base__=Strict, __doc__=Extensions.__doc__, **fields)
+
+
+@dataclass(frozen=True)
+class LedgerModels:
+    """One ledger's models: the core with its extensions composed in."""
+    extensions: tuple[LedgerExtension, ...]
+    entry: type[Strict]
+    expense_year: type[RootModel]
+    trash: type[RootModel]
+    answer: type[Strict]
+    form: type[Strict]
+
+    def document(self, kind: str) -> type[BaseModel]:
+        """The model of one store document: accounts, expenses, forecast, card-statements, recurring-settings, trash."""
+        return {'accounts': Accounts, 'expenses': self.expense_year, 'forecast': Forecast,
+                'card-statements': Statements, 'recurring-settings': RecurringSettings, 'trash': self.trash}[kind]
+
+    def empty_extensions(self) -> dict:
+        return {item.name: None for item in self.extensions}
+
+    def store_schema(self) -> dict:
+        return _store_schema((Accounts, self.expense_year, Forecast, Statements, RecurringSettings, self.trash))
+
+    def answer_schema(self) -> dict:
+        return wire_schema(self.answer)
+
+
+@cache
+def _compose(extensions: tuple[LedgerExtension, ...]) -> LedgerModels:
+    if not extensions:
+        return LedgerModels((), Entry, ExpenseYear, Trash, answer_model(()), form_model(()))
+    groups = {item.name: extension_group(item.definition) for item in extensions}
+    ledger_extensions_model = _extensions_model(extensions, groups)
+    info = FieldInfo.merge_field_infos(Entry.model_fields['extensions'])
+    entry = create_model('Entry', __base__=Entry, __doc__=Entry.__doc__, extensions=(ledger_extensions_model, info))
+    trash_item = create_model('TrashItem', __base__=TrashItem, __doc__=TrashItem.__doc__,
+                              entry=(entry, FieldInfo.merge_field_infos(TrashItem.model_fields['entry'])))
+    year = type('ExpenseYear', (RootModel[list[entry]],), {'__doc__': ExpenseYear.__doc__, 'model_config': ConfigDict(strict=True)})
+    trash = type('Trash', (RootModel[list[trash_item]],), {'__doc__': Trash.__doc__, 'model_config': ConfigDict(strict=True)})
+    return LedgerModels(extensions, entry, year, trash, answer_model(extensions), form_model(extensions))
+
+
+def models_for(extensions: tuple[LedgerExtension, ...] = ()) -> LedgerModels:
+    """The composed models for a ledger's extensions (cached per definition set)."""
+    return _compose(tuple(extensions))
 
 
 # The agent's answer, derived from the entry model ---------------------------------------
@@ -494,52 +787,73 @@ def _nested(annotation: Any) -> list[type[BaseModel]]:
     return [model for arg in get_args(annotation) for model in _nested(arg)]
 
 
-def _substitute(annotation: Any, modules: frozenset[str]) -> Any:
+def _substitute(annotation: Any, setter: Setter) -> Any:
     if isinstance(annotation, type) and issubclass(annotation, Strict):
-        return derive(annotation, modules)
+        return derive(annotation, setter)
     origin, args = get_origin(annotation), get_args(annotation)
     if origin is None:
         return annotation
     if origin is Annotated:
-        return Annotated[(_substitute(args[0], modules), *annotation.__metadata__)]
-    replaced = tuple(_substitute(arg, modules) for arg in args)
+        return Annotated[(_substitute(args[0], setter), *annotation.__metadata__)]
+    replaced = tuple(_substitute(arg, setter) for arg in args)
     if origin in (Union, types.UnionType):
         return Union[replaced]
     return origin[replaced if len(replaced) > 1 else replaced[0]]
 
 
 @cache
-def derive(model: type[Strict], modules: frozenset[str] = frozenset({'fuel'}), setter: Setter = Setter.AGENT) -> type[Strict]:
+def derive(model: type[Strict], setter: Setter = Setter.AGENT) -> type[Strict]:
     """``model`` restricted to the fields ``setter`` sets, recursively.
 
-    A field of a module that is off is left out. A nested model whose fields are
-    all kept is reused unchanged, so its validators and schema name carry over.
+    The ``extensions`` field is left out: the answer adds the ledger's asked
+    extensions itself. A nested model whose fields are all kept is reused
+    unchanged, so its validators and schema name carry over.
     """
     kept = {name: info for name, info in model.model_fields.items()
-            if setter.value in setters(info) and (module_of(info) is None or module_of(info) in modules)}
+            if setter.value in setters(info) and not (issubclass(model, Entry) and name == 'extensions')}
     if not kept:
         raise ValueError(f'{model.__name__} has no {setter.value} fields')
     unchanged = kept.keys() == model.model_fields.keys() and all(
-        derive(nested, modules, setter) is nested for info in kept.values() for nested in _nested(info.annotation) if issubclass(nested, Strict))
+        derive(nested, setter) is nested for info in kept.values() for nested in _nested(info.annotation) if issubclass(nested, Strict))
     if unchanged:
         return model
-    fields = {}
-    for name, info in kept.items():
-        copy = FieldInfo.merge_field_infos(info)
-        fields[name] = (_substitute(info.annotation, modules), copy)
-    dropped = sorted({module_of(info) for info in model.model_fields.values() if module_of(info) and module_of(info) not in modules})
-    suffix = ''.join('Without' + module.title() for module in dropped)
-    return create_model(f'Answer{model.__name__}{suffix}', __base__=Strict,
+    fields = {name: (_substitute(info.annotation, setter), FieldInfo.merge_field_infos(info)) for name, info in kept.items()}
+    return create_model(f'Answer{model.__name__}', __base__=Strict,
                         __doc__=f"{model.__doc__} Only the fields the {setter.value} sets.", **fields)
 
 
-@cache
-def answer_model(fuel: bool = True) -> type[Strict]:
-    """The Add agent's answer: an envelope around the agent's fields of an entry."""
-    entry = derive(Entry, frozenset({'fuel'}) if fuel else frozenset())
+def _answer_extensions(extensions: tuple[LedgerExtension, ...], *, agent_only: bool) -> type[Strict] | None:
+    chosen = [item for item in extensions if item.ask or not agent_only]
+    groups = {}
+    for item in chosen:
+        fields = {name: value for name, value in item.definition.fields.items() if value.filled_by == 'agent' or not agent_only}
+        if fields:
+            groups[item.name] = extension_group(item.definition.model_copy(update={'fields': fields}))
+    if not groups:
+        return None
+    prefix = 'Answer' if agent_only else 'Form'
+    for name, group in groups.items():
+        groups[name] = create_model(prefix + group.__name__, __base__=group, __doc__=group.__doc__)
+    fields = {snake(name): (group | None, field(name, next(i.definition.description for i in extensions if i.name == name)))
+              for name, group in groups.items()}
+    return create_model(prefix + 'Extensions', __base__=Strict, __doc__='The extension groups of the entry; each is null when empty.', **fields)
+
+
+def _with_extensions(entry: type[Strict], extensions_model: type[Strict] | None, name: str) -> type[Strict]:
+    fields = {key: (info.annotation, FieldInfo.merge_field_infos(info)) for key, info in entry.model_fields.items()}
+    if extensions_model is not None:
+        ordered = {}
+        for key, value in fields.items():
+            if key == 'notes':
+                ordered['extensions'] = (extensions_model, field('extensions', "The ledger's extension groups to fill; each is null when unknown."))
+            ordered[key] = value
+        fields = ordered
+    return create_model(name, __base__=Strict, __doc__=entry.__doc__, **fields)
+
+
+def _envelope(name: str, entry: type[Strict], doc: str, **more: Any) -> type[Strict]:
     return create_model(
-        'Answer' if fuel else 'AnswerWithoutFuel', __base__=Strict,
-        __doc__="The Add agent's answer. The server fills every other entry field when it stores the entry.",
+        name, __base__=Strict, __doc__=doc,
         status=(Literal['ready', 'question', 'not_expense'], field(
             'status', '"ready": the evidence and words settle the entry. "question": one thing is unsettled. '
             '"not_expense": the draft is not an expense.')),
@@ -550,7 +864,34 @@ def answer_model(fuel: bool = True) -> type[Strict]:
         attachment_names=(list[Annotated[str, StringConstraints(pattern=r'^[^\r\n/\\]+$')]], field(
             'attachment-names', 'One descriptive base name per attachment, without folder or extension.')),
         explanation=(str | None, field('explanation', 'One short reason when status is "not_expense", otherwise null.')),
+        **more,
     )
+
+
+@cache
+def answer_model(extensions: tuple[LedgerExtension, ...] = ()) -> type[Strict]:
+    """The Add agent's answer: an envelope around the agent's fields of an entry.
+
+    ``entry.extensions`` holds only the listed extensions with ``ask: true``, each
+    with only its agent fields; it is left out when there are none.
+    """
+    entry = _with_extensions(derive(Entry), _answer_extensions(extensions, agent_only=True), 'AnswerEntry')
+    return _envelope('Answer', entry, "The Add agent's answer. The server fills every other entry field when it stores the entry.")
+
+
+class NewAccount(Strict):
+    """Metadata the person chose for a new balance-sheet account in the hand form."""
+    kind: Literal['bank', 'card', 'cash', 'wallet', 'loan', 'investment', 'person'] = field('kind', 'What the account is.')
+    currency: Code = field('currency', 'Its currency.')
+
+
+@cache
+def form_model(extensions: tuple[LedgerExtension, ...] = ()) -> type[Strict]:
+    """The hand form and Edit entry: the answer, with every listed extension's fields and new-account metadata."""
+    entry = _with_extensions(derive(Entry), _answer_extensions(extensions, agent_only=False), 'FormEntry')
+    return _envelope('Form', entry, 'The hand form and Edit entry: the answer plus every extension field.',
+                     account_metadata=(dict[Account, NewAccount], Field(default_factory=dict, alias='account-metadata',
+                                       description='Kind and currency for new balance-sheet accounts.')))
 
 
 # Schema generation -------------------------------------------------------------------
@@ -570,33 +911,84 @@ def _tidy(node: Any, *, wire: bool = False) -> Any:
     return node
 
 
-def store_schema() -> dict:
-    names = list(DOCUMENTS.values())
-    refs, definitions = models_json_schema([(model, 'validation') for model in names], schema_generator=_Generator,
+DOCUMENT_PATHS = tuple(DOCUMENTS)
+
+
+def _store_schema(models: tuple) -> dict:
+    refs, definitions = models_json_schema([(model, 'validation') for model in models], schema_generator=_Generator,
                                            ref_template='#/$defs/{model}')
-    documents = {path: refs[(model, 'validation')]['$ref'] for path, model in DOCUMENTS.items()}
+    documents = {path: refs[(model, 'validation')]['$ref'] for path, model in zip(DOCUMENT_PATHS, models)}
     return {
         '$schema': 'https://json-schema.org/draft/2020-12/schema',
-        '$id': 'https://example.invalid/expense-ledger/store-2.schema.json',
+        '$id': 'https://example.invalid/expense-ledger/store.schema.json',
         'title': 'AgentExpense ledger store, format 2',
         'description': 'Generated from scripts/ledger/store_models.py; do not edit. Validate each file with the '
                        '$defs entry x-documents names for it. Every key is present: an empty value is null or []. '
-                       'x-set-by lists who writes each ledger field. docs/STORE.md describes every field.',
+                       'x-set-by lists who writes each ledger field. This is the core schema: a ledger that lists '
+                       'extensions composes their groups into $defs.Extensions with schema/extension-types.json. '
+                       'docs/STORE.md describes every field.',
         'x-format': FORMAT,
         'x-documents': documents,
         **_tidy(definitions),
     }
 
 
-def answer_schema(fuel: bool = True) -> dict:
-    schema = answer_model(fuel).model_json_schema(schema_generator=_Generator, ref_template='#/$defs/{model}')
+def store_schema() -> dict:
+    """The core store schema: a ledger without extensions."""
+    return _store_schema(tuple(DOCUMENTS.values()))
+
+
+def wire_schema(model: type[BaseModel]) -> dict:
+    schema = model.model_json_schema(schema_generator=_Generator, ref_template='#/$defs/{model}')
     return {'$schema': 'https://json-schema.org/draft/2020-12/schema', **_tidy(schema, wire=True)}
+
+
+def answer_schema() -> dict:
+    """The core answer schema: a ledger that asks the agent for no extension."""
+    return wire_schema(answer_model(()))
+
+
+def extension_schema() -> dict:
+    schema = ExtensionDefinition.model_json_schema(schema_generator=_Generator, ref_template='#/$defs/{model}')
+    return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
+            '$id': 'https://example.invalid/expense-ledger/extension-definition.schema.json',
+            **_tidy(schema)}
+
+
+def compose_store_schema(core: dict, extensions: list[tuple[str, dict]], types_map: dict) -> dict:
+    """A ledger's store schema from the core schema, its extension definitions (as JSON) and the type map.
+
+    Node composes the same way (``composeStoreSchema`` in ledger-manifest.mjs);
+    tests check both against the models.
+    """
+    if not extensions:
+        return core
+    schema = json.loads(json.dumps(core))
+    defs = schema['$defs']
+    properties, setters_of = {}, {}
+    for name, definition in extensions:
+        group = pascal(name) + 'Extension'
+        fields = {}
+        for key, item in definition['fields'].items():
+            value = dict(types_map[item['type']])
+            if item['type'] == 'choice':
+                value['enum'] = list(item['values'])
+            set_by = ['agent', 'person'] if item['filled-by'] == 'agent' else ['person']
+            fields[key] = {'anyOf': [value, {'type': 'null'}], 'description': item['description'],
+                           'x-journal-tag': item['journal-tag'], 'x-set-by': set_by}
+        defs[group] = {'additionalProperties': False, 'description': definition['description'], 'properties': fields,
+                       'required': list(fields), 'type': 'object'}
+        setters_of[name] = list(dict.fromkeys(s for value in fields.values() for s in value['x-set-by']))
+        properties[name] = {'anyOf': [{'$ref': f'#/$defs/{group}'}, {'type': 'null'}],
+                            'description': definition['description'], 'x-set-by': setters_of[name]}
+    defs['Extensions'] = {**defs['Extensions'], 'properties': properties, 'required': list(properties)}
+    return schema
 
 
 def generated() -> dict[Path, str]:
     text = lambda value: json.dumps(value, indent=2, ensure_ascii=False) + '\n'
-    return {STORE_SCHEMA: text(store_schema()), ANSWER_SCHEMA: text(answer_schema(True)),
-            ANSWER_SCHEMA_WITHOUT_FUEL: text(answer_schema(False))}
+    return {STORE_SCHEMA: text(store_schema()), ANSWER_SCHEMA: text(answer_schema()),
+            EXTENSION_SCHEMA: text(extension_schema()), EXTENSION_TYPES: text(extension_types())}
 
 
 def main() -> int:

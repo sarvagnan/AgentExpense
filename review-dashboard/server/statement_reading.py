@@ -169,7 +169,7 @@ def normalize(value):
 
 
 def number_options(account, locale):
-    options = deepcopy(account.get('statement', {}).get('options', {}))
+    options = deepcopy((account.get('statement') or {}).get('options') or {})
     # Explicit operator settings win. The locale resolves ambiguous separators;
     # evidence with both separators establishes its own decimal separator below.
     convention = NUMBER_LOCALES.get(locale.split('-')[0], NUMBER_LOCALES['en'])
@@ -419,7 +419,7 @@ def learn_mapping(answer, source, statement, account, locale):
         if [{k:r.get(k) for k in keys} for r in replay['rows']] != [{k:r.get(k) for k in keys} for r in rows]: return None
         if any(replay[k] != statement[k] for k in ('periodStart','periodEnd','currency','openingBalance','closingBalance','debits','credits')): return None
         mapping = dict(reader='generic-csv' if source['format']=='.csv' else 'generic-sheet',options=options)
-        if account.get('statement',{}).get('identifier'):
+        if (account.get('statement') or {}).get('identifier'):
             mapping['identifier'] = account['statement']['identifier']
         return mapping
     except (ValueError,TypeError,KeyError,AttributeError,IndexError):

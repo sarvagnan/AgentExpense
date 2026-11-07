@@ -13,7 +13,8 @@ from currency_settings import SettingsRecords
 from store import load, entries, dump, validate, store_paths, new_id
 from recurring import (active, advance, candidate, detect, identity, main_postings,
                        match_text, paying, payee_match, period_for, same_payment, stale_rules,
-                       simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt)
+                       simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt, new_rule)
+import format1
 from audit import records, append, event, audit_path
 from ledger_lock import ledger_lock
 from ledger_manifest import read_manifest
@@ -53,6 +54,30 @@ def rule_changes(before, after):
     return [dict(id=i, before=deepcopy(old.get(i)), after=deepcopy(new.get(i))) for i in sorted(old.keys()|new.keys()) if old.get(i)!=new.get(i)]
 
 
+def decimal_text(value):
+    """An amount the server writes, with the decimal point the store requires."""
+    return value if '.' in value else value + '.00'
+
+
+def complete_posting(value):
+    """A posting from a rule form, written in full (format 2)."""
+    if not isinstance(value,dict): return value
+    return {'account':value.get('account'),'amount':value.get('amount'),'commodity':value.get('commodity'),
+            'cost':value.get('cost'),'assert':value.get('assert'),'notes':value.get('notes') or []}
+
+
+def complete_rule(value, day):
+    """A new rule from the rule form or a suggestion, written in full: the server fills what the form leaves out."""
+    rule=new_rule(**{key:deepcopy(item) for key,item in value.items() if key in new_rule()})
+    rule['created']=rule['created'] or day
+    rule['origin']=rule['origin'] or {'kind':'owner','words':None,'entry-ids':[],'came-back':False}
+    if isinstance(rule['schedule'],dict):
+        schedule=rule['schedule']
+        rule['schedule']={'every':schedule.get('every'),'from':schedule.get('from'),'interval':schedule.get('interval') or 1,'anchor-day':schedule.get('anchor-day')}
+    rule['postings']=[complete_posting(p) for p in rule['postings']]
+    return rule
+
+
 def addition_effects(root, entry_id, draft):
     """Called inside Transaction.apply before its single audit/verified commit."""
     documents=load(root); rules=documents[root/'data/forecast.json']; before=deepcopy(rules)
@@ -68,7 +93,7 @@ def addition_effects(root, entry_id, draft):
         # The proposal is frozen at queue time; concurrent edits must be reviewed.
         if digest(rule)!=draft['usual_rule_hash']: raise ValueError('The rule changed; choose Add as usual again')
         period=usual['occurrence']
-        duplicates=[e for e in actual if e['id']!=entry_id and (e.get('rule')==dict(id=rule['id'],occurrence=period) or
+        duplicates=[e for e in actual if e['id']!=entry_id and (e['rule']==dict(id=rule['id'],occurrence=period) or
                     not e.get('rule') and same_payment(e,rule,accounts) and period_for(rule,e['date'])==period)]
         if duplicates and not usual['another_anyway']: raise ValueError('This period already has a payment; choose Add another anyway')
         link=rule
@@ -95,12 +120,11 @@ def addition_effects(root, entry_id, draft):
     if link:
         occurrence=usual['occurrence'] if usual else period_for(link,entry['date'])
         entry['rule']=dict(id=link['id'],occurrence=occurrence)
-        if link.get('bill',{}).get('occurrence') == occurrence:
-            paid_bill=deepcopy(link.pop('bill'))
-            sources=list(dict.fromkeys([*entry.get('sources',[]),*paid_bill['sources']]))
-            if sources: entry['sources']=sources
+        if (link['bill'] or {}).get('occurrence') == occurrence:
+            paid_bill=deepcopy(link['bill']);link['bill']=None
+            entry['evidence']=list(dict.fromkeys([*entry['evidence'],*paid_bill['evidence']]))
         # The explicitly paid occurrence is consumed even when paid a little early.
-        latest=max((e['date'] for e in actual if e['id']!=entry_id and (e.get('rule',{}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
+        latest=max((e['date'] for e in actual if e['id']!=entry_id and ((e['rule'] or {}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
         if paid_bill:
             # A saved bill identifies exactly one occurrence, even if its
             # payment is backdated or arrives after the following due date.
@@ -120,7 +144,7 @@ def addition_effects(root, entry_id, draft):
     validate(documents,root)
     for path,value in documents.items(): dump(path,value)
     return dict(rule_changes=rule_changes(before,rules), made_rules=[r['id'] for r in made],
-                rule=entry.get('rule'), next_due=next((r['date'] for r in rules if entry.get('rule',{}).get('id')==r['id']),None), resume_rules=resumed,
+                rule=entry['rule'], next_due=next((r['date'] for r in rules if (entry['rule'] or {}).get('id')==r['id']),None), resume_rules=resumed,
                 **({'paid_bill':paid_bill} if paid_bill else {}))
 
 
@@ -143,6 +167,7 @@ def wire_proposal(rule, day, filenames, root, body):
         value=body['amount']
         if not isinstance(value,str) or not re.fullmatch(r'(0|[1-9]\d*)(\.\d+)?',value) or Decimal(value)<=0:
             raise ValueError('Enter a positive decimal amount')
+        value=decimal_text(value)
         original=sum((Decimal(p['amount']) for p in main_postings(rule)),Decimal(0))
         currencies={p['commodity'] for p in main_postings(rule)}
         if not original or len(currencies)!=1: raise ValueError('Edit the postings for this complex rule')
@@ -156,22 +181,25 @@ def wire_proposal(rule, day, filenames, root, body):
             from decimal import ROUND_HALF_UP
             for p in postings:
                 precision=int(minor.get(p['commodity'],2))
-                p['amount']=format((Decimal(p['amount'])*scale).quantize(Decimal(10)**-precision,rounding=ROUND_HALF_UP),'f')
+                p['amount']=decimal_text(format((Decimal(p['amount'])*scale).quantize(Decimal(10)**-precision,rounding=ROUND_HALF_UP),'f'))
                 if p.get('cost') and p['cost']['per']=='total':
                     p['cost']['amount']=format((Decimal(p['cost']['amount'])*scale).quantize(Decimal(10)**-int(minor.get(p['cost']['commodity'],2)),rounding=ROUND_HALF_UP),'f')
-    estimated=any(p.get('cost') and p['commodity']!=p['cost']['commodity'] for p in postings)
-    notes=list(rule.get('notes',[]))
+    estimated=any(p['cost'] and p['commodity']!=p['cost']['commodity'] for p in postings)
+    notes=list(rule['notes'])
     if estimated: notes.append('Currency estimate: planned conversion; statement reconciliation will correct it.')
     wire=[]
     for p in postings:
-        cost=p.get('cost')
+        cost=p['cost']
         if cost:
             value=abs(Decimal(cost['amount'])*(Decimal(p['amount']) if cost['per']=='unit' else 1))
             cost=dict(amount=format(value,'f'),commodity=cost['commodity'])
         wire.append(dict(account=p['account'],amount=p['amount'],commodity=p['commodity'],cost=cost))
-    return dict(status='ready',question=None,explanation=None,attachment_names=filenames,doubts=[],new_accounts=[],
-                entry=dict(date=day,status='confirmed',description=rule['description'],order_id=None,reference=None,classification=None,original_amount=None,
-                           **({'fuel_filled_litres':None,'trip_km':None} if __import__('ledger_manifest').module_settings(read_manifest(root))['fuel'] else {}),notes=notes,postings=wire)),estimated
+    from answers import answer_extensions
+    entry={'date':day,'status':'confirmed','description':rule['description'],'references':None,'classification':None,'original-amount':None}
+    extensions=answer_extensions(root)
+    if extensions is not None: entry['extensions']=extensions
+    entry.update(notes=notes,postings=wire)
+    return {'status':'ready','question':None,'entry':entry,'new-accounts':[],'doubts':[],'attachment-names':filenames,'explanation':None},estimated
 
 
 def queue_usual(settings, drafts, draft, body):
@@ -198,8 +226,8 @@ def queue_usual(settings, drafts, draft, body):
     day=body.get('date') or (draft.get('pieces') or {}).get('fields',{}).get('date',{}).get('value') or (context or draft)['client_time'][:10]
     if not isinstance(day,str) or date.fromisoformat(day).isoformat()!=day: raise ValueError('Choose a calendar payment date')
     effective=deepcopy(body);check=None
-    if rule.get('amount') == 'varies':
-        if rule.get('bill'):
+    if rule['amount'] == 'varies':
+        if rule['bill']:
             effective['amount']=rule['bill']['amount']
         elif not body.get('amount'): raise ValueError('Needs an amount')
         if body.get('update_rule'): raise ValueError('Varying rules recompute their estimate from payments')
@@ -207,7 +235,8 @@ def queue_usual(settings, drafts, draft, body):
         actual=[e for e in entries(documents) if e['id'] not in ignored]
         check=amount_check(rule,effective['amount'],actual,documents[settings.ledger/'data/accounts.json']['accounts'])
         if check and not body.get('amount_anyway'): raise AmountCheck(check)
-    proposal,estimated=wire_proposal(rule,day,[f['original_name'].rsplit('.',1)[0] for f in draft['files']],settings.ledger,effective)
+    from transactions import safe_name
+    proposal,estimated=wire_proposal(rule,day,[safe_name(f['original_name'].rsplit('.',1)[0]) for f in draft['files']],settings.ledger,effective)
     if check: proposal['doubts'].append(amount_doubt(check))
     try:
         Transaction(settings,drafts,draft).prepare(proposal)
@@ -219,9 +248,9 @@ def queue_usual(settings, drafts, draft, body):
         queue_outcome(draft,'failed')
         drafts.put(draft)
         raise
-    period=rule['bill']['occurrence'] if rule.get('bill') else period_for(rule,day)
+    period=rule['bill']['occurrence'] if rule['bill'] else period_for(rule,day)
     ignored=ignored_entries(records(settings.ledger))
-    already=[e for e in entries(documents) if e['id'] not in ignored and e.get('rule')==dict(id=rule['id'],occurrence=period)]
+    already=[e for e in entries(documents) if e['id'] not in ignored and e['rule']==dict(id=rule['id'],occurrence=period)]
     # Also recognise old unlinked payments in this bucket, so stale rules cannot double-book.
     already += [e for e in entries(documents) if e['id'] not in ignored and not e.get('rule') and same_payment(e,rule,documents[settings.ledger/'data/accounts.json']['accounts']) and period_for(rule,e['date'])==period]
     if already and not body.get('another_anyway'): raise ValueError('This period already has a payment; choose Add another anyway')
@@ -249,11 +278,10 @@ def queue_bill(settings, drafts, draft, body):
     context=client_context(body.get('client_time'),body.get('client_zone'))
     policy(settings);root=settings.ledger;documents=load(root)
     rule=next((r for r in documents[root/'data/forecast.json'] if r['id']==body.get('rule_id')),None)
-    if not rule or not active(rule) or rule.get('amount')!='varies' or rule.get('bill'): raise ValueError('Choose an active varying rule without a saved bill')
+    if not rule or not active(rule) or rule['amount']!='varies' or rule['bill']: raise ValueError('Choose an active varying rule without a saved bill')
     version=digest(rule)
-    from transactions import amount as store_amount
-    value=body.get('amount');value=store_amount(value) if isinstance(value,str) else value
-    bill=dict(amount=value,received=body.get('date') or context['client_time'][:10],occurrence=rule['date'],sources=[],**({'pay_by':body['pay_by']} if body.get('pay_by') else {}))
+    value=body.get('amount');value=decimal_text(value) if isinstance(value,str) and re.fullmatch(r'(0|[1-9]\d*)(\.\d+)?',value) else value
+    bill={'amount':value,'received':body.get('date') or context['client_time'][:10],'pay-by':body.get('pay_by') or None,'occurrence':rule['date'],'evidence':[]}
     rule['bill']=bill;validate(documents,root)
     ignored=ignored_entries(records(root))
     actual=[e for e in entries(documents) if e['id'] not in ignored]
@@ -294,11 +322,11 @@ def snapshot(settings, clock=None):
     _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
     public=[]
     for rule in rules:
-        paid=payment_history(rule,actual,accounts) if rule.get('amount')=='varies' else [e for e in actual if e.get('rule',{}).get('id')==rule['id'] or same_payment(e,rule,accounts)]
+        paid=payment_history(rule,actual,accounts) if rule['amount']=='varies' else [e for e in actual if (e['rule'] or {}).get('id')==rule['id'] or same_payment(e,rule,accounts)]
         last=max(paid,key=lambda e:e['date']) if paid else None
-        life=rule.get('lifecycle','active')
-        status=life if life!='active' else 'bill-received' if rule.get('bill') else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<today(clock) else 'due' if rule['date']==today(clock) else 'on-track'
-        public.append(dict(rule, lifecycle=life,version=digest(rule),last_payment=last,next_due=rule.get('bill',{}).get('pay_by',rule['date']),payments=[dict(id=e['id'],date=e['date'],**({'rule':e['rule']} if e.get('rule') else {})) for e in paid],rule_status=status,review=proposals.get(rule['id']),review_state=review_states.get(rule['id'],'waiting'),**varying_details(rule,actual,accounts)))
+        life=rule['lifecycle']
+        status=life if life!='active' else 'bill-received' if rule['bill'] else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<today(clock) else 'due' if rule['date']==today(clock) else 'on-track'
+        public.append(dict(rule, version=digest(rule),last_payment=last,next_due=(rule['bill'] or {}).get('pay-by') or rule['date'],payments=[dict(id=e['id'],date=e['date'],**({'rule':e['rule']} if e['rule'] else {})) for e in paid],rule_status=status,review=proposals.get(rule['id']),review_state=review_states.get(rule['id'],'waiting'),**varying_details(rule,actual,accounts)))
     return dict(rules=public,suggestions=suggestions,history=[line for line in lines if line['kind'] in ('rule','rule-review')])
 
 
@@ -311,9 +339,10 @@ def from_entry(settings,identity):
     documents=load(settings.ledger); entry=next((e for e in entries(documents) if e['id']==identity),None)
     if not entry: raise ValueError('Unknown entry')
     used={e['id'] for v in documents.values() if isinstance(v,list) for e in v}
-    rule={k:deepcopy(entry[k]) for k in ('date','status','description','postings','notes') if k in entry}
-    rule.update(id=new_id(used),lifecycle='active',origin=dict(kind='owner',evidence=[identity]),created=today(),schedule=dict(every='month',**{'from':entry['date']}))
-    for p in rule['postings']: p.pop('assert',None)
+    rule=new_rule(**{k:deepcopy(entry[k]) for k in ('date','status','description','postings','notes')})
+    rule.update(id=new_id(used),origin={'kind':'owner','words':None,'entry-ids':[identity],'came-back':False},created=today(),
+                schedule={'every':'month','from':entry['date'],'interval':1,'anchor-day':None})
+    for p in rule['postings']: p['assert']=None
     return dict(rule=advance(rule,entry['date']),entry_id=identity)
 
 
@@ -338,8 +367,8 @@ def operate(settings, op_id, body, *, clock=None):
             result=dict(audit_id=prior['id'],replayed=True)
             if prior['rule_action']=='bill-saved':
                 after=next(c['after'] for c in prior['rule_changes'] if c['id']==prior['rule_id'])
-                bill=prior['bill']
-                result.update(outcome='bill',rule_id=prior['rule_id'],description=after['description'],bill=bill,sources=bill['sources'],total=f"{bill['amount']} {main_postings(after)[0]['commodity']}")
+                bill=format1.bill(prior['bill'])
+                result.update(outcome='bill',rule_id=prior['rule_id'],description=after['description'],bill=bill,sources=bill['evidence'],total=f"{bill['amount']} {main_postings(after)[0]['commodity']}")
             return result
         receipt_path = store.folder(op_id) / 'record.json'
         receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else {}
@@ -358,9 +387,9 @@ def operate(settings, op_id, body, *, clock=None):
             proposed=deepcopy(body.get('rule')) if body.get('rule') else from_entry(settings,body['entry_id'])['rule'] if body.get('entry_id') else None
             if not isinstance(proposed,dict): raise ValueError('Supply a complete rule')
             used={e['id'] for v in documents.values() if isinstance(v,list) for e in v}
-            if 'id' not in proposed: proposed['id']=new_id(used)
+            if not proposed.get('id'): proposed['id']=new_id(used)
             elif proposed['id'] in used: raise ValueError('Rule id already exists')
-            proposed.setdefault('lifecycle','active');proposed.setdefault('created',action_day);proposed.setdefault('origin',dict(kind='owner'))
+            proposed=complete_rule(proposed,action_day)
             rules.append(proposed)
             recompute_estimate(proposed,actual,accounts)
         elif action in ('backfill','catch-up'):
@@ -372,7 +401,7 @@ def operate(settings, op_id, body, *, clock=None):
                 if body.get('rule_id') and not rule: raise ValueError('Unknown rule')
                 for old,last in stale_rules(actual,rules,accounts):
                     if not body.get('rule_id') or old['id']==body['rule_id']:
-                        paid_occurrence = last.get('rule',{}).get('occurrence',last['date']) if last.get('rule',{}).get('id') == old['id'] else last['date']
+                        paid_occurrence = last['rule']['occurrence'] if (last['rule'] or {}).get('id') == old['id'] else last['date']
                         rules[rules.index(old)]=advance(old,max(last['date'],paid_occurrence))
             if rules==before:
                 result = dict(changed=0,changes=[])
@@ -382,25 +411,25 @@ def operate(settings, op_id, body, *, clock=None):
             if action=='removed' and not rule and 'rule' in body and not body.get('rule_id'):
                 # Dismiss a suggestion by retaining its evidence as a suppression rule.
                 proposed=body['rule']
-                if not isinstance(proposed,dict) or not isinstance(proposed.get('origin'),dict) or not isinstance(proposed['origin'].get('evidence'),list):
+                if not isinstance(proposed,dict) or not isinstance(proposed.get('origin'),dict) or not isinstance(proposed['origin'].get('entry-ids'),list):
                     raise ValueError('Supply a current suggestion with its evidence')
-                evidence=proposed['origin']['evidence']
+                evidence=proposed['origin']['entry-ids']
                 if not evidence or not any(e['id']==evidence[-1] for e in actual): raise ValueError('The suggestion evidence changed; reload rules')
                 _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
-                suggestion=next((s['rule'] for s in suggestions if s['rule'].get('origin',{}).get('evidence')==evidence),None)
+                suggestion=next((s['rule'] for s in suggestions if (s['rule']['origin'] or {}).get('entry-ids')==evidence),None)
                 if not suggestion: raise ValueError('The suggestion changed; reload rules')
                 # Trust the current detector, not caller-supplied postings.
                 rule=deepcopy(suggestion)
                 rules.append(rule)
             if not rule: raise ValueError('Unknown rule')
-            life=rule.get('lifecycle','active')
+            life=rule['lifecycle']
             if action in ('bill-saved','bill-removed'):
-                if rule.get('amount')!='varies': raise ValueError('Bills need a varying rule')
+                if rule['amount']!='varies': raise ValueError('Bills need a varying rule')
                 if action=='bill-removed':
-                    if not rule.get('bill'): raise ValueError('There is no saved bill')
-                    bill_record=rule.pop('bill')
+                    if not rule['bill']: raise ValueError('There is no saved bill')
+                    bill_record=rule['bill'];rule['bill']=None
                 else:
-                    if rule.get('bill'): raise ValueError('Remove the saved bill before replacing it')
+                    if rule['bill']: raise ValueError('Remove the saved bill before replacing it')
                     bill=deepcopy(body.get('bill'))
                     if not isinstance(bill,dict): raise ValueError('Supply a bill')
                     # Validate the entire candidate before arithmetic or filing.
@@ -413,27 +442,32 @@ def operate(settings, op_id, body, *, clock=None):
                         with drafts.mutex:
                             bill_draft=drafts.get(body['draft_id'])
                             if bill_draft['state'] not in ('queued','working') or bill_draft.get('bill_request',{}).get('operation')!=body or bill_draft.get('claim') or bill_draft.get('correction'): raise ValueError('This item cannot save a bill now')
-                            if bill['sources']: raise ValueError('Uploaded bills use their filed evidence')
+                            if bill.get('evidence'): raise ValueError('Uploaded bills use their filed evidence')
                             if bill_draft.get('saved_at') is None: drafts.save_time(bill_draft,body.get('client_time'),body.get('client_zone'))
                             from transactions import evidence_paths
-                            answer={'entry':{'date':bill['received']},'attachment_names':[f['original_name'].rsplit('.',1)[0] for f in bill_draft['files']]}
+                            answer={'entry':{'date':bill['received']},'attachment-names':[f['original_name'].rsplit('.',1)[0] for f in bill_draft['files']]}
                             targets=evidence_paths(answer,bill_draft,root)
                             copies=[(drafts.folder(bill_draft['id'])/'files'/f['name'],target) for f,target in zip(bill_draft['files'],targets)]
-                            bill['sources']=[str(p.relative_to(root)) for p in targets]
+                            bill['evidence']=[str(p.relative_to(root)) for p in targets]
                     rule['bill']=bill;bill_record=bill
             elif action=='edited':
                 patch=deepcopy(body.get('rule'))
                 if not isinstance(patch,dict) or set(patch)-{'description','postings','schedule','date','status','amount'}: raise ValueError('Edit description, postings, schedule, date, status or amount')
-                if patch.get('amount','varies') is None:
-                    if rule.get('bill'): raise ValueError('Remove the saved bill before making the amount fixed')
-                    patch.pop('amount');rule.pop('amount',None)
+                if patch.get('amount','varies') in (None,'fixed'):
+                    if rule['bill']: raise ValueError('Remove the saved bill before making the amount fixed')
+                    patch['amount']='fixed'
+                if 'schedule' in patch and isinstance(patch['schedule'],dict):
+                    patch['schedule']={'every':patch['schedule'].get('every'),'from':patch['schedule'].get('from'),
+                                       'interval':patch['schedule'].get('interval') or 1,'anchor-day':patch['schedule'].get('anchor-day')}
+                if 'postings' in patch and isinstance(patch['postings'],list):
+                    patch['postings']=[complete_posting(p) for p in patch['postings']]
                 rule.update(patch)
                 if 'schedule' in patch: rule['date']=rule['schedule']['from']
                 elif 'date' in patch: rule['schedule']['from']=rule['date']
                 recompute_estimate(rule,actual,accounts)
             elif action=='removed':
-                evidence = {e['id'] for e in actual if same_payment(e,rule,accounts)} | set(rule.get('origin',{}).get('evidence',[]))
-                rule.update(lifecycle='removed',removal=dict(date=action_day,evidence=sorted(evidence)))
+                evidence = {e['id'] for e in actual if same_payment(e,rule,accounts)} | set((rule['origin'] or {}).get('entry-ids',[]))
+                rule.update(lifecycle='removed',removal={'date':action_day,'entry-ids':sorted(evidence)})
             elif action=='kept': pass
             else:
                 transitions={'paused':({'active'},'paused'),'resumed':({'paused'},'active'),'ended':({'active','paused'},'ended'),'restored':({'ended','removed'},'active')}
@@ -449,7 +483,7 @@ def operate(settings, op_id, body, *, clock=None):
                      )
         if bill_record is not None:
             record.update(bill=deepcopy(bill_record),text=bill_draft['text'] if bill_draft else body.get('text',''),
-                          files=[dict(original_name=f['original_name'],filed_path=source) for f,source in zip(bill_draft['files'],bill_record['sources'])] if bill_draft else [dict(original_name=source,filed_path=source) for source in bill_record['sources']],
+                          files=[dict(original_name=f['original_name'],filed_path=source) for f,source in zip(bill_draft['files'],bill_record['evidence'])] if bill_draft else [dict(original_name=source,filed_path=source) for source in bill_record['evidence']],
                           doubts=[amount_doubt(check)] if check else [])
             if check: record['amount_check']=check
         draft=dict(id=op_id,request_hash=request_hash,marker=('Draft: ' if action=='bill-saved' else 'Rule operation: ')+op_id);store.put(draft);tx=Transaction(settings,store,draft);tx.marker=draft['marker']
@@ -463,7 +497,7 @@ def operate(settings, op_id, body, *, clock=None):
             append(root,record)
             result=dict(audit_id=record['id'],action=action,changes=changes,changed=len(changes))
             if action=='bill-saved':
-                result.update(outcome='bill',rule_id=rule['id'],description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['sources'],total=f"{bill_record['amount']} {main_postings(rule)[0]['commodity']}")
+                result.update(outcome='bill',rule_id=rule['id'],description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['evidence'],total=f"{bill_record['amount']} {main_postings(rule)[0]['commodity']}")
             journal['result']=result;tx.save_journal(journal)
             message=f'Rules: {action}\n\n{tx.marker}\nAudit: {record["id"]}\nAdded-by: user (rule operation)'
             if action=='bill-saved':
@@ -471,8 +505,8 @@ def operate(settings, op_id, body, *, clock=None):
                 local=bill_draft or {**(context or client_context()),'created_at':record['time']}
                 message='\n'.join([f"Record {rule['description']} bill via dashboard",'',
                     'Typed: '+json.dumps(record['text'],ensure_ascii=False),'Saved: '+saved_local(local),
-                    f"Bill: {result['total']}, pay by {bill_record.get('pay_by','none')}",
-                    'Evidence: '+(', '.join(bill_record['sources']) or 'none'),
+                    f"Bill: {result['total']}, pay by {bill_record['pay-by'] or 'none'}",
+                    'Evidence: '+(', '.join(bill_record['evidence']) or 'none'),
                     'Agent doubts: '+('; '.join(record['doubts']) or 'none'),f'Draft: {op_id}',
                     f"Added-by: user (bill, rule {rule['id']})"])
             result['commit_id']=tx.verified_commit(fd,message)

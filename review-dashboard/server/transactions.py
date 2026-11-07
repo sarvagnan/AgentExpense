@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from jsonschema import validate, ValidationError
 import base64
 from datetime import date
 from decimal import Decimal
@@ -23,8 +22,9 @@ import save_timing
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
 from confirmed_balances import BalanceRefusal
-from store import dump, load, store_paths, entries
-from ledger_manifest import read_manifest, module_settings
+from store import copy_settings, dump, empty_entry, load, posting, store_paths, entries
+from ledger_manifest import read_manifest
+import account_metadata
 from account_metadata import infer_kind, is_balance_sheet
 from ledger_lock import ledger_lock, LOCK_FD_ENV
 from node_toolchain import node_environment
@@ -76,67 +76,48 @@ def reject_invisible(value, field='answer'):
             reject_invisible(item, field)
 
 
-def amount(text):
-    return text + '.00' if re.fullmatch(r'-?(0|[1-9][0-9]*)', text) else text
-
-
 def to_store(answer, root, file_count):
+    """The format 2 entry an answer or form describes, with the declarations it needs and its new accounts."""
+    from answers import entry_extensions
     answer = deepcopy(answer)
     reject_invisible(answer)
-    if len(answer['attachment_names']) != file_count:
-        raise ProposalError('attachment_names must have one name per attachment')
+    if len(answer['attachment-names']) != file_count:
+        raise ProposalError('attachment-names must have one name per attachment')
     a = answer['entry']
-    if not module_settings(read_manifest(root))['fuel'] and any(k in a for k in ('fuel_filled_litres', 'trip_km', 'fuel-filled-litres', 'trip-km')):
-        raise ProposalError('Fuel fields are disabled by ledger.json modules.fuel')
-    try:
-        date.fromisoformat(a['date'])
-    except ValueError as exc:
-        raise ProposalError('Invalid entry date') from exc
-    entry = {key: a[key] for key in ('date', 'status', 'description')}
-    for key, field in (('order_id', 'order-id'), ('reference', 'reference'), ('classification', 'classification'),
-                       ('fuel_filled_litres', 'fuel-filled-litres'), ('trip_km', 'trip-km')):
-        if a.get(key):
-            entry[field] = a[key]
-    if a.get('original_amount'):
-        entry['original-amount'] = {**a['original_amount'], 'amount': amount(a['original_amount']['amount'])}
-    if a['notes']:
-        entry['notes'] = a['notes']
-    entry['postings'] = []
-    for p in a['postings']:
-        posting = {**{k: p[k] for k in ('account', 'commodity')}, 'amount': amount(p['amount'])}
-        if p['cost']:
-            posting['cost'] = {**p['cost'], 'amount': amount(p['cost']['amount']), 'per': 'total'}
-        entry['postings'].append(posting)
+    entry = empty_entry(root, date=a['date'], status=a['status'], description=a['description'], references=a['references'],
+                        classification=a['classification'], **{'original-amount': a['original-amount']},
+                        extensions=entry_extensions(root, a.get('extensions')), notes=list(a['notes']),
+                        postings=[posting(p['account'], p['amount'], p['commodity'],
+                                          cost={**p['cost'], 'per': 'total'} if p['cost'] else None) for p in a['postings']])
     declared = load(root)[root / 'data/accounts.json']
     existing = set(declared['accounts'])
-    paths = {':'.join(a.split(':')[:n]) for a in existing for n in range(1, len(a.split(':')) + 1)}
-    new = sorted(set(answer['new_accounts']) - existing)
+    new = sorted(set(answer['new-accounts']) - existing)
     for account in new:
         if not all(part.strip() == part and part for part in account.split(':')):
             raise AccountError(f'Invalid new account: {account}')
     accounts = dict(declared['accounts'])
     for account in new:
-        metadata = {}
+        metadata = account_metadata.empty(account)
         if is_balance_sheet(account):
-            explicit = answer.get('account_metadata', {}).get(account)
+            explicit = answer.get('account-metadata', {}).get(account)
             kind = explicit.get('kind') if explicit else infer_kind(account)
             if kind is None:
                 raise AccountError(f'Cannot infer kind for new account: {account}; choose a conventional account or declare its metadata in Accounts')
             currencies = {p['commodity'] for p in entry['postings'] if p['account']==account}
-            metadata = explicit if explicit else {'kind': kind, 'currency': next(iter(currencies)) if len(currencies)==1 else read_manifest(root)['defaultCurrency']}
+            metadata = {**metadata, 'kind': kind, 'currency': explicit['currency'] if explicit else next(iter(currencies)) if len(currencies)==1 else read_manifest(root)['defaultCurrency']}
         accounts[account] = metadata
     payments = [p for p in entry['postings'] if accounts.get(p['account'], {}).get('currency') and Decimal(p['amount']) < 0]
     funding = next((p for p in payments if accounts[p['account']].get('kind') not in ('investment', 'person')), payments[0] if payments else None)
     if funding:
         currency = accounts[funding['account']]['currency']
-        if entry.get('original-amount', {}).get('commodity') == currency:
+        if (entry['original-amount'] or {}).get('commodity') == currency:
             if Decimal(entry['original-amount']['amount']) == abs(Decimal(funding['amount'])):
-                entry.pop('original-amount')
+                entry['original-amount'] = None
             else:
                 raise ProposalError(f'original-amount must differ from the paying account currency {currency}')
         for p in entry['postings']:
             if p['account'].startswith('Expenses:') and p['commodity'] != currency:
-                if not p.get('cost') or p['cost']['commodity'] != currency or Decimal(p['cost']['amount']) <= 0:
+                if not p['cost'] or p['cost']['commodity'] != currency or Decimal(p['cost']['amount']) <= 0:
                     raise ProposalError(f'Expense in {p["commodity"]} on {funding["account"]} ({currency}) needs the amount charged or a rate as a cost in {currency}; ask the user when neither is known')
     unknown = sorted({p['account'] for p in entry['postings']} - set(accounts))
     if unknown:
@@ -148,10 +129,9 @@ def to_store(answer, root, file_count):
         if expected and expected != p['commodity'] and not unit_holding:
             raise AccountError('The posting must use its account currency '+expected+': ' + p['account'])
     commodities = list(declared['commodities'])
-    supported = json.loads((APPLICATION / 'schema/currencies.json').read_text())
     registered = {directive.split()[0].strip(chr(34)) for directive in commodities}
-    for posting in entry['postings']:
-        for code in (posting['commodity'], posting.get('cost', {}).get('commodity')):
+    for posting_ in entry['postings']:
+        for code in (posting_['commodity'], (posting_['cost'] or {}).get('commodity')):
             if code in supported and code not in registered:
                 commodities.append(code)
                 registered.add(code)
@@ -166,9 +146,9 @@ def check(entry, declarations, root):
             dest = fixture / path.relative_to(root)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, dest)
-        shutil.copyfile(root / 'ledger.json', fixture / 'ledger.json')
+        copy_settings(root, fixture)
         dump(fixture / 'data/accounts.json', declarations)
-        candidate = {k: v for k, v in entry.items() if k != 'sources'}
+        candidate = {**entry, 'evidence': []}
         try:
             add_entry(candidate, root=fixture, dry_run=True)
         except BalanceRefusal:
@@ -187,7 +167,7 @@ def evidence_paths(answer, draft, root):
     if (root/'Bills').is_symlink() or folder.is_symlink() or not folder.resolve().is_relative_to((root / 'Bills').resolve()):
         raise ValueError('Evidence directory escapes Bills')
     paths, used = [], set()
-    for base, file in zip(answer['attachment_names'], draft['files']):
+    for base, file in zip(answer['attachment-names'], draft['files']):
         name, suffix = safe_name(base), file['extension']
         target = folder / (name + suffix)
         number = 2
@@ -217,7 +197,7 @@ def message_for(settings, draft, entry, new, answer):
     lines = [f"Add {entry['description']} via dashboard", '', f"Typed: {quote(draft['text'])}",
              f'Saved: {saved_local(draft)}',
              f"Total: {paid['total']}, {paid['payment_account']}",
-             'Evidence: ' + ', '.join(entry.get('sources', []))]
+             'Evidence: ' + ', '.join(entry['evidence'])]
     lines += [f"Asked: {quote(q['question'])} Answered: {quote(q['answer'])}" for q in draft['questions'] if q.get('answer') is not None]
     # Escape line breaks so review metadata always remains one physical line.
     one_line = lambda text: text.replace('\n', '\\n').replace('\r', '\\r')
@@ -310,27 +290,32 @@ class Transaction:
             raise RuntimeError('Ledger commit failed verification: ' + (completed.stdout+completed.stderr)[-5000:])
         return jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
 
-    def prepare(self, answer):
+    def prepare(self, answer, *, person=None):
         """Pure preview: schema, conversion, declarations, strict hledger in scratch.
 
         Caller holds the draft mutex when retaining the result. Apply repeats this
-        under the ledger lock; consent binds the complete wire proposal.
+        under the ledger lock; consent binds the complete wire proposal. ``person`` says
+        whether ``answer`` is the person's own form (the hand form, a correction or a
+        receipt reading) rather than the agent's answer; by default, whether the person
+        finished the draft. Agent answers are always checked with the answer model.
         """
         with save_timing.step('prepare'):
-            return self._prepare(answer)
+            return self._prepare(answer, bool(self.draft.get('finished_by')) if person is None else person)
 
-    def _prepare(self, answer):
-        from agent import schema_for
+    def _prepare(self, answer, form):
+        from answers import AnswerError, check as check_answer
         from proposal_consent import proposal_hash
-        wire = {key:value for key,value in answer.items() if key!='account_metadata'} if self.draft.get('hand_form') or self.draft.get('finished_by') else answer
-        try: validate(wire, schema_for(self.settings))
-        except ValidationError as exc:
-            raise ProposalError('Please check '+'.'.join(str(p) for p in exc.path)+': '+exc.message) from None
-        if 'account_metadata' in answer and (not isinstance(answer['account_metadata'],dict) or any(not isinstance(v,dict) for v in answer['account_metadata'].values())):
-            raise AccountError('New account metadata must map account names to kind and currency')
-        if answer['status'] != 'ready' or not answer['entry']:
+        from answers import person_amounts
+        if not form and 'account-metadata' in answer:
+            raise AccountError('New account metadata belongs to the hand form')
+        # The person's whole amounts are written as decimals; the consent hash stays on what they sent.
+        checked = person_amounts(answer) if form else answer
+        try: check_answer(checked, self.root, form=form)
+        except AnswerError as exc:
+            raise ProposalError(str(exc)) from None
+        if checked['status'] != 'ready' or not checked['entry']:
             raise ProposalError('A complete ready entry is required')
-        entry, declarations, new = to_store(answer, self.root, len(self.draft['files']))
+        entry, declarations, new = to_store(checked, self.root, len(self.draft['files']))
         if self.draft.get('correction'):
             from corrections import prepare_replacement
             prepare_replacement(self.settings, self.draft, entry, declarations)
@@ -370,23 +355,22 @@ class Transaction:
             self.rollback(journal)
             raise
 
-    def apply(self, answer, lock_fd):
+    def apply(self, answer, lock_fd, *, person=None):
         if self.draft.get('correction'): raise ValueError('Save this form through the correction service to keep the entry identity')
         from rules_service import policy
         policy(self.settings)
-        prepared = self.prepare(answer)
+        prepared = self.prepare(answer, person=person)
         entry, declarations, new = prepared['entry'], prepared['declarations'], prepared['new_accounts']
         required = new if self.draft.get('finished_by') else prepared['new_roots']
         consent = self.draft.get('account_consent')
         if required and (not consent or consent['proposal_hash'] != prepared['proposal_hash'] or set(required)-set(consent['accounts'])):
             raise AccountError('Approve the exact proposal before creating these accounts')
-        if answer['entry'].get('original_amount') and not entry.get('original-amount'):
+        if answer['entry'].get('original-amount') and not entry['original-amount']:
             notes = self.draft['runs'][-1].setdefault('normalisations', []) if self.draft['runs'] else self.draft.setdefault('normalisations', [])
-            note = 'Dropped original_amount equal to the payment in the paying account currency'
+            note = 'Dropped original-amount equal to the payment in the paying account currency'
             if note not in notes: notes.append(note)
         targets = evidence_paths(answer, self.draft, self.root)
-        if targets:
-            entry['sources'] = [str(p.relative_to(self.root)) for p in targets]
+        entry['evidence'] = [str(p.relative_to(self.root)) for p in targets]
         from outcomes import draft_event
         from audit import append, audit_path
         audit_record = draft_event(self.draft, 'added')
@@ -403,7 +387,7 @@ class Transaction:
             recurring = addition_effects(self.root, identity, self.draft)
             entry=next(e for e in entries(load(self.root)) if e['id']==identity)
             result = dict(outcome='ready', entry_id=identity, description=entry['description'],
-                          new_accounts=new, sources=entry.get('sources', []), **payment(entry,declarations['accounts']))
+                          new_accounts=new, sources=entry['evidence'], **payment(entry,declarations['accounts']))
             if recurring['rule'] or recurring['resume_rules']:
                 result.update(recurring, weekly_review_note='The weekly review will look at this payment.')
                 result['audit_id'] = audit_record['id']

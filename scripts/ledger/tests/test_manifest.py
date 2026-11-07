@@ -7,9 +7,10 @@ from pathlib import Path
 import subprocess
 import sys
 
-from test_ledger import Fixture, entry
+from test_ledger import Fixture, entry, rule, write
+from account_metadata import complete
 from store import canonical_text, dump, load, read_json
-from ledger_manifest import read_manifest
+from ledger_manifest import CURRENT_FORMAT, read_manifest
 from compare_outputs import compare, snapshot
 
 
@@ -19,16 +20,17 @@ class ManifestTests(Fixture):
         path = self.root / 'ledger.json'
         manifest = {**read_json(path), 'locale': 'en-IN', 'startDate': '2026-01-01',
                     'modules': dict(weeklyReview=False, history=dict(oldLedger=None),
-                                    investments=dict(prices=None), fuel=False),
+                                    investments=dict(prices=None)),
                     'review': dict(storageKey=None)}
         path.write_text(json.dumps(dict(reversed(list(manifest.items())))))
         with self.assertRaisesRegex(ValueError, 'ledger.json is not canonical'):
             check(self.root)
         self.cli('store.py', '--format')
         result = read_json(path)
-        self.assertEqual(list(result), ['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'review'])
-        self.assertEqual(list(result['modules']), ['fuel', 'investments', 'history', 'weeklyReview'])
-        self.assertEqual(path.read_text(), canonical_text(manifest))
+        self.assertEqual(list(result), ['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review'])
+        self.assertEqual(list(result['modules']), ['investments', 'history', 'weeklyReview'])
+        from ledger_manifest import ordered_manifest
+        self.assertEqual(path.read_text(), canonical_text(ordered_manifest(manifest), flat=False))
         with redirect_stdout(io.StringIO()):
             check(self.root)
 
@@ -41,13 +43,13 @@ class ManifestTests(Fixture):
                  'Accounts Receivable:Asha', 'Custom', 'IncomeExtra:Test']
         for name in names:
             self.assertTrue(is_balance_sheet(name))
-            accounts['accounts'][name] = dict(kind='person', currency='USD')
+            accounts['accounts'][name] = complete(name, dict(kind='person', currency='USD'))
         for name in names[:3]:
             self.assertEqual(infer_kind(name), 'person')
         self.assertIsNone(infer_kind('Dev Sen:Accounts Payable Extra:Asha'))
         for name in ['Income', 'Expenses:Test', 'Equity:Opening Balances']:
             self.assertFalse(is_balance_sheet(name))
-            accounts['accounts'][name] = {}
+            accounts['accounts'][name] = complete(name, {})
         dump(path, accounts)
         with redirect_stdout(io.StringIO()):
             check(self.root)
@@ -55,31 +57,37 @@ class ManifestTests(Fixture):
         for name in names:
             changed = deepcopy(accounts)
             changed['accounts'][name] = {}
-            dump(path, changed)
+            write(path, changed)
             with self.subTest(name=name), self.assertRaises(ValueError):
                 load(self.root)
         for name in ['', ':Custom', 'Custom:', 'Custom::Test', 'Custom\nTest', 'Custom:Test\n', 'Custom\rTest']:
             changed = deepcopy(accounts)
-            changed['accounts'][name] = dict(kind='person', currency='USD')
-            dump(path, changed)
+            changed['accounts'][name] = complete('Assets', dict(kind='person', currency='USD'))
+            write(path, changed)
             with self.subTest(name=name), self.assertRaises(ValueError):
                 load(self.root)
 
     def test_defaults_and_closed_nested_objects(self):
         result = read_manifest(self.root)
-        self.assertEqual(result['modules'], dict(fuel=False, investments=dict(prices=None), history=dict(oldLedger=None), weeklyReview=False))
+        self.assertEqual(result['modules'], dict(investments=dict(prices=None), history=dict(oldLedger=None), weeklyReview=False))
+        self.assertEqual(result['extensions'], {})
         self.assertEqual(result['review'], dict(storageKey=None))
         original = read_json(self.root / 'ledger.json')
-        for change in [dict(unexpected=True), dict(id='bad'), dict(defaultCurrency='bad unit'), dict(locale='invalid_tag'), dict(startDate='2026-02-30'), dict(modules=dict(investments=dict(prices=None, surprise=True))), dict(review=dict(storageKey=1))]:
+        for change in [dict(unexpected=True), dict(id='bad'), dict(defaultCurrency='bad unit'), dict(locale='invalid_tag'), dict(startDate='2026-02-30'),
+                       dict(modules=dict(investments=dict(prices=None, surprise=True))), dict(modules=dict(fuel=True)), dict(review=dict(storageKey=1)),
+                       dict(extensions={'fuel': {'ask': 'yes'}}), dict(extensions={'Fuel Log': {'ask': True}}), dict(extensions={'fuel': {}}),
+                       dict(extensions={'fuel': {'ask': True, 'extra': 1}}), dict(extensions=None)]:
             with self.subTest(change=change):
                 dump(self.root / 'ledger.json', {**original, **change})
                 with self.assertRaises(ValueError): read_manifest(self.root)
+        dump(self.root / 'ledger.json', {key: value for key, value in original.items() if key != 'extensions'})
+        with self.assertRaisesRegex(ValueError, 'missing extensions'): read_manifest(self.root)
 
     def test_python_and_node_format_diagnostics(self):
         from project_paths import APPLICATION_ROOT
         path = self.root / 'ledger.json'
         module = (APPLICATION_ROOT / 'review-dashboard/scripts/ledger-manifest.mjs').as_uri()
-        for version in [0, 2]:
+        for version in [0, CURRENT_FORMAT - 1, CURRENT_FORMAT + 1]:
             if version == 0: path.unlink()
             else: dump(path, dict(format=version))
             with self.assertRaises(ValueError) as caught: load(self.root)
@@ -93,13 +101,15 @@ class ManifestTests(Fixture):
         names = list(accounts['accounts'])
         dump(path, accounts)
         self.assertEqual(list(read_json(path)['accounts']), names)
-        for metadata in [dict(kind='bank',currency='MISSING'), dict(kind='unknown',currency='INR'), dict(kind='card',currency='INR',aliases=['Mixed']), dict(kind='cash',currency='INR',statement=dict(identifier='1234'))]:
+        for metadata in [dict(kind='bank',currency='MISSING'), dict(kind='unknown',currency='INR'), dict(kind='card',currency='INR',aliases=['Mixed']),
+                         dict(kind='cash',currency='INR',statement=dict(identifier='1234', reader=None, options=None)),
+                         {key: value for key, value in complete(names[0], dict(kind='cash',currency='INR')).items() if key != 'label'}]:
             changed = deepcopy(accounts)
-            changed['accounts'][names[0]] = metadata
-            dump(path, changed)
-            with self.assertRaises(ValueError): load(self.root)
+            changed['accounts'][names[0]] = complete(names[0], metadata) if 'label' in metadata or len(metadata) < 4 else metadata
+            write(path, changed)
+            with self.subTest(metadata=metadata), self.assertRaises(ValueError): load(self.root)
         changed = deepcopy(accounts);changed['accounts']['Expenses:Test'] = dict(label='No metadata')
-        dump(path, changed)
+        write(path, changed)
         with self.assertRaises(ValueError): load(self.root)
 
     def test_comparison_never_emits_contents_and_supports_ignores(self):
@@ -111,39 +121,35 @@ class ManifestTests(Fixture):
         two['journal'] = one['journal']
         self.assertTrue(compare(one, two, ['rows.*.secret'], emit=False))
 
-    def format_zero_with_fuel(self):
-        """This fixture as format 0 with fuel on, as an upgrade sees it.
+    def with_fuel(self):
+        """This fixture with the fuel extension listed and a rule.
 
         Self-contained: server tests run this suite in staged copies without fixtures/.
         """
-        settings = {**read_json(self.root / 'ledger.json'), 'modules': {'fuel': True}}
-        (self.root / 'ledger.json').unlink()
-        rule = entry(identity='0000000000000002', schedule={'every': 'month', 'from': '2026-01-02'}, origin={'kind': 'owner'})
-        dump(self.root / 'data/forecast.json', [rule])
-        dump(self.root / 'data/fuel-log.json', {'entries': []})
-        return settings, read_json(self.root / 'data/accounts.json')
+        dump(self.root / 'ledger.json', {**read_json(self.root / 'ledger.json'), 'extensions': {'fuel': {'ask': True}}})
+        dump(self.year, [{**item, 'extensions': {'fuel': None}} for item in read_json(self.year)])
+        dump(self.root / 'data/forecast.json', [rule(identity='0000000000000002', origin={'kind': 'owner', 'words': None, 'entry-ids': [], 'came-back': False})])
+        (self.root / 'data/fuel-log.json').write_text('{"entries": []}\n')
 
     def test_builder_failures_name_the_underlying_error(self):
-        settings = self.format_zero_with_fuel()
-        self.assertIn('dashboard/dashboard.json', snapshot(self.root, format_zero_settings=settings))
-        rules = read_json(self.root / 'data/forecast.json')
-        rules[0]['origin']['kind'] = 'unknown-origin'
-        dump(self.root / 'data/forecast.json', rules)
+        self.with_fuel()
+        self.assertIn('dashboard/dashboard.json', snapshot(self.root))
+        (self.root / 'data/fuel-log.json').write_text('{"entries": [1]}\n')
         with self.assertRaises(ValueError) as caught:
-            snapshot(self.root, format_zero_settings=settings)
-        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): Invalid rule.origin.kind.')
+            snapshot(self.root)
+        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): The fuel extension is listed; supply a valid data/fuel-log.json: entries must be a list of objects.')
 
     def test_fuel_log_failures_name_the_problem_without_contents(self):
-        settings = self.format_zero_with_fuel()
+        self.with_fuel()
         log = self.root / 'data/fuel-log.json'
         log.write_text('{"entries": [{"note": "fictional private words"}')
         with self.assertRaises(ValueError) as caught:
-            snapshot(self.root, format_zero_settings=settings)
-        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): Fuel is enabled; supply a valid data/fuel-log.json: it is not valid JSON.')
+            snapshot(self.root)
+        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): The fuel extension is listed; supply a valid data/fuel-log.json: it is not valid JSON.')
         log.unlink()
         with self.assertRaises(ValueError) as caught:
-            snapshot(self.root, format_zero_settings=settings)
-        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): Fuel is enabled; supply a valid data/fuel-log.json: the file is missing.')
+            snapshot(self.root)
+        self.assertEqual(str(caught.exception), 'Unable to generate dashboard output (copy-fuel-log): The fuel extension is listed; supply a valid data/fuel-log.json: the file is missing.')
 
     def test_builder_failure_report_is_one_line(self):
         from compare_outputs import BUILDER_FAILURE, builder_failure
@@ -166,7 +172,7 @@ class ManifestTests(Fixture):
         with redirect_stdout(io.StringIO()):
             check(self.root)
         for account, metadata in [
-            *[('Expenses:Test', dict(category=value)) for value in ['', ' ', '\t', 'Groceries\n', 'Groceries\rOther', 42, None]],
+            *[('Expenses:Test', dict(category=value)) for value in ['', ' ', '\t', 'Groceries\n', 'Groceries\rOther', 42]],
             ('Income:Salary', dict(category='Income')),
             ('Equity:Opening Balances', dict(category='Opening')),
             ('Assets:Checking:Alder', dict(kind='bank', currency='INR', category='Groceries')),
@@ -174,7 +180,7 @@ class ManifestTests(Fixture):
         ]:
             changed = deepcopy(original)
             changed['accounts'][account] = metadata
-            dump(path, changed)
+            write(path, changed)
             with self.subTest(account=account, metadata=metadata), self.assertRaises(ValueError):
                 with redirect_stdout(io.StringIO()):
                     check(self.root)
@@ -186,7 +192,7 @@ class ManifestTests(Fixture):
         names = ['Expenses:Market:Produce', 'Expenses:Market:Dining:Corner Store',
                  'Expenses:Food:Other', 'Expenses:Transport:Other']
         for account in ['Expenses:Market', 'Expenses:Market:Dining', *names]:
-            declarations['accounts'][account] = {}
+            declarations['accounts'][account] = {'category': None}
         dump(path, declarations)
         rows = []
         for index, account in enumerate(names, 1):
@@ -194,7 +200,7 @@ class ManifestTests(Fixture):
             row['postings'][0]['account'] = account
             rows.append(row)
         dump(self.year, rows)
-        rules = [{**row, 'id': f'{index + 10:016x}', 'schedule': dict(every='month', **{'from': row['date']})}
+        rules = [rule(identity=f'{index + 10:016x}', day=row['date'], amount=row['postings'][0]['amount'], postings=row['postings'])
                  for index, row in enumerate(rows)]
         dump(self.root / 'data/forecast.json', rules)
         journal = render(load(self.root), self.root)

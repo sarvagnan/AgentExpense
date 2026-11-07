@@ -90,6 +90,18 @@ def continuity_entries(entries, statement, start_date=None):
     return effective, [e for e in entries if e['date'] < effective or e['date'] == effective and opening(e)]
 
 
+def reader_account(metadata):
+    """Account metadata as reader interface 1 receives it: keys that hold a value only.
+
+    The store writes every key (format 2), with null for an absent label or
+    statement setting; readers keep seeing the keys they were written against.
+    """
+    result = {key: deepcopy(value) for key, value in metadata.items() if value is not None}
+    if isinstance(result.get('statement'), dict):
+        result['statement'] = {key: value for key, value in result['statement'].items() if value is not None}
+    return result
+
+
 class Reader:
     def __init__(self, module, *, personal=False):
         if getattr(module, 'INTERFACE', None) != 1:
@@ -125,13 +137,14 @@ class Reader:
     def read(self, file, account, password=None):
         if account['kind'] not in self.kinds:
             raise ValueError('This reader does not handle the selected account kind')
-        result = self.module.read(Path(file), deepcopy(account), password=password)
+        account = reader_account(account)
+        result = self.module.read(Path(file), account, password=password)
         for row in result.get('rows',[]):
             row.setdefault('page',row.get('citation',{}).get('page',1))
             row.setdefault('foreignAmount',None)
             row.setdefault('foreignCurrency',None)
         identifier = result.get('identifier', result.get('card_last4'))
-        expected = account.get('statement',{}).get('identifier')
+        expected = (account.get('statement') or {}).get('identifier')
         if identifier and expected and identifier != expected:
             raise ValueError('The printed identifier does not match the selected account')
         result['reader'] = self.id

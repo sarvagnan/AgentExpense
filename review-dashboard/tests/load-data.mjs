@@ -6,7 +6,7 @@ import { gunzipSync } from 'node:zlib';
 export async function loadPublishedData(server) {
   const read = async name => JSON.parse(gunzipSync(await readFile(dashboardDataPath('public/data',`${name}.json.gz`))).toString('utf8'));
   const [dashboard, review] = await Promise.all(['dashboard', 'pending-transactions'].map(read));
-  const fuel = dashboard.meta.ledger.modules.fuel ? await read('fuel-log') : {meta:{},entries:[]};
+  const fuel = dashboard.meta.ledger.extensions?.fuel ? await read('fuel-log') : {meta:{},entries:[]};
   (await server.ssrLoadModule('/app/data.ts')).setData({ dashboard, review, fuel });
   return { dashboard, review, fuel };
 }

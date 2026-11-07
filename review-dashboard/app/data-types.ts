@@ -1,5 +1,10 @@
 import type { Accounts } from './account-metadata';
-export type LedgerManifest = {format: number; id: string; name: string; defaultCurrency: string; locale?: string; startDate?: string; modules: Record<string, unknown>; review: {storageKey: string|null}};
+export type LedgerManifest = {format: number; id: string; name: string; defaultCurrency: string; locale?: string; startDate?: string; modules: Record<string, unknown>; extensions: Record<string, {ask: boolean}>; review: {storageKey: string|null}};
+/** One field of an extension definition (docs/EXTENSIONS.md). */
+export type ExtensionField = {type: 'decimal'|'text'|'whole-number'|'date'|'yes-no'|'choice'; 'filled-by': 'agent'|'person'; description: string; 'journal-tag': string; values?: string[]};
+export type ExtensionDefinition = {name: string; ask: boolean; description: string; fields: Record<string, ExtensionField>};
+export type ExtensionValue = string|number|boolean|null;
+export type ExtensionGroups = Record<string, Record<string, ExtensionValue>|null>;
 // Runtime payload contracts must remain stable when a selected ledger has empty arrays.
 export type Provenance = {
   auditId: string; text: string; time: string; savedAt: string | null;
@@ -15,9 +20,11 @@ export type DashboardTransaction = {
   classification: string; originalAmount: string;
   fuelLog: { litres: number; tripKm: number | null; confirmed: boolean } | null;
   postings: { account: string; amount: number; currency: string; label: string; cost?: number; costCurrency?: string }[];
+  /** Each listed extension's values, null when the entry has none. */
+  extensions: ExtensionGroups;
 };
 export type DashboardData = {
-  meta: { currencyMinorUnits?: Record<string, number>; ledger: LedgerManifest; accounts: Accounts; generatedAt: string; today: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
+  meta: { currencyMinorUnits?: Record<string, number>; ledger: LedgerManifest; accounts: Accounts; extensions: ExtensionDefinition[]; generatedAt: string; today: string; defaultMonth: string; firstMonth: string; lastMonth: string; transactionCount: number };
   months: {
     month: string; currency: string; total: number; income: number; investments: number; recurring: number; count: number; pending: number;
     categories: { category: string; amount: number }[]; daily: { day: number; amount: number }[];

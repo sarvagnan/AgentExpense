@@ -4,9 +4,20 @@
     "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Alder Checking", "amount": "2400.00", "commodity": "USD", "assert": {"amount": "2400.00", "commodity": "USD"}},
-      {"account": "Equity:Opening Balances", "amount": "-2400.00", "commodity": "USD"}
+      {"account": "Assets:Bank:Alder Checking", "amount": "2400.00", "commodity": "USD", "cost": null, "assert": {"amount": "2400.00", "commodity": "USD"}, "notes": []},
+      {"account": "Equity:Opening Balances", "amount": "-2400.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -14,9 +25,20 @@
     "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Meadow Savings", "amount": "3500.00", "commodity": "USD", "assert": {"amount": "3500.00", "commodity": "USD"}},
-      {"account": "Equity:Opening Balances", "amount": "-3500.00", "commodity": "USD"}
+      {"account": "Assets:Bank:Meadow Savings", "amount": "3500.00", "commodity": "USD", "cost": null, "assert": {"amount": "3500.00", "commodity": "USD"}, "notes": []},
+      {"account": "Equity:Opening Balances", "amount": "-3500.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -24,9 +46,20 @@
     "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-125.00", "commodity": "USD", "assert": {"amount": "-125.00", "commodity": "USD"}},
-      {"account": "Equity:Opening Balances", "amount": "125.00", "commodity": "USD"}
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-125.00", "commodity": "USD", "cost": null, "assert": {"amount": "-125.00", "commodity": "USD"}, "notes": []},
+      {"account": "Equity:Opening Balances", "amount": "125.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -34,9 +67,20 @@
     "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Cash", "amount": "80.00", "commodity": "USD", "assert": {"amount": "80.00", "commodity": "USD"}},
-      {"account": "Equity:Opening Balances", "amount": "-80.00", "commodity": "USD"}
+      {"account": "Assets:Cash", "amount": "80.00", "commodity": "USD", "cost": null, "assert": {"amount": "80.00", "commodity": "USD"}, "notes": []},
+      {"account": "Equity:Opening Balances", "amount": "-80.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -44,9 +88,20 @@
     "date": "2026-09-01",
     "status": "confirmed",
     "description": "Opening balance — Willow Travel",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Assets:Bank:Willow Travel", "amount": "650.00", "commodity": "EUR", "assert": {"amount": "650.00", "commodity": "EUR"}},
-      {"account": "Equity:Opening Balances", "amount": "-650.00", "commodity": "EUR"}
+      {"account": "Assets:Bank:Willow Travel", "amount": "650.00", "commodity": "EUR", "cost": null, "assert": {"amount": "650.00", "commodity": "EUR"}, "notes": []},
+      {"account": "Equity:Opening Balances", "amount": "-650.00", "commodity": "EUR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -54,12 +109,24 @@
     "date": "2026-09-01",
     "status": "confirmed",
     "description": "Maple Workshop",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {
+      "learning": {"course": "Maple Workshop pottery basics", "hours": "6", "level": "beginner", "sessions": 3, "certificate": false, "next-session": null}
+    },
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-12.00", "commodity": "USD"}
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-12.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -67,12 +134,22 @@
     "date": "2026-09-15",
     "status": "confirmed",
     "description": "Cedar Studio membership",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-20.00", "commodity": "USD"}
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-20.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -80,12 +157,22 @@
     "date": "2026-10-02",
     "status": "confirmed",
     "description": "Clover Pantry groceries",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-02/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "48.25", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-48.25", "commodity": "USD"}
+      {"account": "Expenses:Groceries", "amount": "48.25", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-48.25", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -93,12 +180,22 @@
     "date": "2026-10-03",
     "status": "confirmed",
     "description": "Cedar Kitchen lunch",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-03/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining", "amount": "16.50", "commodity": "USD"},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-16.50", "commodity": "USD"}
+      {"account": "Expenses:Food:Dining", "amount": "16.50", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-16.50", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -106,12 +203,22 @@
     "date": "2026-10-04",
     "status": "confirmed",
     "description": "Town shuttle",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-04/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Transport", "amount": "5.00", "commodity": "USD"},
-      {"account": "Assets:Cash", "amount": "-5.00", "commodity": "USD"}
+      {"account": "Expenses:Transport", "amount": "5.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-5.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -119,12 +226,22 @@
     "date": "2026-10-05",
     "status": "confirmed",
     "description": "October rent",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-05/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Housing:Rent", "amount": "800.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-800.00", "commodity": "USD"}
+      {"account": "Expenses:Housing:Rent", "amount": "800.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-800.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -132,12 +249,22 @@
     "date": "2026-10-06",
     "status": "confirmed",
     "description": "Weekend vegetables",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-06/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "12.00", "commodity": "USD"},
-      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "USD"}
+      {"account": "Expenses:Groceries", "amount": "12.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-12.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -145,12 +272,22 @@
     "date": "2026-10-07",
     "status": "confirmed",
     "description": "Cedar Kitchen tea",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-07/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining", "amount": "4.25", "commodity": "USD"},
-      {"account": "Assets:Cash", "amount": "-4.25", "commodity": "USD"}
+      {"account": "Expenses:Food:Dining", "amount": "4.25", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-4.25", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -158,12 +295,22 @@
     "date": "2026-10-09",
     "status": "confirmed",
     "description": "Clover Pantry staples",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-09/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "37.80", "commodity": "USD"},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-37.80", "commodity": "USD"}
+      {"account": "Expenses:Groceries", "amount": "37.80", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-37.80", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -171,12 +318,22 @@
     "date": "2026-10-11",
     "status": "confirmed",
     "description": "Town shuttle pass",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-11/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Transport", "amount": "25.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-25.00", "commodity": "USD"}
+      {"account": "Expenses:Transport", "amount": "25.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-25.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -184,12 +341,22 @@
     "date": "2026-10-13",
     "status": "confirmed",
     "description": "Cedar Kitchen dinner",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-13/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining", "amount": "28.00", "commodity": "USD"},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-28.00", "commodity": "USD"}
+      {"account": "Expenses:Food:Dining", "amount": "28.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-28.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -197,12 +364,22 @@
     "date": "2026-10-15",
     "status": "confirmed",
     "description": "Clover Pantry fruit",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-15/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "19.45", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-19.45", "commodity": "USD"}
+      {"account": "Expenses:Groceries", "amount": "19.45", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-19.45", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -210,12 +387,22 @@
     "date": "2026-10-15",
     "status": "confirmed",
     "description": "Cedar Studio membership",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-20.00", "commodity": "USD"}
+      {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-20.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -223,12 +410,22 @@
     "date": "2026-10-17",
     "status": "confirmed",
     "description": "Town shuttle",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-17/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Transport", "amount": "5.00", "commodity": "USD"},
-      {"account": "Assets:Cash", "amount": "-5.00", "commodity": "USD"}
+      {"account": "Expenses:Transport", "amount": "5.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-5.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -236,12 +433,22 @@
     "date": "2026-10-19",
     "status": "confirmed",
     "description": "Cedar Kitchen lunch",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-19/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining", "amount": "15.00", "commodity": "USD"},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-15.00", "commodity": "USD"}
+      {"account": "Expenses:Food:Dining", "amount": "15.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-15.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -249,12 +456,24 @@
     "date": "2026-10-20",
     "status": "confirmed",
     "description": "Maple Workshop",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {
+      "learning": {"course": "Maple Workshop pottery basics", "hours": "4.5", "level": "beginner", "sessions": null, "certificate": null, "next-session": "2026-11-17"}
+    },
+    "rule": null,
+    "possible-duplicate-of": [],
     "notes": [
       "Fictional recurring detection example"
     ],
     "postings": [
-      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-12.00", "commodity": "USD"}
+      {"account": "Expenses:Learning:Maple Workshop", "amount": "12.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-12.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -262,12 +481,22 @@
     "date": "2026-10-22",
     "status": "confirmed",
     "description": "Clover Pantry groceries",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-22/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "52.10", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-52.10", "commodity": "USD"}
+      {"account": "Expenses:Groceries", "amount": "52.10", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-52.10", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -275,12 +504,22 @@
     "date": "2026-10-25",
     "status": "confirmed",
     "description": "Cedar Kitchen tea",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-25/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining", "amount": "3.50", "commodity": "USD"},
-      {"account": "Assets:Cash", "amount": "-3.50", "commodity": "USD"}
+      {"account": "Expenses:Food:Dining", "amount": "3.50", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-3.50", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -288,12 +527,22 @@
     "date": "2026-10-26",
     "status": "pending",
     "description": "Paper Kite Services",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-26/paper-kite-services-258.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "48.20", "commodity": "USD"},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-48.20", "commodity": "USD"}
+      {"account": "Expenses:Uncategorized", "amount": "48.20", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-48.20", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -301,12 +550,24 @@
     "date": "2026-10-28",
     "status": "pending",
     "description": "Cedar Workshop",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-28/cedar-workshop-259.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {
+      "learning": {"course": null, "hours": null, "level": "intermediate", "sessions": null, "certificate": true, "next-session": null}
+    },
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Uncategorized", "amount": "124.50", "commodity": "USD"},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-124.50", "commodity": "USD"}
+      {"account": "Expenses:Uncategorized", "amount": "124.50", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-124.50", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -314,12 +575,22 @@
     "date": "2026-10-29",
     "status": "confirmed",
     "description": "Clover Pantry bread",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-29/confirmation.md"
     ],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Groceries", "amount": "8.25", "commodity": "USD"},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-8.25", "commodity": "USD"}
+      {"account": "Expenses:Groceries", "amount": "8.25", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-8.25", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -327,16 +598,22 @@
     "date": "2026-10-29",
     "status": "confirmed",
     "description": "Juniper Table dinner",
-    "sources": [
+    "evidence": [
       "Bills/2026-10-29/Juniper-Table.md"
     ],
-    "original-amount": {
-      "amount": "46.80",
-      "commodity": "EUR"
-    },
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": {"amount": "46.80", "commodity": "EUR"},
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Food:Dining", "amount": "46.80", "commodity": "EUR", "cost": {"amount": "51.48", "commodity": "USD", "per": "total"}},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-51.48", "commodity": "USD"}
+      {"account": "Expenses:Food:Dining", "amount": "46.80", "commodity": "EUR", "cost": {"amount": "51.48", "commodity": "USD", "per": "total"}, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-51.48", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
   }
 ]

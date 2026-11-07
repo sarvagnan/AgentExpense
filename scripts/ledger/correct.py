@@ -26,7 +26,7 @@ def main():
     else:
         with ledger_lock(settings.ledger):
             entry=next(e for e in entries(load(settings.ledger)) if e['id']==args.entry_id)
-            result=dict(version=entry_hash(entry),proposal=wire_entry(settings,entry),sources=entry.get('sources',[]),reason='',approved_accounts=[])
+            result=dict(version=entry_hash(entry),proposal=wire_entry(settings,entry),sources=entry['evidence'],reason='',approved_accounts=[])
     print(json.dumps(result,ensure_ascii=False,indent=2))
 
 

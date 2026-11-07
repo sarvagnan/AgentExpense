@@ -10,7 +10,7 @@ Select it from the application root with `export LEDGER_DIR=/absolute/path/to/th
 
 | Path | What it holds |
 | --- | --- |
-| `ledger.json` | Settings: name, main currency, optional locale and start date, optional modules |
+| `ledger.json` | Settings: name, main currency, optional locale and start date, optional modules, the extensions in use |
 | `AGENTS.md` | Your own bookkeeping rules; the general policy is the application's `policy/BOOKKEEPING.md` |
 | `data/accounts.json` | Accounts with their kind, currency, label, aliases and statement reader |
 | `data/expenses/<year>.json` | Entries, the source of truth |
@@ -20,6 +20,7 @@ Select it from the application root with `export LEDGER_DIR=/absolute/path/to/th
 | `Bills/` | Evidence: receipts, invoices and statements (created by the first save) |
 | `readers/` | Your own statement readers; see `readers/README.md` |
 | `checks/` | Your own checks, run by `make private-checks`; see `checks/README.md` |
+| `extensions/` | Your own entry fields, listed in `ledger.json`; see `extensions/README.md` |
 
 Generated and temporary files (`expense_ledger.ledger`, `drafts/`, `.lock`) are
 ignored by `.gitignore`.

@@ -5,9 +5,10 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
+import * as store from './store-fixtures.mjs';
 
 const savings = 'Assets:Checking:Day', card = 'Liabilities:Plastic:Main';
-const posting = (account, amount) => ({ account, amount: String(amount), commodity: 'INR' });
+const posting = (account, amount) => store.posting(account, amount.toFixed(2));
 const cases = [
   { name: 'water-tax advance', amount: 1440, account: savings, label: 'Savings Account', kind:'Reimbursable purchase', category:'People',
     postings: [posting('Casey:Accounts Payable:Morgan:Water Tax:Flat', 1440), posting(savings, -1440)] },
@@ -34,13 +35,13 @@ test('generated payment accounts follow the paying side with unchanged expense a
   const ledger = join(work, 'ledger');
   await mkdir(join(ledger, 'data/expenses'), { recursive: true });
   await mkdir(join(ledger, 'data/prices'), { recursive: true });
-  await writeFile(join(ledger, 'ledger.json'), JSON.stringify({format:CURRENT_FORMAT,id:'00000000-0000-4000-8000-000000000001',name:'Offline fixture',defaultCurrency:'INR'}));
-  await writeFile(join(ledger, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:{[savings]:{kind:'bank',currency:'INR',label:'Savings Account'},[card]:{kind:'card',currency:'INR',label:'Rewards Card'},'Casey:Accounts Payable:Morgan:Water Tax:Flat':{kind:'person',currency:'INR'},'Stored:Lunch':{kind:'wallet',currency:'INR',label:'Shopping Wallet'},'Stored:Software':{kind:'wallet',currency:'INR',label:'App Store Balance'},'Assets:Investments:Test':{kind:'investment',currency:'INR'}}}));
+  await writeFile(join(ledger, 'ledger.json'), JSON.stringify(store.manifest()));
+  await writeFile(join(ledger, 'data/accounts.json'), JSON.stringify({commodities:['INR'],accounts:store.accounts({[savings]:{kind:'bank',currency:'INR',label:'Savings Account'},[card]:{kind:'card',currency:'INR',label:'Rewards Card'},'Casey:Accounts Payable:Morgan:Water Tax:Flat':{kind:'person',currency:'INR'},'Stored:Lunch':{kind:'wallet',currency:'INR',label:'Shopping Wallet'},'Stored:Software':{kind:'wallet',currency:'INR',label:'App Store Balance'},'Assets:Investments:Test':{kind:'investment',currency:'INR'}})}));
   await writeFile(join(ledger, 'data/prices/mutual-funds.prices'), '');
   // Both posting orders must choose the same payer; IDs remain explicit store IDs.
-  const entries = cases.flatMap((item, index) => [false, true].map((reverse, order) => ({
+  const entries = cases.flatMap((item, index) => [false, true].map((reverse, order) => store.entry({
     id: (index * 2 + order + 1).toString(16).padStart(16, '0'), date: '2026-01-01', status: 'confirmed',
-    description: `${item.name} ${order}`, sources: [], postings: reverse ? [...item.postings].reverse() : item.postings,
+    description: `${item.name} ${order}`, postings: reverse ? [...item.postings].reverse() : item.postings,
   })));
   await writeFile(join(ledger, 'data/expenses/2026.json'), JSON.stringify(entries));
   await writeFile(join(ledger, 'data/forecast.json'), '[]');

@@ -4,13 +4,23 @@
     "date": "2026-09-03",
     "status": "confirmed",
     "description": "Fern Court rent",
-    "schedule": {
-      "every": "month",
-      "from": "2026-09-03"
-    },
+    "schedule": {"every": "month", "from": "2026-09-03", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
+    "lifecycle": "active",
+    "origin": null,
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR"},
-      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR"}
+      {"account": "Expenses:Housing:Rent", "amount": "7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Saffron Reserve", "amount": "-7200.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -18,13 +28,23 @@
     "date": "2026-10-14",
     "status": "confirmed",
     "description": "Paper Lantern subscription",
-    "schedule": {
-      "every": "month",
-      "from": "2026-10-14"
-    },
+    "schedule": {"every": "month", "from": "2026-10-14", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
+    "lifecycle": "active",
+    "origin": null,
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR"},
-      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR"}
+      {"account": "Expenses:Subscriptions:Paper Lantern", "amount": "90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Liabilities:Credit Cards:Mosaic Card", "amount": "-90.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -32,17 +52,23 @@
     "date": "2026-11-20",
     "status": "confirmed",
     "description": "Cedar Archive membership",
-    "schedule": {
-      "every": "month",
-      "from": "2026-11-20"
-    },
+    "schedule": {"every": "month", "from": "2026-11-20", "interval": 1, "anchor-day": null},
+    "amount": "fixed",
     "lifecycle": "paused",
-    "origin": {
-      "kind": "owner"
-    },
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
     "postings": [
-      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-8.00", "commodity": "INR"}
+      {"account": "Expenses:Memberships:Cedar Archive", "amount": "8.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-8.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -50,20 +76,25 @@
     "date": "2026-11-12",
     "status": "confirmed",
     "description": "Willow Energy",
-    "schedule": {
-      "every": "month",
-      "from": "2026-11-12"
-    },
-    "origin": {
-      "kind": "owner"
-    },
+    "schedule": {"every": "month", "from": "2026-11-12", "interval": 1, "anchor-day": null},
+    "amount": "varies",
+    "lifecycle": "active",
+    "origin": {"kind": "owner", "words": null, "entry-ids": [], "came-back": false},
+    "created": null,
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
     "notes": [
       "Amounts vary with household use."
     ],
     "postings": [
-      {"account": "Expenses:Utilities:Willow Energy", "amount": "650.00", "commodity": "INR"},
-      {"account": "Assets:Cash", "amount": "-650.00", "commodity": "INR"}
-    ],
-    "amount": "varies"
+      {"account": "Expenses:Utilities:Willow Energy", "amount": "650.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Cash", "amount": "-650.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
+    ]
   }
 ]

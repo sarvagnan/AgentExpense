@@ -23,7 +23,7 @@ cancellation words do not. Yearly/annual words choose a yearly schedule.
 Prefixes match whole account segments. Rules already covering the main payment
 prevent automatic creation. Removed rules retain their removal date and evidence;
 two qualifying payments dated strictly after removal are required to return, with
-`origin.came_back: true`. Paused and ended patterns are not recreated automatically.
+`origin.came-back: true`. Paused and ended patterns are not recreated automatically.
 A confirmed hand or agent addition uses this same detector and links/advances its
 unique whole-payment rule in the same checked commit. A paused match offers a
 resume choice in the saved result without changing the lifecycle.
@@ -111,10 +111,10 @@ upgrade prints the stale-rule count and catch-up command but changes no rule.
 
 ## Audit and format
 
-Format 1 remains unreleased; no version bump is needed. Forecast rules add optional
-`lifecycle`, `origin` (`kind`, optional `words`, `evidence`, `came_back`), `created`,
-`removal` (`date`, `evidence`) and `schedule.anchor-day`. Actual entries optionally
-link `rule: {id, occurrence}`. Origin/removal IDs and actual links are checked
+In ledger format 2 ([STORE.md](STORE.md)) every rule holds `lifecycle`, `amount`,
+`origin` (`kind`, `words`, `entry-ids`, `came-back`) or null, `created`, `removal`
+(`date`, `entry-ids`) or null, `bill` or null and `schedule` with `interval` and
+`anchor-day`. Each actual entry holds `rule: {id, occurrence}` or null. Origin/removal IDs and actual links are checked
 against the store. Preferences have a closed schema.
 
 Version-1 draft audit events optionally add `usual_payment` (rule_id, occurrence,
@@ -190,11 +190,12 @@ tolerance excludes an outlier. Link, correction and switching to Varies call the
 same service in the checked transaction. Part C can call it with its final actual
 set for Delete and Restore; those operations are not added here.
 
-An optional `bill` is `{amount, received, pay_by?, occurrence, sources}`. Amount is
-a positive decimal string in the rule's currency; dates are calendar dates.
-Occurrence must be the rule's current occurrence. Sources are retained evidence.
+A rule's `bill` is `{amount, received, pay-by, occurrence, evidence}` or null.
+Amount is a positive decimal string in the rule's currency; dates are calendar dates
+and `pay-by` may be null. Occurrence must be the rule's current occurrence.
+`evidence` lists the filed bill paths.
 Saving a bill leaves actual entries, totals and the schedule unchanged. The
-hledger generator emits one bounded daily periodic rule at `pay_by` (otherwise
+hledger generator emits one bounded daily periodic rule at `pay-by` (otherwise
 `occurrence`) and continues the main estimate from the following occurrence.
 The Node forecast expands the same dates. A clamped multi-month cadence uses
 unbounded calendar phases when needed to keep all main dates after the bill. Even a pay-by date after the following

@@ -986,7 +986,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             from reconcile_statement import extract_rows
             rows,_=extract_rows(settings.ledger,end,summary['account'])
         from store import entries
-        members = {e.get('serial-number'): e for e in entries(load(settings.ledger)) if e.get('statement-end') == end and any(p['account'] == summary['account'] for p in e['postings'])}
+        members = {(e['statement'] or {}).get('serial'): e for e in entries(load(settings.ledger)) if (e['statement'] or {}).get('end') == end and any(p['account'] == summary['account'] for p in e['postings'])}
         if summary.get('kind') == 'bank':
             actual = {e['id']:e for e in entries(documents)}
             membership = {m['serial']:m for m in summary['members']}

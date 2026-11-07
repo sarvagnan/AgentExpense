@@ -1,11 +1,10 @@
 {
-  "format": 1,
+  "format": 2,
   "id": "f9f9334b-c8d7-44e0-b126-4b8b55441715",
   "name": "Asha Rao",
   "defaultCurrency": "INR",
   "locale": "en-IN",
   "modules": {
-    "fuel": true,
     "investments": {
       "prices": "mutual-fund-nav"
     },
@@ -13,6 +12,11 @@
       "oldLedger": null
     },
     "weeklyReview": false
+  },
+  "extensions": {
+    "fuel": {
+      "ask": true
+    }
   },
   "review": {
     "storageKey": null

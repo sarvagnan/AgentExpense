@@ -6,7 +6,7 @@ from pathlib import Path
 import secrets
 from unittest.mock import patch
 
-from support import Fixture, ready
+from support import Fixture, ready, entry as store_entry, posting, meta, rule as store_rule
 from store import dump, load, entries
 from add_entry import add_entry
 from confirmed_balances import BalanceRefusal, correction_locks, failures
@@ -32,13 +32,13 @@ class ConfirmedBalanceTests(Fixture):
         manifest=json.loads((self.ledger/'ledger.json').read_text());manifest.update(defaultCurrency=code)
         dump(self.ledger/'ledger.json',manifest)
         dump(self.ledger/'data/accounts.json',dict(commodities=[code],accounts={
-            'Assets:Cash':dict(kind='bank',currency=code,label='Cedar Current'),
-            'Expenses:Food':{},'Expenses:Learning':{},'Equity:Opening Balances':{}}))
-        p=lambda a,n:dict(account=a,amount=n,commodity=code)
-        opening=dict(id='0000000000000001',date='2026-09-30',status='confirmed',description='Opening balance',postings=[p('Assets:Cash','1000.00'),p('Equity:Opening Balances','-1000.00')])
+            'Assets:Cash':meta(kind='bank',currency=code,label='Cedar Current'),
+            'Expenses:Food':{'category':None},'Expenses:Learning':{'category':None},'Equity:Opening Balances':{}}))
+        p=lambda a,n:posting(a,n,code)
+        opening=store_entry('0000000000000001','2026-09-30','Opening balance',[p('Assets:Cash','1000.00'),p('Equity:Opening Balances','-1000.00')])
         opening['postings'][0]['assert']=dict(amount='1000.00',commodity=code)
-        paid=dict(id='0000000000000002',date='2026-10-29',status='confirmed',description='Cedar learning payment',postings=[p('Expenses:Food','100.00'),p('Assets:Cash','-100.00')])
-        close=dict(id='0000000000000003',date='2026-10-31',status='confirmed',description='Monthly confirmed balance',postings=[p('Assets:Cash','0.00')])
+        paid=store_entry('0000000000000002','2026-10-29','Cedar learning payment',[p('Expenses:Food','100.00'),p('Assets:Cash','-100.00')])
+        close=store_entry('0000000000000003','2026-10-31','Monthly confirmed balance',[p('Assets:Cash','0.00')])
         close['postings'][0]['assert']=dict(amount='900.00',commodity=code)
         dump(self.ledger/'data/expenses/2026.json',[opening,paid,close])
         self.jj('commit','-m','Fictional monthly bank balance')
@@ -68,7 +68,7 @@ class ConfirmedBalanceTests(Fixture):
         checks=preview(self.settings,drafts,d,proposal)
         self.assertFalse(checks['ok']);self.assertEqual(checks['refusal']['calculated'],'800.00')
         self.assertEqual(drafts.get(d['id'])['text'],'Cedar learning paid again')
-        rule={**deepcopy(paid),'id':'f000000000000001','date':'2026-10-30','schedule':{'every':'month','from':'2026-10-30'}}
+        rule=store_rule('f000000000000001','2026-10-30',paid['description'],deepcopy(paid['postings']))
         dump(self.ledger/'data/forecast.json',[rule]);self.jj('commit','-m','Fictional usual rule')
         with self.assertRaises(BalanceRefusal):queue_usual(self.settings,drafts,d,dict(rule_id=rule['id'],date='2026-10-30'))
         refused=drafts.get(d['id']);self.assertEqual(refused['state'],'failed');self.assertEqual(refused['audit_pending'][0]['refusal'],refused['refusal'])
@@ -76,7 +76,7 @@ class ConfirmedBalanceTests(Fixture):
         self.assertEqual(records(self.ledger)[-1]['refusal'],refused['refusal'])
 
     def test_agent_refusal_has_one_run_no_retry_no_pause_and_audited_reason(self):
-        paid,close,proposal=self.seed();proposal['attachment_names']=[]
+        paid,close,proposal=self.seed();proposal['attachment-names']=[]
         self.set_answers(proposal)
         with self.client() as client:
             d=client.post('/api/drafts',json={'text':'Cedar learning paid again'}).json()
@@ -94,7 +94,7 @@ class ConfirmedBalanceTests(Fixture):
 
     def test_api_usual_reason_and_edit_recovery(self):
         paid,close,proposal=self.seed()
-        rule={**deepcopy(paid),'id':'f000000000000001','date':'2026-10-30','schedule':{'every':'month','from':'2026-10-30'}}
+        rule=store_rule('f000000000000001','2026-10-30',paid['description'],deepcopy(paid['postings']))
         dump(self.ledger/'data/forecast.json',[rule]);self.jj('commit','-m','Fictional usual rule')
         with self.client(worker=False) as client:
             d=client.post('/api/drafts',json={'text':'Cedar learning paid again'}).json()
@@ -147,8 +147,8 @@ class ConfirmedBalanceTests(Fixture):
         rows[1]['date']='2026-10-31'
         other=next(code for code in json.loads((self.settings.application/'schema/currencies.json').read_text()) if code!=self.code)
         declarations=docs[self.ledger/'data/accounts.json'];declarations['commodities'].append(other)
-        declarations['accounts']['Assets:Bank:Other']=dict(kind='bank',currency=other)
-        extra=dict(id='0000000000000005',date='2026-10-31',status='confirmed',description='Other currency balance',postings=[dict(account='Assets:Bank:Other',amount='0.00',commodity=other,**{'assert':dict(amount='0.00',commodity=other)})])
+        declarations['accounts']['Assets:Bank:Other']=meta(kind='bank',currency=other)
+        extra=store_entry('0000000000000005','2026-10-31','Other currency balance',[posting('Assets:Bank:Other','0.00',other,**{'assert':dict(amount='0.00',commodity=other)})])
         rows.append(extra)
         for path,value in docs.items():dump(path,value)
         self.jj('commit','-m','Fictional same-day and separate currency balances')

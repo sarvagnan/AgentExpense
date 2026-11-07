@@ -7,13 +7,13 @@ import { expenseSummary, previousMonth } from './month-summary.mjs';
 import { auditProvenance } from './audit-provenance.mjs';
 import { accountLabel, accountKind, expenseCategory, hasSegment } from './account-metadata.mjs';
 import { sourceKind } from './source-labels.mjs';
-import { compact, expandForecast, loadExpenseStore } from './expense-store.mjs';
+import { compact, expandForecast, loadExpenseStore, sourceReference } from './expense-store.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const outputPath = dashboardDataPath('app/data/dashboard.json');
-import { moduleSettings } from './ledger-manifest.mjs';
-const { transactions, rules, prices, manifest, accounts, confirmedBalances, cardStatements } = await loadExpenseStore();
+import { hasExtension } from './ledger-manifest.mjs';
+const { transactions, rules, prices, manifest, accounts, extensions, confirmedBalances, cardStatements } = await loadExpenseStore();
 const provenance = await auditProvenance();
 const buildToday = today();
 const currentMonth = buildToday.slice(0, 7);
@@ -24,7 +24,7 @@ const kindOf = account => accountKind(account, accounts);
 
 // Values are normalized to the funding account's currency before aggregation.
 const expenseValues = new WeakMap();
-// Entries the store marks `variable-estimate: excluded`, with the tag's stated reason and any policy term.
+// Entries the store leaves out of the estimate (`excluded-from-estimate`), with the stated reason.
 const variableExclusions = new WeakMap();
 
 function toRecord(transaction, sequence) {
@@ -80,30 +80,31 @@ function toRecord(transaction, sequence) {
     ledgerAccount: expensePostings[0]?.account || incomePostings[0]?.account || investmentPostings[0]?.account || transaction.postings[0]?.account || '',
     paymentAccount: paymentPosting?.account || '',
     paymentLabel: paymentPosting ? shortAccount(paymentPosting.account) : 'Multiple postings',
-    reimbursementGroup: transaction['reimbursement-group'] || '',
-    reimbursementLabel: transaction['reimbursement-label'] || '',
+    reimbursementGroup: transaction.reimbursement?.group || '',
+    reimbursementLabel: transaction.reimbursement?.label || '',
     reimbursementParty: reimbursementPostings[0] ? accountLabel(reimbursementPostings[0].account, accounts) : '',
     reimbursementAmount: Number(reimbursementAmount.toFixed(2)),
     sources: transaction.sources,
     source,
     sourceKind: sourceKind(transaction),
-    sourceReference: compact(transaction['serial-number'] || transaction['source-row'] || transaction['statement-page'] || transaction['source-page']),
+    sourceReference: compact(sourceReference(transaction)),
     classification: compact(transaction.classification),
     originalAmount: transaction['original-amount'] ? `${transaction['original-amount'].amount} ${transaction['original-amount'].commodity}` : '',
     // Physical readings and explicit fuel-log confirmation are evidence, not an amount/date guess.
-    fuelLog: moduleSettings(manifest).fuel && /^\d+(?:\.\d+)?$/.test(transaction['fuel-filled-litres'] || '') ? {
-      litres: Number(transaction['fuel-filled-litres']),
-      tripKm: /^\d+(?:\.\d+)?$/.test(transaction['trip-km'] || '') ? Number(transaction['trip-km']) : null,
+    fuelLog: hasExtension(manifest, 'fuel') && /^\d+(?:\.\d+)?$/.test(transaction.extensions?.fuel?.litres || '') ? {
+      litres: Number(transaction.extensions.fuel.litres),
+      tripKm: /^\d+(?:\.\d+)?$/.test(transaction.extensions.fuel['trip-km'] || '') ? Number(transaction.extensions.fuel['trip-km']) : null,
       confirmed: transaction.postings.some((posting) => hasSegment(posting.account, ['Fuel']))
         && (/user-confirmed.*match from fuel log/.test(transaction.classification || '')
           || (source === 'user-provided fuel log' && /user-confirmed fuel expense/.test(transaction.classification || ''))),
     } : null,
     postings: transaction.postings.map((posting) => ({ ...posting, label: shortAccount(posting.account) })),
+    // Each listed extension's values (null when the entry has none), shown by entry details.
+    extensions: transaction.extensions ?? {},
   };
-  if (transaction['variable-estimate']?.excluded) variableExclusions.set(record, {
+  if (transaction['excluded-from-estimate']) variableExclusions.set(record, {
     // Keep the existing short display label; the complete reason remains in the store.
-    reason: transaction['variable-estimate'].reason.split(',')[0].trim() || 'excluded',
-    term: transaction['policy-term'] ? `${transaction['policy-term'].years}-year policy` : undefined,
+    reason: transaction['excluded-from-estimate'].reason.split(',')[0].trim() || 'excluded',
   });
   expenseValues.set(record, allocations);
   return record;
@@ -188,7 +189,7 @@ for (const record of expenseRecords) {
   const tagged = variableExclusions.get(record);
   if (instalment || tagged) {
     const key = instalment ? record.description.replace(/^.*?Amortization - <\d+\/(\d+)>\s*/, '$1 instalments, ') : record.ledgerAccount;
-    const entry = exclusions.get(key) || { reason: instalment ? 'instalment plan' : tagged.reason, detail: instalment ? key : tagged.term || tagged.reason, amount: 0, months: new Set(), account: '' };
+    const entry = exclusions.get(key) || { reason: instalment ? 'instalment plan' : tagged.reason, detail: instalment ? key : tagged.reason, amount: 0, months: new Set(), account: '' };
     entry.amount += amount;
     entry.months.add(record.month);
     // Name the plan from its principal posting's account rather than the card's merchant code.
@@ -270,6 +271,8 @@ const payload = {
     currencyMinorUnits,
     ledger: manifest,
     accounts,
+    // The listed extensions' definitions: entry details and Edit entry show their fields.
+    extensions: extensions.map(({name, ask, definition}) => ({name, ask, description: definition.description, fields: definition.fields})),
     generatedAt: new Date().toISOString(),
     today: buildToday,
     defaultMonth: currentMonth,

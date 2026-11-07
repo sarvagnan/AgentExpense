@@ -9,13 +9,13 @@ import shutil
 import subprocess
 import sys
 
-from store import ROOT, _unique_object, dump, entries, load, new_id, validate
+from store import ROOT, _unique_object, dump, entries, extensions_of, load, new_id, validate
 from generate_ledger import render_entry
 
 
 def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
-    if not isinstance(entry, dict) or 'id' in entry:
-        raise ValueError('Supply one entry object without an id')
+    if not isinstance(entry, dict) or entry.get('id') is not None:
+        raise ValueError('Supply one format 2 entry with "id": null')
     if 'schedule' in entry:
         raise ValueError('This helper adds actual entries, not forecast rules')
     documents = load(root)
@@ -33,15 +33,16 @@ def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
     for posting in entry['postings']:
         if posting['account'] not in declared:
             raise ValueError(f"Undeclared account: {posting['account']}")
-    for source in entry.get('sources', []):
+    for source in entry['evidence']:
         if source.startswith('Bills/') and ('..' in Path(source).parts or not (root / source).is_file()):
             raise ValueError(f'Missing or invalid evidence path: {source}')
     # Check the complete proposed actual journal so balance assertions retain their history.
     declarations = documents[root / 'data/accounts.json']
     lines = [*("commodity " + c for c in declarations['commodities']),
              *("account " + a for a in declarations['accounts']), '']
+    extensions = extensions_of(root)
     for actual in entries(documents):
-        lines.extend(render_entry(actual))
+        lines.extend(render_entry(actual, extensions))
     hledger = os.environ.get('HLEDGER_BIN') or shutil.which('hledger') or '/opt/homebrew/bin/hledger'
     checked = subprocess.run([hledger, '-f', '-', 'check', '-s', 'ordereddates'],
                              input='\n'.join(lines) + '\n', text=True, capture_output=True)

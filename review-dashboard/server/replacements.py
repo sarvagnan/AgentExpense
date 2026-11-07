@@ -7,7 +7,7 @@ import shutil
 import subprocess
 
 from transactions import ProposalError
-from store import entries, validate
+from store import entries, extensions_of, validate
 from confirmed_balances import correction_locks, enforce_locks, enforce_order, raise_failure
 
 
@@ -22,7 +22,7 @@ def require_version(entry, expected):
 
 
 def statement_locked(documents, root, entry):
-    return bool(entry.get('statement-end') or any(s.get('assertion-id') == entry['id'] or any(m.get('entry-id') == entry['id'] for m in s.get('members', [])) for s in documents[root/'data/card-statements.json']))
+    return bool((entry['statement'] or {}).get('end') or any(s.get('assertion-id') == entry['id'] or any(m.get('entry-id') == entry['id'] for m in s.get('members', [])) for s in documents[root/'data/card-statements.json']))
 
 
 def enforce_statement(before, after, documents, root):
@@ -66,7 +66,8 @@ def check_documents(documents, root, candidate=None):
     validate(documents, root)
     declarations=documents[root/'data/accounts.json']
     lines=[*("commodity "+c for c in declarations['commodities']),*("account "+a for a in declarations['accounts']), '']
-    for entry in entries(documents): lines.extend(render_entry(entry))
+    extensions=extensions_of(root)
+    for entry in entries(documents): lines.extend(render_entry(entry, extensions))
     hledger=os.environ.get('HLEDGER_BIN') or shutil.which('hledger') or '/opt/homebrew/bin/hledger'
     checked=subprocess.run([hledger,'-f','-','check','-s','ordereddates'],input='\n'.join(lines)+'\n',capture_output=True,text=True)
     if checked.returncode:
@@ -100,8 +101,8 @@ def move_evidence(documents, root, before, after):
     moves=[];used=set()
     if before['date']==after['date']: return moves
     old_folder=Path('Bills')/before['date']
-    for source in list(after.get('sources',[])):
-        if source not in before.get('sources',[]) or Path(source).parent!=old_folder: continue
+    for source in list(after['evidence']):
+        if source not in before['evidence'] or Path(source).parent!=old_folder: continue
         old=safe_evidence(root,source)
         others=[e for e in entries(documents) if e['id']!=after['id']]
         others += [v for path,v in documents.items() if path.parent.name!='expenses']
@@ -110,7 +111,7 @@ def move_evidence(documents, root, before, after):
         if folder.is_symlink() or not folder.resolve().is_relative_to((root/'Bills').resolve()): raise ValueError('Evidence folder escapes the ledger')
         while target.exists() or target.is_symlink() or target in used:
             target=folder/f'{old.stem}-{number}{old.suffix}';number+=1
-        used.add(target);moves.append((old,target));after['sources'][after['sources'].index(source)]=str(target.relative_to(root))
+        used.add(target);moves.append((old,target));after['evidence'][after['evidence'].index(source)]=str(target.relative_to(root))
     return moves
 
 
@@ -131,8 +132,8 @@ def correction_rules(documents, root, before, after):
         bill_payments={r.get('entry_id') for r in lines if r['kind']=='rule' and r['rule_action']=='bill-paid'}
     kept=same_payment(after,rule,accounts) and (simple_payment(after,accounts) and main_postings(after)[0]['commodity']==main_postings(rule)[0]['commodity'] if varying else signature(after)==signature(rule))
     if kept: after['rule']=dict(id=rule['id'],occurrence=link['occurrence'] if before['id'] in bill_payments else period_for(rule,after['date']))
-    else: after.pop('rule',None)
-    actual=[e for e in entries(documents) if e.get('rule',{}).get('id')==rule['id'] and e['id']!=after['id']]
+    else: after['rule']=None
+    actual=[e for e in entries(documents) if (e['rule'] or {}).get('id')==rule['id'] and e['id']!=after['id']]
     def paid_through(entry):
         return entry['rule']['occurrence'] if entry['id'] in bill_payments else max(entry['date'],entry['rule']['occurrence'])
     latest_before=max([before,*actual],key=lambda e:(paid_through(e) if varying else e['date'],e['id']))

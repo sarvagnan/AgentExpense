@@ -2,12 +2,11 @@
 
 The application reads these settings from the selected ledger's `ledger.json` at
 run time. Omitted modules use the defaults below; file presence never enables a
-module. No ledger format migration is needed.
+module.
 
 ```json
 {
   "modules": {
-    "fuel": false,
     "investments": { "prices": null },
     "history": { "oldLedger": null },
     "weeklyReview": false
@@ -15,14 +14,23 @@ module. No ledger format migration is needed.
 }
 ```
 
-With fuel off, the checker warns about a stray `data/fuel-log.json` without reading
-it. Data builds remove stale generated fuel JSON and gzip files. The loader makes
-no fuel request. Review, Help, Add patterns, physical-reading pieces, links and
-fuel styles are absent. The Add agent's schema omits the two fuel fields and the
-server rejects proposals containing them, including null values. With fuel on,
-provide `data/fuel-log.json` with an `entries` array; missing or malformed logs fail
+## Fuel
+
+Fuel is the built-in `fuel` **extension** ([EXTENSIONS.md](EXTENSIONS.md)), not a
+module: list it in `ledger.json` as `"extensions": {"fuel": {"ask": true}}` (format 1
+had `modules.fuel`; the 1 → 2 migration moves it). Each entry then has
+`extensions.fuel` with `litres` and `trip-km`.
+
+Without the fuel extension, the checker warns about a stray `data/fuel-log.json`
+without reading it. Data builds remove stale generated fuel JSON and gzip files. The
+loader makes no fuel request. Review, Help, the Fuel Add pattern, physical-reading
+pieces, links and fuel styles are absent, and the Add agent's answer has no fuel
+fields; an answer containing them fails the check. With the fuel extension, provide
+`data/fuel-log.json` with an `entries` array; missing or malformed logs fail
 verification and the data build. Existing confirmed links keep their explicit IDs
-and readings. Monetary fuel expenses still work with the fuel-log module off.
+and readings. Monetary fuel expenses still work without the extension.
+
+## Investments
 
 Investments are enabled by default: units, recorded costs and contributions use
 account kind `investment`. Set `investments` to `false` to hide investment views

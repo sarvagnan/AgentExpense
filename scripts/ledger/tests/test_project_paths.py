@@ -17,8 +17,9 @@ class SeparateLedgerTests(Fixture):
         super().setUp()
         from store import dump, read_json
         manifest = read_json(self.root / 'ledger.json')
-        manifest['modules'] = {'fuel': True}
+        manifest['extensions'] = {'fuel': {'ask': True}}
         dump(self.root / 'ledger.json', manifest)
+        dump(self.year, [{**item, 'extensions': {'fuel': None}} for item in read_json(self.year)])
         prices = self.root / 'data/prices/mutual-funds.prices'
         prices.parent.mkdir(parents=True)
         prices.write_text('; no funds in this fixture\n')
@@ -53,6 +54,7 @@ class SeparateLedgerTests(Fixture):
             (application / 'scripts').mkdir()
             shutil.copytree(APPLICATION_ROOT / 'scripts', application / 'scripts', dirs_exist_ok=True)
             shutil.copytree(APPLICATION_ROOT / 'schema', application / 'schema')
+            shutil.copytree(APPLICATION_ROOT / 'extensions', application / 'extensions')
             scripts = application / 'review-dashboard/scripts'
             shutil.copytree(APPLICATION_ROOT / 'review-dashboard/scripts', scripts)
             env = {**os.environ, 'LEDGER_DIR': str(self.root), 'DASHBOARD_DATA_DIR': str(application / 'review-dashboard')}

@@ -355,6 +355,9 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .hand-posting .hand-remove { align-self: end; }
 .hand-posting .hand-remove .icon { width: 14px; height: 14px; }
 .hand-finish .hand-add-posting { justify-self: start; }
+/* One group per extension the ledger lists: its fields under a quiet title, like a posting. */
+.hand-extension { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--separator); }
+.hand-extension .hand-extension-title { margin: 0; color: var(--text-secondary); font: var(--text-callout); font-weight: 600; }
 .account-path-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .account-path-field .field { flex: 1; }
 .hand-finish .hand-cost-toggle { display: flex; align-items: center; }

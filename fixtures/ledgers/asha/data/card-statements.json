@@ -1,14 +1,3 @@
 [
-  {
-    "id": "0000000000000044",
-    "account": "Liabilities:Credit Cards:Mosaic Card",
-    "start": "2026-06-01",
-    "end": "2026-10-28",
-    "source": "Bills/2026-10-28/mosaic-statement.pdf",
-    "previous-balance": "0.00",
-    "purchases": "4818.00",
-    "credits": "2000.00",
-    "total-due": "2818.00",
-    "rows": 13
-  }
+  {"kind": "card", "id": "0000000000000044", "account": "Liabilities:Credit Cards:Mosaic Card", "start": "2026-06-01", "end": "2026-10-28", "source": "Bills/2026-10-28/mosaic-statement.pdf", "previous-balance": "0.00", "purchases": "4818.00", "cash-advances": null, "credits": "2000.00", "total-due": "2818.00", "rows": 13}
 ]

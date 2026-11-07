@@ -10,9 +10,9 @@ import shlex
 import subprocess
 from decimal import Decimal
 
-from store import ROOT, canonical_text, entries, load, read_json
+from store import ROOT, canonical_text, entries, load, read_json, serialize
 from audit import records, missing_entries
-from ledger_manifest import read_manifest, module_settings, price_source
+from ledger_manifest import has_extension, read_manifest, module_settings, price_source
 
 
 def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
@@ -23,7 +23,7 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
     Opening equity and assertion-only entries are not unbilled activity.
     """
     actuals = entries(documents)
-    statements = [s for s in documents[root / "data/card-statements.json"] if s.get("kind") != "bank"]
+    statements = [s for s in documents[root / "data/card-statements.json"] if s["kind"] == "card"]
     declared = set(documents[root / "data/accounts.json"]["accounts"])
     by_key = {}
     by_account = defaultdict(list)
@@ -41,33 +41,34 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
         by_key[key] = statement
         by_account[account].append(statement)
     for entry in actuals:
-        serial = entry.get("serial-number")
+        row = entry["statement"] or {}
+        serial = row.get("serial")
         if serial is not None:
             if serial in serials:
                 raise ValueError(f"Duplicate serial {serial}: {serials[serial]} and {entry['id']}")
             serials[serial] = entry["id"]
-        if "statement-end" not in entry:
+        if row.get("end") is None:
             continue
         card_accounts = {p["account"] for p in entry["postings"] if documents[root / "data/accounts.json"]["accounts"].get(p["account"], {}).get("kind") == "card"}
         if not card_accounts:
-            raise ValueError(f"{entry['id']}: statement-end without a card posting")
+            raise ValueError(f"{entry['id']}: statement.end without a card posting")
         if len(card_accounts) != 1:
-            raise ValueError(f"{entry['id']}: statement-end must identify exactly one card account")
+            raise ValueError(f"{entry['id']}: statement.end must identify exactly one card account")
         if sum(p["account"] in card_accounts for p in entry["postings"]) != 1:
             raise ValueError(f"{entry['id']}: statement member must have exactly one card posting")
-        key = (next(iter(card_accounts)), entry["statement-end"])
+        key = (next(iter(card_accounts)), row["end"])
         if key not in by_key:
-            raise ValueError(f"{entry['id']}: unknown statement-end {key[1]} for {key[0]}")
+            raise ValueError(f"{entry['id']}: unknown statement.end {key[1]} for {key[0]}")
         if not serial:
-            raise ValueError(f"{entry['id']}: statement member missing serial-number")
-        if "statement-page" not in entry:
-            raise ValueError(f"{entry['id']}: statement member missing statement-page")
-        if by_key[key]["source"] not in entry.get("sources", []):
+            raise ValueError(f"{entry['id']}: statement member missing statement.serial")
+        if row.get("page") is None:
+            raise ValueError(f"{entry['id']}: statement member missing statement.page")
+        if by_key[key]["source"] not in entry["evidence"]:
             raise ValueError(f"{entry['id']}: statement member missing its statement PDF source")
         members[key].append(entry)
     results = []
     unbilled = []
-    explicit_members = {(s['account'], m['entry-id']) for s in documents[root/'data/card-statements.json'] for m in s.get('members', []) if m.get('entry-id')}
+    explicit_members = {(s['account'], m['entry-id']) for s in documents[root/'data/card-statements.json'] for m in s.get('members', []) if m['entry-id']}
     for account, filed in sorted(by_account.items()):
         currency = documents[root / 'data/accounts.json']['accounts'][account]['currency']
         filed.sort(key=lambda statement: statement["end"])
@@ -96,7 +97,7 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
                     raise ValueError(f"{end}: {label} {actual} != {statement[label]}")
             if Decimal(statement["previous-balance"]) != previous:
                 raise ValueError(f"{end}: broken statement chain: previous-balance {statement['previous-balance']} != {previous}")
-            due = previous + purchases + Decimal(statement.get("cash-advances", "0")) - credits
+            due = previous + purchases + Decimal(statement["cash-advances"] or "0") - credits
             if due != Decimal(statement["total-due"]):
                 raise ValueError(f"{end}: summary total-due {statement['total-due']} != {due}")
             previous = Decimal(statement["total-due"])
@@ -107,15 +108,15 @@ def check_card_statements(documents: dict, root: Path = ROOT) -> dict:
     from statement_readers import card_debt
     latest_ends = defaultdict(str)
     for statement in documents[root/'data/card-statements.json']:
-        if statement.get("kind") != "bank" or card_debt(statement):
+        if statement["kind"] != "bank" or card_debt(statement):
             latest_ends[statement["account"]] = max(latest_ends[statement["account"]], statement["end"])
     for account, latest in sorted(latest_ends.items()):
         for entry in actuals:
-            if "statement-end" in entry or (account, entry['id']) in explicit_members or entry["date"] > latest:
+            if (entry["statement"] or {}).get("end") or (account, entry['id']) in explicit_members or entry["date"] > latest:
                 continue
             if any(p["account"].startswith("Equity:Opening Balances") for p in entry["postings"]):
                 continue
-            if all(Decimal(p["amount"]) == 0 and "assert" in p for p in entry["postings"]):
+            if all(Decimal(p["amount"]) == 0 and p["assert"] for p in entry["postings"]):
                 continue
             card = [p for p in entry["postings"] if p["account"] == account]
             if card:
@@ -140,7 +141,7 @@ def check_price_coverage(documents: dict, root: Path = ROOT) -> None:
     first_held = {}
     for entry in entries(documents):
         for posting in entry["postings"]:
-            if documents[root / "data/accounts.json"]["accounts"].get(posting["account"], {}).get("kind") == "investment" and "cost" in posting and posting["commodity"] != posting["cost"]["commodity"] and Decimal(posting["amount"]) != 0:
+            if documents[root / "data/accounts.json"]["accounts"].get(posting["account"], {}).get("kind") == "investment" and posting["cost"] and posting["commodity"] != posting["cost"]["commodity"] and Decimal(posting["amount"]) != 0:
                 first_held.setdefault(posting["commodity"], entry["date"])
     prices = {}
     price_file = root / "data/prices/mutual-funds.prices"
@@ -186,14 +187,14 @@ def _check(root: Path) -> None:
     from step_timings import timed
     with timed("schema"):
         documents = load(root)
-    if module_settings(read_manifest(root))['fuel']:
+    if has_extension(read_manifest(root), 'fuel'):
         fuel = read_json(root / 'data/fuel-log.json')
         if not isinstance(fuel, dict) or not isinstance(fuel.get('entries'), list):
             raise ValueError('data/fuel-log.json needs an entries array')
     elif (root / 'data/fuel-log.json').exists():
-        print('WARNING: fuel is off; data/fuel-log.json is ignored')
+        print('WARNING: ledger.json does not list the fuel extension; data/fuel-log.json is ignored')
     manifest_path = root / 'ledger.json'
-    if manifest_path.read_bytes() != canonical_text(read_json(manifest_path)).encode('utf-8'):
+    if manifest_path.read_bytes() != serialize(manifest_path, read_json(manifest_path)).encode('utf-8'):
         raise ValueError('ledger.json is not canonical; run make format')
     audit_records = records(root)
     print(f"Verified {len(audit_records)} audit lines")
@@ -201,7 +202,7 @@ def _check(root: Path) -> None:
         print(f"WARNING: audit {line} references missing entry {identity}")
     evidence = set()
     for path, document in documents.items():
-        if path.read_bytes() != canonical_text(document).encode("utf-8"):
+        if path.read_bytes() != serialize(path, document, root).encode("utf-8"):
             raise ValueError(f"{path.relative_to(root)} is not canonical; run make format")
         if path.name in ("accounts.json", "recurring-settings.json"):
             continue
@@ -218,7 +219,7 @@ def _check(root: Path) -> None:
                         raise ValueError('Missing or unsafe Trash file')
             continue
         for entry in document:
-            sources = [entry["source"]] if path.name == "card-statements.json" else [*entry.get("sources", []), *entry.get('bill', {}).get('sources', [])]
+            sources = [entry["source"]] if path.name == "card-statements.json" else [*entry["evidence"], *(entry.get('bill') or {}).get('evidence', [])]
             for source in sources:
                 if source.startswith("Bills/"):
                     if ".." in Path(source).parts or not (root / source).is_file():

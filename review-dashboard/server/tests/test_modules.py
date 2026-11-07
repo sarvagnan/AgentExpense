@@ -18,10 +18,16 @@ from ledger_manifest import deprecated_old_ledger
 
 
 class ModuleServerTests(Fixture):
-    def configure(self, **modules):
+    def configure(self, *, fuel=None, **modules):
         manifest = read_json(self.ledger / 'ledger.json')
         manifest['modules'] = modules
-        dump(self.ledger / 'ledger.json', manifest)
+        if fuel is not None:
+            manifest['extensions'] = {'fuel': {'ask': True}} if fuel else {}
+            rows = read_json(self.ledger / 'data/expenses/2026.json')
+            dump(self.ledger / 'ledger.json', manifest)
+            dump(self.ledger / 'data/expenses/2026.json', [{**row, 'extensions': {'fuel': None} if fuel else {}} for row in rows])
+        else:
+            dump(self.ledger / 'ledger.json', manifest)
         return replace(self.settings, old_ledger=None)
 
     def prompt(self, settings):
@@ -37,23 +43,28 @@ class ModuleServerTests(Fixture):
 
     def test_fuel_on_off_schema_prompt_and_proposal(self):
         settings = self.configure(fuel=True)
-        self.assertIn('fuel_filled_litres', schema_for(settings)['properties']['entry']['required'])
+        schema = schema_for(settings)
+        self.assertIn('extensions', schema['$defs']['AnswerEntry']['required'])
+        self.assertEqual(set(schema['$defs']['AnswerFuelExtension']['properties']), {'litres', 'trip-km'})
         self.assertIn('## Fuel log', self.prompt(settings))
-        answer = ready(new=False); answer['attachment_names'] = []
-        to_store(answer, self.ledger, 0)
+        self.assertIn('entry.extensions.fuel.litres', self.prompt(settings))
+        answer = ready(new=False); answer['attachment-names'] = []
+        answer['entry']['extensions'] = {'fuel': {'litres': '8.00', 'trip-km': None}}
+        entry, _, _ = to_store(answer, self.ledger, 0)
+        self.assertEqual(entry['extensions'], {'fuel': {'litres': '8.00', 'trip-km': None}})
         settings = self.configure(fuel=False, investments=False, weeklyReview=False)
-        schema = schema_for(settings)['properties']['entry']
-        for key in ('fuel_filled_litres','trip_km'):
-            self.assertNotIn(key, schema['required'])
-            self.assertNotIn(key, schema['properties'])
+        schema = schema_for(settings)
+        self.assertNotIn('extensions', schema['$defs']['AnswerEntry']['properties'])
         self.assertNotIn('## Fuel log', self.prompt(settings))
         self.assertIn('# Personal rules for this ledger', self.prompt(settings))
         self.assertIn('## Personal rules', self.prompt(settings))
-        self.assertNotIn('fuel_filled_litres', self.prompt(settings))
-        with self.assertRaisesRegex(ProposalError, 'disabled'):
-            to_store(answer, self.ledger, 0)
-        del answer['entry']['fuel_filled_litres']; del answer['entry']['trip_km']
-        to_store(answer, self.ledger, 0)
+        self.assertNotIn('entry.extensions', self.prompt(settings))
+        from answers import AnswerError, check
+        with self.assertRaisesRegex(AnswerError, 'extensions'):
+            check(answer, self.ledger, form=False)
+        del answer['entry']['extensions']
+        check(answer, self.ledger, form=False)
+        self.assertEqual(to_store(answer, self.ledger, 0)[0]['extensions'], {})
 
     def test_history_readable_null_and_unreadable_gate_prompt_tools_and_cache(self):
         deprecated_old_ledger.cache_clear()

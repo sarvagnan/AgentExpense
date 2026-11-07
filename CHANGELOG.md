@@ -20,9 +20,22 @@ The first release. The date is set when the release is tagged.
 
 - **Ledger and checks.** JSON in a separate ledger repository is the source of
   truth; a generated hledger journal is checked strictly on every save
-  (`make verify-data`). Ledger format 1: `ledger.json` holds settings and
-  `data/accounts.json` holds account metadata. Format 0 ledgers upgrade with
-  `make upgrade-ledger`, which compares outputs and rolls back on failure.
+  (`make verify-data`). Ledger format 2 is a typed store
+  ([docs/STORE.md](docs/STORE.md)): every entry, posting and rule is written in
+  full, in kebab-case, with related facts grouped; Python reads and writes every
+  document through pydantic models, Node validates against the schema generated
+  from them, and each entry balances exactly in every commodity. `ledger.json`
+  holds settings and `data/accounts.json` account metadata. Format 0 and 1 ledgers
+  upgrade with `make upgrade-ledger`, which compares outputs and rolls back on
+  failure; the 1 → 2 step prints counts only, turns inexact unit costs into exact
+  totals and stops, writing nothing, on anything the models can't hold.
+- **Extensions.** Ledger-specific entry fields are named, typed extensions
+  ([docs/EXTENSIONS.md](docs/EXTENSIONS.md)): the built-in `fuel`
+  (`extensions/fuel.json`) and a ledger's own in its `extensions/`, listed in
+  `ledger.json`. The Add agent fills an extension's agent fields when asked; entry
+  details and Edit entry show every field generically; the journal prints each as
+  a comment tag. `make extension-update NAME=…` brings every entry in step after a
+  definition or listing changes. Format 1's policy term becomes a ledger extension.
 - **Accounts and currencies.** Each account keeps its own currency; totals and
   charts stay separate per currency, and conversions are asked for only when an
   expense's currency differs from the paying account's. Accounts lists one line per
@@ -54,8 +67,8 @@ The first release. The date is set when the release is tagged.
 - **Review on the server.** Possible duplicates and other decisions are applied by
   the server with audit lines; periodic reviews follow
   `review-dashboard/server/WEEKLY-REVIEW.md`.
-- **Optional modules.** Fuel, investments with price sources, an older-ledger
-  lookup and the weekly review, each off unless `ledger.json` turns it on.
+- **Optional modules.** Investments with price sources, an older-ledger lookup and
+  the weekly review, each set in `ledger.json`; fuel is the built-in extension.
 - **Tooling.** `VERSION` as the single application version (`make check-version`),
   `make doctor` for offline prerequisite checks (it warns when jj is missing or the
   selected ledger is a git repository without jj, since saves need jj), fictional fixture ledgers
@@ -105,26 +118,37 @@ The first release. The date is set when the release is tagged.
 There is no earlier release. For a ledger made during development before this
 release:
 
-1. Run `make doctor`. Fix every row marked `FAIL`; a `warn` on the Ledger row is
+1. Run `make install`. Format 2 needs `pydantic` from the server's locked
+   environment, which the ledger commands now run in (`LEDGER_PYTHON`); after this
+   they work offline.
+2. Run `make doctor`. Fix every row marked `FAIL`; a `warn` on the Ledger row is
    expected for an older format.
-2. Make sure the ledger's working copy is clean (`jj st` or `git status` in the
+3. Finish or discard drafts waiting in the Queue: their answers are in the format 1
+   shape, which the format 2 answer check refuses.
+4. Make sure the ledger's working copy is clean (`jj st` or `git status` in the
    ledger) and that nothing else is writing to it (stop the server).
-3. Run `make upgrade-ledger ARGS="--dry-run"` and read the proposed manifest. If it
-   stops and lists accounts, supply metadata with `--accounts`, as
-   [migrations/README.md](migrations/README.md) describes.
-4. Run `make upgrade-ledger` with the same arguments. Note the checkpoint commit it
-   prints.
-5. Run `make verify`, then `make dashboard`.
-6. Run `make doctor` again; the Ledger row should now be `ok`.
-
-7. The general policy now ships with the application. If the ledger's `AGENTS.md`
+5. Run `make upgrade-ledger ARGS="--dry-run"` and read the plan; the 1 → 2 step
+   prints counts only. If it stops and lists accounts, supply metadata with
+   `--accounts`, as [migrations/README.md](migrations/README.md) describes. If it
+   stops with counts (for example "entries or rules repeating a label other than
+   order-id in their notes"), fix those entries, commit with `make commit` and run
+   it again; the ledger is unchanged until then.
+6. Run `make upgrade-ledger` with the same arguments. Note the checkpoint commit it
+   prints. A ledger that had `modules.fuel` now lists the `fuel` extension, and one
+   with policy terms has `extensions/policy.json`.
+7. Run `make verify`, then `make dashboard`.
+8. Run `make doctor` again; the Ledger row should now be `ok`.
+9. The general policy now ships with the application. If the ledger's `AGENTS.md`
    repeats general rules, keep only personal rules there (see
    `templates/ledger/AGENTS.md`) and commit with `make commit`. A full older policy
    still works; the agent then reads some rules twice.
-8. If you ran the dashboard from an edited copy of
-   `review-dashboard/server/expense-dashboard.service`, move your access settings into
-   a drop-in as [docs/deploy/systemd.md](docs/deploy/systemd.md) describes, restore
-   the tracked file, and run `make service` with `LEDGER_DIR` set.
+10. If you ran the dashboard from an edited copy of
+    `review-dashboard/server/expense-dashboard.service`, move your access settings
+    into a drop-in as [docs/deploy/systemd.md](docs/deploy/systemd.md) describes,
+    restore the tracked file, and run `make service` with `LEDGER_DIR` set.
+
+To add or change an extension later, edit it and run `make extension-update NAME=…`
+([docs/EXTENSIONS.md](docs/EXTENSIONS.md)).
 
 To go back, use the previous application checkout with the checkpoint commit from
-step 4.
+step 6.

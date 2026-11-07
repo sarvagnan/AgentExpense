@@ -8,6 +8,7 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {disposableDashboard,sourceApplication,createTestServer} from './test-isolation.mjs';
 import {today,calendarMonths} from '../scripts/date-time.mjs';
+import * as store from './store-fixtures.mjs';
 
  test('today is a local date, pinnable and validated in both local zones',()=>{
   for(const TZ of ['Pacific/Honolulu','Pacific/Kiritimati']) {
@@ -57,7 +58,8 @@ for(const persona of ['asha','jordan','sam','empty'])test(`${persona}: first and
     const payment=Object.entries(first.meta.accounts).find(([,value])=>value.kind==='bank' && value.currency===currency)[0];
     const expense=Object.keys(first.meta.accounts).find(account=>account.startsWith('Expenses:'));
     const file=join(root,'data/expenses/2026.json'),entries=JSON.parse(await readFile(file,'utf8'));
-    entries.push({id:'ffffffffffffffff',date:'2026-11-05',status:'confirmed',description:'Fictional current-month purchase',postings:[{account:expense,amount:'10.00',commodity:currency},{account:payment,amount:'-10.00',commodity:currency}]});
+    const sample=entries.find(row=>row.extensions)?.extensions??{};
+    entries.push(store.entry({id:'ffffffffffffffff',date:'2026-11-05',description:'Fictional current-month purchase',extensions:Object.fromEntries(Object.keys(sample).map(name=>[name,null])),postings:[store.posting(expense,'10.00',currency),store.posting(payment,'-10.00',currency)]}));
     await writeFile(file,JSON.stringify(entries));
     const mid=await build('2026-11-15');
     const forecast=mid.forecasts.find(row=>row.currency===currency);

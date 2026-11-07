@@ -1,4 +1,4 @@
-import { moduleSettings } from '../scripts/ledger-modules.mjs';
+import { hasExtension } from '../scripts/ledger-modules.mjs';
 import { setCurrentAccounts } from '../scripts/account-metadata.mjs';
 import { setMoneySettings } from './formatting';
 import { setDateLocale } from './date-time';
@@ -41,8 +41,8 @@ export async function loadData() {
     fetchGzipJson<DashboardData>('dashboard'),
     fetchGzipJson<ReviewData>('pending-transactions'),
   ]);
-  const fuel = moduleSettings(dashboard.meta.ledger).fuel ? await fetchGzipJson<FuelData>('fuel-log') : {meta: {}, entries: []};
-  if (moduleSettings(dashboard.meta.ledger).fuel) await import('./styles/fuel.css');
+  const fuel = hasExtension(dashboard.meta.ledger, 'fuel') ? await fetchGzipJson<FuelData>('fuel-log') : {meta: {}, entries: []};
+  if (hasExtension(dashboard.meta.ledger, 'fuel')) await import('./styles/fuel.css');
   setData({ dashboard, review, fuel });
 }
 

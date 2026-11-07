@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/expense-ledger/extension-definition.schema.json",
+  "$defs": {
+    "ChoiceField": {
+      "additionalProperties": false,
+      "description": "An extension field whose value is one of a fixed list.",
+      "properties": {
+        "type": {
+          "const": "choice",
+          "description": "One of values.",
+          "type": "string"
+        },
+        "filled-by": {
+          "description": "agent: the Add agent may fill it and the person can edit it. person: only Edit entry sets it.",
+          "enum": [
+            "agent",
+            "person"
+          ],
+          "type": "string"
+        },
+        "description": {
+          "description": "What the field holds; the agent reads it for agent fields.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string"
+        },
+        "journal-tag": {
+          "description": "The comment tag the journal prints the value under.",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        "values": {
+          "description": "The allowed values, in display order.",
+          "items": {
+            "pattern": "^[^\\r\\n]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "type",
+        "filled-by",
+        "description",
+        "journal-tag",
+        "values"
+      ],
+      "type": "object"
+    },
+    "PlainField": {
+      "additionalProperties": false,
+      "description": "An extension field of a type without options.",
+      "properties": {
+        "type": {
+          "description": "decimal: exact decimal text. text: one line. whole-number: 0 or more. date: YYYY-MM-DD. yes-no: true or false.",
+          "enum": [
+            "decimal",
+            "text",
+            "whole-number",
+            "date",
+            "yes-no"
+          ],
+          "type": "string"
+        },
+        "filled-by": {
+          "description": "agent: the Add agent may fill it and the person can edit it. person: only Edit entry sets it.",
+          "enum": [
+            "agent",
+            "person"
+          ],
+          "type": "string"
+        },
+        "description": {
+          "description": "What the field holds; the agent reads it for agent fields.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string"
+        },
+        "journal-tag": {
+          "description": "The comment tag the journal prints the value under.",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "filled-by",
+        "description",
+        "journal-tag"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "extensions/<name>.json: a group of typed fields added to every entry of a ledger that lists it.",
+  "properties": {
+    "name": {
+      "description": "The extension name; it matches the file name.",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "description": {
+      "description": "What the extension is for.",
+      "pattern": "^[^\\r\\n]+$",
+      "type": "string"
+    },
+    "fields": {
+      "description": "The fields, in display and journal order, keyed by kebab-case name.",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9]*(-[a-z0-9]+)*$": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChoiceField"
+            },
+            {
+              "$ref": "#/$defs/PlainField"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "fields"
+  ],
+  "type": "object"
+}

@@ -14,7 +14,7 @@ function dataModule(){
  const reads=[],exports={};
  vm.runInNewContext(compile('../app/data.ts'),{exports,Response,ReadableStream,Uint8Array,DecompressionStream,
   fetch:url=>{if(!url.includes('dashboard'))return Promise.resolve(new Response('{}'));const hold=deferred();reads.push(hold);return hold.promise;},
-  require:name=>name.includes('ledger-modules')?{moduleSettings:()=>({fuel:false})}:name.includes('account-metadata')?{setCurrentAccounts(){}}:name.includes('formatting')?{setMoneySettings(){}}:{setDateLocale(){}}});
+  require:name=>name.includes('ledger-modules')?{moduleSettings:()=>({}),hasExtension:()=>false}:name.includes('account-metadata')?{setCurrentAccounts(){}}:name.includes('formatting')?{setMoneySettings(){}}:{setDateLocale(){}}});
  const published=[];exports.subscribeData(()=>published.push(exports.dashboard.meta.ledger.name));
  return {exports,reads,published};
 }

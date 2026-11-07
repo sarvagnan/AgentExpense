@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationRoot, ledgerRoot } from '../../scripts/project-paths.mjs';
-import { moduleSettings, readManifest, validate } from './ledger-manifest.mjs';
+import { moduleSettings, readManifest, storeSchema, validateDocument } from './ledger-manifest.mjs';
 import {complexRule,mainPostings,payer,varyingDetails,periodFor} from './recurring-ui.mjs';
 
 const storeRoot = ledgerRoot();
@@ -32,14 +32,21 @@ export function isAssertionOnly(entry) {
     decimalNumber(posting.amount) === 0 && posting.assert != null);
 }
 
+/** The labelled identifiers the dashboard shows as an entry's source reference, in format 1 priority order. */
+export function sourceReference(entry) {
+  const row = entry.statement || {};
+  return row.serial || row['source-row'] || row.page || row['source-page'] || '';
+}
+
 export function toTransaction(entry, accounts = {}) {
   checkDate(entry.date);
   if (!['confirmed', 'pending'].includes(entry.status)) throw new Error(`Invalid status for ${entry.id}: ${entry.status}`);
-  if (entry.sources !== undefined && !Array.isArray(entry.sources)) throw new Error(`Invalid sources for ${entry.id}`);
+  if (!Array.isArray(entry.evidence)) throw new Error(`Invalid evidence for ${entry.id}`);
   if (!Array.isArray(entry.postings) || !entry.postings.length) throw new Error(`Missing postings for ${entry.id}`);
+  // Builders read the format 2 groups; `sources` is the dashboard's name for the evidence list.
   return {
     ...entry,
-    sources: entry.sources ?? [],
+    sources: entry.evidence,
     description: compact(entry.description),
     postings: entry.postings.map((posting) => {
       const quantity = decimalNumber(posting.amount);
@@ -72,7 +79,8 @@ export function parsePrices(text) {
   return prices;
 }
 
-export function scheduleText({ every, interval = 1, from }) {
+export function scheduleText({ every, interval, from }) {
+  interval ??= 1;
   if (!['month', 'year'].includes(every) || !Number.isSafeInteger(interval) || interval < 1) {
     throw new Error(`Unsupported forecast schedule: ${JSON.stringify({ every, interval, from })}`);
   }
@@ -99,16 +107,16 @@ export function expandForecast(rules, start, end) {
   checkDate(end);
   if (end <= start) throw new Error(`Invalid forecast window: ${start}..${end}`);
   const occurrences = rules.flatMap((rule) => {
-    if ((rule.lifecycle ?? 'active') !== 'active') return [];
+    if (rule.lifecycle !== 'active') return [];
     const text = scheduleText(rule.schedule);
-    const { every, interval = 1, from } = rule.schedule;
+    const { every, from } = rule.schedule, interval = rule.schedule.interval ?? 1;
     const step = interval * (every === 'year' ? 12 : 1);
     const monthDifference = (Number(start.slice(0, 4)) - Number(from.slice(0, 4))) * 12
       + Number(start.slice(5, 7)) - Number(from.slice(5, 7));
     const result = [];
     if(rule.bill) {
-      const date=rule.bill.pay_by||rule.bill.occurrence;
-      if(date>=start&&date<end)result.push({...rule,date,rule:text,sources:rule.bill.sources,billOccurrence:true,postings:rule.postings.map(p=>({...p,amount:Math.sign(p.amount)*Number(rule.bill.amount)}))});
+      const date=rule.bill['pay-by']||rule.bill.occurrence;
+      if(date>=start&&date<end)result.push({...rule,date,rule:text,sources:rule.bill.evidence,billOccurrence:true,postings:rule.postings.map(p=>({...p,amount:Math.sign(p.amount)*Number(rule.bill.amount)}))});
     }
     for (let index = Math.max(0, Math.floor(monthDifference / step)); ; index++) {
       const date = occurrenceDate(from, index * step, rule.schedule['anchor-day']);
@@ -120,46 +128,44 @@ export function expandForecast(rules, start, end) {
   return occurrences.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Read the JSON source once for both dashboard and review builders. Never read generated ledger text. */
+/** Read the JSON source once for both dashboard and review builders. Never read generated ledger text.
+ * Every store document is validated against the ledger's composed format 2 schema (docs/STORE.md). */
 export async function loadExpenseStore(root = storeRoot) {
   const manifest = await readManifest(root);
+  const {schema, extensions} = await storeSchema(root, manifest);
   const expenseDir = path.join(root, 'data', 'expenses');
   const files = (await readdir(expenseDir).catch(error => { if (error.code === 'ENOENT') return []; throw error; })).filter((name) => name.endsWith('.json')).sort();
   const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
-  const [years, rawRules, priceText, declarations] = await Promise.all([
+  const optional = (file, fallback) => readJson(path.join(root, 'data', file)).catch(error => { if (error.code === 'ENOENT') return fallback; throw error; });
+  const [years, rawRules, priceText, declarations, recurringSettings, trash, statements] = await Promise.all([
     Promise.all(files.map((name) => readJson(path.join(expenseDir, name)))),
     readJson(path.join(root, 'data', 'forecast.json')),
     moduleSettings(manifest).investments !== false ? readFile(path.join(root, 'data', 'prices', 'mutual-funds.prices'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; }) : '',
     readJson(path.join(root, 'data', 'accounts.json')),
+    optional('recurring-settings.json', {'never-automatic': []}),
+    optional('trash.json', []),
+    optional('card-statements.json', []),
   ]);
-  const schema = await readJson(path.join(applicationRoot, 'schema/store.schema.json'));
-  const recurringSettings = await readJson(path.join(root, 'data/recurring-settings.json')).catch(error => { if (error.code === 'ENOENT') return {'never-automatic': []}; throw error; });
-  const trash = await readJson(path.join(root, 'data/trash.json')).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
-  validate(trash, schema.$defs.trash, 'data/trash.json', schema);
+  years.forEach((year, index) => validateDocument(year, schema, 'data/expenses/<year>.json', `data/expenses/${files[index]}`));
+  validateDocument(rawRules, schema, 'data/forecast.json');
+  validateDocument(declarations, schema, 'data/accounts.json');
+  validateDocument(recurringSettings, schema, 'data/recurring-settings.json');
+  validateDocument(trash, schema, 'data/trash.json');
+  validateDocument(statements, schema, 'data/card-statements.json');
   const trashedIds = new Set(trash.map(item => item.entry.id));
   if (trashedIds.size !== trash.length || new Set(trash.map(item=>item.id)).size !== trash.length) throw new Error('Trash IDs must be unique');
   const storedPaths=new Set();
   for (const item of trash) {
     const originals=[...item.files.map(file=>file.original),...item.kept.map(file=>file.path)];
-    const sources=(item.entry.sources||[]).filter(source=>source.startsWith('Bills/'));
+    const sources=item.entry.evidence.filter(source=>source.startsWith('Bills/'));
     if (new Set(originals).size!==originals.length || originals.length!==sources.length || sources.some(source=>!originals.includes(source)) || originals.some(source=>source.split('/').includes('..'))) throw new Error('Trash evidence must map every Bills source exactly once');
     for (const file of item.files) {
       if (!file.stored.startsWith(`data/trash-files/${item.id}/`) || storedPaths.has(file.stored)) throw new Error('Trash files must stay inside their operation folder');
       storedPaths.add(file.stored);
     }
   }
-  validate(recurringSettings, schema.$defs['recurring-settings'], 'data/recurring-settings.json', schema);
-  validate(declarations, schema.$defs.accounts, 'data/accounts.json', schema);
-  for (const metadata of Object.values(declarations.accounts)) {
-    if (metadata.aliases?.some(alias => alias !== alias.toLowerCase())) throw new Error('Account aliases must be lowercase.');
-  }
-  if (years.some((year) => !Array.isArray(year)) || !Array.isArray(rawRules)) throw new Error('Store entries must be arrays');
-  if (rawRules.some(rule => Object.hasOwn(rule, 'possible-duplicate-of'))) throw new Error('Forecasts cannot contain possible duplicate links');
   for (const rule of rawRules) {
-    for (const field of ['lifecycle', 'origin', 'created', 'removal', 'schedule','amount','bill']) {
-      if (Object.hasOwn(rule, field)) validate(rule[field], schema.$defs.rule.properties[field], `rule.${field}`, schema);
-    }
-    if (Object.hasOwn(rule, 'rule')) throw new Error('Forecasts cannot link rule occurrences');
+    if (rule.lifecycle === 'removed' && rule.removal === null) throw new Error('A removed rule needs removal');
     if(rule.amount==='varies') {
       const main=mainPostings(rule)[0],pay=payer(rule,declarations.accounts);
       if(complexRule(rule)||!pay||rule.postings.some(p=>p.assert)||main.commodity!==pay.commodity||decimalNumber(main.amount)!==-decimalNumber(pay.amount))throw new Error('Only simple two-posting payments in one currency can vary');
@@ -169,18 +175,13 @@ export async function loadExpenseStore(root = storeRoot) {
   const actuals = years.flat();
   const ids = new Set();
   for (const entry of [...actuals, ...rawRules]) {
-    if (typeof entry.id !== 'string' || !/^[0-9a-f]{16}$/.test(entry.id) || ids.has(entry.id)) throw new Error(`Invalid or duplicate store ID: ${entry.id}`);
+    if (ids.has(entry.id)) throw new Error(`Duplicate store ID: ${entry.id}`);
     ids.add(entry.id);
   }
   const actualIds = new Set(actuals.map(entry => entry.id));
   if ([...trashedIds].some(id=>actualIds.has(id))) throw new Error('Trash entries must be absent from the ledger');
   for (const entry of actuals) {
-    if (entry.rule) {
-      validate(entry.rule, schema.$defs.entry.properties.rule, 'entry.rule', schema);
-      if (!rawRules.some(rule => rule.id === entry.rule.id)) throw new Error('Unknown rule link');
-    }
-    if (!entry['possible-duplicate-of']) continue;
-    validate(entry['possible-duplicate-of'], schema.$defs.entry.properties['possible-duplicate-of'], 'possible-duplicate-of', schema);
+    if (entry.rule && !rawRules.some(rule => rule.id === entry.rule.id)) throw new Error('Unknown rule link');
     const targets = entry['possible-duplicate-of'].map(link => link.id);
     if (new Set(targets).size !== targets.length || targets.join() !== [...targets].sort().join()
         || targets.some(id => !actualIds.has(id) || id <= entry.id)) throw new Error('Duplicate links must name unique, sorted, greater actual entry IDs');
@@ -191,13 +192,10 @@ export async function loadExpenseStore(root = storeRoot) {
   const rules = rawRules.map((rule) => {
     scheduleText(rule.schedule);
     if (occurrenceDate(rule.schedule.from, 0, rule.schedule['anchor-day']) !== rule.date) throw new Error('Rule anchor and date disagree');
-    if (rule.lifecycle === 'removed' && !rule.removal) throw new Error('Removed rule needs removal evidence');
-    if ([...(rule.origin?.evidence ?? []), ...(rule.removal?.evidence ?? [])].some(id => !actualIds.has(id) && !trashedIds.has(id))) throw new Error('Unknown rule evidence');
+    if ([...(rule.origin?.['entry-ids'] ?? []), ...(rule.removal?.['entry-ids'] ?? [])].some(id => !actualIds.has(id) && !trashedIds.has(id))) throw new Error('Unknown rule evidence');
     return {...toTransaction(rule, declarations.accounts),...(rule.amount==='varies'?{varying:varyingDetails(rule,actuals,declarations.accounts)}:{})};
   });
-  const statements = await readJson(path.join(root, 'data', 'card-statements.json')).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
-  if (!Array.isArray(statements)) throw new Error('Statements must be an array');
-  return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest, ...statementFacts(actuals, statements, declarations.accounts) };
+  return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest, extensions, ...statementFacts(actuals, statements, declarations.accounts) };
 }
 
 /**

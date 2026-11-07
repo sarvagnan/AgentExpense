@@ -5,7 +5,8 @@ from pathlib import Path
 import uuid
 
 from account_metadata import infer_kind, is_balance_sheet
-from store import dump, read_json
+from format1 import dump
+from store import read_json
 
 SOURCE_FORMAT = 0
 TARGET_FORMAT = 1

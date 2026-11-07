@@ -12,7 +12,7 @@ from unittest.mock import patch
 import sys
 
 from persona_guard import persona_sensitive
-from support import APPLICATION, Fixture
+from support import APPLICATION, Fixture, meta, entry as store_entry, posting
 from statement_readers import Registry, Reader, check_statement
 from statements import Statements
 from store import load, dump, entries
@@ -23,7 +23,7 @@ from check_store import check_card_statements
 
 OPTIONS = dict(columns=dict(date='Date',description='Description',amount='Amount',balance='Balance',reference='Reference'),period=dict(start='2026-01-01',end='2026-01-28'))
 BANK = 'Assets:Deposits:Main'
-META = dict(kind='bank',currency='INR',label='Example Current',statement=dict(reader='generic-csv',options=OPTIONS))
+META = meta(kind='bank',currency='INR',label='Example Current',statement=dict(reader='generic-csv',options=OPTIONS))
 CSV = b'Date,Description,Amount,Balance,Reference\n2026-01-02,Fable Shop,-10.00,90.00,REF-001\n2026-01-03,Fable refund,2.00,92.00,REF-002\n'
 
 
@@ -153,7 +153,7 @@ class BankApply(Fixture):
         if options is not None:meta['statement']['options']=options
         declarations['accounts'].update({BANK:meta,'Equity:Opening Balances':{}})
         dump(self.ledger/'data/accounts.json',declarations)
-        dump(self.ledger/'data/expenses/2026.json',[dict(id='a'*16,date=start or '2026-01-01',status='confirmed',description='Opening balance',postings=[dict(account=BANK,amount='100.00',commodity='INR',**{'assert':dict(amount='100.00',commodity='INR')}),dict(account='Equity:Opening Balances',amount='-100.00',commodity='INR')])])
+        dump(self.ledger/'data/expenses/2026.json',[store_entry('a'*16,start or '2026-01-01','Opening balance',[posting(BANK,'100.00',**{'assert':dict(amount='100.00',commodity='INR')}),posting('Equity:Opening Balances','-100.00')])])
         if start:
             manifest=json.loads((self.ledger/'ledger.json').read_text());manifest['startDate']=start;dump(self.ledger/'ledger.json',manifest)
         self.jj('commit','-m','Fictional bank baseline')
@@ -264,7 +264,7 @@ class BankApply(Fixture):
         from statement_fixtures import statement_pdf
         sessions=self.setup_bank(start='2026-01-02')
         declarations=load(self.ledger)[self.ledger/'data/accounts.json']
-        declarations['accounts'][BANK]=dict(kind='card',currency='INR',label='Example Card',statement=dict(reader='example-card-pdf',identifier='5678'))
+        declarations['accounts'][BANK]=meta(kind='card',currency='INR',label='Example Card',statement=dict(reader='example-card-pdf',identifier='5678'))
         dump(self.ledger/'data/accounts.json',declarations)
         opening=load(self.ledger)[self.ledger/'data/expenses/2026.json']
         opening[0]['postings'][0].update(amount='-110.00',**{'assert':dict(amount='-110.00',commodity='INR')});opening[0]['postings'][1]['amount']='110.00';dump(self.ledger/'data/expenses/2026.json',opening)
@@ -309,7 +309,7 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
         sessions=self.setup_bank()
         documents=load(self.ledger)
         documents[self.ledger/'data/accounts.json']['accounts'][BANK]['statement']['options']['columns'].update(foreign_amount='Foreign',foreign_currency='Currency')
-        documents[self.ledger/'data/expenses/2026.json'].append(dict(id='b'*16,date='2026-01-02',status='confirmed',description='Fable Shop',**{'original-amount':dict(amount='2.00',commodity='USD')},postings=[dict(account='Expenses:Food',amount='2.00',commodity='USD',cost=dict(amount='9.00',commodity='INR',per='total')),dict(account=BANK,amount='-9.00',commodity='INR')]))
+        documents[self.ledger/'data/expenses/2026.json'].append(store_entry('b'*16,'2026-01-02','Fable Shop',[posting('Expenses:Food','2.00','USD',cost=dict(amount='9.00',commodity='INR',per='total')),posting(BANK,'-9.00')],**{'original-amount':dict(amount='2.00',commodity='USD')}))
         for path,value in documents.items():dump(path,value)
         self.jj('commit','-m','Fictional bank currency estimate')
         data=b'Date,Description,Amount,Balance,Reference,Foreign,Currency\n2026-01-02,Fable Shop,-10.00,90.00,REF-001,2.00,USD\n2026-01-03,Fable refund,2.00,92.00,REF-002,,\n'
@@ -341,7 +341,7 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
         sessions=self.setup_bank()
         documents=load(self.ledger);declarations=documents[self.ledger/'data/accounts.json']
         declarations['accounts'][BANK]['statement']['options']['currency']='USD'
-        other='Assets:Deposits:Currency Account';declarations['accounts'][other]=dict(kind='bank',currency='USD',label='Currency Account')
+        other='Assets:Deposits:Currency Account';declarations['accounts'][other]=meta(kind='bank',currency='USD',label='Currency Account')
         dump(self.ledger/'data/accounts.json',declarations);self.jj('commit','-m','Fictional currency account')
         session=sessions.create(CSV,'Currency.csv');sessions.read(session)
         self.assertEqual(sessions.get(session['id'])['state'],'currency_mismatch')
@@ -371,7 +371,7 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
         self.assertEqual(found['statement']['openingBalance'],'50.005')
         self.assertEqual(found['opening']['postings'][0]['amount'],'50.005')
         self.apply_bank(sessions,found)
-        docs=load(self.ledger);row=next(e for e in entries(docs) if e.get('reference')=='REF-001')
+        docs=load(self.ledger);row=next(e for e in entries(docs) if (e['references'] or {}).get('reference')=='REF-001')
         self.assertEqual(row['postings'][1]['amount'],'-0.005')
         check_card_statements(docs,self.ledger)
 
@@ -415,7 +415,7 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
     def test_unconfigured_personal_pdf_reader_cannot_displace_builtin_or_new_opening(self):
         from statement_fixtures import statement_pdf
         sessions=self.setup_bank()
-        declarations=load(self.ledger)[self.ledger/'data/accounts.json'];declarations['accounts'][BANK]=dict(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'));dump(self.ledger/'data/accounts.json',declarations);dump(self.ledger/'data/expenses/2026.json',[])
+        declarations=load(self.ledger)[self.ledger/'data/accounts.json'];declarations['accounts'][BANK]=meta(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'));dump(self.ledger/'data/accounts.json',declarations);dump(self.ledger/'data/expenses/2026.json',[])
         folder=self.ledger/'readers';folder.mkdir();(folder/'unused.py').write_text("INTERFACE=1\nID='unused-pdf'\nNAME='Unused'\nKINDS=('card',)\nEXTENSIONS=('.pdf',)\nCHECKS=('printed_totals',)\ndef recognise(file): return dict(confidence=1,reasons=['Fixture'])\ndef read(file,account,password=None): raise AssertionError('Unconfigured reader must not run')\n")
         self.jj('commit','-m','Fictional unused reader')
         session=self.read_bank(sessions,statement_pdf(),'Example.pdf')
@@ -425,7 +425,7 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
     def test_configured_personal_card_reader_checks_and_applies_in_process(self):
         from statement_fixtures import statement_pdf
         sessions=self.setup_bank()
-        declarations=load(self.ledger)[self.ledger/'data/accounts.json'];declarations['accounts'][BANK]=dict(kind='card',currency='INR',statement=dict(reader='personal-card',identifier='5678'));dump(self.ledger/'data/accounts.json',declarations);dump(self.ledger/'data/expenses/2026.json',[])
+        declarations=load(self.ledger)[self.ledger/'data/accounts.json'];declarations['accounts'][BANK]=meta(kind='card',currency='INR',statement=dict(reader='personal-card',identifier='5678'));dump(self.ledger/'data/accounts.json',declarations);dump(self.ledger/'data/expenses/2026.json',[])
         folder=self.ledger/'readers';folder.mkdir();(folder/'personal.py').write_text("from statement_readers import Registry\nINTERFACE=1\nID='personal-card'\nNAME='Personal card export'\nKINDS=('card',)\nEXTENSIONS=('.pdf',)\nCHECKS=('printed_totals',)\ndef recognise(file): return dict(confidence=1,reasons=['Fixture layout'])\ndef read(file,account,password=None): return Registry().get('example-card-pdf').read(file,account)\n")
         self.jj('commit','-m','Fictional configured personal reader')
         session=self.read_bank(sessions,statement_pdf(),'Personal.pdf')

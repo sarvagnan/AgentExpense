@@ -6,7 +6,7 @@ import re
 
 
 def checks(account):
-    options = account.get('statement', {}).get('options', {})
+    options = (account.get('statement') or {}).get('options') or {}
     result = []
     if options.get('summary'):
         result.append('printed_totals')
@@ -58,7 +58,7 @@ def amount(value, options):
 
 
 def mapped_rows(table, account, *, sheet):
-    options = account.get('statement', {}).get('options', {})
+    options = (account.get('statement') or {}).get('options') or {}
     columns = options.get('columns')
     if not isinstance(columns, dict) or not {'date', 'description'} <= columns.keys():
         raise ValueError('Set statement.options.columns with date, description and amount or debit/credit mappings')
@@ -190,7 +190,7 @@ def mapped_rows(table, account, *, sheet):
 
 
 def read_csv(file, account):
-    options = account.get('statement', {}).get('options', {})
+    options = (account.get('statement') or {}).get('options') or {}
     delimiter = options.get('delimiter', ',')
     if not isinstance(delimiter, str) or len(delimiter) != 1:
         raise ValueError('CSV delimiter must be one character')
@@ -203,7 +203,7 @@ def read_csv(file, account):
 
 
 def read_sheet(file, account):
-    options = account.get('statement', {}).get('options', {})
+    options = (account.get('statement') or {}).get('options') or {}
     sheet = options.get('sheet', 0)
     if type(sheet) is not int and not isinstance(sheet, str) or type(sheet) is int and sheet < 0:
         raise ValueError('sheet must be a name or zero-based index')

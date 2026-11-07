@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from support import Fixture, ready, png, SERVER
-from agent import SCHEMA, command_for, prompt_for, prepare, policy_text
+from support import Fixture, ready, png, SERVER, metadata
+from agent import command_for, prompt_for, prepare, policy_text
 from transactions import ledger_lock, Transaction, clean, jj
 
 
@@ -138,16 +138,16 @@ class LifecycleTests(Fixture):
                 if defect == 'invisible':
                     answer['entry']['postings'][0]['account'] += '\u200b'
                 if defect == 'inr_original':
-                    answer['entry']['original_amount'] = dict(amount='100', commodity='INR')
+                    answer['entry']['original-amount'] = dict(amount='100.00', commodity='INR')
                 if defect == 'unknown_parent':
-                    answer['new_accounts'] = ['Unknown:Merchant']
+                    answer['new-accounts'] = ['Unknown:Merchant']
                     answer['entry']['postings'][0]['account'] = 'Unknown:Merchant'
                 if defect == 'unbalanced':
                     answer['entry']['postings'][0]['amount'] = '99.00'
                 if defect == 'text_control':
                     answer['entry']['notes'] = ['control\x01text']
                 if defect == 'missing_names':
-                    answer['attachment_names'] = []
+                    answer['attachment-names'] = []
                 self.set_answers(answer)
                 before = self.bytes()
                 with self.client() as client:
@@ -170,7 +170,7 @@ class LifecycleTests(Fixture):
 
     def test_check_failure_can_be_corrected(self):
         bad = ready()
-        bad['entry']['postings'][0]['amount'] = '99'
+        bad['entry']['postings'][0]['amount'] = '99.00'
         self.set_answers(bad, ready())
         with self.client() as client:
             identity = self.create(client)
@@ -180,7 +180,7 @@ class LifecycleTests(Fixture):
 
     def test_uploadless_typed_expense(self):
         answer = ready()
-        answer['attachment_names'] = []
+        answer['attachment-names'] = []
         self.set_answers(answer)
         with self.client() as client:
             identity = self.create(client, upload=False)
@@ -494,19 +494,19 @@ class ManifestIntegrationTests(Fixture):
         manifest = json.loads(path.read_text());manifest['defaultCurrency'] = 'USD';dump(path, manifest)
         accounts_path = self.ledger / 'data/accounts.json'
         document = load(self.ledger)[accounts_path]
-        document['accounts']['Assets:Bank:Example Checking'] = {'kind':'bank','currency':'INR'}
-        document['accounts']['Dev Sen:Accounts Payable:Opening'] = {'kind':'person','currency':'INR'}
-        document['accounts']['Dev Sen:Balances:Accounts Receivable:Opening'] = {'kind':'person','currency':'INR'}
+        document['accounts']['Assets:Bank:Example Checking'] = metadata('Assets', kind='bank', currency='INR')
+        document['accounts']['Dev Sen:Accounts Payable:Opening'] = metadata('Assets', kind='person', currency='INR')
+        document['accounts']['Dev Sen:Balances:Accounts Receivable:Opening'] = metadata('Assets', kind='person', currency='INR')
         dump(accounts_path, document)
-        answer = ready();answer['new_accounts'] = ['Assets:Bank:Example Savings', 'Expenses:Food:Cafe',
+        answer = ready();answer['new-accounts'] = ['Assets:Bank:Example Savings', 'Expenses:Food:Cafe',
                                                  'Dev Sen:Accounts Payable:Asha', 'Dev Sen:Balances:Accounts Receivable:Asha']
         _, result, new = to_store(answer, self.ledger, 1)
         self.assertEqual(list(result['accounts'])[:len(document['accounts'])], list(document['accounts']))
-        self.assertEqual(result['accounts']['Assets:Bank:Example Savings'], {'kind':'bank','currency':'USD'})
-        self.assertEqual(result['accounts']['Expenses:Food:Cafe'], {})
-        for name in answer['new_accounts'][2:]:
-            self.assertEqual(result['accounts'][name], {'kind':'person','currency':'USD'})
-        answer['new_accounts'] = ['Dev Sen:Other:Asha']
+        self.assertEqual(result['accounts']['Assets:Bank:Example Savings'], metadata('Assets', kind='bank', currency='USD'))
+        self.assertEqual(result['accounts']['Expenses:Food:Cafe'], {'category': None})
+        for name in answer['new-accounts'][2:]:
+            self.assertEqual(result['accounts'][name], metadata('Assets', kind='person', currency='USD'))
+        answer['new-accounts'] = ['Dev Sen:Other:Asha']
         from transactions import AccountError
         with self.assertRaisesRegex(AccountError, 'Cannot infer kind'):
             to_store(answer, self.ledger, 1)

@@ -12,7 +12,7 @@ from adapters.base import AdapterError
 from adapters.codex import Codex
 from agent_pause import AgentPause
 from drafts import Drafts
-from support import Fixture, ready
+from support import Fixture, ready, meta
 from proposal_consent import proposal_hash
 from audit import records
 
@@ -127,7 +127,7 @@ class FinishTests(Fixture):
             self.assertTrue(checked['ok'],checked)
             body=dict(claim_token=token,proposal_hash=checked['proposal_hash'],approved_accounts=[])
             self.assertEqual(client.post(url+'/hand-add',json=body).status_code,409)
-            body['approved_accounts']=form['new_accounts'];self.assertEqual(client.post(url+'/hand-add',json=body).status_code,200)
+            body['approved_accounts']=form['new-accounts'];self.assertEqual(client.post(url+'/hand-add',json=body).status_code,200)
             draft=self.wait(client,identity,'added');self.assertEqual(self.calls(),[])
             self.assertEqual(draft['finished_by']['actor'],'user');self.assertEqual(len(draft['result']['sources']),1)
             self.assertIn('Added-by: user (finished by hand: usage limit)',self.jj('log','-r','@-','--no-graph','-T','description'))
@@ -139,7 +139,7 @@ class FinishTests(Fixture):
             with self.assertRaises(ValueError):validate_consent(tampered)
 
     def test_new_root_question_exact_approval_no_second_agent_and_free_text_clears(self):
-        form=ready();form['entry']['postings'][0]['account']='Income:Refunds';form['new_accounts']=['Income:Refunds']
+        form=ready();form['entry']['postings'][0]['account']='Income:Refunds';form['new-accounts']=['Income:Refunds']
         self.set_answers(form)
         with self.client() as client:
             identity=self.create(client);self.save(client,identity);url='/api/drafts/'+identity
@@ -175,11 +175,11 @@ class FinishTests(Fixture):
             self.assertEqual(len(records(self.ledger)),3)
 
     def test_redundant_original_amount_normalises_and_account_errors_ask(self):
-        form=ready();form['entry']['original_amount']={'amount':'100','commodity':'INR'};self.set_answers(form)
+        form=ready();form['entry']['original-amount']={'amount':'100.00','commodity':'INR'};self.set_answers(form)
         with self.client() as client:
             identity=self.create(client);self.save(client,identity);draft=self.wait(client,identity,'added')
             self.assertTrue(draft['runs'][0]['normalisations'])
-            self.assertNotIn('original-amount',json.loads((self.ledger/'data/expenses/2026.json').read_text())[0])
+            self.assertIsNone(json.loads((self.ledger/'data/expenses/2026.json').read_text())[0]['original-amount'])
 
     def test_timeout_is_queued_once_without_repair_or_failure_audit(self):
         import subprocess
@@ -197,7 +197,7 @@ class FinishTests(Fixture):
             self.assertEqual(client.get('/api/health').json()['agent_pause']['attempt'],1)
 
     def test_account_failure_becomes_question_without_repair(self):
-        form=ready();form['entry']['postings'][0]['account']='Unknown:Merchant';form['new_accounts']=['Unknown:Merchant'];self.set_answers(form)
+        form=ready();form['entry']['postings'][0]['account']='Unknown:Merchant';form['new-accounts']=['Unknown:Merchant'];self.set_answers(form)
         with self.client() as client:
             identity=self.create(client);self.save(client,identity);draft=self.wait(client,identity,'question')
             self.assertEqual(len(draft['runs']),1);self.assertEqual(draft['check_errors'],[])
@@ -211,7 +211,7 @@ class FinishTests(Fixture):
         card='Liabilities:Plastic:Main'
         currency=json.loads((self.ledger/'ledger.json').read_text())['defaultCurrency']
         documents=load(self.ledger)
-        documents[self.ledger/'data/accounts.json']['accounts'][card]=dict(kind='card',currency=currency,statement=dict(reader='example-card-pdf',identifier='5678'))
+        documents[self.ledger/'data/accounts.json']['accounts'][card]=meta(kind='card',currency=currency,statement=dict(reader='example-card-pdf',identifier='5678'))
         dump(self.ledger/'data/accounts.json',documents[self.ledger/'data/accounts.json'])
         sessions=Statements(self.settings);sessions.agent_pause=AgentPause(self.ledger);sessions.agent_pause.fail('usage_limit')
         session=sessions.create(file_bytes(currency,'csv'),'Unknown.csv')

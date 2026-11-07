@@ -25,8 +25,14 @@ override DASHBOARD_DATA_DIR := $(abspath $(DASHBOARD_DATA_DIR))
 export DASHBOARD_DATA_DIR
 endif
 
+# Ledger tools run in the server's locked environment, which has pydantic (the store models).
+# --project selects it without changing directory, so relative ARGS still resolve from here.
+# Test runs point LEDGER_PYTHON at that installed environment's python: their disposable
+# application copies have no server project.
+LEDGER_PYTHON ?= uv run --locked --project review-dashboard/server python
+
 ledger:
-	uv run --with jsonschema python scripts/ledger/generate_ledger.py
+	$(LEDGER_PYTHON) scripts/ledger/generate_ledger.py
 
 test-inside: check-version test-ledger test-migrations test-server
 
@@ -63,19 +69,19 @@ service:
 	python3 scripts/install_expense_service.py
 
 test-ledger-inside:
-	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/ledger/tests/run_tests.py
+	HLEDGER_BIN="$(HLEDGER)" $(LEDGER_PYTHON) scripts/ledger/tests/run_tests.py
 
 .PHONY: test-migrations
 test-migrations-inside:
-	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/test_python.py -m unittest discover -s scripts/ledger/migration_tests -v
+	HLEDGER_BIN="$(HLEDGER)" $(LEDGER_PYTHON) scripts/test_python.py -m unittest discover -s scripts/ledger/migration_tests -v
 
 # Saves validate data only; development verify and dashboard also test the code.
 check:
-	HLEDGER_BIN="$(HLEDGER)" uv run --with jsonschema python scripts/ledger/check_store.py
+	HLEDGER_BIN="$(HLEDGER)" $(LEDGER_PYTHON) scripts/ledger/check_store.py
 	$(if $(EXPENSES_STEP_TIMINGS),python3 scripts/ledger/step_timings.py hledger --) "$(HLEDGER)" -f "$(LEDGER_DIR)/expense_ledger.ledger" check -s ordereddates
 
 format:
-	uv run --with jsonschema python scripts/ledger/store.py --format
+	$(LEDGER_PYTHON) scripts/ledger/store.py --format
 
 dashboard-inside: node-modules verify test-migrations
 	npm --prefix review-dashboard run data
@@ -117,7 +123,7 @@ verify-data: ledger
 verify: test-ledger verify-data
 
 commit:
-	uv run --with jsonschema python scripts/ledger/commit.py
+	$(LEDGER_PYTHON) scripts/ledger/commit.py
 
 scan:
 	@test -n "$(LIST)" || (echo "Usage: make scan LIST=/path/to/private-list.tsv" >&2; exit 2)
@@ -129,7 +135,7 @@ test-scanner-inside:
 
 .PHONY: upgrade-ledger personas
 upgrade-ledger:
-	uv run --with jsonschema python scripts/ledger/upgrade_ledger.py $(ARGS)
+	$(LEDGER_PYTHON) scripts/ledger/upgrade_ledger.py $(ARGS)
 
 personas-inside:
 	@node --version
@@ -144,14 +150,14 @@ personas-inside:
 
 .PHONY: set-account-currency set-default-currency
 set-account-currency:
-	uv run --with jsonschema python scripts/ledger/set_account_currency.py $(ARGS)
+	$(LEDGER_PYTHON) scripts/ledger/set_account_currency.py $(ARGS)
 
 set-default-currency:
-	uv run --with jsonschema python scripts/ledger/set_default_currency.py $(ARGS)
+	$(LEDGER_PYTHON) scripts/ledger/set_default_currency.py $(ARGS)
 
 .PHONY: weekly-review
 weekly-review:
-	uv run --with jsonschema python scripts/ledger/weekly_review.py
+	$(LEDGER_PYTHON) scripts/ledger/weekly_review.py
 
 .PHONY: browser-tests browser-capture
 browser-tests-inside:
@@ -205,7 +211,7 @@ browser-capture:
 .PHONY: new-ledger demo private-checks
 new-ledger:
 	@test -n "$(DIR)" -a -n "$(NAME)" -a -n "$(CURRENCY)" || (echo 'Usage: make new-ledger DIR=/path/to/ledger NAME="Your name" CURRENCY=USD [LOCALE=en-US] [VCS=jj|git]' >&2; exit 2)
-	uv run --with jsonschema python scripts/setup/new_ledger.py --dir "$(abspath $(DIR))" --name "$(NAME)" --currency "$(CURRENCY)" $(if $(LOCALE),--locale "$(LOCALE)") $(if $(VCS),--vcs "$(VCS)")
+	$(LEDGER_PYTHON) scripts/setup/new_ledger.py --dir "$(abspath $(DIR))" --name "$(NAME)" --currency "$(CURRENCY)" $(if $(LOCALE),--locale "$(LOCALE)") $(if $(VCS),--vcs "$(VCS)")
 
 # Accounts and opening balances during setup (scripts/ledger/setup_ledger.py); commit with make commit.
 .PHONY: add-account opening-balances
@@ -232,7 +238,7 @@ serve:
 
 # Whatever the selected ledger keeps in checks/: unittest files and executable scripts.
 private-checks:
-	@uv run --with jsonschema python scripts/setup/private_checks.py
+	@$(LEDGER_PYTHON) scripts/setup/private_checks.py
 
 # Save timings on a generated large fictional ledger under /tmp, with the fake agent only.
 # BENCH_ENTRIES=100000 is a stress run without targets; see review-dashboard/server/bench_save.py.
@@ -241,6 +247,12 @@ bench-save:
 	@scripts/test-run.sh $(MAKE) --no-print-directory bench-save-inside
 bench-save-inside: node-modules
 	uv run --locked --directory review-dashboard/server python bench_save.py
+
+# After listing, changing or removing an extension: bring every entry in line, in one verified commit.
+.PHONY: extension-update
+extension-update:
+	@test -n "$(NAME)" || (echo 'Usage: make extension-update NAME=<extension>' >&2; exit 2)
+	$(LEDGER_PYTHON) scripts/ledger/extension_update.py "$(NAME)"
 
 .PHONY: retention
 retention:

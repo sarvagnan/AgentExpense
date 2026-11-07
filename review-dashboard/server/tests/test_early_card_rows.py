@@ -12,7 +12,7 @@ import json
 import secrets
 import threading
 
-from support import Fixture
+from support import Fixture, meta, entry as store_entry, posting
 from store import load, dump, entries
 from statements import Statements
 from statement_fixtures import statement_pdf
@@ -28,7 +28,7 @@ from drafts import Drafts
 from add_entry import add_entry
 
 CARD = 'Liabilities:Cards:Example'
-META = dict(kind='card', currency='INR', label='Example Card', statement=dict(reader='example-card-pdf', identifier='5678'))
+META = meta(kind='card', currency='INR', label='Example Card', statement=dict(reader='example-card-pdf', identifier='5678'))
 PERSONAL_READER = '''from statement_readers import Registry
 INTERFACE = 1
 ID = 'personal-card'
@@ -54,8 +54,7 @@ def card_text(start, end, rows, previous='0.00'):
 
 
 def purchase(identity, day, description, amount):
-    return dict(id=identity, date=day, status='confirmed', description=description,
-                postings=[dict(account='Expenses:Food', amount=amount, commodity='INR'), dict(account=CARD, amount='-' + amount, commodity='INR')])
+    return store_entry(identity, day, description, [posting('Expenses:Food', amount), posting(CARD, '-' + amount)])
 
 
 JANUARY = ('2026-01-01', '2026-01-28')
@@ -74,8 +73,8 @@ class EarlyCardRows(Fixture):
         dump(self.ledger/'data/accounts.json', accounts)
         if opening:
             day = start_date or '2025-11-01'
-            dump(self.ledger/f'data/expenses/{day[:4]}.json', [dict(id='1000000000000001', date=day, status='confirmed', description='Opening card balance',
-                 postings=[dict(account=CARD, amount='0.00', commodity='INR'), dict(account='Equity:Opening Balances', amount='0.00', commodity='INR')])])
+            dump(self.ledger/f'data/expenses/{day[:4]}.json', [store_entry('1000000000000001', day, 'Opening card balance',
+                 [posting(CARD, '0.00'), posting('Equity:Opening Balances', '0.00')])])
         if start_date:
             manifest = json.loads((self.ledger/'ledger.json').read_text())
             manifest['startDate'] = start_date
@@ -124,7 +123,7 @@ class EarlyCardRows(Fixture):
         self.assertEqual(self.item(session, '2025-12-31')['rule'], 'exact')
         self.assertEqual(self.item(session, '2025-12-31')['entry_id'], typed['id'])
         docs = self.apply(sessions, session)
-        members = [e for e in entries(docs) if e.get('statement-end') == '2026-01-28']
+        members = [e for e in entries(docs) if (e['statement'] or {}).get('end') == '2026-01-28']
         self.assertEqual(sorted(e['date'] for e in members), ['2025-12-29', '2025-12-31', '2026-01-05'])
         self.assertEqual([r['result'] for r in check_card_statements(docs, self.ledger)['statements']], ['PASS'])
         self.assertEqual(check_card_statements(docs, self.ledger)['unbilled'], [])
@@ -183,14 +182,14 @@ class EarlyCardRows(Fixture):
 
     def test_consecutive_built_in_card_statements_bill_an_early_row_on_the_second_only(self):
         docs, late, report = self.consecutive(personal=False)
-        self.assertEqual(next(e for e in entries(docs) if e['id'] == late['id'])['statement-end'], FEBRUARY[1])
+        self.assertEqual(next(e for e in entries(docs) if e['id'] == late['id'])['statement']['end'], FEBRUARY[1])
         self.assertIn(late['id'], [i['entryId'] for i in report['alreadyMembers']])
 
     def test_consecutive_normalized_card_statements_bill_an_early_row_on_the_second_only(self):
         docs, late, report = self.consecutive(personal=True)
         summaries = docs[self.ledger/'data/card-statements.json']
         self.assertEqual([s['end'] for s in summaries if any(m.get('entry-id') == late['id'] for m in s['members'])], [FEBRUARY[1]])
-        self.assertTrue(all(s['source-balance-style'] == 'debt' and 'assertion-id' not in s for s in summaries))
+        self.assertTrue(all(s['source-balance-style'] == 'debt' and s['assertion-id'] is None for s in summaries))
         self.assertIn(('serial', late['id']), [(i['rule'], i['entry_id']) for i in report['items']])
 
     def test_early_member_is_covered_locked_and_cannot_be_deleted(self):
@@ -214,7 +213,6 @@ class EarlyCardRows(Fixture):
         # A billed total is no confirmed balance on its closing date: a purchase
         # made inside the filed period can still be recorded before it is billed.
         unbilled = purchase(None, '2026-01-27', 'Fable Cafe', '20.00')
-        del unbilled['id']
         add_entry(unbilled, root=self.ledger)
         self.assertEqual(next(failures(load(self.ledger), self.ledger), None), None)
 
@@ -222,8 +220,8 @@ class EarlyCardRows(Fixture):
         self.card()
         docs = load(self.ledger)
         member = purchase('5000000000000001', '2025-12-31', 'Fable Shop', '10.00')
-        close = dict(id='5000000000000002', date='2026-01-28', status='confirmed', description='Statement closing balance',
-                     postings=[dict(account=CARD, amount='0.00', commodity='INR', **{'assert': dict(amount='-10.00', commodity='INR')})])
+        close = store_entry('5000000000000002', '2026-01-28', 'Statement closing balance',
+                            [posting(CARD, '0.00', **{'assert': dict(amount='-10.00', commodity='INR')})])
         docs[self.ledger/'data/expenses/2025.json'].append(member)
         docs[self.ledger/'data/expenses/2026.json'].append(close)
         docs[self.ledger/'data/card-statements.json'] = [dict(account=CARD, start=JANUARY[0], end=JANUARY[1], source='Bills/Example.pdf', kind='bank',

@@ -11,7 +11,8 @@
       "label": "Saffron Reserve",
       "aliases": [
         "saffron reserve"
-      ]
+      ],
+      "statement": null
     },
     "Assets:Bank:Nila Current": {
       "kind": "bank",
@@ -19,7 +20,8 @@
       "label": "Nila Current",
       "aliases": [
         "nila current"
-      ]
+      ],
+      "statement": null
     },
     "Liabilities:Credit Cards:Mosaic Card": {
       "kind": "card",
@@ -28,10 +30,7 @@
       "aliases": [
         "mosaic card"
       ],
-      "statement": {
-        "reader": "example-card-pdf",
-        "identifier": "1234"
-      }
+      "statement": {"reader": "example-card-pdf", "identifier": "1234", "options": null}
     },
     "Assets:Cash": {
       "kind": "cash",
@@ -39,7 +38,8 @@
       "label": "Cash",
       "aliases": [
         "cash"
-      ]
+      ],
+      "statement": null
     },
     "Assets:Wallets:Shopping Wallet": {
       "kind": "wallet",
@@ -47,7 +47,8 @@
       "label": "Shopping Wallet",
       "aliases": [
         "shopping wallet"
-      ]
+      ],
+      "statement": null
     },
     "Assets:Wallets:App Store Balance": {
       "kind": "wallet",
@@ -55,7 +56,8 @@
       "label": "App Store Balance",
       "aliases": [
         "app store balance"
-      ]
+      ],
+      "statement": null
     },
     "Assets:Reimbursements:Dev Sen": {
       "kind": "person",
@@ -63,29 +65,31 @@
       "label": "Dev Sen",
       "aliases": [
         "dev sen"
-      ]
+      ],
+      "statement": null
     },
     "Equity:Opening Balances": {},
     "Income:Salary": {},
     "Income:Card Rewards": {},
-    "Expenses:Groceries": {},
-    "Expenses:Food:Dining & Delivery": {},
-    "Expenses:Housing:Rent": {},
-    "Expenses:Transport:Fuel": {},
-    "Expenses:Subscriptions:Paper Lantern": {},
-    "Expenses:Uncategorized": {},
+    "Expenses:Groceries": {"category": null},
+    "Expenses:Food:Dining & Delivery": {"category": null},
+    "Expenses:Housing:Rent": {"category": null},
+    "Expenses:Transport:Fuel": {"category": null},
+    "Expenses:Subscriptions:Paper Lantern": {"category": null},
+    "Expenses:Uncategorized": {"category": null},
     "Assets:Investments:Mutual Funds:Demo Index": {
       "kind": "investment",
       "currency": "DEMOFUND",
       "label": "Demo Index",
       "aliases": [
         "demo index"
-      ]
+      ],
+      "statement": null
     },
-    "Expenses:Subscriptions:Cedar Studio": {},
-    "Expenses:Learning:Maple Workshop": {},
-    "Expenses:Memberships:Cedar Archive": {},
-    "Expenses:Utilities:Willow Energy": {},
+    "Expenses:Subscriptions:Cedar Studio": {"category": null},
+    "Expenses:Learning:Maple Workshop": {"category": null},
+    "Expenses:Memberships:Cedar Archive": {"category": null},
+    "Expenses:Utilities:Willow Energy": {"category": null},
     "Income:Utility Allowance": {}
   }
 }

@@ -5,7 +5,7 @@ import json
 import subprocess
 import threading
 from unittest.mock import patch
-from support import Fixture, ready
+from support import Fixture, ready, entry as store_entry, posting, meta
 from transactions import to_store, check, ProposalError, clean
 from store import dump, load, read_json, entries
 from statement_pdf import parse_text, account_currency
@@ -23,13 +23,13 @@ class CurrencyTests(Fixture):
     def setup_currencies(self):
         path=self.ledger/'data/accounts.json';value=read_json(path)
         value['commodities']=['INR','USD','EUR','GBP']
-        value['accounts'].update({CARD:dict(kind='card',currency='USD',label='Lumen Card',statement=dict(reader='example-card-pdf',identifier='5678')),
-                                  BANK:dict(kind='bank',currency='USD'),TRAVEL:dict(kind='bank',currency='EUR'),'Equity:Opening Balances':{}})
+        value['accounts'].update({CARD:meta(kind='card',currency='USD',label='Lumen Card',statement=dict(reader='example-card-pdf',identifier='5678')),
+                                  BANK:meta(kind='bank',currency='USD'),TRAVEL:meta(kind='bank',currency='EUR'),'Equity:Opening Balances':{}})
         dump(path,value)
 
     def proposal(self, original='EUR', charged='USD', cost=True):
-        answer=ready(new=False);answer['attachment_names']=[]
-        answer['entry']['original_amount']=dict(amount='46.80',commodity=original)
+        answer=ready(new=False);answer['attachment-names']=[]
+        answer['entry']['original-amount']=dict(amount='46.80',commodity=original)
         answer['entry']['postings']=[dict(account='Expenses:Food',amount='46.80',commodity=original,cost=dict(amount='51.48',commodity=charged) if cost else None),dict(account=CARD,amount='-51.48',commodity=charged,cost=None)]
         return answer
 
@@ -39,7 +39,7 @@ class CurrencyTests(Fixture):
         question=self.proposal(cost=False);question.update(status='question',question='Whose expense is this?')
         self.assertIsNone(currency_request(question,self.ledger),'A known charge must retain its ordinary question')
         question['question']='How much was charged?'
-        question['entry']['postings'][1]['amount']='0'
+        question['entry']['postings'][1]['amount']='0.00'
         self.assertEqual(currency_request(question,self.ledger)['kind'],'expense')
         question['entry']['postings'][1]['commodity']='EUR'
         self.assertIsNone(currency_request(question,self.ledger),'The marker must use the declared paying currency')
@@ -54,17 +54,17 @@ class CurrencyTests(Fixture):
         self.assertEqual(entry['postings'][0]['cost'],dict(amount='51.48',commodity='USD',per='total'))
         # INR is a valid foreign commodity on a USD account too.
         entry,decl,_=to_store(self.proposal(original='INR'),self.ledger,0);check(entry,decl,self.ledger)
-        answer=self.proposal(original='USD',cost=False);answer['entry']['original_amount']=None;answer['entry']['postings'][1]['amount']='-46.80'
+        answer=self.proposal(original='USD',cost=False);answer['entry']['original-amount']=None;answer['entry']['postings'][1]['amount']='-46.80'
         entry,decl,_=to_store(answer,self.ledger,0);check(entry,decl,self.ledger)
-        self.assertNotIn('cost',entry['postings'][0])
-        answer['entry']['original_amount']=dict(amount='46.80',commodity='USD')
+        self.assertIsNone(entry['postings'][0]['cost'])
+        answer['entry']['original-amount']=dict(amount='46.80',commodity='USD')
         normalised,_,_=to_store(answer,self.ledger,0)
-        self.assertNotIn('original-amount',normalised)
+        self.assertIsNone(normalised['original-amount'])
         self.assertIn('ask for the amount charged',PREFACE)
         self.assertIn('both the sent and received amounts',PREFACE)
 
     def test_cross_currency_transfer_keeps_sent_received_and_cost(self):
-        self.setup_currencies();answer=ready(new=False);answer['attachment_names']=[];answer['entry']['original_amount']=None
+        self.setup_currencies();answer=ready(new=False);answer['attachment-names']=[];answer['entry']['original-amount']=None
         answer['entry']['postings']=[dict(account=BANK,amount='-1000.00',commodity='USD',cost=dict(amount='920.00',commodity='EUR')),dict(account=TRAVEL,amount='920.00',commodity='EUR',cost=None)]
         entry,decl,_=to_store(answer,self.ledger,0);check(entry,decl,self.ledger)
         self.assertEqual([p['amount'] for p in entry['postings']],['-1000.00','920.00'])
@@ -76,8 +76,7 @@ class CurrencyTests(Fixture):
 
     def test_settings_api_commits_verified_change_under_write_rules_and_locks_activity(self):
         self.setup_currencies()
-        opening=dict(id='1'*16,date='2026-10-01',status='confirmed',description='Opening',postings=[dict(account=TRAVEL,amount='650.00',commodity='EUR',assert_=None),dict(account='Equity:Opening Balances',amount='-650.00',commodity='EUR')])
-        opening['postings'][0].pop('assert_');opening['postings'][0]['assert']=dict(amount='650.00',commodity='EUR')
+        opening=store_entry('1'*16,'2026-10-01','Opening',[posting(TRAVEL,'650.00','EUR',**{'assert':dict(amount='650.00',commodity='EUR')}),posting('Equity:Opening Balances','-650.00','EUR')])
         dump(self.ledger/'data/expenses/2026.json',[opening]);self.jj('commit','-m','Currency settings baseline')
         with self.client(worker=False) as client:
             before=(self.ledger/'data/accounts.json').read_bytes()
@@ -114,7 +113,7 @@ class CurrencyTests(Fixture):
 
     def test_usd_statement_applies_foreign_cost_and_replaces_estimate(self):
         self.setup_currencies()
-        opening=dict(id='1'*16,date='2026-01-01',status='confirmed',description='Opening',postings=[dict(account=CARD,amount='0.00',commodity='USD'),dict(account='Equity:Opening Balances',amount='0.00',commodity='USD')])
+        opening=store_entry('1'*16,'2026-01-01','Opening',[posting(CARD,'0.00','USD'),posting('Equity:Opening Balances','0.00','USD')])
         dump(self.ledger/'data/expenses/2026.json',[opening]);self.jj('commit','-m','USD statement baseline')
         text=TEXT.replace('Statement period:', 'Statement currency: USD\nStatement period:').replace('2.00 | USD','2.00 | EUR')
         sessions=Statements(self.settings);session=sessions.create(statement_pdf(text),'Fictional-USD.pdf')
@@ -126,7 +125,7 @@ class CurrencyTests(Fixture):
         sessions.decide(session['id'],'EX-002',dict(action='account',account=BANK))
         sessions.queue_apply(session['id']);sessions.work(threading.Event())
         session=sessions.get(session['id']);self.assertEqual(session['state'],'applied',session.get('error'));self.assertTrue(clean(self.ledger))
-        entry=next(e for e in entries(load(self.ledger)) if e.get('serial-number')=='EX-001')
+        entry=next(e for e in entries(load(self.ledger)) if (e['statement'] or {}).get('serial')=='EX-001')
         self.assertEqual(entry['postings'][0]['cost'],dict(amount='120.00',commodity='USD',per='total'))
         self.assertEqual(entry['postings'][1]['commodity'],'USD')
         row={**parse_text(text)['rows'][0],'amount':'121.00'}
@@ -134,6 +133,35 @@ class CurrencyTests(Fixture):
         convert(entry,row,CARD)
         self.assertEqual(entry['postings'][0]['cost']['amount'],'121.00');self.assertEqual(entry['postings'][0]['cost']['commodity'],'USD')
         self.assertIn('replaces 120.00 USD',entry['notes'][-1])
+
+    def test_mixed_sign_foreign_postings_share_the_billed_amount_by_signed_size(self):
+        # +100 USD with a -10 USD discount, billed 7500.00 INR: shares 8333.33 and -833.33 net exactly.
+        from statement_rules import convert
+        card='Liabilities:Credit Cards:Fictional Card'
+        def entry():
+            return store_entry('0000000000000009','2026-10-29','Fictional order with a discount',
+                [posting('Expenses:Food','100.00','USD',cost=dict(amount='8000.00',commodity='INR',per='total')),
+                 posting('Expenses:Discounts','-10.00','USD',cost=dict(amount='800.00',commodity='INR',per='total')),
+                 posting(card,'-7200.00','INR')])
+        row=dict(amount='7500.00',foreignAmount='90.00',foreignCurrency='USD',direction='Debit')
+        value=entry();convert(value,row,card)
+        self.assertEqual([p['cost'] for p in value['postings'][:2]],[dict(amount='8333.33',commodity='INR',per='total'),dict(amount='833.33',commodity='INR',per='total')])
+        self.assertEqual(value['postings'][2]['amount'],'-7500.00')
+        signed=sum(Decimal(p['cost']['amount'])*(1 if Decimal(p['amount'])>0 else -1) for p in value['postings'][:2])
+        self.assertEqual(signed+Decimal(value['postings'][2]['amount']),0)
+        # Three equal postings: the leftover cent goes to one of them and the total stays exact.
+        value=store_entry('0000000000000010','2026-10-29','Fictional three items',
+            [posting('Expenses:Food','30.00','USD',cost=dict(amount='1.00',commodity='INR',per='total')) for _ in range(3)]+[posting(card,'-3.00','INR')])
+        convert(value,dict(amount='100.00',foreignAmount='90.00',foreignCurrency='USD',direction='Debit'),card)
+        self.assertEqual(sorted(p['cost']['amount'] for p in value['postings'][:3]),['33.33','33.33','33.34'])
+        # A share that can't keep its posting's sign refuses instead of writing an unbalanced entry.
+        value=store_entry('0000000000000011','2026-10-29','Fictional tiny credit',
+            [posting('Expenses:Food','100.00','USD',cost=dict(amount='1.00',commodity='INR',per='total')),
+             posting('Expenses:Discounts','-0.01','USD',cost=dict(amount='0.01',commodity='INR',per='total')),posting(card,'-1.00','INR')])
+        with self.assertRaisesRegex(ValueError,"can't be split"):
+            convert(value,dict(amount='1.00',foreignAmount='99.99',foreignCurrency='USD',direction='Debit'),card)
+        with self.assertRaisesRegex(ValueError,"opposite ways"):
+            convert(entry(),{**row,'direction':'Credit'},card)
 
     def test_printed_mismatch_and_missing_foreign_currency_stop(self):
         self.setup_currencies();sessions=Statements(self.settings)
@@ -155,7 +183,7 @@ class CurrencyTests(Fixture):
         path=self.ledger/'data/accounts.json';declared=read_json(path);declared['commodities'].remove('EUR');declared['accounts'].pop(TRAVEL);dump(path,declared)
         self.jj('commit','-m','Currency form baseline')
         answer=self.proposal(cost=False);answer.update(status='question',question='How much was charged?')
-        answer['entry']['postings'][1]['amount']='0'
+        answer['entry']['postings'][1]['amount']='0.00'
         self.set_answers(answer)
         with self.client(timeout=30) as client:
             identity=self.create(client,upload=False);self.save(client,identity)
@@ -179,8 +207,8 @@ class CurrencyTests(Fixture):
     def test_transfer_form_saves_both_amounts(self):
         self.setup_currencies();self.jj('commit','-m','Transfer form baseline')
         answer=self.proposal(cost=False);answer.update(status='question',question='How much arrived?')
-        answer['entry']['original_amount']=None
-        answer['entry']['postings']=[dict(account=BANK,amount='-1000',commodity='USD',cost=None),dict(account=TRAVEL,amount='0',commodity='EUR',cost=None)]
+        answer['entry']['original-amount']=None
+        answer['entry']['postings']=[dict(account=BANK,amount='-1000.00',commodity='USD',cost=None),dict(account=TRAVEL,amount='0.00',commodity='EUR',cost=None)]
         self.set_answers(answer)
         with self.client(timeout=30) as client:
             identity=self.create(client,upload=False);self.save(client,identity)

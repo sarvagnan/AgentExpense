@@ -60,6 +60,28 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   await expect(form.getByRole('group',{name:'Posting 2',exact:true}).getByLabel('Account',{exact:true})).toHaveAttribute('readonly','');
   await expect(form.getByLabel('Description',{exact:true})).toBeEditable();await snap('correction-statement-locked');await form.getByRole('button',{name:'Back',exact:true}).click();await page.getByRole('button',{name:'Close details'}).click();
   record('6d statement correction fields look and behave read-only');
+  if(persona==='jordan') {
+    // A ledger's own extension (Jordan's fictional "learning"): entry details list its values by field name,
+    // and Edit entry has one control per field type, saved through the same correction.
+    const fact=(section,name)=>section.locator('dt',{hasText:name}).locator('xpath=following-sibling::dd[1]');
+    await go('explorer/?month=2026-09&entry=0000000000000104');let details=page.getByRole('dialog');await expect(details).toBeVisible();
+    let learning=details.getByRole('region',{name:'Learning',exact:true});
+    await expect(fact(learning,'Course')).toHaveText('Maple Workshop pottery basics');await expect(fact(learning,'Level')).toHaveText('beginner');
+    await expect(fact(learning,'Sessions')).toHaveText('3');await expect(fact(learning,'Certificate')).toHaveText('No');await expect(learning.locator('dt',{hasText:'Next session'})).toHaveCount(0);
+    await details.getByRole('button',{name:'Edit'}).click();const group=form.getByRole('group',{name:'Learning',exact:true});
+    await expect(group.getByLabel(/^Course/)).toHaveValue('Maple Workshop pottery basics');await expect(group.getByLabel(/^Hours/)).toHaveValue('6');
+    await expect(group.getByLabel(/^Level/)).toHaveValue('beginner');await expect(group.getByLabel(/^Sessions/)).toHaveValue('3');
+    await expect(group.getByLabel(/^Certificate/)).toHaveValue('no');await expect(group.getByLabel(/^Next session/)).toHaveValue('');
+    await group.getByLabel(/^Sessions/).fill('4');await group.getByLabel(/^Next session/).fill('2026-11-20');await group.getByLabel(/^Certificate/).selectOption('yes');
+    await overflow('Edit entry with a custom extension');await snap('correction-extension');
+    await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
+    await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});
+    await refresh();await page.waitForLoadState('networkidle');await go('explorer/?month=2026-09&entry=0000000000000104');
+    details=page.getByRole('dialog');learning=details.getByRole('region',{name:'Learning',exact:true});
+    await expect(fact(learning,'Sessions')).toHaveText('4');await expect(fact(learning,'Certificate')).toHaveText('Yes');await expect(fact(learning,'Next session')).not.toHaveText('');
+    await details.getByRole('button',{name:'Close details'}).click();
+    record('6h custom extension values in entry details and per-type Edit entry controls');
+  }
   await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});await control('rules',{});await control('receipt-answer',{date:'2026-11-01',amount:'120.00'});
   await page.clock.setFixedTime(new Date('2026-11-02T12:00:00Z'));await go('add/');await words.fill('Birch rent today');
   const receipt=Buffer.from(await(await fetch(base+'__test/receipt',{method:'POST'})).arrayBuffer());await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:'Willow-receipt.png',mimeType:'image/png',buffer:receipt});await expect(page.locator('.pending-upload')).toHaveCount(0);

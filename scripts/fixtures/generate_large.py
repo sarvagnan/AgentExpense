@@ -4,8 +4,8 @@ Every person, account, merchant, amount and file here is invented. The same seed
 and options always write the same store bytes. The default writes about five
 years of one persona's entries (a journal of about 1.0–1.5 MB):
 
-    uv run --with jsonschema python scripts/fixtures/generate_large.py --dir /tmp/agentexpense-large
-    uv run --with jsonschema python scripts/fixtures/generate_large.py --entries 100000 --dir /tmp/agentexpense-stress
+    uv run --locked --project review-dashboard/server python scripts/fixtures/generate_large.py --dir /tmp/agentexpense-large
+    uv run --locked --project review-dashboard/server python scripts/fixtures/generate_large.py --entries 100000 --dir /tmp/agentexpense-stress
 
 The ledger holds several accounts in two currencies, recurring rules (fixed and
 varying) with linked payments, monthly card statements with explicit membership,
@@ -35,6 +35,8 @@ sys.path.insert(0, str(APPLICATION / 'scripts'))
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from ledger_manifest import CURRENT_FORMAT  # noqa: E402
 from store import dump  # noqa: E402
+from recurring import new_rule  # noqa: E402
+from account_metadata import complete  # noqa: E402
 
 DEFAULT_ENTRIES = 4500
 DEFAULT_SEED = 6
@@ -155,13 +157,27 @@ class Writer:
         return path
 
     def add(self, day: date, description: str, postings: list, *, status='confirmed', order=1, **fields) -> dict:
-        entry = dict(id=self.identity(), date=day.isoformat(), status=status, description=description, **fields, postings=postings)
+        entry = typed(self.identity(), day.isoformat(), description, postings, status=status, **fields)
         self.events.append((day, order, len(self.events), entry))
         return entry
 
 
-def posting(account, value, commodity='INR', **extra):
-    return dict(account=account, amount=value if isinstance(value, str) else money(value), commodity=commodity, **extra)
+def typed(identity: str, day: str, description: str, postings: list, *, status='confirmed', **fields) -> dict:
+    """A format 2 entry (docs/STORE.md): every field present, these values over empty ones."""
+    entry = {'id': identity, 'date': day, 'status': status, 'description': description, 'evidence': [], 'statement': None,
+             'references': None, 'classification': None, 'original-amount': None, 'reimbursement': None,
+             'excluded-from-estimate': None, 'extensions': {'fuel': None}, 'rule': None, 'possible-duplicate-of': [],
+             'notes': [], 'postings': postings}
+    unknown = set(fields) - set(entry)
+    if unknown:
+        raise ValueError('Unknown entry fields: ' + ', '.join(sorted(unknown)))
+    entry.update(fields)
+    return entry
+
+
+def posting(account, value, commodity='INR', *, cost=None, assertion=None):
+    return {'account': account, 'amount': value if isinstance(value, str) else money(value), 'commodity': commodity,
+            'cost': cost, 'assert': assertion, 'notes': []}
 
 
 def month_day(year: int, month: int, day: int) -> date:
@@ -186,7 +202,7 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
         posting(WALLET, '800.00'), posting(CARD, '0.00'), posting(FRIEND, '0.00'),
         posting('Equity:Opening Balances', '-611800.00'),
         posting(DOLLAR, '2400.00', 'USD'), posting('Equity:Opening Balances', '-2400.00', 'USD')],
-        order=0, sources=[w.evidence(start, 'opening-balances.md', 'Fictional opening balance confirmation.\n')])
+        order=0, evidence=[w.evidence(start, 'opening-balances.md', 'Fictional opening balance confirmation.\n')])
 
     # Recurring rules and their linked payment history.
     rules = []
@@ -213,7 +229,7 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
             entry = w.add(day, description, [posting(account, amount, currency), posting(payer, -amount, currency)],
                           rule=dict(id=rule['id'], occurrence=day.isoformat()))
             if kind != 'fixed' or rng.random() < .2:
-                entry['sources'] = [w.evidence(day, f'{description.lower().replace(" ", "-")}.md', f'Fictional bill for {description}.\n')]
+                entry['evidence'] = [w.evidence(day, f'{description.lower().replace(" ", "-")}.md', f'Fictional bill for {description}.\n')]
             rule['payments'].append(entry)
             day = add_months(day, step, anchor)
         rule['next'] = day
@@ -243,13 +259,13 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
             units = (Decimal('7500') / price).quantize(Decimal('0.001'))
             w.add(day, 'Bench Index monthly investment', [
                 posting(FUND, format(units, 'f'), FUND_UNITS, cost=dict(amount='7500.00', commodity='INR', per='total')),
-                posting(MAIN, '-7500.00')], sources=[w.evidence(day, 'bench-index-units.md', 'Fictional unit allotment.\n')])
+                posting(MAIN, '-7500.00')], evidence=[w.evidence(day, 'bench-index-units.md', 'Fictional unit allotment.\n')])
         if month.month % 3 == 0:
             day = month_day(month.year, month.month, 20)
             if start <= day <= end:
                 value = money(rng.uniform(800, 2600))
                 w.add(day, 'Northgate Design freelance invoice', [posting(DOLLAR, value, 'USD'), posting('Income:Freelance', '-' + value, 'USD')],
-                      reference=f'NG-{day:%Y%m}', sources=[w.evidence(day, 'northgate-invoice.md', 'Fictional invoice.\n')])
+                      references={'reference': f'NG-{day:%Y%m}', 'order-id': []}, evidence=[w.evidence(day, 'northgate-invoice.md', 'Fictional invoice.\n')])
         month = add_months(month, 1, 1)
 
     # Everyday spending fills the remaining count, spread evenly over the days.
@@ -273,13 +289,13 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
         value = Decimal(rng.randint(low, high)) + (Decimal(rng.randint(0, 99)) / 100 if payer != CASH else 0)
         fields = {}
         if rng.random() < .3:
-            fields['sources'] = [w.evidence(day, merchant.lower().replace(' ', '-') + '-receipt.md', f'Fictional receipt from {merchant}.\n')]
+            fields['evidence'] = [w.evidence(day, merchant.lower().replace(' ', '-') + '-receipt.md', f'Fictional receipt from {merchant}.\n')]
         if rng.random() < .1:
-            fields['order-id'] = f'ORD-{rng.randint(100000, 999999)}'
+            fields['references'] = {'reference': None, 'order-id': [f'ORD-{rng.randint(100000, 999999)}']}
         if rng.random() < .08:
             fields['notes'] = [rng.choice(['Shared with family', 'Paid at the counter', 'Weekend purchase', 'Price included delivery'])]
         if account == 'Expenses:Transport:Fuel':
-            fields['fuel-filled-litres'] = money(value / Decimal('104.5'))
+            fields['extensions'] = {'fuel': {'litres': money(value / Decimal('104.5')), 'trip-km': None}}
         status = 'pending' if day > end - timedelta(days=120) and rng.random() < .03 else 'confirmed'
         if status == 'pending':
             fields['classification'] = 'pending'
@@ -287,8 +303,7 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
         if rng.random() < .04 and payer != CASH:
             share = (value / 2).quantize(CENT)
             postings_ = [posting(account, value - share), posting(FRIEND, share), posting(payer, -value)]
-            fields['reimbursement-group'] = f'shared-{day:%Y%m}'
-            fields['reimbursement-label'] = 'Noor Halden share'
+            fields['reimbursement'] = {'group': f'shared-{day:%Y%m}', 'label': 'Noor Halden share'}
         else:
             postings_ = [posting(account, value), posting(payer, -value)]
         w.add(day, f'{merchant}', postings_, status=status, order=1, **fields)
@@ -319,8 +334,7 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
     for statement_end in ends:
         # The previous statement's total is paid on the 10th, inside this period.
         for pay_day, value in [p for p in payments if period_start <= p[0] <= statement_end]:
-            entry = dict(id=w.identity(), date=pay_day.isoformat(), status='confirmed', description='Quartz Card payment',
-                         postings=[posting(CARD, value), posting(MAIN, -value)])
+            entry = typed(w.identity(), pay_day.isoformat(), 'Quartz Card payment', [posting(CARD, value), posting(MAIN, -value)])
             by_day[entry['date']].append(entry)
         payments = [p for p in payments if p[0] > statement_end]
         members = [e for d in sorted(by_day) if period_start.isoformat() <= d <= statement_end.isoformat() for e in by_day[d]
@@ -334,13 +348,12 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
                     purchases -= value
                 else:
                     credits += value
-                entry['sources'] = [*entry.get('sources', []), source]
-                entry['serial-number'] = f'QZ-{statement_end:%Y%m}-{row:03d}'
-                entry['statement-page'] = 1 + (row - 1) // 40
-                entry['statement-end'] = statement_end.isoformat()
+                entry['evidence'] = [*entry['evidence'], source]
+                entry['statement'] = {'end': statement_end.isoformat(), 'serial': f'QZ-{statement_end:%Y%m}-{row:03d}',
+                                      'page': 1 + (row - 1) // 40, 'source-page': None, 'source-row': None}
             due = previous_due + purchases - credits
-            statements.append(dict(id=w.identity(), account=CARD, start=period_start.isoformat(), end=statement_end.isoformat(), source=source,
-                                   **{'previous-balance': money(previous_due), 'purchases': money(purchases), 'credits': money(credits),
+            statements.append(dict(kind='card', id=w.identity(), account=CARD, start=period_start.isoformat(), end=statement_end.isoformat(), source=source,
+                                   **{'previous-balance': money(previous_due), 'purchases': money(purchases), 'cash-advances': None, 'credits': money(credits),
                                       'total-due': money(due)}, rows=len(members)))
             previous_due = due
         elif statement_end in filed_ends:
@@ -362,22 +375,21 @@ def generate(root: Path, *, entries: int, seed: int, end: date) -> dict:
     for rule in rules:
         last = rule['payments'][-3:]
         value = sorted(Decimal(e['postings'][0]['amount']) for e in last)[len(last) // 2] if rule['kind'] == 'varies' else Decimal(rule['payments'][-1]['postings'][0]['amount'])
-        schedule = dict(every=rule['every'], **({'interval': rule['interval']} if rule['interval'] != 1 else {}), **{'from': rule['next'].isoformat()})
-        if rule['anchor'] != rule['next'].day:
-            schedule['anchor-day'] = rule['anchor']
-        item = dict(id=rule['id'], date=rule['next'].isoformat(), status='confirmed', description=rule['description'],
-                    schedule=schedule, origin=dict(kind='owner'),
-                    postings=[posting(rule['account'], value, rule['currency']), posting(rule['payer'], -value, rule['currency'])])
+        schedule = {'every': rule['every'], 'from': rule['next'].isoformat(), 'interval': rule['interval'],
+                    'anchor-day': rule['anchor'] if rule['anchor'] != rule['next'].day else None}
+        item = new_rule(id=rule['id'], date=rule['next'].isoformat(), status='confirmed', description=rule['description'],
+                        schedule=schedule, origin={'kind': 'owner', 'words': None, 'entry-ids': [], 'came-back': False},
+                        postings=[posting(rule['account'], value, rule['currency']), posting(rule['payer'], -value, rule['currency'])])
         if rule['kind'] == 'varies':
             item['amount'] = 'varies'
             item['notes'] = ['Amounts vary from month to month.']
         forecast.append(item)
 
-    accounts = {**{name: dict(meta, aliases=[meta['label'].lower()]) for name, meta in BALANCE_ACCOUNTS.items()},
+    accounts = {**{name: complete(name, dict(meta, aliases=[meta['label'].lower()])) for name, meta in BALANCE_ACCOUNTS.items()},
                 'Equity:Opening Balances': {}, 'Income:Salary': {}, 'Income:Interest': {}, 'Income:Freelance': {},
-                'Expenses:Uncategorized': {}}
+                'Expenses:Uncategorized': {'category': None}}
     for account in sorted({p['account'] for e in actual for p in e['postings']} | {p['account'] for r in forecast for p in r['postings']}):
-        accounts.setdefault(account, {})
+        accounts.setdefault(account, complete(account, {}))
     return dict(actual=actual, forecast=forecast, statements=statements, accounts=accounts, prices=prices,
                 start=start, files=w.files, writer=w)
 
@@ -393,13 +405,11 @@ def keep_positive(w: Writer, actual: list, start: date, end: date) -> list:
             if need > 0 and balances[account] - need < floor:
                 top = amount + need
                 top = top.quantize(Decimal(1)) + (0 if top == top.quantize(Decimal(1)) else 1)
-                result.append(dict(id=w.identity(), date=entry['date'], status='confirmed', description=description,
-                                   postings=[posting(account, top), posting(MAIN, -top)]))
+                result.append(typed(w.identity(), entry['date'], description, [posting(account, top), posting(MAIN, -top)]))
                 balances[account] += top
         if balances[FRIEND] > 5000:
             value = balances[FRIEND]
-            result.append(dict(id=w.identity(), date=entry['date'], status='confirmed', description='Noor Halden repayment',
-                               postings=[posting(MAIN, value), posting(FRIEND, -value)]))
+            result.append(typed(w.identity(), entry['date'], 'Noor Halden repayment', [posting(MAIN, value), posting(FRIEND, -value)]))
             balances[FRIEND] = Decimal(0)
         result.append(entry)
         for p in entry['postings']:
@@ -426,9 +436,9 @@ def confirmed_balances(w: Writer, actual: list, end: date) -> list:
             for account, currency, months in ((SAVINGS, 'INR', 1), (DOLLAR, 'USD', 3)):
                 if day.month % months == 0:
                     label = BALANCE_ACCOUNTS[account]['label']
-                    result.append(dict(id=w.identity(), date=day.isoformat(), status='confirmed', description=f'{label} confirmed balance',
-                                       sources=[w.evidence(day, f'{label.lower().replace(" ", "-")}-balance.md', f'Fictional {label} balance confirmation.\n')],
-                                       postings=[posting(account, '0.00', currency, **{'assert': dict(amount=money(running[account]), commodity=currency)})]))
+                    result.append(typed(w.identity(), day.isoformat(), f'{label} confirmed balance',
+                                        [posting(account, '0.00', currency, assertion=dict(amount=money(running[account]), commodity=currency))],
+                                        evidence=[w.evidence(day, f'{label.lower().replace(" ", "-")}-balance.md', f'Fictional {label} balance confirmation.\n')]))
         day = next_day
     return result
 
@@ -439,7 +449,7 @@ def audit_lines(actual: list, end: date) -> dict:
     cutoff = (end - timedelta(days=183)).isoformat()
     number = 0
     for entry in actual:
-        if entry['date'] < cutoff or entry.get('rule') or len(entry['postings']) < 2 or 'statement-end' in entry:
+        if entry['date'] < cutoff or entry['rule'] or len(entry['postings']) < 2 or (entry['statement'] or {}).get('end'):
             continue
         number += 1
         identity = format(number, '032x')
@@ -461,8 +471,8 @@ def write(root: Path, data: dict, *, seed: int, entries: int, end: date) -> None
     (root / 'data/additions').mkdir(parents=True)
     manifest = {'format': CURRENT_FORMAT, 'id': str(uuid.UUID(int=rng.getrandbits(128), version=4)),
                 'name': 'Ira Castellan (large fictional)', 'defaultCurrency': 'INR', 'locale': 'en-IN',
-                'modules': {'fuel': True, 'investments': {'prices': 'mutual-fund-nav'}, 'history': {'oldLedger': None}, 'weeklyReview': False},
-                'review': {'storageKey': None}}
+                'modules': {'investments': {'prices': 'mutual-fund-nav'}, 'history': {'oldLedger': None}, 'weeklyReview': False},
+                'extensions': {'fuel': {'ask': True}}, 'review': {'storageKey': None}}
     dump(root / 'ledger.json', manifest)
     dump(root / 'data/accounts.json', dict(commodities=['INR', 'USD', FUND_UNITS], accounts=data['accounts']))
     years = defaultdict(list)

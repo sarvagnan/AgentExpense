@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from recurring import (active, advance, candidate, detect, identity, match_text,
                        occurrence, periodic_schedules, same_payment, text_amounts)
 from generate_ledger import render_entry
+from test_ledger import entry as format2_entry, posting as full_posting, rule as format2_rule
 from hledger_oracle import calendar_dates
 
 ACCOUNTS={'Assets:Purse':dict(kind='cash',currency='EUR',label='Fern purse',aliases=['fern']),
@@ -22,21 +23,18 @@ ACCOUNTS={'Assets:Purse':dict(kind='cash',currency='EUR',label='Fern purse',alia
 
 
 def payment(identity='0000000000000001', day='2026-10-15', amount='20.00', currency='EUR', description='Willow club'):
-    return dict(id=identity,date=day,status='confirmed',description=description,
-                postings=[dict(account='Expenses:Leisure:Club',amount=amount,commodity=currency),
-                          dict(account='Assets:Purse',amount='-'+amount,commodity=currency)])
+    return format2_entry(identity, day, description=description,
+                         postings=[full_posting('Expenses:Leisure:Club', amount, currency), full_posting('Assets:Purse', '-'+amount, currency)])
 
 
 def rule(day='2026-10-15', every='month', interval=1, anchor=None):
-    r=payment();r['id']='f000000000000001';r['date']=day
-    r['schedule']=dict(every=every,interval=interval,**{'from':day})
-    if anchor: r['schedule']['anchor-day']=anchor
-    return r
+    return format2_rule('f000000000000001', day, description='Willow club', postings=payment()['postings'],
+                        schedule={'every': every, 'from': day, 'interval': interval, 'anchor-day': anchor})
 
 
 class RecurringTests(unittest.TestCase):
     def test_identity_uses_main_accounts_and_payer_not_fee_or_amount(self):
-        a=payment();b=payment(amount='21.00');b['postings'].insert(1,dict(account='Expenses:Fees',amount='1.00',commodity='EUR'))
+        a=payment();b=payment(amount='21.00');b['postings'].insert(1,full_posting('Expenses:Fees','1.00','EUR'))
         self.assertEqual(identity(a,ACCOUNTS),identity(b,ACCOUNTS))
         fees=deepcopy(a);fees['postings'][0]['account']='Expenses:Fees';self.assertIsNone(identity(fees,ACCOUNTS))
         for name in ('Tax','Discount','Rounding','Fees:Service'):
@@ -242,24 +240,24 @@ class RecurringTests(unittest.TestCase):
         for r in (rule(),{**rule(),'lifecycle':'paused'},{**rule(),'lifecycle':'ended'}):
             self.assertIsNone(candidate(latest,[old,latest],[r],ACCOUNTS,{},'2026-11-01'))
         split = deepcopy(latest)
-        split['postings'].insert(1,dict(account='Expenses:Other',amount='1.00',commodity='EUR'))
+        split['postings'].insert(1,full_posting('Expenses:Other','1.00','EUR'))
         self.assertIsNone(candidate(split,[old,split],[rule()],ACCOUNTS,{},'2026-11-01','subscription'))
         self.assertIsNone(candidate(latest,[old,latest],[],ACCOUNTS,{'never-automatic':['Expenses:Leisure']},'2026-11-01'))
         wrong=payment('0000000000000002',currency='USD');self.assertIsNone(candidate(wrong,[old,wrong],[],ACCOUNTS,{},'2026-11-01'))
         far=payment('0000000000000002',amount='22.01');self.assertIsNone(candidate(far,[old,far],[],ACCOUNTS,{},'2026-11-01'))
 
     def test_suppression_requires_two_new_payments_and_came_back(self):
-        removed=rule();removed.update(lifecycle='removed',removal=dict(date='2026-10-20',evidence=['0000000000000001']))
+        removed=rule();removed.update(lifecycle='removed',removal={'date':'2026-10-20','entry-ids':['0000000000000001']})
         old=payment();one=payment('0000000000000002','2026-11-15');two=payment('0000000000000003','2026-12-15')
         self.assertIsNone(candidate(old,[old],[removed],ACCOUNTS,{},'2026-11-01','subscription'))
         self.assertIsNone(candidate(one,[old,one],[removed],ACCOUNTS,{},'2026-11-20','subscription'))
         already_recorded_future = {**old,'date':'2026-12-15'}
         self.assertIsNone(candidate(already_recorded_future,[one,already_recorded_future],[removed],ACCOUNTS,{},'2026-12-20','subscription'))
-        found=candidate(two,[old,one,two],[removed],ACCOUNTS,{},'2026-12-20');self.assertTrue(found['automatic']);self.assertTrue(found['rule']['origin']['came_back'])
+        found=candidate(two,[old,one,two],[removed],ACCOUNTS,{},'2026-12-20');self.assertTrue(found['automatic']);self.assertTrue(found['rule']['origin']['came-back'])
         made,suggestions=detect([old,one,two],[removed],ACCOUNTS,{},'2026-12-20');self.assertEqual(len(made),1);self.assertEqual(suggestions,[])
 
 
-from test_ledger import Fixture, entry as fixture_entry
+from test_ledger import Fixture, entry as fixture_entry, rule as fixture_rule, write
 from store import dump, load, read_json
 
 
@@ -268,8 +266,8 @@ class RecurringStoreTests(Fixture):
         from generate_ledger import render
         rules=[]
         for index,life in enumerate(('active','paused','ended','removed')):
-            r=fixture_entry(identity=f'f{index:015x}',schedule={'every':'month','from':'2026-01-02'},lifecycle=life)
-            if life=='removed':r['removal']=dict(date='2026-01-02',evidence=[])
+            r=fixture_rule(identity=f'f{index:015x}',lifecycle=life)
+            if life=='removed':r['removal']={'date':'2026-01-02','entry-ids':[]}
             rules.append(r)
         dump(self.root/'data/forecast.json',rules)
         text=render(load(self.root),self.root)
@@ -278,16 +276,17 @@ class RecurringStoreTests(Fixture):
         for r in rules[1:]:self.assertNotIn(r['id'],text)
 
     def test_lifecycle_origin_removal_links_and_preferences_are_checked(self):
-        row=fixture_entry();r={**deepcopy(row),'id':'f000000000000001','schedule':dict(every='month',**{'from':row['date']}),
-                              'lifecycle':'removed','origin':dict(kind='monthly-history',evidence=[row['id']]),
-                              'created':row['date'],'removal':dict(date=row['date'],evidence=[row['id']])}
+        row=fixture_entry();r=fixture_rule('f000000000000001',row['date'],lifecycle='removed',
+                                           origin={'kind':'monthly-history','words':None,'entry-ids':[row['id']],'came-back':False},
+                                           created=row['date'],removal={'date':row['date'],'entry-ids':[row['id']]})
         row['rule']=dict(id=r['id'],occurrence=row['date'])
         dump(self.year,[row]);dump(self.root/'data/forecast.json',[r]);dump(self.root/'data/recurring-settings.json',{'never-automatic':['Expenses:Groceries']})
         self.assertEqual(load(self.root)[self.year][0]['rule'],row['rule'])
-        for patch in ({'lifecycle':'unknown'},{'removal':None},{'origin':dict(kind='owner',evidence=['0'*16])},{'schedule':dict(every='month',**{'from':row['date'],'anchor-day':32})}):
-            dump(self.root/'data/forecast.json',[{**r,**patch}])
-            with self.assertRaises(ValueError):load(self.root)
+        for patch in ({'lifecycle':'unknown'},{'removal':None},{'origin':{'kind':'owner','words':None,'entry-ids':['0'*16],'came-back':False}},
+                      {'origin':dict(kind='owner',evidence=[row['id']])},{'schedule':{'every':'month','from':row['date'],'interval':1,'anchor-day':32}}):
+            write(self.root/'data/forecast.json',[{**r,**patch}])
+            with self.subTest(patch=patch),self.assertRaises(ValueError):load(self.root)
         dump(self.root/'data/forecast.json',[r]);row['rule']['id']='a'*16;dump(self.year,[row])
         with self.assertRaisesRegex(ValueError,'rule link'):load(self.root)
-        row['rule']['id']=r['id'];dump(self.year,[row]);dump(self.root/'data/recurring-settings.json',{'never-automatic':['Expenses:Groceries'],'machine':True})
+        row['rule']['id']=r['id'];dump(self.year,[row]);write(self.root/'data/recurring-settings.json',{'never-automatic':['Expenses:Groceries'],'machine':True})
         with self.assertRaises(ValueError):load(self.root)

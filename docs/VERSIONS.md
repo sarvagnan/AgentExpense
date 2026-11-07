@@ -6,7 +6,7 @@ means and what a change to it asks of you.
 | What | Where it is declared | Current |
 | --- | --- | --- |
 | Application | `VERSION` | see the file |
-| Ledger format | `ledger.json` `format` in each ledger | 1 |
+| Ledger format | `ledger.json` `format` in each ledger | 2 |
 | Statement reader interface | `INTERFACE` in each reader module | 1 |
 | Agent adapter interface | `Description.interface_version` | 1 |
 | Audit lines | `version` on each line of `data/additions/<year>.jsonl` | 1 |
@@ -56,10 +56,13 @@ commits "Upgrade ledger format k → k+1 (app vX.Y.Z)". Going back means the pre
 application version together with the checkpoint commit. See
 [migrations/README.md](../migrations/README.md).
 
-A format can gain optional fields without a new number when older data stays
-valid and unchanged; `migrations/README.md` lists those additions. A change that
-existing data would fail, or that rewrites stored data, gets a new format number
-and a migration.
+Format 2, the typed store ([STORE.md](STORE.md)), is strict: every document holds
+every key, and an unknown key is an error. Existing data would fail a new or renamed
+store field, so such a field gets a new format number and a migration, as does
+any change that rewrites stored data. Ledger extensions ([EXTENSIONS.md](EXTENSIONS.md))
+change without a format number: `make extension-update NAME=…` brings the entries in
+step. Format 1 could gain optional fields without a new number; `migrations/README.md`
+keeps those additions as history.
 
 ## Statement readers
 

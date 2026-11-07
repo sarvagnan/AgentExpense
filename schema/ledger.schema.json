@@ -7,12 +7,13 @@
     "format",
     "id",
     "name",
-    "defaultCurrency"
+    "defaultCurrency",
+    "extensions"
   ],
   "properties": {
     "format": {
       "type": "integer",
-      "const": 1
+      "const": 2
     },
     "id": {
       "type": "string",
@@ -41,10 +42,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "fuel": {
-          "type": "boolean",
-          "default": false
-        },
         "investments": {
           "anyOf": [
             {
@@ -81,6 +78,26 @@
         "weeklyReview": {
           "type": "boolean",
           "default": false
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "The extensions this ledger uses, in order: built-in ones from the application's extensions/ and the ledger's own from its extensions/ (docs/EXTENSIONS.md). ask: whether the Add agent fills its agent fields.",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ask"
+        ],
+        "properties": {
+          "ask": {
+            "type": "boolean"
+          }
         }
       }
     },

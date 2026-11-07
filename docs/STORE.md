@@ -1,26 +1,36 @@
 # The ledger store, format 2
 
-> **Status: design for approval (step 6h, part 2).** The app still reads and
-> writes format 1 (`schema/store.schema.json`). Nothing reads format 2 yet. The
-> migration, the readers and writers and `CURRENT_FORMAT` change only after the
-> owner approves this design.
-
 A ledger keeps its financial data as JSON under `data/`. Format 2 gives every
 entry, posting and recurring rule one typed shape. Every key is always present,
 and an empty value is `null` or `[]`.
 
 The shape is defined once, as pydantic v2 models in
-[`scripts/ledger/store_models.py`](../scripts/ledger/store_models.py). These files
-are generated from the models and checked in; a test fails when they are out of date:
+[`scripts/ledger/store_models.py`](../scripts/ledger/store_models.py). Python reads
+and writes every store document through them (`scripts/ledger/store.py`): `load`
+validates each document and then the checks that span documents, and `dump`
+validates a whole document before writing it. The dashboard build validates the
+same documents in Node against the generated schema (`ledger-manifest.mjs`).
 
-- `schema/store-2.schema.json`: every store document;
-- `schema/answer-2.schema.json`: the Add agent's answer, with the fuel module on;
-- `schema/answer-2-without-fuel.schema.json`: the same answer, with the fuel module off.
+Facts that only some people record, such as fuel readings, are **extensions**: a
+group of typed fields that a ledger adds to every entry by listing it in
+`ledger.json`. [EXTENSIONS.md](EXTENSIONS.md) describes them. A ledger's models
+and schema are the core composed with the extensions it lists.
+
+These files are generated from the models and checked in; a test fails when they
+are out of date:
+
+- `schema/store.schema.json`: every store document of a ledger without extensions
+  (the core);
+- `schema/answer.schema.json`: the Add agent's answer for a ledger that asks for no
+  extension (the core);
+- `schema/extension-definition.schema.json`: an extension definition;
+- `schema/extension-types.json`: each extension field type's JSON Schema, which
+  Python and Node both use to compose a ledger's schema.
 
 To regenerate them:
 
 ```sh
-uv run --locked --directory review-dashboard/server python ../../scripts/ledger/store_models.py --write
+uv run --locked --project review-dashboard/server python scripts/ledger/store_models.py --write
 ```
 
 `--check` exits non-zero when a checked-in schema is out of date.
@@ -45,8 +55,8 @@ The schema's `x-documents` names the definition that validates each file.
 - **Empty values.** A value that can be empty is `null`, or `[]` for a list.
   A boolean's empty value is `false`.
 - **Groups.** A few related facts form a group, such as `statement`, `references`
-  or `fuel`. A group is `null` when none of its facts is known. It is never an
-  object whose values are all `null`.
+  or an extension's fields. A group is `null` when none of its facts is known. It
+  is never an object whose values are all `null` or `[]`.
 - **Names** are kebab-case.
 - **Amounts** are exact decimal text, never JSON numbers. Trailing zeros are kept
   as written.
@@ -55,8 +65,9 @@ The schema's `x-documents` names the definition that validates each file.
 - **Key order** is the order in the tables below. Writers serialise through the
   models, so files stay byte-stable and diffs stay small.
 - **Layout.** UTF-8 without escapes, two-space indentation and a final newline.
-  Each posting, and each object that holds only plain values, sits on one line.
-  A list of strings has one item per line.
+  Each posting, and each object that holds only plain values (text, numbers,
+  `true`, `false`, `null`, `[]` or `{}`), sits on one line. A list of strings
+  has one item per line.
 
 ### Types
 
@@ -90,8 +101,8 @@ fields the agent sets, so the prompt and the answer schema can't drift from the 
 | `person` | A person's own action outside the answer: Review decisions, rule actions, Delete and Restore, setup commands. |
 | `history` | Kept from older data. No current writer sets it, and every writer keeps it unchanged. |
 
-A field of a module, marked `x-module`, is part of the answer only while that
-module is on. Today that is only `fuel`.
+An extension field's setters follow its definition: `filled-by: agent` gives
+`agent` and `person`, `filled-by: person` gives `person` only.
 
 ## Entry
 
@@ -108,10 +119,9 @@ One actual entry in `data/expenses/<year>.json`.
 | `references` | Identifiers on the evidence (see below). | group | agent, statement | `null` |
 | `classification` | A short note on how the expense was classified. | line | agent | `null` |
 | `original-amount` | The amount in another currency, as printed, when the payment was converted. | money | agent, statement | `null` |
-| `fuel` | Fuel readings (fuel module). | group | agent | `null` |
 | `reimbursement` | The reimbursement this entry belongs to. | object | history | `null` |
-| `policy-term-years` | The number of years a policy payment covers. | positive | history | `null` |
 | `excluded-from-estimate` | Leaves the entry out of the variable-spending estimate. | object | history | `null` |
+| `extensions` | One group per extension `ledger.json` lists, in that order (see [EXTENSIONS.md](EXTENSIONS.md)). | object | agent, person | `{}` |
 | `rule` | The recurring rule occurrence this entry pays. | object | server, person | `null` |
 | `possible-duplicate-of` | Unsettled possible duplicates, sorted by ID. | list | statement, person, server | `[]` |
 | `notes` | Comment lines, in order. | list of note | agent, statement, person, server | `[]` |
@@ -134,13 +144,16 @@ One actual entry in `data/expenses/<year>.json`.
 | Field | Meaning | Type | Set by |
 |---|---|---|---|
 | `reference` | A payment or bank reference printed on the evidence. | line or `null` | agent, statement |
-| `order-id` | The payee's order or invoice number. | line or `null` | agent |
+| `order-id` | The payee's order or invoice numbers, in order. | unique list of line, `[]` when none | agent |
+
+The group is `null` when `reference` is `null` and `order-id` is `[]`.
 
 **`original-amount`** (money): `amount` (number, as printed) and `commodity`
 (code). Both are set by the agent or a statement.
 
-**`fuel`** (fuel module, set by the agent): `litres` and `trip-km`. Each is a
-number or `null`.
+**`extensions`**: an object with one key per extension `ledger.json` lists, in
+that order; `{}` when it lists none. Each value is that extension's group (its
+fields in definition order, each `null` when unknown) or `null`.
 
 **`reimbursement`** (history): `group` is the identifier shared by the entries
 of one reimbursement (line). `label` is its display label (line or `null`).
@@ -203,13 +216,12 @@ One rule in `data/forecast.json`. Its postings hold the estimate for one occurre
 | `classification` | Carried by older rules. | line | history | `null` |
 | `original-amount` | Carried by older rules. | money | history | `null` |
 | `reimbursement` | Carried by older rules. | object | history | `null` |
-| `policy-term-years` | Years a policy payment covers. | positive | history | `null` |
 | `excluded-from-estimate` | Left out of the variable-spending estimate. | object | history | `null` |
 | `notes` | Comment lines, in order. | list of note | person | `[]` |
 | `postings` | The estimated postings of one occurrence. | list of posting | person, server | never |
 
-A rule has no `statement`, `fuel`, `rule` or `possible-duplicate-of`. Those
-describe a payment that happened.
+A rule has no `statement`, `extensions`, `rule` or `possible-duplicate-of`.
+Those describe a payment that happened.
 
 **`schedule`**:
 
@@ -288,36 +300,50 @@ verbatim, as a unique list. `accounts` maps each declared name, in order, to its
 
 The answer is an envelope around the entry fields whose setters include `agent`.
 The model is derived from the entry model (`store_models.answer_model`), and so
-is the posting inside it.
+is the posting inside it. Every name is kebab-case; the status value
+`not_expense` keeps its spelling.
 
 | Field | Meaning | Empty |
 |---|---|---|
 | `status` | `ready`, `question` or `not_expense`. | never |
 | `question` | One short question when the status is `question`. | `null` |
-| `entry` | `date`, `status`, `description`, `references`, `classification`, `original-amount`, `fuel` (fuel module only), `notes` and `postings`. Each posting has `account`, `amount`, `commodity` and `cost` (`amount`, `commodity`). | `null` |
+| `entry` | `date`, `status`, `description`, `references`, `classification`, `original-amount`, `extensions` (only when the ledger asks for an extension), `notes` and `postings`. Each posting has `account`, `amount`, `commodity` and `cost` (`amount`, `commodity`). | `null` |
 | `new-accounts` | Accounts the entry uses that aren't declared yet. | `[]` |
 | `doubts` | Anything the person should check. | `[]` |
 | `attachment-names` | One descriptive base name per attachment, without folder or extension. | `[]` |
 | `explanation` | One short reason when the status is `not_expense`. | `null` |
 
-Any other field, such as `statement`, `id`, `evidence` or `rule`, or a posting's
-`assert`, fails validation. A failed answer is retried like any other error. When
-the server stores the entry it fills in the rest:
+`entry.extensions` holds only the extensions `ledger.json` lists with
+`"ask": true`, each with only its `agent` fields, each group or `null`. The
+answer leaves `extensions` out when the ledger asks for none.
+
+Amounts use the store's pattern: a posting amount always has a decimal point
+(`120.00`, never `120`). Any other field, such as `statement`, `id`, `evidence`
+or `rule`, a posting's `assert`, a cost's `per`, an extension the ledger doesn't
+ask for or a `person` field fails validation. A failed answer goes back to the
+agent under "Server check failures to correct", like any other check failure.
+When the server stores the entry it fills in the rest:
 
 - `id`;
 - `evidence`, from the files it filed for `attachment-names`;
 - `rule`;
 - a cost's `per` (always `total`);
+- every listed extension's group, with `person` fields `null`;
 - `null` or `[]` everywhere else.
 
 The answer schema has no `x-` annotations. Every object in it has
 `additionalProperties: false` and lists all its properties as required, as
 strict structured output expects.
 
-## Checks on one entry (planned model validators)
+**The hand form and Edit entry** use the same envelope (`store_models.form_model`)
+with every listed extension (asked or not) and every one of its fields, so a
+person can edit `person` fields there, plus optional `account-metadata` for new
+balance-sheet accounts.
 
-Once the design is approved, part 2 adds these as model validators. They need
-nothing outside the entry:
+## Checks on one entry (model validators)
+
+These are model validators. They need nothing outside the entry, so every read
+and every write runs them:
 
 - **Exact balance per commodity.** The postings sum to exactly zero in each
   commodity, with no rounding tolerance.
@@ -330,38 +356,42 @@ nothing outside the entry:
 - **Statement row.** `statement.end` requires `serial` and `page`.
 - **Duplicate links.** Targets are unique, sorted, and greater than the entry's own ID.
 - **Rules.**
-  - `date` equals `schedule.from`.
+  - `date` equals `schedule.from`, and every rule balances exactly.
   - A removed rule has `removal`.
   - `amount: "varies"` and `bill` keep their format 1 conditions: a simple
     two-posting payment in one currency, a positive bill, and the current occurrence.
   - A rule's postings have no `assert`.
 
-Checks across entries stay in part 3's checker. These include ID uniqueness,
+Checks across entries stay in `store.validate` and `check_store.py` (part 3 of
+step 6h replaces them with the JSON strict check). These include ID uniqueness,
 declared accounts and commodities, account currencies, balance assertions,
-statement membership, rule references and evidence files.
+statement membership, rule references, evidence files and extension groups that
+match `ledger.json`.
 
-## The journal is unchanged
+## The journal
 
-Format 2 renders exactly the same hledger journal as format 1. The comment lines
-come out in the same order:
+Format 2 renders the same hledger journal as format 1. The comment lines come
+out in this order:
 
 1. `id:`;
 2. one `source:` line per `evidence` item;
 3. then `serial-number` (`statement.serial`), `source-row`, `source-page`,
    `statement-page` (`statement.page`), `statement-end` (`statement.end`),
-   `reference`, `order-id`, `classification`, `original amount`,
-   `fuel-filled-litres` (`fuel.litres`), `trip-km`, `reimbursement-group`,
-   `reimbursement-label`, `variable-estimate` (rendered `excluded, <reason>`) and
-   `policy-term` (rendered `N year(s)`);
-4. then `notes`.
+   `reference`, one `order-id` per value, `classification`, `original amount`;
+4. each listed extension's values, in `ledger.json` order and then field order,
+   under their `journal-tag` (fuel's `fuel-filled-litres` and `trip-km` keep
+   their format 1 place);
+5. then `reimbursement-group`, `reimbursement-label`, `variable-estimate`
+   (rendered `excluded, <reason>`);
+6. then `notes`.
 
 A `null` field renders nothing, as an absent field did in format 1.
 
 ## Examples (fictional)
 
-An Add with the fuel module on:
+An Add in a ledger that lists the fuel extension:
 
-<!-- example: Entry -->
+<!-- example: Entry fuel -->
 ```json
 {
   "id": "000000000000a001",
@@ -372,13 +402,14 @@ An Add with the fuel module on:
     "Bills/2026-06-18/Fable-Fuels-Receipt.jpg"
   ],
   "statement": null,
-  "references": {"reference": "TXN-55120", "order-id": null},
+  "references": {"reference": "TXN-55120", "order-id": []},
   "classification": null,
   "original-amount": null,
-  "fuel": {"litres": "8.00", "trip-km": "240.0"},
   "reimbursement": null,
-  "policy-term-years": null,
   "excluded-from-estimate": null,
+  "extensions": {
+    "fuel": {"litres": "8.00", "trip-km": "240.0"}
+  },
   "rule": null,
   "possible-duplicate-of": [],
   "notes": [],
@@ -390,7 +421,7 @@ An Add with the fuel module on:
 ```
 
 A foreign purchase billed on a card statement, which pays a rule occurrence and
-has an unsettled possible duplicate:
+has an unsettled possible duplicate (a ledger without extensions):
 
 <!-- example: Entry -->
 ```json
@@ -404,13 +435,18 @@ has an unsettled possible duplicate:
     "Bills/2026-10-28/mosaic-statement.pdf"
   ],
   "statement": {"end": "2026-10-28", "serial": "MC-014", "page": 2, "source-page": null, "source-row": null},
-  "references": {"reference": null, "order-id": "CS-88213"},
+  "references": {
+    "reference": null,
+    "order-id": [
+      "CS-88213",
+      "CS-88214"
+    ]
+  },
   "classification": null,
   "original-amount": {"amount": "48.00", "commodity": "USD"},
-  "fuel": null,
   "reimbursement": null,
-  "policy-term-years": 1,
   "excluded-from-estimate": {"reason": "forecast separately"},
+  "extensions": {},
   "rule": {"id": "000000000000b001", "occurrence": "2026-10-02"},
   "possible-duplicate-of": [
     {"id": "000000000000a003", "reason": "dissimilar-name"}
@@ -442,10 +478,9 @@ A confirmed closing balance from a filed statement:
   "references": null,
   "classification": null,
   "original-amount": null,
-  "fuel": null,
   "reimbursement": null,
-  "policy-term-years": null,
   "excluded-from-estimate": null,
+  "extensions": {},
   "rule": null,
   "possible-duplicate-of": [],
   "notes": [],
@@ -493,7 +528,6 @@ A varying rule with a saved bill:
   "classification": null,
   "original-amount": null,
   "reimbursement": null,
-  "policy-term-years": null,
   "excluded-from-estimate": null,
   "notes": [
     "Amounts vary with household use."
@@ -505,9 +539,10 @@ A varying rule with a saved bill:
 }
 ```
 
-The agent's answer for a USD purchase on an INR card:
+The agent's answer for a USD purchase on an INR card, in a ledger that asks for
+the fuel extension:
 
-<!-- example: Answer -->
+<!-- example: Answer fuel -->
 ```json
 {
   "status": "ready",
@@ -516,10 +551,10 @@ The agent's answer for a USD purchase on an INR card:
     "date": "2026-10-02",
     "status": "confirmed",
     "description": "Cedar Studio annual plan",
-    "references": {"reference": null, "order-id": "CS-88213"},
+    "references": {"reference": null, "order-id": ["CS-88213"]},
     "classification": null,
     "original-amount": null,
-    "fuel": null,
+    "extensions": {"fuel": null},
     "notes": [],
     "postings": [
       {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "48.00", "commodity": "USD", "cost": {"amount": "4123.20", "commodity": "INR"}},
@@ -535,10 +570,30 @@ The agent's answer for a USD purchase on an INR card:
 }
 ```
 
+## Dashboard data
+
+The dashboard build reads format 2 and keeps its own JSON shapes, with these
+additions and changes:
+
+- `dashboard.json` `meta.ledger` is the normalised manifest: `format` 2 and
+  `extensions` instead of `modules.fuel`;
+- `meta.accounts` carries account metadata in full (`null` labels, `[]` aliases);
+- `meta.extensions` lists the definitions of the listed extensions (name, `ask`,
+  description and fields), and each transaction has `extensions`, its groups;
+- `add-patterns.json` `rules` are format 2 rules (with the dashboard's extra
+  fields) and `payments` carries account metadata in full;
+- Forecast's "Left out of the estimate" no longer shows an "N-year policy" note:
+  a policy term is now an extension value.
+
+The fuel screens (the Review Fuel Log, the Fuel Add pattern and its litres
+suggestions, the Help paragraph and `fuel-log.json`) switch on when the ledger
+lists the `fuel` extension.
+
 ## Format 1 to format 2
 
-Every format 1 field and where it goes. "Same" means the name and value are
-unchanged. The only difference is that the key is always present.
+`make upgrade-ledger` runs `migrations/0002_typed_store.py`. Every format 1
+field and where it goes ("same" means the name and value are unchanged; the key
+is always present):
 
 ### Entries and rules
 
@@ -552,15 +607,15 @@ unchanged. The only difference is that the key is always present.
 | `source-page` | `statement.source-page` | grouped |
 | `source-row` | `statement.source-row` | grouped |
 | `reference` | `references.reference` | grouped |
-| `order-id` | `references.order-id` | grouped |
+| `order-id`, and repeats kept in `notes` as `order-id: …` | `references.order-id` | a list, in order; the repeat notes go |
 | `classification` | same | `null` when absent |
 | `original-amount` | same | `null` when absent |
-| `fuel-filled-litres` | `fuel.litres` | grouped |
-| `trip-km` | `fuel.trip-km` | grouped |
+| `fuel-filled-litres` | `extensions.fuel.litres` | the fuel extension |
+| `trip-km` | `extensions.fuel.trip-km` | the fuel extension |
 | `reimbursement-group` | `reimbursement.group` | grouped |
 | `reimbursement-label` | `reimbursement.label` | grouped |
 | `variable-estimate: {excluded: true, reason}` | `excluded-from-estimate: {reason}` | renamed; the constant `excluded` is dropped |
-| `policy-term: {years}` | `policy-term-years` | flattened |
+| `policy-term: {years}` | `extensions.policy.term-years` | a ledger extension, `policy`, made only when an entry has one |
 | `rule` | same | `null` when absent |
 | `possible-duplicate-of` (absent when none) | same | `[]` when none |
 | `notes` (absent when none) | same | `[]` when none |
@@ -589,10 +644,13 @@ unchanged. The only difference is that the key is always present.
 | `assert: {amount, commodity}` | same | `null` when absent |
 | `notes` | same | `[]` when none |
 
-### Other documents
+### `ledger.json` and other documents
 
 | Format 1 | Format 2 | Change |
 |---|---|---|
+| `format: 1` | `format: 2` | raised |
+| `modules.fuel: true` (or entries with fuel readings) | `extensions: {"fuel": {"ask": true}}` | the fuel extension; `ask` is `false` when the module was off but entries held readings |
+| (none) | `extensions: {}` | always present |
 | accounts `commodities`, `accounts` | same | none |
 | Income or Equity metadata `{}` | same | none |
 | Expenses metadata `{}` or `{category}` | `{category}` | `category` is `null` when absent |
@@ -603,13 +661,10 @@ unchanged. The only difference is that the key is always present.
 | account `statement.identifier`, `statement.options` | same | `null` when absent |
 | card statement (no `kind`) | `kind: "card"` | added |
 | card statement `cash-advances` (absent when zero) | same | `null` when absent |
-| other card statement fields | same | none |
 | bank statement `source-balance-style` | same | `null` when absent |
 | bank statement `assertion-id` | same | `null` when absent (debt-style only) |
-| other bank statement fields | same | none |
 | statement member `reference`, `balance`, `entry-id` | same | `null` when absent |
 | statement member `review-candidates` | same | `[]` when absent |
-| other statement member fields | same | none |
 | recurring settings `never-automatic` | same | none |
 | trash `removed_at`, `added_at` | `removed-at`, `added-at` | kebab-case; `added-at` is `null` when absent |
 | trash `rule_changes`, `duplicate_links` | `rule-changes`, `duplicate-links` | kebab-case; typed |
@@ -617,40 +672,53 @@ unchanged. The only difference is that the key is always present.
 | trash `id`, `reason`, `index`, `files`, `kept` | same | none |
 
 Audit lines in `data/additions/` aren't store documents and are never rewritten.
-Snapshots in older lines keep the format 1 shape. Any code that replays one, for
-example a rule's `before` and `after`, converts it on read.
+Snapshots in older lines keep the format 1 shape; code that replays one (a
+rule's `before` and `after`, a paid bill) converts it on read
+(`scripts/ledger/format1.py`). New lines carry format 2 snapshots, and the
+answers they record use the kebab-case envelope.
 
-## Format 1 shapes that need a decision at migration
+### What the migration converts, refuses and declares
 
-The migration converts every other shape mechanically. For each of these it
-reports counts, and stops unless an option or the owner's decision covers the case:
+The migration converts every other shape mechanically and prints counts only
+(no names, amounts, dates, descriptions, account names or paths):
 
-1. **"First occurrence only" labels.** Format 1 kept the first `serial-number`,
-   `reference`, `order-id`, `classification`, `reimbursement-*`, `statement-end`
-   or similar label as a field. Any repeat stayed in `notes` as `label: value`.
-   - Format 2 has one value per field, so a repeated label is an error at
-     migration, unless the owner says that label really repeats.
-   - Where it does, the field becomes a list.
-   - The journal changes only in comment order.
-2. **Unit costs that don't balance exactly.** A per-unit cost (`@`) that doesn't
-   make the entry sum to exactly zero becomes a `total` cost (`@@`).
-   - The total is the exact amount that balances the entry, which is what hledger inferred.
-   - The journal line changes from `@` to `@@`. Native-commodity reports are
-     unchanged, and cost reports may move by the old rounding residue.
-   - The migration reports how many it changed. New purchases always save a total cost.
-3. **Other entries that don't balance exactly per commodity.** These stop the
-   migration with their IDs. No conversion is guessed.
-4. **Rules that carry entry-only fields.** These are statement fields, fuel
-   readings, a `rule` link or `possible-duplicate-of`, which format 2 rules don't
-   have. Each is reported, and it stops the migration.
-5. **Rule postings with an assertion.** Reported; stops the migration.
-6. **`reimbursement-label` without `reimbursement-group`.** Reported; stops the migration.
-7. **Line breaks in text that renders into the journal.** These can't exist in a
-   ledger whose journal passes hledger. Reported; stops the migration.
+- **Unit costs that don't balance exactly** become the `total` cost that makes the
+  entry balance exactly (`@` becomes `@@` in the journal; native-commodity reports
+  are unchanged and at-cost reports may move by the old rounding residue). When
+  several unit-cost postings in one commodity share the residue, each becomes its
+  value rounded to the places of the entry's other postings in that commodity, and
+  the leftover steps go to the largest remainders, so the totals add up exactly and
+  none moves by more than one step. A unit cost that already balances exactly stays.
+  The migration counts both.
+- **An origin kind spelled with spaces** (`subscription words`, from older ledgers)
+  is respelled with hyphens. Counted.
+- **A repeated `order-id`** becomes a list. The journal prints every value in the
+  `order-id` slot, which is where format 1 printed them unless other comment lines
+  sat between; the migration counts entries whose comment lines move.
+- **A policy term** moves into the `policy` extension; its journal line changes from
+  `policy-term: 5 years` to `policy-term: 5`, in the extension slot. Counted.
+- **Empty strings** in `classification`, `reference`, `order-id`, `serial-number`,
+  `reimbursement-group` and `reimbursement-label` become `null`, and empty paths leave
+  `evidence`; format 1 printed an empty comment line for them, format 2 prints none.
+  Counted as "empty values cleared".
+- **Fuel** is listed only when `modules.fuel` was on.
 
-These are kept as they are, and counted only for the record:
+It stops with a count per kind, and writes nothing, for:
 
-- entries that cite the same evidence twice;
-- app-written notes with a fixed prefix (`statement merchant:`, `statement charge:`,
-  `statement printed date:`, `Currency estimate:`). Moving them into fields would
-  reorder the journal's comment lines.
+1. a repeat of any other label in `notes`;
+2. a repeated `order-id` with the same value;
+3. an entry or rule that doesn't balance exactly in each commodity and isn't an
+   inexact unit cost, or several unit costs in one commodity whose rounded totals
+   can't make up the rest of the entry (mixed signs, or off by more than one step each);
+4. a rule that carries a statement field, a fuel reading, a policy term, a `rule`
+   link or `possible-duplicate-of`, or a rule posting with an assertion;
+5. `reimbursement-label` without `reimbursement-group` (an empty group with a label included);
+6. entries with fuel readings in a ledger without the fuel module;
+7. anything else the format 2 models refuse (for example, a line break in text the
+   journal prints), named by the kind of document only (entries, rules, statements,
+   accounts, trash, …), never a file, year or value.
+
+The upgrade runner compares the journal and hledger reports with format 1's own
+rendering: identical, except the entries the migration declares (converted unit
+costs, policy terms, moved order-ids, cleared empty values), whose blocks are compared by count, and
+the at-cost balance when unit costs were converted.

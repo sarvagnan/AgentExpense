@@ -8,7 +8,7 @@ from unittest.mock import patch
 from support import Fixture, ready
 from agent import prompt_for
 from draft_time import client_context, saved_local, server_zone
-from transactions import message_for
+from transactions import message_for, to_store
 from outcomes import draft_event
 from test_agent import pdf_bytes
 
@@ -81,7 +81,8 @@ class DraftTimeTests(Fixture):
                     for instruction in ('undated entries', '"yesterday"', '"last Friday"', "draft's local Saved date"):
                         self.assertIn(instruction, prompt)
                     proposal = ready()
-                    message = message_for(self.settings, draft, proposal['entry'], [], proposal)
+                    entry, _, _ = to_store(proposal, self.ledger, len(proposal['attachment-names'] or ()))
+                    message = message_for(self.settings, draft, entry, [], proposal)
                     self.assertIn('\nSaved: ' + expected + '\n', message)
                     audit = draft_event(draft, 'added')
                     self.assertEqual({k: audit[k] for k in context}, context)
@@ -113,7 +114,7 @@ class DraftTimeTests(Fixture):
                                  datetime.fromisoformat(draft['saved_at'])).total_seconds()), 1)
 
     def test_legacy_failed_draft_loads_and_retries_using_original_instant(self):
-        proposal = ready(); proposal['attachment_names'] = []
+        proposal = ready(); proposal['attachment-names'] = []
         self.set_answers(proposal)
         with self.client(worker=False) as client:
             identity = self.create(client, upload=False)

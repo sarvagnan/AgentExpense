@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 from datetime import date
 import re
 from statement_readers import signed, money_text, card_debt
-from store import entries
+from store import entries, posting
 from reconcile_statement import activity, card_amount
 
 
@@ -29,6 +29,11 @@ def possible_overlap(one, two):
     return True
 
 
+def identifiers(entry):
+    """The printed reference and statement serial an entry carries (None when absent)."""
+    return ((entry['references'] or {}).get('reference'), (entry['statement'] or {}).get('serial'))
+
+
 def bank_plan(documents, statement, root, start_date=None):
     account, rows = statement['account'], statement['rows']
     actual = {e['id']: e for e in entries(documents)}
@@ -39,7 +44,7 @@ def bank_plan(documents, statement, root, start_date=None):
     filed_ids = {m['entry-id'] for m in previous}
     currency = documents[root/'data/accounts.json']['accounts'][account]['currency']
     used, result = set(), []
-    ordered = sorted(rows, key=lambda r: (not (r.get('reference') and any(r['reference'] in (e.get('reference'), e.get('serial-number')) for e in available)), not bool(r.get('foreignAmount'))))
+    ordered = sorted(rows, key=lambda r: (not (r.get('reference') and any(r['reference'] in identifiers(e) for e in available)), not bool(r.get('foreignAmount'))))
     for row in ordered:
         item = dict(row=row, rule='needs_you', why='No safe precedent. Choose an account, or keep this row pending for Review.', entry_id=None, entry_description=None, postings=None, needs_user=True, decision=None, candidates=[])
         member = current.get(row['serial'])
@@ -65,13 +70,13 @@ def bank_plan(documents, statement, root, start_date=None):
         if not overlaps and row.get('foreignAmount'):
             foreign_matches = []
             for e in available:
-                if e['id'] in used or e['id'] in filed_ids or e.get('statement-end') or abs((date.fromisoformat(e['date'])-date.fromisoformat(row['date'])).days) > 3 or (card_amount(e,account) < 0) != (row['direction']=='Debit'):
+                if e['id'] in used or e['id'] in filed_ids or (e['statement'] or {}).get('end') or abs((date.fromisoformat(e['date'])-date.fromisoformat(row['date'])).days) > 3 or (card_amount(e,account) < 0) != (row['direction']=='Debit'):
                     continue
                 original = e.get('original-amount')
                 if original is None:
                     totals = {}
                     for p in e['postings']:
-                        if p['commodity'] != currency and p.get('cost',{}).get('commodity') == currency:
+                        if p['commodity'] != currency and (p.get('cost') or {}).get('commodity') == currency:
                             totals[p['commodity']] = totals.get(p['commodity'],Decimal(0))+Decimal(p['amount'])
                     if len(totals)==1:
                         code,value = next(iter(totals.items()))
@@ -87,10 +92,10 @@ def bank_plan(documents, statement, root, start_date=None):
         for e in available:
             if e['id'] in used or card_amount(e, account) != signed(row):
                 continue
-            if card_debt(statement) and (e['id'] in filed_ids or e.get('statement-end')):
+            if card_debt(statement) and (e['id'] in filed_ids or (e['statement'] or {}).get('end')):
                 continue
             distance = abs((date.fromisoformat(e['date']) - date.fromisoformat(row['date'])).days)
-            reference = row.get('reference') and row['reference'] in (e.get('reference'), e.get('serial-number'))
+            reference = row.get('reference') and row['reference'] in identifiers(e)
             if e['id'] in filed_ids and e['id'] not in overlaps and not reference:
                 continue
             if distance > 31 and not reference and e['id'] not in overlaps:
@@ -118,15 +123,15 @@ def bank_plan(documents, statement, root, start_date=None):
             if precedent:
                 template = max(precedent,key=lambda e:e['date'])
                 postings = None
-                if len(template['postings']) == 2 and all(p['commodity'] == documents[root/'data/accounts.json']['accounts'][account]['currency'] and not any(k in p for k in ('cost','assert','date')) for p in template['postings']):
+                if len(template['postings']) == 2 and all(p['commodity'] == documents[root/'data/accounts.json']['accounts'][account]['currency'] and not p['cost'] and not p['assert'] for p in template['postings']):
                     other = next(p for p in template['postings'] if p['account'] != account)
                     currency = other['commodity']
-                    postings = [dict(account=other['account'],amount=money_text(-signed(row)),commodity=currency),dict(account=account,amount=money_text(signed(row)),commodity=currency)]
+                    postings = [posting(other['account'],money_text(-signed(row)),currency),posting(account,money_text(signed(row)),currency)]
                 if postings:
                     item.update(rule='booked_before',why='Same description as a confirmed earlier entry; use its accounts.',postings=postings,needs_user=False)
         result.append(item)
     result.sort(key=lambda item: next(i for i,r in enumerate(rows) if r['serial']==item['row']['serial']))
     # A card's earlier billed purchases are settled by their own statement,
     # whatever their dates; only unbilled entries can be missing from this one.
-    billed = filed_ids | {e['id'] for e in available if e.get('statement-end')} if card_debt(statement) else set()
+    billed = filed_ids | {e['id'] for e in available if (e['statement'] or {}).get('end')} if card_debt(statement) else set()
     return dict(items=result, unmatched=[dict(entry_id=e['id'],date=e['date'],description=e['description'],amount=str(card_amount(e, account))) for e in available if e['id'] not in used and e['id'] not in billed and e['date'] <= statement['periodEnd']], counts=dict(Counter(i['rule'] for i in result)))

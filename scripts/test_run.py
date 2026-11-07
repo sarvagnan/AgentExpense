@@ -62,6 +62,7 @@ def configure(root):
     environment=APPLICATION/'review-dashboard/server/.venv'
     if environment.is_dir():
         os.environ['VIRTUAL_ENV']=str(environment)
+        os.environ['LEDGER_PYTHON']=str(environment/'bin/python')
         os.environ['PATH']=str(environment/'bin')+os.pathsep+os.environ.get('PATH','')
     os.environ.setdefault('DASHBOARD_DATA_DIR',str(root/'dashboard-data'))
     tempfile.tempdir = str(root/'tmp')

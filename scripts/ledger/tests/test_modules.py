@@ -28,8 +28,14 @@ class ModuleTests(Fixture):
         manifest['modules'] = modules
         dump(self.root / 'ledger.json', manifest)
 
+    def extensions(self, **listed):
+        manifest = read_json(self.root / 'ledger.json')
+        manifest['extensions'] = listed
+        dump(self.root / 'ledger.json', manifest)
+        dump(self.year, [{**item, 'extensions': {name: None for name in listed}} for item in read_json(self.year)])
+
     def test_defaults_and_explicit_off(self):
-        self.assertEqual(module_settings(read_manifest(self.root)), dict(fuel=False, investments={'prices': None}, history={'oldLedger': None}, weeklyReview=False))
+        self.assertEqual(module_settings(read_manifest(self.root)), dict(investments={'prices': None}, history={'oldLedger': None}, weeklyReview=False))
         self.modules(investments=False)
         self.assertIs(read_manifest(self.root)['modules']['investments'], False)
         for invalid in (True, 0, '', [], {'unexpected': True}):
@@ -38,7 +44,7 @@ class ModuleTests(Fixture):
                 read_manifest(self.root)
 
     def test_off_store_and_journal_do_not_open_module_files(self):
-        self.modules(fuel=False, investments=False, weeklyReview=False)
+        self.modules(investments=False, weeklyReview=False)
         for relative in ('data/fuel-log.json', prices.PRICE_PATH, 'data/prices/fund-sources.json'):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,7 +60,7 @@ class ModuleTests(Fixture):
             self.assertNotIn('include data/prices', render(documents, self.root))
             self.assertFalse(prices.update(self.root))
             self.assertIn('off', summary(self.root))
-        self.assertIn('WARNING: fuel is off', output.getvalue())
+        self.assertIn('does not list the fuel extension', output.getvalue())
 
     def test_manual_prices_preserve_journal_without_a_fetch_source(self):
         path = self.root / prices.PRICE_PATH
@@ -80,7 +86,7 @@ class ModuleTests(Fixture):
             check_price_coverage(load(self.root), self.root)
 
     def test_fuel_on_requires_and_checks_log(self):
-        self.modules(fuel=True)
+        self.extensions(fuel={'ask': True})
         with self.assertRaises(FileNotFoundError):
             check(self.root)
         path = self.root / 'data/fuel-log.json'

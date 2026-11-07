@@ -6,7 +6,7 @@ import sys
 
 from PIL import Image
 
-from support import Fixture, ready, SERVER
+from support import Fixture, ready, SERVER, entry as store_entry, posting
 from agent import prepare, prompt_for, run
 
 
@@ -120,7 +120,7 @@ class AgentInputTests(Fixture):
                 self.assertIn(text, prompt)
             self.assertNotIn('## Rebuild and verify', prompt)
             self.assertIn('not_expense', call['schema']['properties']['status']['enum'])
-            self.assertIn('attachment_names', call['schema']['required'])
+            self.assertIn('attachment-names', call['schema']['required'])
             self.assertFalse(Path(call['cwd']).exists())
 
 
@@ -144,9 +144,7 @@ class LookupTests(Fixture):
 
     def test_mcp_exchange_all_history_and_cutoff_exclude(self):
         from store import dump
-        entries = [dict(id=f'{i:016x}', date=day, status='confirmed', description='Cafe ' + day,
-                        postings=[dict(account='Expenses:Food', amount='100.00', commodity='INR'),
-                                  dict(account='Assets:Cash', amount='-100.00', commodity='INR')])
+        entries = [store_entry(f'{i:016x}', day, 'Cafe ' + day, [posting('Expenses:Food', '100.00'), posting('Assets:Cash', '-100.00')])
                    for i, day in enumerate(('2026-10-28', '2026-10-29', '2026-10-30'), 1)]
         dump(self.ledger / 'data/expenses/2026.json', entries)
         result = self.exchange()

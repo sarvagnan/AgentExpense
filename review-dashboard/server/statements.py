@@ -19,7 +19,7 @@ from draft_time import client_context, ensure_context
 from settings import APPLICATION
 from transactions import Transaction, jj, clean, refresh
 from ledger_lock import ledger_lock, LOCK_FD_ENV
-from store import load, entries, dump, new_id, store_paths
+from store import load, entries, dump, empty_entry, new_id, posting as store_posting, store_paths
 from add_entry import add_entry
 from audit import event, append, audit_path
 sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
@@ -52,9 +52,9 @@ def statement_opening(documents, root, statement):
         balance += sum((signed(r) for r in statement['rows'] if r['date'] < opening_date), Decimal(0))
     path = root/'data/expenses'/f"{opening_date[:4]}.json"
     used = {e['id'] for e in entries(documents)}
-    row = dict(id=new_id(used), date=opening_date, status='confirmed', description='Statement starting balance',
-               postings=[dict(account=account, amount=money_text(balance), commodity=currency, **{'assert':dict(amount=money_text(balance),commodity=currency)}),
-                         dict(account='Equity:Opening Balances', amount=money_text(-balance), commodity=currency)])
+    row = empty_entry(root, id=new_id(used), date=opening_date, status='confirmed', description='Statement starting balance',
+                      postings=[store_posting(account, money_text(balance), currency, assertion=dict(amount=money_text(balance), commodity=currency)),
+                                store_posting('Equity:Opening Balances', money_text(-balance), currency)])
     documents[root/'data/accounts.json']['accounts'].setdefault('Equity:Opening Balances',{})
     documents.setdefault(path,[]).append(row)
     return row
@@ -251,23 +251,23 @@ class Statements:
         assigned = session.get('assigned_account')
         if assigned and session.get('reader_config'):
             config = deepcopy(session['reader_config'])
-            expected = metadata[assigned].get('statement',{}).get('identifier')
+            expected = (metadata[assigned].get('statement') or {}).get('identifier')
             if expected:
                 config['identifier'] = expected
             metadata[assigned] = {**metadata[assigned], 'statement':config}
         if session.get('agent_requested'):
             return self.read_agent(session, cancel=cancel)
-        if suffix == '.pdf' and (not assigned or metadata[assigned].get('statement', {}).get('reader', 'example-card-pdf') == 'example-card-pdf'):
+        if suffix == '.pdf' and (not assigned or (metadata[assigned].get('statement') or {}).get('reader', 'example-card-pdf') == 'example-card-pdf'):
             # Keep the example PDF's identifier and mismatch behavior. Personal
             # PDF readers take precedence only when configured and recognised.
-            configured = {m.get('statement',{}).get('reader') for m in metadata.values()}
+            configured = {(m.get('statement') or {}).get('reader') for m in metadata.values()}
             personal = [r for r in registry.readers.values() if not assigned and r.personal and r.id in configured and r.recognise(path)['confidence'] > 0]
             if not personal:
                 return self.read_card(session, cancel=cancel)
         documents = load(self.ledger)
         candidates = []
         for account, meta in metadata.items():
-            config = meta.get('statement', {})
+            config = meta.get('statement') or {}
             if not config.get('reader') or assigned and account != assigned:
                 continue
             reader = registry.get(config['reader'])
@@ -287,7 +287,7 @@ class Statements:
                     parsed = candidate_reader.read(path, metadata[candidate])
                     printed = parsed.get('identifier',parsed.get('card_last4'))
                     printed_currency = parsed.get('currency')
-                    if ((printed and printed == metadata[candidate].get('statement',{}).get('identifier')) or printed_currency) and (not printed_currency or printed_currency == metadata[candidate]['currency']):
+                    if ((printed and printed == (metadata[candidate].get('statement') or {}).get('identifier')) or printed_currency) and (not printed_currency or printed_currency == metadata[candidate]['currency']):
                         identified.append((candidate,candidate_reader,recognition))
                 except (ValueError,KeyError,TypeError,OSError):
                     continue
@@ -301,7 +301,7 @@ class Statements:
         meta = metadata[account]
         statement = reader.read(path, meta)
         identifier = statement.get('identifier', statement.get('card_last4'))
-        if identifier and meta.get('statement',{}).get('identifier') not in (None,identifier):
+        if identifier and (meta.get('statement') or {}).get('identifier') not in (None,identifier):
             raise ValueError('The printed identifier does not match the selected account')
         statement.update(account=account, accountLabel=meta.get('label') or account.split(':')[-1], accountAssigned=bool(assigned), readerConfig=deepcopy(meta['statement']))
         session.update(reader=reader.id, reader_name=reader.name, recognition=recognition, reader_config=deepcopy(meta['statement']))
@@ -375,7 +375,7 @@ class Statements:
             import tempfile
             from statement_reading import extract
             with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP','/tmp'), prefix='expense-statement-reuse-') as temporary:
-                task['_statement_source'] = extract(path, Path(temporary), meta.get('statement', {}).get('options'), render_images=False)
+                task['_statement_source'] = extract(path, Path(temporary), (meta.get('statement') or {}).get('options'), render_images=False)
             answer = saved
         else:
             if getattr(self, 'agent_pause', None) and self.agent_pause.blocked():
@@ -590,7 +590,7 @@ class Statements:
                 locale = meta.get('locale') or read_manifest(self.ledger).get('locale', 'en')
                 path = safe_source(self.ledger, self.folder(s['id'])/('read'+s.get('file_suffix', '.pdf')))
                 with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-statement-replan-') as temporary:
-                    source = extract(path, Path(temporary), meta.get('statement', {}).get('options'), render_images=False)
+                    source = extract(path, Path(temporary), (meta.get('statement') or {}).get('options'), render_images=False)
                     statement = verify(s['agent_answer'], source, meta, locale)
                 statement.update(account=account, accountLabel=meta.get('label') or account.split(':')[-1], accountAssigned=True)
                 with ledger_lock(self.ledger):
@@ -764,7 +764,7 @@ class StatementTransaction(Transaction):
                 raise ValueError('The statement source changed; read it again before applying')
             meta = documents[self.root/'data/accounts.json']['accounts'][statement['account']]
             with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP','/tmp'),prefix='expense-statement-check-') as temporary:
-                source = extract(path,Path(temporary),meta.get('statement',{}).get('options'),render_images=False)
+                source = extract(path,Path(temporary),(meta.get('statement') or {}).get('options'),render_images=False)
                 verified = verify(s['agent_answer'],source,meta,meta.get('locale') or read_manifest(self.root).get('locale','en'))
             for key in ('rows','periodStart','periodEnd','currency','openingBalance','closingBalance','debits','credits'):
                 if verified[key] != statement[key]:
@@ -792,7 +792,7 @@ class StatementTransaction(Transaction):
             raise ValueError('This reconciliation file already exists')
         opening = statement_opening(documents, self.root, statement)
         if opening:
-            opening['sources'] = [source]
+            opening['evidence'] = [source]
         record = event('statement', statement={**statement,'source':source}, counts=s['plan']['counts'], decisions=s['decisions'], entry_ids=[], extraction=s['extraction'], runs=s['runs'])
         journal = self.snapshot([*store_paths(self.root), self.root/'expense_ledger.ledger', target, reconciliation, audit_path(self.root,record),
                                  *{self.root / 'data/expenses' / (i['row']['date'][:4]+'.json') for i in checklist},
@@ -815,32 +815,32 @@ class StatementTransaction(Transaction):
                     if item['rule']=='foreign_currency' and (not decision or decision['action']=='conversion'):
                         convert(entry,row,account)
                     if entry['date']!=row['date']:
-                        entry.setdefault('notes',[]).append(f"statement printed date: {row['date']}; replaces recorded date {entry['date']}")
+                        entry['notes'].append(f"statement printed date: {row['date']}; replaces recorded date {entry['date']}")
                         entry['date']=row['date']
                     changed.append(identity)
                 else:
                     if decision:
                         amount=Decimal(row['amount'])*(1 if row['direction']=='Debit' else -1)
-                        posting=dict(account=decision['account'],amount=f'{amount:.2f}',commodity=currency)
+                        line=store_posting(decision['account'],f'{amount:.2f}',currency)
                         if row.get('foreignAmount'):
                             original=Decimal(row['foreignAmount'])*(1 if row['direction']=='Debit' else -1)
-                            posting.update(amount=f'{original:.2f}',commodity=row['foreignCurrency'],cost=dict(amount=row['amount'],commodity=currency,per='total'))
-                        postings=[posting,dict(account=account,amount=f'{-amount:.2f}',commodity=currency)]
+                            line.update(amount=f'{original:.2f}',commodity=row['foreignCurrency'],cost=dict(amount=row['amount'],commodity=currency,per='total'))
+                        postings=[line,store_posting(account,f'{-amount:.2f}',currency)]
                     else:
                         postings=deepcopy(item['postings'])
                     if not postings:
                         raise ValueError('New row has no approved postings')
-                    entry=dict(date=row['date'],status='pending' if decision and decision['action']=='pending' else 'confirmed',description=row['description'],postings=postings)
+                    entry=empty_entry(self.root,date=row['date'],status='pending' if decision and decision['action']=='pending' else 'confirmed',description=row['description'],postings=postings)
                     if row.get('foreignAmount'):
                         entry['original-amount']=dict(amount=f"{Decimal(row['foreignAmount']):.2f}",commodity=row['foreignCurrency'])
                     new_entries.append(entry)
                     if decision and decision['action'] == 'pending' and item.get('candidates'):
                         uncertain.append((entry, item['candidates']))
-                entry.update({'statement-end':statement['periodEnd'],'serial-number':row['serial'],'statement-page':row['page']})
-                entry.setdefault('sources',[])
-                if source not in entry['sources']:
-                    entry['sources'].append(source)
-                entry.setdefault('notes',[]).extend(['statement merchant: '+row['description'],f"statement charge: {row['amount']} {currency} ({row['direction']})"])
+                entry['statement']={**(entry['statement'] or {'source-page':None,'source-row':None}),'end':statement['periodEnd'],'serial':row['serial'],'page':row['page']}
+                entry['statement']={key:entry['statement'][key] for key in ('end','serial','page','source-page','source-row')}
+                if source not in entry['evidence']:
+                    entry['evidence'].append(source)
+                entry['notes'].extend(['statement merchant: '+row['description'],f"statement charge: {row['amount']} {currency} ({row['direction']})"])
             # Re-sort all years after printed-date corrections; preserve IDs and
             # relocate a cross-year match rather than leaving it in the old file.
             actual = list(actuals.values())
@@ -853,20 +853,19 @@ class StatementTransaction(Transaction):
                     documents[path]=sorted((e for e in actual if e['date'][:4]==year),key=lambda e:e['date'])
             declared=documents[self.root/'data/accounts.json']
             if any(p['account']=='Expenses:Uncategorized' for e in new_entries for p in e['postings']):
-                declared['accounts'].setdefault('Expenses:Uncategorized', {})
+                declared['accounts'].setdefault('Expenses:Uncategorized', {'category': None})
             supported = json.loads((APPLICATION/'schema/currencies.json').read_text())
             registered = {directive.split()[0].strip(chr(34)) for directive in declared['commodities']}
             for entry in new_entries:
                 for posting in entry['postings']:
-                    for code in (posting['commodity'],posting.get('cost',{}).get('commodity')):
+                    for code in (posting['commodity'],(posting.get('cost') or {}).get('commodity')):
                         if code in supported and code not in registered:
                             declared['commodities'].append(code)
                             registered.add(code)
             used_ids={e['id'] for items in documents.values() if isinstance(items,list) for e in items if 'id' in e}
-            summary=dict(id=new_id(used_ids),account=account,start=statement['periodStart'],end=statement['periodEnd'],source=source,
-                         **{'previous-balance':statement['previousBalance'],'purchases':statement['purchasesCharges'],'credits':statement['paymentsCredits'],'total-due':statement['totalDue'],'rows':len(statement['rows'])})
-            if Decimal(statement.get('cashAdvances','0')):
-                summary['cash-advances']=statement['cashAdvances']
+            advances=statement['cashAdvances'] if Decimal(statement.get('cashAdvances') or '0') else None
+            summary=dict(kind='card',id=new_id(used_ids),account=account,start=statement['periodStart'],end=statement['periodEnd'],source=source,
+                         **{'previous-balance':statement['previousBalance'],'purchases':statement['purchasesCharges'],'cash-advances':advances,'credits':statement['paymentsCredits'],'total-due':statement['totalDue'],'rows':len(statement['rows'])})
             documents[self.root/'data/card-statements.json'].append(summary)
             for path, document in documents.items():
                 dump(path,document)

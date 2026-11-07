@@ -24,8 +24,8 @@ from agent_check import fixture,OfflineFailure,PolicyFailure
 from agent_gate import AgentGate,fingerprint
 from settings import Settings,APPLICATION
 
-ANSWER={'status':'not_expense','question':None,'entry':None,'new_accounts':[],
-        'doubts':[],'attachment_names':[],'explanation':'Fictional offline document'}
+ANSWER={'status':'not_expense','question':None,'entry':None,'new-accounts':[],
+        'doubts':[],'attachment-names':[],'explanation':'Fictional offline document'}
 SCHEMA={'type':'object','additionalProperties':False,'required':['value'],'properties':{'value':{'type':'string'}}}
 
 

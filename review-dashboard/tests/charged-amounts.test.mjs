@@ -7,8 +7,10 @@ import {disposableDashboard, temporaryDirectory} from './test-isolation.mjs';
 import {toTransaction} from '../scripts/expense-store.mjs';
 import {balanceAccounts} from '../app/account-balances.ts';
 import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
+import * as store from './store-fixtures.mjs';
 
-const posting = (account, amount, commodity, cost) => ({account, amount: String(amount), commodity, ...(cost ? {cost} : {})});
+// Builder arithmetic on unit costs: these stores need no exact balance in Node, which reads what Python checked.
+const posting = (account, amount, commodity, cost) => store.posting(account, typeof amount === 'number' ? amount.toFixed(2) : amount, commodity, cost ? {cost} : {});
 const cost = (amount, commodity) => ({amount: String(amount), commodity, per: 'unit'});
 const purchase = (currency = 'INR', rate = '83.3333333333', sign = 1) => [
   ...['Food', 'Software', 'Other'].map(category => posting(`Expenses:${category}`, sign, 'USD', cost(rate, currency))),
@@ -22,12 +24,12 @@ async function build(t, postings, {accounts = {}, rules = [], status = 'pending'
   const copy = await disposableDashboard(join(work, 'copy')), root = join(work, 'ledger');
   await mkdir(join(root, 'data/expenses'), {recursive: true});
   const write = (file, value) => writeFile(join(root, file), JSON.stringify(value));
-  await write('ledger.json', {format: CURRENT_FORMAT, id: '00000000-0000-4000-8000-000000000006', name: 'Charged amount fixture', defaultCurrency: 'INR', locale: 'en-IN'});
-  await write('data/accounts.json', {commodities: ['INR', 'USD', 'GBP', 'EUR', 'CHF'], accounts: {
+  await write('ledger.json', store.manifest({id: '00000000-0000-4000-8000-000000000006', name: 'Charged amount fixture', locale: 'en-IN'}));
+  await write('data/accounts.json', {commodities: ['INR', 'USD', 'GBP', 'EUR', 'CHF'], accounts: store.accounts({
     Pocket: {kind: 'card', currency: 'INR'}, Friend: {kind: 'person', currency: 'INR'},
     'Expenses:Food': {}, 'Expenses:Software': {}, 'Expenses:Other': {}, ...accounts,
-  }});
-  await write('data/expenses/2026.json', [{id: '0000000000000001', date: '2026-10-10', status, description: 'Fictional multi-line purchase', postings}]);
+  })});
+  await write('data/expenses/2026.json', [store.entry({id: '0000000000000001', date: '2026-10-10', status, description: 'Fictional multi-line purchase', postings})]);
   await write('data/forecast.json', rules);
   for (const script of ['build-dashboard-data', 'build-review-data', 'build-add-patterns', 'check-dashboard-data']) {
     execFileSync(process.execPath, [join(copy.dash, 'scripts', `${script}.mjs`)], {env: {...copy.env, LEDGER_DIR: root}, stdio: 'pipe'});
@@ -54,7 +56,7 @@ function assertCharge(data, currency, charged) {
 test('foreign multi-line charges and refunds retain the pre-currency builder amounts and Review sums', async t => {
   for (const sign of [1, -1]) {
     const postings = purchase('INR', '83.3333333333', sign);
-    const normalized = toTransaction({id: '0000000000000001', date: '2026-10-10', status: 'pending', postings});
+    const normalized = toTransaction(store.entry({id: '0000000000000001', date: '2026-10-10', status: 'pending', postings}));
     assert.equal(round(normalized.postings.slice(0, 3).reduce((sum, p) => sum + p.cost, 0)), sign * 249.99);
     // The old builder inferred one rate from the card amount, even with explicit costs.
     const charged = sign * 250;
@@ -92,9 +94,8 @@ test('separately funded currencies retain their own charge and allocations', asy
 });
 
 test('foreign forecast commitments and recurring shares allocate the actual charge', async t => {
-  const rule = {id: '0000000000000002', date: '2026-11-01', status: 'confirmed', description: 'Fictional foreign commitment',
-    schedule: {every: 'month', from: '2026-11-01'}, postings: [posting('Expenses:Food', 1, 'USD', cost('83.3333333333', 'INR')),
-      posting('Expenses:Software', 1, 'USD', cost('83.3333333333', 'INR')), posting('Pocket', -166.67, 'INR')]};
+  const rule = store.rule({id: '0000000000000002', date: '2026-11-01', description: 'Fictional foreign commitment', postings: [posting('Expenses:Food', 1, 'USD', cost('83.3333333333', 'INR')),
+      posting('Expenses:Software', 1, 'USD', cost('83.3333333333', 'INR')), posting('Pocket', -166.67, 'INR')]});
   const data = await build(t, purchase(), {rules: [rule]});
   assertCharge(data, 'INR', 250);
   assert.equal(data.dashboard.months[0].recurring, 166.67);

@@ -5,14 +5,15 @@ from collections import Counter
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
 
-from store import read_json, store_paths, load
+from store import canonical_text, dump, read_json, store_paths, load, write_text
 from generate_ledger import render
 from project_paths import APPLICATION_ROOT
-from ledger_manifest import CURRENT_FORMAT
+from ledger_manifest import CURRENT_FORMAT, ordered_manifest
 from node_toolchain import node_environment
 
 BASELINE_FILE = 'outputs.json'
@@ -40,6 +41,51 @@ def strip_header(journal):
     return ''.join(lines)
 
 
+def _older(root, ledger, value, format_zero_settings):
+    """Make the scratch ``ledger`` format 2, and return format 1's own rendering of its actual entries.
+
+    A migration baseline is an older ledger. Its journal is compared as format 1
+    rendered it; its dashboard is built from the format 2 conversion, because
+    this app reads only the current format.
+    """
+    import format1
+    if value is None:
+        # Format 0 has no metadata. Migration comparisons supply the exact
+        # proposed settings so both sides classify unchanged entries identically.
+        from account_metadata import infer_kind, is_balance_sheet
+        documents = {p: read_json(p) for p in store_paths(ledger)}
+        declarations = documents[ledger / 'data/accounts.json']
+        if format_zero_settings is None:
+            postings = [p for path, rows in documents.items() if path.parent.name == 'expenses' or path.name == 'forecast.json' for row in rows for p in row['postings']]
+            counts = Counter(p.get('cost', p)['commodity'] for p in postings if is_balance_sheet(p['account']))
+            default = counts.most_common(1)[0][0] if counts else 'INR'
+            metadata = {}
+            for account in declarations['accounts']:
+                units = {p['commodity'] for p in postings if p['account'] == account}
+                metadata[account] = {'kind': infer_kind(account) or 'person', 'currency': next(iter(units)) if len(units) == 1 else default} if is_balance_sheet(account) else {}
+            settings = dict(format=1, id='00000000-0000-4000-8000-000000000000', name='Comparison', defaultCurrency=default)
+            declarations = {**declarations, 'accounts': metadata}
+        else:
+            settings, declarations = format_zero_settings
+            settings = {**settings, 'format': 1}
+        format1.dump(ledger / 'ledger.json', settings)
+        format1.dump(ledger / 'data/accounts.json', declarations)
+        value = settings
+    lines = {entry['id']: format1.render_entry(entry) for path in sorted((ledger / 'data/expenses').glob('*.json'))
+             for entry in read_json(path)}
+    upgraded, documents, definitions, counts = format1.convert(ledger, {**value, 'format': 1})
+    problems = sorted(key[8:] for key in counts if key.startswith('problem:'))
+    if problems:
+        raise ValueError('The older ledger can\'t be read as format 2: ' + ', '.join(problems))
+    # Read as the current format, like an older typed store (snapshot).
+    write_text(ledger / 'ledger.json', canonical_text(ordered_manifest({**upgraded, 'format': CURRENT_FORMAT}), flat=False))
+    for name, definition in definitions.items():
+        write_text(ledger / 'extensions' / f'{name}.json', json.dumps(definition, indent=2, ensure_ascii=False) + '\n')
+    for relative, document in documents.items():
+        dump(ledger / relative, document, ledger)
+    return lambda entry: lines[entry['id']]
+
+
 def snapshot(root, *, format_zero_settings=None):
     """Build in scratch space; neither the source ledger nor app outputs are written."""
     with tempfile.TemporaryDirectory(prefix='expense-outputs-', dir=os.environ.get('EXPENSES_TEST_TMP','/tmp')) as folder:
@@ -47,42 +93,22 @@ def snapshot(root, *, format_zero_settings=None):
         ledger = scratch / 'ledger'
         # Only source data is needed. Never copy repository metadata, drafts or auth.
         shutil.copytree(root / 'data', ledger / 'data')
+        if (root / 'extensions').is_dir():
+            shutil.copytree(root / 'extensions', ledger / 'extensions')
         manifest = root / 'ledger.json'
-        if manifest.exists():
-            # This app reads only the current format. An older manifest (a migration
-            # baseline) is compared as if current; a migration whose settings change
-            # the outputs declares that change instead.
-            value = read_json(manifest)
-            if isinstance(value, dict) and type(value.get('format')) is int and 0 < value['format'] < CURRENT_FORMAT:
-                from store import dump
-                dump(ledger / 'ledger.json', {**value, 'format': CURRENT_FORMAT})
-            else:
-                shutil.copyfile(manifest, ledger / 'ledger.json')
-            documents = load(ledger)
+        value = read_json(manifest) if manifest.exists() else None
+        actual_lines = None
+        older = value is None or isinstance(value, dict) and type(value.get('format')) is int and value['format'] < CURRENT_FORMAT
+        if older and (value is None or value['format'] < 2):
+            # Formats 0 and 1 predate the typed store: convert them, keeping their own journal lines.
+            actual_lines = _older(root, ledger, value, format_zero_settings)
+        elif older:
+            # A typed store from an older format reads as the current one; its manifest gains the current number.
+            write_text(ledger / 'ledger.json', canonical_text(ordered_manifest({**value, 'format': CURRENT_FORMAT}), flat=False))
         else:
-            # Format-0 has no metadata. Migration comparisons supply the exact
-            # proposed settings so both sides classify unchanged entries identically.
-            from account_metadata import infer_kind, is_balance_sheet
-            from store import dump
-            documents = {p: read_json(p) for p in store_paths(ledger)}
-            declarations = documents[ledger / 'data/accounts.json']
-            if format_zero_settings is None:
-                postings = [p for path, rows in documents.items() if path.parent.name == 'expenses' or path.name == 'forecast.json' for row in rows for p in row['postings']]
-                counts = Counter(p.get('cost', p)['commodity'] for p in postings if is_balance_sheet(p['account']))
-                default = counts.most_common(1)[0][0] if counts else 'INR'
-                metadata = {}
-                for account in declarations['accounts']:
-                    units = {p['commodity'] for p in postings if p['account'] == account}
-                    metadata[account] = {'kind': infer_kind(account) or 'person', 'currency': next(iter(units)) if len(units) == 1 else default} if is_balance_sheet(account) else {}
-                settings = dict(format=CURRENT_FORMAT, id='00000000-0000-4000-8000-000000000000', name='Comparison', defaultCurrency=default)
-                declarations = {**declarations, 'accounts': metadata}
-            else:
-                settings, declarations = format_zero_settings
-                settings = {**settings, 'format': CURRENT_FORMAT}
-            dump(ledger / 'ledger.json', settings)
-            dump(ledger / 'data/accounts.json', declarations)
-            documents[ledger / 'data/accounts.json'] = declarations
-        journal = render(documents, ledger)
+            shutil.copyfile(manifest, ledger / 'ledger.json')
+        documents = load(ledger)
+        journal = render(documents, ledger, actual_lines=actual_lines)
         journal_path = ledger / 'expense_ledger.ledger'
         journal_path.write_text(journal)
         result = {'journal': strip_header(journal)}
@@ -93,7 +119,9 @@ def snapshot(root, *, format_zero_settings=None):
                 raise ValueError(f'Unable to generate {name} output.')
             result[name] = run.stdout
         application = scratch / 'application'
-        for relative in ['scripts/project-paths.mjs', 'scripts/dashboard-data.mjs', 'schema/currency-minor-units.json', 'schema/ledger.schema.json', 'schema/store.schema.json', 'schema/currencies.json', 'schema/recurring-locales.json']:
+        for relative in ['scripts/project-paths.mjs', 'scripts/dashboard-data.mjs', 'schema/currency-minor-units.json', 'schema/ledger.schema.json',
+                         'schema/store.schema.json', 'schema/extension-types.json', 'schema/extension-definition.schema.json', 'schema/currencies.json', 'schema/recurring-locales.json',
+                         *(str(path.relative_to(APPLICATION_ROOT)) for path in sorted((APPLICATION_ROOT / 'extensions').glob('*.json')))]:
             target = application / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(APPLICATION_ROOT / relative, target)
@@ -152,13 +180,35 @@ def normalize(value, ignores):
     return value
 
 
-def compare(left, right, ignores=(), *, emit=True):
+ID_LINE = re.compile(r'^\s*; id: ([0-9a-f]{16})$', re.M)
+
+
+def without_entries(text, identities):
+    """The text without the blank-line separated blocks of these entry IDs, and how many were removed."""
+    blocks = text.split('\n\n')
+    kept = [block for block in blocks if not set(ID_LINE.findall(block)) & identities]
+    return '\n\n'.join(kept), len(blocks) - len(kept)
+
+
+def compare(left, right, ignores=(), *, emit=True, allowed=None):
+    """Compare outputs. ``allowed`` maps a declared change kind to the entry IDs whose
+    journal and print blocks may change; unit-cost conversions may also move the at-cost balance."""
     left, right = normalize(left, ignores), normalize(right, ignores)
+    allowed = {kind: set(ids) for kind, ids in (allowed or {}).items()}
+    identities = set().union(*allowed.values()) if allowed else set()
     passed = True
     for key in sorted(left.keys() | right.keys()):
         a, b = left.get(key), right.get(key)
+        note = ''
+        if key in ('journal', 'print') and identities and isinstance(a, str) and isinstance(b, str):
+            a, removed = without_entries(a, identities)
+            b, _ = without_entries(b, identities)
+            note = f' ({removed} entries changed as declared)'
         same = a == b
-        passed &= same
+        if key == 'bal-cost' and not same and allowed.get('unit-cost'):
+            note = ' (declared: converted unit costs)'
+            same = None
+        passed &= same is not False
         if isinstance(a, str) and isinstance(b, str):
             count = sum((Counter(a.splitlines()) - Counter(b.splitlines())).values()) + sum((Counter(b.splitlines()) - Counter(a.splitlines())).values())
             if not same and not count:  # Reordered lines still differ.
@@ -172,8 +222,8 @@ def compare(left, right, ignores=(), *, emit=True):
                 return int(x != y)
             count, unit = differences(a, b), 'entries'
         if emit:
-            print(f'{"PASS" if same else "FAIL"} {key}: {count} {unit} differing')
-    return passed
+            print(f'{"PASS" if same else "DECLARED" if same is None else "FAIL"} {key}: {count} {unit} differing{note}')
+    return bool(passed)
 
 
 def load_outputs(path):

@@ -113,7 +113,7 @@ export async function disposableDashboard(work = undefined) {
   const application = join(work, 'application'), dash = join(application, 'review-dashboard');
   const filter = path => !['node_modules', 'dist', '.venv', '__pycache__', '.git', '.jj', '.source-ledger.json'].includes(path.split(sep).at(-1));
   await mkdir(application, { recursive: true });
-  for (const name of ['scripts', 'schema', 'migrations', 'policy', 'templates', 'Makefile', '.node-version', 'VERSION']) await cp(join(sourceApplication, name), join(application, name), { recursive: true, filter });
+  for (const name of ['scripts', 'schema', 'extensions', 'migrations', 'policy', 'templates', 'Makefile', '.node-version', 'VERSION']) await cp(join(sourceApplication, name), join(application, name), { recursive: true, filter });
   // Copy the source and published data; a fixture refresh/build overwrites only this copy.
   for (const name of ['app', 'public', 'scripts', 'tests', 'server', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'index.html']) {
     await cp(join(sourceDashboard, name), join(dash, name), { recursive: true, filter });
@@ -127,9 +127,9 @@ export async function disposableDashboard(work = undefined) {
     if (!name.startsWith('.vite')) await symlink(join(sourceDashboard, 'node_modules', name), join(modules, name));
   }
   // The direct Python launcher must also activate its installed environment for
-  // nested `uv run --with jsonschema` in make commit/verify, even offline.
+  // the ledger tools make commit/verify run (LEDGER_PYTHON), even offline.
   const venv = join(sourceDashboard, 'server/.venv');
-  return { application, dash, env: { ...process.env, VIRTUAL_ENV: venv,
+  return { application, dash, env: { ...process.env, VIRTUAL_ENV: venv, LEDGER_PYTHON: join(venv, 'bin/python'),
     PATH: `${join(venv, 'bin')}${delimiter}${process.env.PATH || ''}`,
     EXPENSES_TEST_APPLICATION: application, DASHBOARD_DATA_DIR: dash, npm_config_update_notifier: 'false',
     LEDGER_DIR: resolve(process.env.LEDGER_DIR || join(sourceApplication, 'ledger')) } };

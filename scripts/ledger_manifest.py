@@ -7,7 +7,7 @@ import re
 from datetime import date
 from project_paths import APPLICATION_ROOT, ledger_root
 
-CURRENT_FORMAT = 1
+CURRENT_FORMAT = 2
 
 
 def app_version():
@@ -21,9 +21,12 @@ def ordered_manifest(value):
         return {key: document[key] for key in keys if key in document} | {
             key: document[key] for key in sorted(document.keys() - set(keys))}
     result = arrange(value, ('format', 'id', 'name', 'defaultCurrency', 'locale',
-                             'startDate', 'modules', 'review'))
+                             'startDate', 'modules', 'extensions', 'review'))
     if 'modules' in result:
-        result['modules'] = arrange(result['modules'], ('fuel', 'investments', 'history', 'weeklyReview'))
+        result['modules'] = arrange(result['modules'], ('investments', 'history', 'weeklyReview'))
+    if isinstance(result.get('extensions'), dict):
+        result['extensions'] = {name: arrange(value, ('ask',)) if isinstance(value, dict) else value
+                                for name, value in result['extensions'].items()}
     return result
 
 
@@ -58,6 +61,9 @@ def validate_manifest(value, schema, field='ledger.json'):
             except ValueError:
                 raise ValueError(f'Invalid {field}.') from None
     if kind == 'object':
+        if 'propertyNames' in schema:
+            for key in value:
+                validate_manifest(key, schema['propertyNames'], field)
         for key in schema.get('required', []):
             if key not in value:
                 raise ValueError(f'Invalid {field}: missing {key}.')
@@ -68,6 +74,9 @@ def validate_manifest(value, schema, field='ledger.json'):
                     raise ValueError(f'Invalid {field}: unexpected {key}.')
             else:
                 validate_manifest(item, properties[key], field + '.' + key)
+                continue
+            if isinstance(schema.get('additionalProperties'), dict):
+                validate_manifest(item, schema['additionalProperties'], field + '.' + key)
 
 
 @lru_cache(maxsize=1)
@@ -106,11 +115,15 @@ def read_manifest(root=None, *, check_format=True):
 def module_settings(manifest):
     """One normalized module contract, also usable with an omitted modules object."""
     value = manifest.get('modules', {})
-    return {'fuel': value.get('fuel', False),
-            'investments': False if value.get('investments') is False else
+    return {'investments': False if value.get('investments') is False else
                 {'prices': value.get('investments', {}).get('prices')},
             'history': {'oldLedger': value.get('history', {}).get('oldLedger')},
             'weeklyReview': value.get('weeklyReview', False)}
+
+
+def has_extension(manifest, name):
+    """Whether ledger.json lists an extension (fuel's screens switch on with it)."""
+    return name in (manifest.get('extensions') or {})
 
 
 def price_source(manifest):

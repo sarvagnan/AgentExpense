@@ -1,0 +1,12 @@
+{
+  "name": "learning",
+  "description": "Classes and workshops Jordan pays for.",
+  "fields": {
+    "course": {"type": "text", "filled-by": "agent", "description": "The course or workshop name printed on the receipt.", "journal-tag": "learning-course"},
+    "hours": {"type": "decimal", "filled-by": "agent", "description": "Teaching hours the payment covers, when the receipt gives them.", "journal-tag": "learning-hours"},
+    "level": {"type": "choice", "values": ["beginner", "intermediate", "advanced"], "filled-by": "agent", "description": "The course level, when the receipt names it.", "journal-tag": "learning-level"},
+    "sessions": {"type": "whole-number", "filled-by": "person", "description": "How many sessions Jordan attended.", "journal-tag": "learning-sessions"},
+    "certificate": {"type": "yes-no", "filled-by": "person", "description": "Whether the course gave a certificate.", "journal-tag": "learning-certificate"},
+    "next-session": {"type": "date", "filled-by": "person", "description": "The next booked session.", "journal-tag": "learning-next"}
+  }
+}

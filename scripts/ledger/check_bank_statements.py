@@ -16,7 +16,7 @@ def check_bank_statements(documents, root):
         raise ValueError('Duplicate statement for the same account and period end')
     results, previous, seen = [], {}, []
     for summary in documents[root/'data/card-statements.json']:
-        if summary.get('kind') != 'bank':
+        if summary['kind'] != 'bank':
             previous[summary['account']] = dict(end=summary['end'], **{'closing-balance':str(-Decimal(summary['total-due']))})
             continue
         account, start, end = summary['account'], summary['start'], summary['end']
@@ -40,7 +40,7 @@ def check_bank_statements(documents, root):
                 raise ValueError('Duplicate statement row serial')
             serials.add(row['serial'])
             if row['disposition'] == 'pre-start':
-                if not start_date or row['date'] >= start_date or 'entry-id' in row:
+                if not start_date or row['date'] >= start_date or row['entry-id'] is not None:
                     raise ValueError('Pre-start membership must precede startDate and have no entry')
                 continue
             if start_date and row['date'] < start_date:
@@ -48,23 +48,23 @@ def check_bank_statements(documents, root):
             if row['disposition'] == 'overlap-pending':
                 if debt:
                     raise ValueError('Billed card rows cannot be overlapping membership')
-                candidates = row.get('review-candidates', [])
+                candidates = row['review-candidates']
                 if not candidates or not prior:
                     raise ValueError('Unresolved overlap must identify previous members')
                 for identity in candidates:
                     if identity not in actual or not any(m.get('entry-id') == identity and possible_overlap(row,m) for old in seen if old['account']==account for m in old['members']):
                         raise ValueError('Overlap review candidate is not an identical earlier statement row')
                 continue
-            identity = row.get('entry-id')
+            identity = row['entry-id']
             if identity not in actual or identity in used:
                 raise ValueError('Missing or repeated statement member entry')
             used.add(identity)
             entry = actual[identity]
-            if debt and (entry.get('statement-end') or any(m.get('entry-id') == identity for old in seen if old['account']==account for m in old['members'])):
+            if debt and ((entry['statement'] or {}).get('end') or any(m.get('entry-id') == identity for old in seen if old['account']==account for m in old['members'])):
                 raise ValueError('Billed card entry is already a member of another statement')
             if card_amount(entry, account) != signed(row):
                 raise ValueError('Statement member amount/direction differs')
-            if summary['source'] not in entry.get('sources',[]):
+            if summary['source'] not in entry['evidence']:
                 raise ValueError('Statement member is missing its source')
             if row['disposition'] == 'already-in-ledger' and not any(m.get('entry-id') == identity and possible_overlap(row,m) for old in seen if old['account']==account for m in old['members']):
                 raise ValueError('Already-in-ledger row must match earlier membership')
@@ -76,7 +76,7 @@ def check_bank_statements(documents, root):
         balance = opening
         for row in members:
             balance += signed(row)
-            if row.get('balance') is not None and balance != Decimal(row['balance']):
+            if row['balance'] is not None and balance != Decimal(row['balance']):
                 raise ValueError('Statement running balance differs at ' + row['serial'])
         if balance != closing:
             raise ValueError('Statement opening − debits + credits differs from closing balance')
@@ -90,9 +90,10 @@ def check_bank_statements(documents, root):
             overlap = sum((signed(r) for r in members if start_date and r['date'] < start_date), Decimal(0))
             if opening + overlap != anchor:
                 raise ValueError('Statement does not continue from ledger opening balance')
-        assertion = actual.get(summary.get('assertion-id'))
-        expected = dict(account=account,amount='0.00',commodity=currency,**{'assert':dict(amount=summary['closing-balance'],commodity=currency)})
-        if not debt and (not assertion or assertion['date'] != end or assertion['postings'] != [expected] or summary['source'] not in assertion.get('sources',[])):
+        assertion = actual.get(summary['assertion-id'])
+        expected = {'account': account, 'amount': '0.00', 'commodity': currency, 'cost': None,
+                    'assert': {'amount': summary['closing-balance'], 'commodity': currency}, 'notes': []}
+        if not debt and (not assertion or assertion['date'] != end or assertion['postings'] != [expected] or summary['source'] not in assertion['evidence']):
             raise ValueError('Statement closing balance assertion is missing or differs')
         previous[account] = summary
         seen.append(summary)

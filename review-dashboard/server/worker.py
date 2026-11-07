@@ -299,8 +299,11 @@ class Worker:
                     self.drafts.completed(draft, dict(outcome='not_expense', explanation='This is a card statement. Continue in Drafts to reconcile its rows.'))
                     return
         answer = draft.get('proposal')
+        # A queued proposal is the person's (a hand form or usual payment) only when they finished the draft.
+        from_agent = not draft.get('finished_by')
         while not self.stop_event.is_set():
             if answer is None:
+                from_agent = True
                 for attempt in range(2):
                     pending = dict(start=now(), end=None, model=self.settings.model, effort=self.settings.effort,
                                    outcome=None, question=None, doubts=[], error=None, duration=None, usage={}, lookups=[])
@@ -322,6 +325,21 @@ class Worker:
                         draft['proposal'] = answer
                         self.drafts.put(draft)
                         break
+            from answers import AnswerError, check as check_answer, person_amounts
+            try:
+                # Agent output always meets the answer model; only the person's form uses the form model.
+                check_answer(answer if from_agent else person_amounts(answer), self.settings.ledger, form=not from_agent)
+            except AnswerError as exc:
+                # The existing correction path: the agent sees this under "Server check failures to correct".
+                draft['check_errors'].append(str(exc))
+                if draft['runs']: draft['runs'][-1].update(outcome='check_failed', error=str(exc))
+                draft['last_proposal'] = answer
+                draft['proposal'] = None
+                self.drafts.put(draft)
+                if draft.get('finished_by') or draft.get('usual_payment') or len(draft['check_errors']) > 1:
+                    raise ProposalError(str(exc))
+                answer = None
+                continue
             if answer.get('entry'):
                 draft['description'] = answer['entry']['description']
             if answer['status'] == 'question':
@@ -343,7 +361,7 @@ class Worker:
             try:
                 with ledger_lock(self.settings.ledger) as fd:
                     if clean(self.settings.ledger):
-                        prepared = transaction.prepare(answer)
+                        prepared = transaction.prepare(answer, person=not from_agent)
                         if prepared['new_roots'] and not draft.get('account_consent'):
                             draft.update(state='question', account_proposal=answer,
                                          account_question=dict(proposal_hash=prepared['proposal_hash'], accounts=prepared['new_roots'], postings=answer['entry']['postings']), proposal=None)
@@ -351,7 +369,7 @@ class Worker:
                             self.drafts.put(draft);return
                         draft['waiting'] = None
                         self.drafts.put(draft)
-                        result = transaction.apply(answer, fd)
+                        result = transaction.apply(answer, fd, person=not from_agent)
                     else:
                         result = None
                         draft['waiting'] = 'Waiting for a clean ledger; checking again in 30 seconds'
@@ -369,7 +387,7 @@ class Worker:
                 from store import load
                 from proposal_consent import proposal_hash
                 roots={a.split(':')[0] for a in load(self.settings.ledger)[self.settings.ledger/'data/accounts.json']['accounts']}
-                new_roots=[a for a in answer['new_accounts'] if a.split(':')[0] not in roots]
+                new_roots=[a for a in answer['new-accounts'] if a.split(':')[0] not in roots]
                 if new_roots:
                     draft.update(account_proposal=answer,account_question=dict(proposal_hash=proposal_hash(answer),accounts=new_roots,postings=answer['entry']['postings']))
                 draft['questions'].append(dict(question=str(exc), answer=None, asked_at=now()))

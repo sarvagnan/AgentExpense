@@ -25,7 +25,7 @@ agree. Installations update between release tags with `make update`.
      `review-dashboard/scripts/ledger-manifest.mjs`, and `format.const` in
      `schema/ledger.schema.json`;
    - migrates the fixture ledgers in `fixtures/ledgers/`.
-   `make test-update` builds exactly such a release (format 1 → 2) in a temporary
+   `make test-update` builds exactly such a release (the current format plus one) in a temporary
    repository, so it shows the steps a real one needs.
 6. Run `make personas`, `make test-update` and `make doctor`, then commit
    "Release X.Y.Z" on `main`.

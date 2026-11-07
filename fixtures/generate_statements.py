@@ -67,7 +67,7 @@ def generate(destination=None):
         card_rows = []
         for entry in actual:
             postings = [p for p in entry['postings'] if p['account']==card]
-            if not postings or entry in openings or entry.get('statement-end') or all(Decimal(p['amount'])==0 and p.get('assert') for p in entry['postings']):
+            if not postings or entry in openings or (entry['statement'] or {}).get('end') or all(Decimal(p['amount'])==0 and p.get('assert') for p in entry['postings']):
                 continue
             if len(postings)!=1:
                 raise ValueError('Fixture card needs one account posting')

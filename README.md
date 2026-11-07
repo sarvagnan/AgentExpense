@@ -71,9 +71,10 @@ PATH. To change Node, run `fnm install <v>`, change `.node-version`, and run
 `LEDGER_DIR` selects the ledger (default: the application's ignored `ledger/`);
 relative paths resolve from the caller's working directory, so pass an absolute path
 across commands that change directories. Ledger Python CLIs also accept `--root`.
-Schemas stay in the application's `schema/`. Ledgers use format 1: `ledger.json` holds
-settings and `data/accounts.json` ordered account metadata; an older ledger stops with
-an upgrade instruction ([ledger migrations](migrations/README.md)).
+Schemas stay in the application's `schema/`. Ledgers use format 2, the typed store in
+[docs/STORE.md](docs/STORE.md): `ledger.json` holds settings and the listed
+[extensions](docs/EXTENSIONS.md), `data/accounts.json` ordered account metadata; an
+older ledger stops with an upgrade instruction ([ledger migrations](migrations/README.md)).
 
 `make commit m="…"` holds the ledger lock while running `make verify-data` (journal
 generation, schema, store, audit, evidence and statement checks, and strict hledger

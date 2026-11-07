@@ -4,7 +4,7 @@ import io
 import json
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
-from support import Fixture, png
+from support import Fixture, png, meta
 from store import dump, load
 from test_readers import CSV, OPTIONS
 from test_statements import statement_pdf
@@ -15,7 +15,7 @@ class AddIntake(Fixture):
         super().setUp()
         self.currency=json.loads((self.ledger/'ledger.json').read_text())['defaultCurrency']
         self.bank='Assets:Bank:Example Current'
-        self.meta=dict(kind='bank',currency=self.currency,label='Example Current',aliases=['everyday'],statement=dict(reader='generic-csv',options=deepcopy(OPTIONS)))
+        self.meta=meta(kind='bank',currency=self.currency,label='Example Current',aliases=['everyday'],statement=dict(reader='generic-csv',options=deepcopy(OPTIONS)))
         data=load(self.ledger)[self.ledger/'data/accounts.json'];data['accounts'][self.bank]=self.meta
         dump(self.ledger/'data/accounts.json',data)
 

@@ -1,6 +1,6 @@
 # Ledger migrations
 
-The application reads format 1. A ledger without `ledger.json` uses format 0. Select an absolute `LEDGER_DIR` pointing to a separate, clean jj-colocated or plain git ledger repository, then run from the application root:
+The application reads format 2. A ledger without `ledger.json` uses format 0. Select an absolute `LEDGER_DIR` pointing to a separate, clean jj-colocated or plain git ledger repository, then run from the application root:
 
 ```sh
 make upgrade-ledger ARGS="--dry-run"
@@ -9,7 +9,7 @@ make upgrade-ledger ARGS="--name 'My ledger' --locale en-IN"
 
 The runner locks the ledger, records its checkpoint commit, upgrades, validates the store and hledger journal, compares journal/reports/dashboard data and commits the upgrade.
 
-A ledger several formats behind runs every migration in turn. This app reads only the current format, so the runner first rehearses the whole chain on a scratch copy (planning and applying each step, then validating the result), and `--dry-run` does the same. It then applies and commits each step ("Upgrade ledger format k → k+1"), and verifies and compares only the final format; a failure at any step restores the checkpoint. The comparison reads an older `ledger.json` as if it were the current format. A migration module defines `SOURCE_FORMAT`, `TARGET_FORMAT`, `plan(root, options)` returning `(manifest, accounts)`, and `apply(root, result)`; a migration that intends a dashboard change lists those paths in `OUTPUT_CHANGES` (for example `('$.meta.ledger.newField',)`, because the dashboard copies the manifest into `meta.ledger`). Journal and hledger reports must stay identical. `make update` runs this runner after checking out a release; see [docs/RELEASING.md](../docs/RELEASING.md). A failure restores the checkpoint and the original store and generated-journal bytes; the lock file remains. A second run is a no-op. `make test-migrations` exercises upgrades in disposable repositories; `make dashboard`, `make test` and the persona matrix include it. Dry runs validate and print the proposed manifest without writing or committing.
+A ledger several formats behind runs every migration in turn. This app reads only the current format, so the runner first rehearses the whole chain on a scratch copy (planning and applying each step, then validating the result), and `--dry-run` does the same. It then applies and commits each step ("Upgrade ledger format k → k+1"), and verifies and compares only the final format; a failure at any step restores the checkpoint. The comparison reads an older `ledger.json` as if it were the current format. A migration module defines `SOURCE_FORMAT`, `TARGET_FORMAT`, `plan(root, options)` returning `(manifest, accounts)`, and `apply(root, result)`. It may also define `check(result)` (run on the rehearsal's result), `describe(result)` (the dry run's lines, instead of the manifest), `targets(root)` (every path it may write, for rollback) and an `allowed` attribute on its result (entry IDs per declared journal change, passed to the comparison). A migration that intends a dashboard change lists those paths in `OUTPUT_CHANGES` (for example `('$.meta.ledger.newField',)`, because the dashboard copies the manifest into `meta.ledger`). Journal and hledger reports must stay identical. `make update` runs this runner after checking out a release; see [docs/RELEASING.md](../docs/RELEASING.md). A failure restores the checkpoint and the original store and generated-journal bytes; the lock file remains. A second run is a no-op. `make test-migrations` exercises upgrades in disposable repositories; `make dashboard`, `make test` and the persona matrix include it. Dry runs validate and print the proposed manifest without writing or committing.
 
 Optional arguments: `--default-currency SYMBOL`, `--start-date YYYY-MM-DD`, `--review-storage-key KEY`, and `--accounts PATH`. Supply metadata overrides as an object keyed by account name, for example:
 
@@ -25,8 +25,8 @@ Conventional account paths infer kinds. An `Accounts Payable` or `Accounts Recei
 Format 0 → 1 declares **no changes** to the generated journal, hledger reports or dashboard JSON. The comparator ignores only the leading journal header comment block and `meta.generatedAt`. It generates outputs in temporary space and prints only pass/fail and differing counts:
 
 ```sh
-uv run --with jsonschema python scripts/ledger/compare_outputs.py "$LEDGER_DIR" --save-baseline /tmp/expense-baseline
-uv run --with jsonschema python scripts/ledger/compare_outputs.py /tmp/expense-baseline "$LEDGER_DIR"
+uv run --locked --project review-dashboard/server python scripts/ledger/compare_outputs.py "$LEDGER_DIR" --save-baseline /tmp/expense-baseline
+uv run --locked --project review-dashboard/server python scripts/ledger/compare_outputs.py /tmp/expense-baseline "$LEDGER_DIR"
 ```
 
 Use repeatable `--ignore '$.path.to.field'` or JSON Pointer paths only for explicitly declared dashboard changes. Wildcards match array indexes or object keys. Saved baselines contain financial data: keep private baselines outside the application. To go back after a successful upgrade, use the previous application version with the checkpoint commit printed by the runner. This first migration creates only `ledger.json`, updates `data/accounts.json` and regenerates the ignored journal; audit lines are never rewritten.
@@ -35,6 +35,66 @@ Dashboard comparisons for format 0 use the proposed format-1 manifest and accoun
 metadata on both sides. This checks the unchanged entries under the same current
 classification rules; new manifest fields have no format-0 counterpart. Journal
 and hledger report comparisons remain exact.
+
+## Format 1 → 2: typed store and extensions
+
+Format 2 is the typed store in [docs/STORE.md](../docs/STORE.md): every entry, posting
+and rule is written in full in kebab-case, with related facts grouped, and every
+document is read and written through the pydantic models in
+`scripts/ledger/store_models.py` (Python) or validated against the generated
+`schema/store.schema.json` (Node). Fuel and the policy term leave the core and become
+[extensions](../docs/EXTENSIONS.md). `migrations/0002_typed_store.py`:
+
+- writes every store document in its format 2 shape: `sources` becomes `evidence`;
+  the statement labels become `statement`; `reference` and `order-id` become
+  `references`, with `order-id` a list (a repeated order-id label becomes one list);
+  reimbursement, variable-estimate and original amount become groups; trash items
+  become kebab-case; rules gain `lifecycle`, `amount`, `origin`, `bill` and the rest
+  in full; account metadata is written in full;
+- turns `modules.fuel: true` into `"extensions": {"fuel": {"ask": true}}` and moves
+  each entry's fuel readings into `extensions.fuel`; it never lists an extension the
+  owner didn't turn on;
+- moves `policy-term` into a ledger extension, `policy` (`extensions/policy.json`,
+  `term-years`, `whole-number`, `filled-by: person`, listed with `"ask": false`), made
+  only when an entry has a policy term;
+- turns a per-unit cost that doesn't balance exactly into the total cost that makes
+  the entry balance exactly; several in one commodity share the residue, each rounded
+  to the entry's places with the leftover steps on the largest remainders; a unit
+  cost that already balances stays;
+- respells an origin kind written with spaces (`subscription words`) with hyphens;
+- clears empty strings, which format 1 allowed and format 2 refuses, in
+  `classification`, `reference`, `order-id`, `serial-number`, `reimbursement-group`
+  and `reimbursement-label`, and drops empty paths from `sources`; each counts as one
+  of the "empty values cleared", and the entry's empty comment line leaves the journal;
+- stops, writing nothing, when the models can't hold something: another repeated
+  label, an entry that doesn't balance exactly in a commodity, several unit costs in
+  one commodity whose rounded totals can't make up the rest, a rule carrying an entry-only field, a rule assertion, a
+  reimbursement label without a group (an empty group with a label included), entries
+  with fuel readings in a ledger without the fuel module, or a ledger that already has
+  `extensions/`. The message gives a count per kind. A converted ledger that still fails
+  the format 2 checks stops with the kind of document only (entries, rules,
+  statements, accounts, trash, …), never a file name, year or value.
+
+`--dry-run` and the real run print counts only (accounts, entries, rules, statements,
+trash items, unit costs converted and kept, order-id repeats made into lists,
+entries with fuel or policy values, extensions listed, and the journal entries that
+change as declared): no names, amounts, dates, descriptions, account names or paths. The runner rehearses the result on a scratch
+copy, loads it with every format 2 check, then compares outputs. The journal stays
+byte-identical except the declared entries: converted unit costs (`@` becomes `@@`,
+so native-commodity reports stay identical and only at-cost reports may differ in
+rounding), policy terms (`policy-term: 5` in the extension slot instead of `5 years`)
+repeated order-ids and entries whose empty values were cleared. The dashboard data
+differs only in `OUTPUT_CHANGES`. A failure once the migration has written (in
+verification, validation or a later step) rolls back and prints counts only: "Verification
+failed after migrating; the checkpoint is restored". To see the details, run
+`make verify` on a copy, or set `EXPENSES_UPGRADE_DEBUG=1` for the run.
+
+Audit lines are never rewritten. Older audit snapshots (bills, rule and entry
+snapshots in format 1) are converted when read; new lines are written in format 2.
+Drafts still waiting in the Queue keep an answer in the format 1 shape, which the
+format 2 answer check refuses: finish or discard them before upgrading.
+
+The format 1 sections below describe format 1's shapes and are kept as history.
 
 ### Unreleased format 1: server Review
 

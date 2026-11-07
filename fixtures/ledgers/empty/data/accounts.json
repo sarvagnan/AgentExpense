@@ -10,7 +10,8 @@
       "aliases": [
         "alder",
         "checking"
-      ]
+      ],
+      "statement": null
     },
     "Assets:Bank:Meadow Savings": {
       "kind": "bank",
@@ -19,7 +20,8 @@
       "aliases": [
         "meadow",
         "savings"
-      ]
+      ],
+      "statement": null
     },
     "Liabilities:Credit Cards:Lumen Card": {
       "kind": "card",
@@ -29,10 +31,7 @@
         "lumen",
         "card"
       ],
-      "statement": {
-        "reader": "example-card-pdf",
-        "identifier": "4321"
-      }
+      "statement": {"reader": "example-card-pdf", "identifier": "4321", "options": null}
     },
     "Assets:Cash": {
       "kind": "cash",
@@ -40,13 +39,14 @@
       "label": "Cash",
       "aliases": [
         "cash"
-      ]
+      ],
+      "statement": null
     },
     "Equity:Opening Balances": {},
     "Income:Salary": {},
-    "Expenses:Groceries": {},
-    "Expenses:Food:Dining": {},
-    "Expenses:Transport": {},
-    "Expenses:Housing:Rent": {}
+    "Expenses:Groceries": {"category": null},
+    "Expenses:Food:Dining": {"category": null},
+    "Expenses:Transport": {"category": null},
+    "Expenses:Housing:Rent": {"category": null}
   }
 }

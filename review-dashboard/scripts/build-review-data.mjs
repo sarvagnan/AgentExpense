@@ -2,7 +2,7 @@ import {dashboardDataPath, guardDashboardData} from '../../scripts/dashboard-dat
 guardDashboardData();
 import { transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions } from './currency.mjs';
 import { sourceType } from './source-labels.mjs';
-import { compact, loadExpenseStore } from './expense-store.mjs';
+import { compact, loadExpenseStore, sourceReference } from './expense-store.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -26,7 +26,7 @@ const pending = transactions
     if (!reviewPosting) return null;
 
     const source = transaction.sources[0] || 'Derived ledger entry';
-    const reference = compact(transaction['serial-number'] || transaction['source-row'] || transaction['statement-page'] || transaction['source-page']);
+    const reference = compact(sourceReference(transaction));
     const isExpense = reviewPosting.account.startsWith('Expenses:');
     const kind = isExpense
       ? reviewPosting.amount >= 0
@@ -55,7 +55,7 @@ const pending = transactions
       source,
       sourceType: sourceType(transaction, accounts),
       sourceReference: reference,
-      statementEnd: compact(transaction['statement-end']),
+      statementEnd: compact(transaction.statement?.end),
       classification: compact(transaction.classification) || 'Pending classification',
     };
   })

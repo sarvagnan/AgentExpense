@@ -1,5 +1,5 @@
 import {mainPostings,payer as rulePayer,varyingDetails,varyingPayments} from './recurring-ui.mjs';
-import { moduleSettings } from './ledger-modules.mjs';
+import { hasExtension } from './ledger-modules.mjs';
 import { accountLabel, expenseCategory, hasSegment, paymentAccounts } from './account-metadata.mjs';
 // Category/pattern words describe an expense, not the merchant that chose a payment.
 const GENERIC_NAMES = new Set(['fuel','fuels','petrol','diesel','bunk','taxi','cab','auto','ride','transport','subscriptions','subscription','renewal','dining','restaurants','eating out','dinner','lunch','breakfast','snacks','coffee','food','groceries','rent','home','housing','utilities','bills']);
@@ -18,13 +18,13 @@ export function patternOf(entry, metadata = {}) {
   return null;
 }
 export function buildPatterns(transactions, metadata = {}, manifest = {}, forecasts = [], rawRules = [], audit = []) {
-  forecasts = forecasts.filter(rule => (rule.lifecycle ?? 'active') === 'active');
+  forecasts = forecasts.filter(rule => rule.lifecycle === 'active');
   const patterns = {}, accounts = Object.keys(metadata);
   const people = Object.entries(metadata).filter(([, m]) => m.kind === 'person').map(([a]) => accountLabel(a, metadata));
   const payments = paymentAccounts(metadata);
   const top = counts => [...counts].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]))[0] || [null, 0];
   for (const entry of transactions) {
-    const id = patternOf(entry, metadata); if (!id || id === 'fuel' && !moduleSettings(manifest).fuel) continue;
+    const id = patternOf(entry, metadata); if (!id || id === 'fuel' && !hasExtension(manifest, 'fuel')) continue;
     const st = patterns[id] ||= {count:0, last:[], pays:new Map(), expenses:new Map(), names:new Map()};
     const sides = entry.postings.filter(p => payments[p.account]);
     const pay = sides.find(p => !['person'].includes(metadata[p.account].kind) && p.amount < 0) || sides.find(p => metadata[p.account].kind !== 'person') || sides[0];
@@ -33,7 +33,7 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}, foreca
     if (pay) st.pays.set(pay.account, (st.pays.get(pay.account) || 0) + 1);
     if (expense) st.expenses.set(expense.account, (st.expenses.get(expense.account) || 0) + 1);
     st.names.set(entry.description, (st.names.get(entry.description) || 0) + 1);
-    st.last.push({date:entry.date, description:entry.description, currency:pay ? metadata[pay.account]?.currency || pay.currency : null, amount:pay ? String(Math.abs(pay.amount)) : '', ...(moduleSettings(manifest).fuel && entry['fuel-filled-litres'] ? {litres:entry['fuel-filled-litres']} : {})});
+    st.last.push({date:entry.date, description:entry.description, currency:pay ? metadata[pay.account]?.currency || pay.currency : null, amount:pay ? String(Math.abs(pay.amount)) : '', ...(hasExtension(manifest, 'fuel') && entry.extensions?.fuel?.litres ? {litres:entry.extensions.fuel.litres} : {})});
   }
   for (const st of Object.values(patterns)) {
     [st.usualPay, st.usualShare] = top(st.pays); [st.usualExpense] = top(st.expenses);
@@ -69,7 +69,7 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}, foreca
     const actual=transactions.filter(e=>!ignored.has(e.id));
     const paid = rule.amount==='varies'?varyingPayments(rule,actual,metadata):actual.filter(e=>(e.rule?.id===rule.id || rulePayer(e,metadata) && [...new Set(mainPostings(e).map(p=>p.account))].sort().join()===main && (!payer || rulePayer(e,metadata).account===payer.account)));
     const last_payment = [...paid].sort((a,b)=>b.date.localeCompare(a.date))[0] || null;
-    return {...rule, next_due:rule.bill?.pay_by||rule.date, last_payment, review:reviews[rule.id]||null, review_state:reviewStates[rule.id]||'waiting', payments:paid.map(e=>({id:e.id,date:e.date,...(e.rule?{rule:e.rule}:{})})),...(rule.amount==='varies'?{varying:varyingDetails(rule,actual,metadata)}:{})};
+    return {...rule, next_due:rule.bill?.['pay-by']||rule.date, last_payment, review:reviews[rule.id]||null, review_state:reviewStates[rule.id]||'waiting', payments:paid.map(e=>({id:e.id,date:e.date,...(e.rule?{rule:e.rule}:{})})),...(rule.amount==='varies'?{varying:varyingDetails(rule,actual,metadata)}:{})};
   });
   return {patterns, people, accounts, payments, merchants, rules};
 }

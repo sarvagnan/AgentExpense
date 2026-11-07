@@ -139,7 +139,7 @@ def create_account(settings, kind, name, currency):
         declared = read_json(path)
         if account in declared['accounts']:
             raise ValueError('An account with this name already exists')
-        declared['accounts'][account] = dict(kind=kind, label=name, currency=currency, aliases=[name.lower()])
+        declared['accounts'][account] = dict(kind=kind, currency=currency, label=name, aliases=[name.lower()], statement=None)
         if currency not in declared['commodities']:
             declared['commodities'].append(currency)
         return {path: declared}

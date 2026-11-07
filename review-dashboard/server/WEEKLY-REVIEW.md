@@ -7,8 +7,8 @@ Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` fr
 
    ```sh
    cat policy/BOOKKEEPING.md "$LEDGER_DIR/AGENTS.md"
-   uv run --with jsonschema python scripts/ledger/audit.py list --unreviewed
-   uv run --with jsonschema python scripts/ledger/audit.py list --unreviewed --json
+   uv run --locked --project review-dashboard/server python scripts/ledger/audit.py list --unreviewed
+   uv run --locked --project review-dashboard/server python scripts/ledger/audit.py list --unreviewed --json
    ```
 
    `--unreviewed` lists every draft, statement, correction and rule-operation line without a verdict, whatever
@@ -96,7 +96,7 @@ Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` fr
    Then record them in one step, naming the model you are running as:
 
    ```sh
-   uv run --with jsonschema python scripts/ledger/audit.py review --verdicts /tmp/expense-weekly-verdicts.json --reviewer "MODEL"
+   uv run --locked --project review-dashboard/server python scripts/ledger/audit.py review --verdicts /tmp/expense-weekly-verdicts.json --reviewer "MODEL"
    ```
 
    `review` holds the ledger lock throughout. It refuses a ledger with uncommitted

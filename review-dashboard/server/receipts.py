@@ -150,9 +150,11 @@ def choose(settings, drafts, draft, choice):
         if note not in notes: notes.append(note)
     references=answer['references'] or []
     if references:
-        if not entry['reference']: entry['reference']=references[0]
+        group=entry['references'] or {'reference':None,'order-id':[]}
+        if not group['reference']: group['reference']=references[0]
         for reference in references:
-            if reference!=entry['reference'] and 'Receipt reference: '+reference not in notes: notes.append('Receipt reference: '+reference)
+            if reference!=group['reference'] and 'Receipt reference: '+reference not in notes: notes.append('Receipt reference: '+reference)
+        entry['references']=group
     entry['notes']=notes
     if choice=='use':
         accounts=load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'];payers=payment_rows(before,accounts)
@@ -167,7 +169,7 @@ def choose(settings, drafts, draft, choice):
             for p in entry['postings']:
                 if p['account']==payers[0]['account']: p.update(account=account,amount='-'+value,commodity=code)
                 else: p.update(amount=value,commodity=code)
-    body=dict(version=reading['version'],proposal=proposal,sources=before.get('sources',[]),reason='Receipt details',approved_accounts=[],receipt=dict(answer=answer,choice=choice,run=reading.get('run'),entry_totals=reading['entry_totals']))
+    body=dict(version=reading['version'],proposal=proposal,sources=before['evidence'],reason='Receipt details',approved_accounts=[],receipt=dict(answer=answer,choice=choice,run=reading.get('run'),entry_totals=reading['entry_totals']))
     result=apply(settings,before['id'],reading['operation_id'],body,drafts=drafts,actor='receipt reader',trailer=f'Added-by: {settings.adapter}/{settings.model} (receipt details for {before["id"]})')
     # Fetch the latest draft so a failed response cannot erase a retained answer.
     draft=drafts.get(draft['id'],include_discarded=True);draft['receipt_reading'].pop('refusal',None);draft['receipt_reading'].update(state='done',choice=choice,result=result,message='Receipt details saved.' if choice!='keep' else 'Entry kept. Receipt notes saved.')

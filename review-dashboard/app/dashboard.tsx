@@ -2,7 +2,8 @@ import {lockModalPage,setPageNotice} from './ui';
 import {api as liveApi} from './live/api';
 import { SettingsDialog } from './settings-dialog';
 import { refreshUpdateStatus } from './live/update-notice';
-import { moduleSettings } from '../scripts/ledger-modules.mjs';
+import { hasExtension, moduleSettings } from '../scripts/ledger-modules.mjs';
+import { ExtensionFacts } from './extensions';
 import { money as amountMoney, axisMoney } from './formatting';
 import {today, calendarMonths, formatTimestamp} from './date-time';
 import { reviewKeys } from '../scripts/account-metadata.mjs';
@@ -119,7 +120,7 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
         <details><summary>Backup and moving browsers</summary><p>Export decisions saves a version-2 backup. Import previews its valid, changed and unknown entries before saving valid decisions to the ledger.</p></details>
         <details><summary>Multiple tabs</summary><p>Every device reads the same ledger queue and count. If another device changes an entry, reload and check it before applying your decision.</p></details>
         <details><summary>Recovery</summary><p>Unsent edits and failed requests remain in this browser. Resume or discard edits, or retry the saved request. Changes are recorded in Change history.</p></details>
-        {moduleSettings(data.meta.ledger).fuel && <details><summary>Fuel Log</summary><p>Open Fuel Log while reviewing an entry to compare its payment and readings. Numbered Entry links open the confirmed ledger entries in a new tab.</p></details>}
+        {hasExtension(data.meta.ledger, 'fuel') && <details><summary>Fuel Log</summary><p>Open Fuel Log while reviewing an entry to compare its payment and readings. Numbered Entry links open the confirmed ledger entries in a new tab.</p></details>}
       </section>
       <section><h3>Keyboard shortcuts</h3><div className="shortcuts">{SHORTCUTS.filter(([group]) => group !== 'Investment value charts' || (moduleSettings(data.meta.ledger).investments !== false && data.prices.length > 0)).map(([group, items]) => <section key={group}><h4>{group}</h4><dl>{items.map(([keys, action]) => <div key={keys}><dt><kbd>{keys}</kbd></dt><dd>{action}</dd></div>)}</dl></section>)}</div>
         <p className="help-note">In entry details, ↑/↓ or Previous/Next steps through the list. The title, amount and tools stay visible above the scrolling detail body. Esc, Close, or the dimmed page exits. Tab stays inside until you close it. The page behind stays still and returns to its exact scroll position on close.</p>
@@ -247,6 +248,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
       {transaction.reimbursementParty && <><dt>{reimbursable ? 'Reimbursable from' : 'Reimbursement from'}</dt><dd>{transaction.reimbursementParty}</dd><dt>Personal expense impact</dt><dd>{money(transaction.signedExpense, transaction.currency)}</dd></>}
       <dt>Classification</dt><dd>{transaction.classification || 'Not supplied'}</dd>
     </dl>
+    <ExtensionFacts transaction={transaction}/>
     {group && <section className="inspector-section" aria-label={group.label}><h3>{group.label}</h3><dl className="facts">
       <dt>Matched purchases</dt><dd>{money(group.purchases, group.currency)}</dd>
       <dt>Received{group.paymentDate ? ` ${dayShort(group.paymentDate)}` : ''}</dt><dd>{money(group.received, group.currency)}</dd>
