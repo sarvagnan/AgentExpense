@@ -415,6 +415,22 @@ class FormatOneTests(Repository0):
         self.assertEqual((stored['classification'], stored['references'], stored['statement'], stored['evidence']),
                          (None, None, None, ['Bills/2026-01-02/r.pdf']))
 
+    def test_empty_values_on_a_rule_are_cleared_counted_and_declared(self):
+        self.with_entries(entry())
+        rule = dict(id='0000000000000009', date='2026-02-02', status='confirmed', description='Fictional plan',
+                    schedule=dict(every='month', **{'from': '2026-02-02'}), classification='', reference='',
+                    postings=[dict(account='Expenses:Test', amount='10.00', commodity='INR'), dict(account=CARD, amount='-10.00', commodity='INR')])
+        old_dump(self.root / 'data/forecast.json', [rule])
+        self.run_command('jj', 'commit', '-m', 'Fictional rule with empty values')
+        dry = self.upgraded(dry_run=True)
+        self.assertIn('empty values cleared: 2', dry)
+        self.assertIn('journal entries that change as declared (empty-value): 1', dry)
+        output = self.upgraded()
+        self.assertIn('Upgraded ledger to format 2', output)
+        self.assertIn('journal entries that change as declared (empty-value): 1', output)
+        stored = load(self.root)[self.root / 'data/forecast.json'][0]
+        self.assertEqual((stored['classification'], stored['references']), (None, None))
+
     def test_a_check_failure_names_the_document_kind_not_the_file(self):
         row = entry(); row['date'] = '2026-02-30'
         self.with_entries(row)

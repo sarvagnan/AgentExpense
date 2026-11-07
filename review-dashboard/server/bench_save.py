@@ -48,7 +48,7 @@ sys.path[:0] = [str(SERVER), str(SERVER / 'tests'), str(APPLICATION / 'scripts/f
 TARGETS = dict(committed_median=1.0, committed_p95=2.0, data_median=2.0, pickup_median=0.2)
 SLACK = 1.5  # a regression is a target missed by more than 50%
 OPERATIONS = ('add', 'hand-add', 'edit', 'delete', 'restore', 'bill', 'statement-apply', 'review', 'settings')
-STEP_COLUMNS = ('prepare', 'lock_wait', 'journal', 'store_check', 'schema', 'forecast_hledger', 'hledger', 'verify', 'commit_jj', 'commit', 'jj', 'other', 'data')
+STEP_COLUMNS = ('prepare', 'lock_wait', 'journal', 'store_check', 'schema', 'strict_check', 'hledger', 'verify', 'commit_jj', 'commit', 'jj', 'other', 'data')
 AGENT_DATE = '2026-10-30'
 
 
@@ -387,7 +387,7 @@ class Bench:
         out.append('')
         out.append('Seconds, median / 95th percentile (nearest rank). Committed: the server\'s operation time up to the commit '
                    '(total without the agent and data steps). Response: what the person waits for today. '
-                   'commit contains verify (journal, store_check with schema and forecast_hledger, hledger) and commit_jj; '
+                   'commit contains verify (journal, store_check with schema and strict_check, hledger) and commit_jj; '
                    'jj is the server\'s own jj calls; other is committed time outside prepare, lock_wait, commit and jj.')
         failures = []
         if targets:

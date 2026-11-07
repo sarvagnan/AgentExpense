@@ -1,16 +1,13 @@
 """Check schema, identities, chronology, canonical bytes, evidence paths,
-card-statement membership and balance chains, forecasts and fund-price coverage.
+card-statement membership and balance chains, fund-price coverage and the JSON strict
+check (strict_check.py: what hledger's strict check finds, forecasts included).
 """
-from datetime import date, timedelta
 from collections import defaultdict
-import os
 from pathlib import Path
-import shutil
 import shlex
-import subprocess
 from decimal import Decimal
 
-from store import ROOT, canonical_text, entries, load, read_json, serialize
+from store import ROOT, canonical, entries, load_parsed, read_json, serialize
 from audit import records, missing_entries
 from ledger_manifest import has_extension, read_manifest, module_settings, price_source
 
@@ -158,25 +155,6 @@ def check_price_coverage(documents: dict, root: Path = ROOT) -> None:
             raise ValueError(f"{commodity}: no price on or before first unit holding {first_day}")
 
 
-def check_forecasts(documents: dict, root: Path = ROOT) -> None:
-    """hledger check alone does not expand or balance periodic templates.
-
-    Check each first occurrence in isolation so historical forecasts cannot
-    interfere with actual statement assertions. All input comes from the store.
-    """
-    from generate_ledger import render_entry, forecast_templates
-    hledger = os.environ.get("HLEDGER_BIN") or shutil.which("hledger") or "/opt/homebrew/bin/hledger"
-    declarations = documents[root / "data/accounts.json"]
-    prefix = [*("commodity " + c for c in declarations["commodities"]), *("account " + a for a in declarations["accounts"]), ""]
-    for rule in [template for rule in documents[root / "data/forecast.json"] for template in forecast_templates(rule)]:
-        start = rule["schedule"]["from"]
-        end = (date.fromisoformat(start) + timedelta(days=1)).isoformat()
-        journal = "\n".join([*prefix, *render_entry(rule)]) + "\n"
-        result = subprocess.run([hledger, "-f", "-", "check", "-s", "ordereddates", f"--forecast={start}..{end}"], input=journal, text=True, capture_output=True)
-        if result.returncode:
-            raise ValueError(f"Forecast rule {rule['id']} ({rule['description']}) fails strict hledger validation:\n{result.stderr}")
-
-
 def check(root: Path = ROOT) -> None:
     from step_timings import timed
     with timed("store_check"):
@@ -186,7 +164,7 @@ def check(root: Path = ROOT) -> None:
 def _check(root: Path) -> None:
     from step_timings import timed
     with timed("schema"):
-        documents = load(root)
+        documents, parsed = load_parsed(root)
     if has_extension(read_manifest(root), 'fuel'):
         fuel = read_json(root / 'data/fuel-log.json')
         if not isinstance(fuel, dict) or not isinstance(fuel.get('entries'), list):
@@ -202,7 +180,7 @@ def _check(root: Path) -> None:
         print(f"WARNING: audit {line} references missing entry {identity}")
     evidence = set()
     for path, document in documents.items():
-        if path.read_bytes() != serialize(path, document, root).encode("utf-8"):
+        if path.read_bytes() != canonical(parsed[path]).encode("utf-8"):
             raise ValueError(f"{path.relative_to(root)} is not canonical; run make format")
         if path.name in ("accounts.json", "recurring-settings.json"):
             continue
@@ -230,9 +208,10 @@ def _check(root: Path) -> None:
     print(f"Unbilled card entries through latest statement end: {len(membership['unbilled'])}")
     for entry in membership["unbilled"]:
         print(f"  unbilled {entry['date']} {entry['id']} {entry['amount']} {entry['currency']} — {entry['description']}")
-    with timed("forecast_hledger"):
-        check_forecasts(documents, root)
     check_price_coverage(documents, root)
+    from strict_check import check as strict_check
+    with timed("strict_check"):
+        strict_check(documents, root)
     print(f"Verified {len(entries(documents))} actual entries, {len(documents[root / 'data/forecast.json'])} forecast rules, {len(evidence)} Bills paths and {len(documents) + 1} canonical files")
 
 

@@ -6,8 +6,8 @@
       "description": "The posting's price in another commodity: the whole price (hledger @@) or the price of one unit (@). Only the fields the agent sets.",
       "properties": {
         "amount": {
-          "description": "Exact decimal text in the cost commodity, as written.",
-          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "description": "Exact decimal text in the cost commodity, as written; greater than zero.",
+          "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)$",
           "type": "string"
         },
         "commodity": {
@@ -158,7 +158,7 @@
         },
         "commodity": {
           "description": "The commodity code.",
-          "pattern": "^[^\\s\";=@]+$",
+          "pattern": "^[^\\t\\n\\x0b\\x0c\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff\";=@]+$",
           "type": "string"
         }
       },
@@ -190,8 +190,7 @@
             "pattern": "^[^\\r\\n]+$",
             "type": "string"
           },
-          "type": "array",
-          "uniqueItems": true
+          "type": "array"
         }
       },
       "required": [

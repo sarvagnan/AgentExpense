@@ -19,7 +19,7 @@ from draft_time import client_context, ensure_context
 from settings import APPLICATION
 from transactions import Transaction, jj, clean, refresh
 from ledger_lock import ledger_lock, LOCK_FD_ENV
-from store import load, entries, dump, empty_entry, new_id, posting as store_posting, store_paths
+from store import commodities, load, entries, dump, empty_entry, new_id, posting as store_posting, store_paths
 from add_entry import add_entry
 from audit import event, append, audit_path
 sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
@@ -855,7 +855,7 @@ class StatementTransaction(Transaction):
             if any(p['account']=='Expenses:Uncategorized' for e in new_entries for p in e['postings']):
                 declared['accounts'].setdefault('Expenses:Uncategorized', {'category': None})
             supported = json.loads((APPLICATION/'schema/currencies.json').read_text())
-            registered = {directive.split()[0].strip(chr(34)) for directive in declared['commodities']}
+            registered = commodities(declared)
             for entry in new_entries:
                 for posting in entry['postings']:
                     for code in (posting['commodity'],(posting.get('cost') or {}).get('commodity')):

@@ -1,6 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/expense-ledger/extension-definition.schema.json",
+  "x-reserved-journal-tags": [
+    "amount",
+    "classification",
+    "forecast item",
+    "id",
+    "item",
+    "order-id",
+    "original amount",
+    "reference",
+    "reimbursement-group",
+    "reimbursement-label",
+    "serial-number",
+    "source",
+    "source-page",
+    "source-row",
+    "statement-end",
+    "statement-page",
+    "variable-estimate"
+  ],
   "$defs": {
     "ChoiceField": {
       "additionalProperties": false,

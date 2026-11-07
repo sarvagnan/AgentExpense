@@ -7,6 +7,7 @@ export type BalanceRefusal = {
   source:{kind:'statement'|'balance';label:string;date:string;path?:string};
   commodity:string;asserted:string;calculated:string;difference:string;detail:string;
   possible_duplicates:{entry_id:string;date:string;description:string;amount:string;commodity:string}[];
+  other_problems?:string[];  // what else the save would break; the detail lists them too
 };
 export type BalanceLock={posting:number;account:string;account_label:string;date:string;entry_id:string;source:BalanceRefusal['source'];start:string|null;end:string;previous_id:string|null};
 export function balanceSource(source:BalanceRefusal['source'], sentence=false) {

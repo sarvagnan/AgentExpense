@@ -1,5 +1,6 @@
 """The agent's kebab-case answer: strict shape, asked extensions and the correction path."""
 from copy import deepcopy
+import re
 import shutil
 
 from support import Fixture, ready
@@ -86,6 +87,41 @@ class AnswerTests(Fixture):
         self.assertIn('Server check failures to correct', calls[1]['argv'][-1])
         self.assertIn('postings.0.amount', calls[1]['argv'][-1])
         self.assertEqual(read_json(self.ledger / 'data/expenses/2026.json')[0]['postings'][0]['amount'], '100.00')
+
+    def test_a_second_malformed_answer_fails_visibly_after_one_retry(self):
+        self.use_learning()
+        bad = self.answer()
+        bad['entry']['postings'][0]['amount'] = '100'
+        worse = self.answer()
+        worse['entry']['extensions']['learning']['level'] = 'fictional-level'
+        self.set_answers(bad, worse, self.answer())
+        before = (self.ledger / 'data/expenses/2026.json').read_bytes()
+        with self.client() as client:
+            identity = self.create(client, 'pottery class 100 cash')
+            self.save(client, identity)
+            draft = self.wait(client, identity, 'failed')
+        # One retry with the first errors, then the second failure is shown, never repaired or retried again.
+        calls = self.calls()
+        self.assertEqual(len(calls), 2)
+        self.assertIn('postings.0.amount', calls[1]['argv'][-1])
+        self.assertIn('extensions.learning.level', draft['error'])
+        self.assertEqual([run['outcome'] for run in draft['runs']], ['check_failed', 'check_failed'])
+        self.assertEqual(len(draft['check_errors']), 2)
+        self.assertEqual((self.ledger / 'data/expenses/2026.json').read_bytes(), before)
+
+
+class AccountNameTests(Fixture):
+    def test_new_accounts_with_spaces_hledger_misreads_are_refused(self):
+        from transactions import AccountError, to_store
+        for name, reason in (('Expenses:Fictional Cafe', 'U+00A0'), ('Expenses:Fictional Cafe', 'U+2009'),
+                             ('Expenses:Fictional　Cafe', 'U+3000'), ('Expenses:Fictional  Cafe', 'two spaces')):
+            with self.subTest(name=name):
+                answer = ready(new=False)
+                answer['attachment-names'] = []
+                answer['new-accounts'] = [name]
+                answer['entry']['postings'][0]['account'] = name
+                with self.assertRaisesRegex(AccountError, re.escape(reason)):
+                    to_store(answer, self.ledger, 0)
 
 
 class PersonAmountTests(Fixture):

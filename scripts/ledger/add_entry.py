@@ -3,14 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 
-from store import ROOT, _unique_object, dump, entries, extensions_of, load, new_id, validate
-from generate_ledger import render_entry
+from store import ROOT, _unique_object, dump, load, new_id, validate
+from strict_check import StrictCheckError, check as strict_check
 
 
 def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
@@ -36,20 +33,14 @@ def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
     for source in entry['evidence']:
         if source.startswith('Bills/') and ('..' in Path(source).parts or not (root / source).is_file()):
             raise ValueError(f'Missing or invalid evidence path: {source}')
-    # Check the complete proposed actual journal so balance assertions retain their history.
-    declarations = documents[root / 'data/accounts.json']
-    lines = [*("commodity " + c for c in declarations['commodities']),
-             *("account " + a for a in declarations['accounts']), '']
-    extensions = extensions_of(root)
-    for actual in entries(documents):
-        lines.extend(render_entry(actual, extensions))
-    hledger = os.environ.get('HLEDGER_BIN') or shutil.which('hledger') or '/opt/homebrew/bin/hledger'
-    checked = subprocess.run([hledger, '-f', '-', 'check', '-s', 'ordereddates'],
-                             input='\n'.join(lines) + '\n', text=True, capture_output=True)
-    if checked.returncode:
+    # Check the complete proposed store so balance assertions retain their history.
+    try:
+        strict_check(documents, root)
+    except StrictCheckError as error:
         from confirmed_balances import raise_failure
-        raise_failure(documents, root, candidate=entry, detail=checked.stderr)
-        raise ValueError('Proposed entry fails strict hledger validation:\n' + checked.stderr)
+        if error.refusal:
+            raise_failure(documents, root, candidate=entry, detail=str(error), problems=error.problems)
+        raise ValueError('Proposed entry fails the strict ledger check: ' + str(error)) from None
     # All input checks precede writes, including dry runs. Same-day order remains stable.
     if not dry_run:
         for file, document in documents.items():

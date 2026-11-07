@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 from audit import event, append, audit_path
-from store import empty_entry, entries, dump, new_id, posting, store_paths, validate
+from store import commodities, commodity_directive, empty_entry, entries, dump, new_id, posting, store_paths, validate
 from statement_readers import check_statement, signed, money_text, card_debt
 from reconcile_statement import reconciliation_path, card_amount
 from ledger_lock import LOCK_FD_ENV
@@ -115,9 +115,9 @@ def apply_bank(transaction, documents, lock_fd):
             metadata['statement'] = {'reader': config['reader'], 'identifier': config.get('identifier'), 'options': deepcopy(config.get('options'))}
         if any(p['account']=='Expenses:Uncategorized' for e in actual.values() for p in e['postings']):
             declarations['accounts'].setdefault('Expenses:Uncategorized', {'category': None})
-        for code in {p['commodity'] for e in actual.values() for p in e['postings']}:
-            if code not in declarations['commodities']:
-                declarations['commodities'].append(code)
+        for code in sorted({p['commodity'] for e in actual.values() for p in e['postings']}):
+            if code not in commodities(declarations):
+                declarations['commodities'].append(commodity_directive(code))
         if uncertain:
             from review import link_pair
             for identity, item in uncertain:

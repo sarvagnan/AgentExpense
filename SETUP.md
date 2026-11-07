@@ -264,7 +264,7 @@ The server reads `local.json` when it starts: restart it after changing the agen
 ## 7. Verify, build and start
 
 ```sh
-make verify-data        # the store, its generated journal and strict hledger checks
+make verify-data        # the store, the JSON strict check, the generated journal and strict hledger
 make build-dashboard    # dashboard data and the static build for this ledger
 make serve              # http://127.0.0.1:8701/expenses/, Ctrl-C stops it
 ```

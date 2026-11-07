@@ -97,7 +97,7 @@
         },
         "currency": {
           "description": "Its currency; a declared commodity.",
-          "pattern": "^[^\\s\";=@]+$",
+          "pattern": "^[^\\t\\n\\x0b\\x0c\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff\";=@]+$",
           "type": "string"
         },
         "label": {
@@ -423,8 +423,8 @@
       "description": "The posting's price in another commodity: the whole price (hledger @@) or the price of one unit (@).",
       "properties": {
         "amount": {
-          "description": "Exact decimal text in the cost commodity, as written.",
-          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "description": "Exact decimal text in the cost commodity, as written; greater than zero.",
+          "pattern": "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)$",
           "type": "string",
           "x-set-by": [
             "agent",
@@ -750,7 +750,7 @@
         "category": {
           "anyOf": [
             {
-              "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$",
+              "pattern": "^[^\\r\\n]*[^\\t\\n\\x0b\\x0c\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff][^\\r\\n]*$",
               "type": "string"
             },
             {
@@ -820,7 +820,7 @@
         },
         "commodity": {
           "description": "The commodity code.",
-          "pattern": "^[^\\s\";=@]+$",
+          "pattern": "^[^\\t\\n\\x0b\\x0c\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff\";=@]+$",
           "type": "string",
           "x-set-by": [
             "agent",
@@ -1064,7 +1064,8 @@
         "reference",
         "order-id"
       ],
-      "type": "object"
+      "type": "object",
+      "x-group": true
     },
     "Reimbursement": {
       "additionalProperties": false,
@@ -1790,12 +1791,20 @@
         "source-page",
         "source-row"
       ],
-      "type": "object"
+      "type": "object",
+      "x-group": true
     },
     "Statements": {
-      "description": "data/card-statements.json: filed statements in end-date order.",
+      "description": "data/card-statements.json: filed statements in end-date order; each kind has its own shape.",
       "items": {
-        "anyOf": [
+        "discriminator": {
+          "mapping": {
+            "bank": "#/$defs/BankStatement",
+            "card": "#/$defs/CardStatement"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
           {
             "$ref": "#/$defs/CardStatement"
           },

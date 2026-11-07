@@ -11,12 +11,12 @@ writes one line:
 Steps, in seconds (a step absent from the line did not run):
 - `pickup`: from the Queue position (`queued_at`) to the worker starting the item;
 - `agent`: the agent's reading (Add only);
-- `prepare`: the proposal check, including its strict hledger check in scratch;
+- `prepare`: the proposal check, including the JSON strict check in scratch;
 - `lock_wait`: waiting for the ledger lock;
 - `commit`: all of `make commit`, which contains `verify` (all of `make
   verify-data`, including its `uv run` starts), and within that `journal` (journal
   rebuild), `store_check` (with `schema`, the store's load and schema validation,
-  and `forecast_hledger`, one hledger run per recurring rule template) and
+  and `strict_check`, the JSON strict check with every recurring rule) and
   `hledger` (the strict check of the whole journal); `commit_jj` is the jj calls
   inside `make commit` (snapshot, commit, bookmark);
 - `jj`: the server's own jj calls (clean check, rollback snapshot, commit ID);
@@ -46,7 +46,7 @@ import step_timings  # noqa: E402
 
 LOG = logging.getLogger('expenses.timing')
 STEPS = ('pickup', 'agent', 'prepare', 'lock_wait', 'commit', 'verify', 'journal', 'store_check', 'schema',
-         'forecast_hledger', 'hledger', 'commit_jj', 'jj', 'data')
+         'strict_check', 'hledger', 'commit_jj', 'jj', 'data')
 _current = contextvars.ContextVar('expenses_save_timing', default=None)
 
 

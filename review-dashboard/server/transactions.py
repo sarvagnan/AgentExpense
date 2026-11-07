@@ -22,8 +22,9 @@ import save_timing
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
 from confirmed_balances import BalanceRefusal
-from store import copy_settings, dump, empty_entry, load, posting, store_paths, entries
+from store import commodities as declared_symbols, copy_settings, dump, empty_entry, load, posting, store_paths, entries
 from ledger_manifest import read_manifest
+from strict_check import account_problem
 import account_metadata
 from account_metadata import infer_kind, is_balance_sheet
 from ledger_lock import ledger_lock, LOCK_FD_ENV
@@ -93,8 +94,9 @@ def to_store(answer, root, file_count):
     existing = set(declared['accounts'])
     new = sorted(set(answer['new-accounts']) - existing)
     for account in new:
-        if not all(part.strip() == part and part for part in account.split(':')):
-            raise AccountError(f'Invalid new account: {account}')
+        problem = account_problem(account)
+        if not all(part.strip() == part and part for part in account.split(':')) or problem:
+            raise AccountError(f'Invalid new account: {account}' + (f' ({problem})' if problem else ''))
     accounts = dict(declared['accounts'])
     for account in new:
         metadata = account_metadata.empty(account)
@@ -129,7 +131,7 @@ def to_store(answer, root, file_count):
         if expected and expected != p['commodity'] and not unit_holding:
             raise AccountError('The posting must use its account currency '+expected+': ' + p['account'])
     commodities = list(declared['commodities'])
-    registered = {directive.split()[0].strip(chr(34)) for directive in commodities}
+    registered = declared_symbols(declared)
     for posting_ in entry['postings']:
         for code in (posting_['commodity'], (posting_['cost'] or {}).get('commodity')):
             if code in supported and code not in registered:
@@ -291,7 +293,7 @@ class Transaction:
         return jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
 
     def prepare(self, answer, *, person=None):
-        """Pure preview: schema, conversion, declarations, strict hledger in scratch.
+        """Pure preview: schema, conversion, declarations, the JSON strict check in scratch.
 
         Caller holds the draft mutex when retaining the result. Apply repeats this
         under the ledger lock; consent binds the complete wire proposal. ``person`` says

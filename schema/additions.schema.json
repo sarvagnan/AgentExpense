@@ -661,6 +661,12 @@
         "detail": {
           "type": "string"
         },
+        "other_problems": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "kind": {
           "const": "confirmed_balance"
         },

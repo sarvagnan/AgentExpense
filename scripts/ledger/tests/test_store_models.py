@@ -30,9 +30,31 @@ AGENT_POSTING = {'account', 'amount', 'commodity', 'cost'}
 ENVELOPE = {'status', 'question', 'entry', 'new-accounts', 'doubts', 'attachment-names', 'explanation'}
 # Keywords the Node loader's validator (review-dashboard/scripts/ledger-manifest.mjs) understands,
 # plus annotations it ignores. A generated keyword outside this set would be silently skipped there.
-NODE_KEYWORDS = {'$schema', '$id', '$defs', '$ref', 'title', 'description', 'anyOf', 'type', 'const', 'enum', 'minimum',
-                 'maximum', 'pattern', 'minLength', 'format', 'minItems', 'uniqueItems', 'items', 'required', 'properties',
-                 'patternProperties', 'additionalProperties', 'propertyNames', 'minProperties'}
+NODE_KEYWORDS = {'$schema', '$id', '$defs', '$ref', 'title', 'description', 'anyOf', 'oneOf', 'discriminator', 'type', 'const',
+                 'enum', 'minimum', 'maximum', 'pattern', 'minLength', 'format', 'minItems', 'uniqueItems', 'items', 'required',
+                 'properties', 'patternProperties', 'additionalProperties', 'propertyNames', 'minProperties'}
+# Strict structured output, from each provider's published rules (checked offline; never against a model):
+# - OpenAI Structured Outputs with "strict": true, which the direct adapter's response_format and Codex's
+#   --output-schema use ("Supported schemas"): these keywords and string formats; every object closed with
+#   every property required; the root an object, not anyOf; at most 10 levels of nesting and 5000 properties.
+# - Anthropic structured outputs, the direct adapter's output_config.format ("JSON Schema limitations"): these
+#   keywords and formats; additionalProperties false; minItems only 0 or 1; no numeric or string-length
+#   constraints, no uniqueItems; patterns without backreferences, lookaround or word boundaries; no recursion.
+STRUCTURED_OUTPUT = {
+    'openai': dict(keywords={'$schema', '$defs', '$ref', 'type', 'properties', 'required', 'additionalProperties', 'items',
+                             'anyOf', 'enum', 'const', 'description', 'title', 'pattern', 'format', 'minItems', 'maxItems',
+                             'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'},
+                   formats={'date-time', 'time', 'date', 'duration', 'email', 'hostname', 'ipv4', 'ipv6', 'uuid'}, min_items=None),
+    'anthropic': dict(keywords={'$schema', '$defs', '$ref', 'type', 'properties', 'required', 'additionalProperties', 'items',
+                                'anyOf', 'allOf', 'enum', 'const', 'description', 'title', 'default', 'pattern', 'format', 'minItems'},
+                      formats={'date-time', 'time', 'date', 'duration', 'email', 'hostname', 'uri', 'ipv4', 'ipv6', 'uuid'}, min_items={0, 1}),
+}
+# Every extension type filled by the agent, so the answer schema carries each type's keywords.
+AGENT_TYPES = {
+    'name': 'visit', 'description': 'Visits.',
+    'fields': {name: {'type': kind, 'filled-by': 'agent', 'description': kind, 'journal-tag': 'visit-' + name, **extra}
+               for name, kind, extra in (('note', 'text', {}), ('hours', 'decimal', {}), ('count', 'whole-number', {}),
+                                         ('day', 'date', {}), ('paid', 'yes-no', {}), ('band', 'choice', {'values': ['one', 'two']}))}}
 FUEL = m.read_definition(APPLICATION / 'extensions/fuel.json')
 EVERY_TYPE = {
     'name': 'work', 'description': 'Expenses for client work.',
@@ -92,7 +114,7 @@ def schema_keywords(node, found=None):
             if key in ('properties', 'patternProperties', '$defs', 'x-documents'):
                 for item in value.values():
                     schema_keywords(item, found)
-            elif not key.startswith('x-'):
+            elif not key.startswith('x-') and key != 'discriminator':
                 schema_keywords(value, found)
     elif isinstance(node, list):
         for item in node:
@@ -285,6 +307,66 @@ class AnswerTests(unittest.TestCase):
                     self.assertIs(node['additionalProperties'], False)
                     self.assertEqual(set(node['required']), set(node['properties']))
             self.assertFalse([key for key in schema_keywords(schema) if key.startswith('x-')])
+
+    def test_answer_schemas_meet_each_adapters_strict_structured_output_rules(self):
+        schemas = {'core': json.loads(m.ANSWER_SCHEMA.read_text()),
+                   'fuel': m.models_for(listed(('fuel', True, FUEL))).answer_schema(),
+                   'every agent type': m.models_for(listed(('fuel', True, FUEL), ('visit', True, AGENT_TYPES))).answer_schema()}
+        if JORDAN_EXTENSION.exists():
+            schemas['learning'] = m.models_for(listed(('learning', True, json.loads(JORDAN_EXTENSION.read_text())))).answer_schema()
+        for adapter, rules in STRUCTURED_OUTPUT.items():
+            for name, schema in schemas.items():
+                with self.subTest(adapter=adapter, schema=name):
+                    self.assertEqual(strict_output_problems(schema, rules), [])
+
+
+def strict_output_problems(schema, rules):
+    """What a strict structured-output schema check would refuse, walking every node and reference."""
+    problems, properties = [], [0]
+    if schema.get('type') != 'object' or 'anyOf' in schema:
+        problems.append('the root must be an object')
+
+    def walk(node, where, depth, trail):
+        if not isinstance(node, dict):
+            return
+        for key in node:
+            if key not in rules['keywords']:
+                problems.append(f'{where}: {key}')
+        if 'format' in node and node['format'] not in rules['formats']:
+            problems.append(f'{where}: format {node["format"]}')
+        if rules['min_items'] is not None and node.get('minItems', 0) not in rules['min_items']:
+            problems.append(f'{where}: minItems {node["minItems"]}')
+        if 'pattern' in node and re.search(r'\\[1-9bB]|\(\?<?[=!]', node['pattern']):
+            problems.append(f'{where}: pattern {node["pattern"]}')
+        if node.get('type') == 'object':
+            if node.get('additionalProperties') is not False:
+                problems.append(f'{where}: additionalProperties')
+            if set(node.get('required', [])) != set(node.get('properties', {})):
+                problems.append(f'{where}: required')
+            properties[0] += len(node.get('properties', {}))
+            depth += 1
+            if depth > 10:
+                problems.append(f'{where}: nesting')
+        if '$ref' in node:
+            name = node['$ref'].removeprefix('#/$defs/')
+            if name in trail:
+                problems.append(f'{where}: recursion through {name}')
+                return
+            walk(schema['$defs'][name], name, depth, trail | {name})
+        for key, value in node.items():
+            if key == 'properties':
+                for child, item in value.items():
+                    walk(item, f'{where}.{child}', depth, trail)
+            elif key in ('items',):
+                walk(value, f'{where}[]', depth, trail)
+            elif key in ('anyOf', 'allOf'):
+                for item in value:
+                    walk(item, where, depth, trail)
+
+    walk({key: value for key, value in schema.items() if key != '$defs'}, 'answer', 0, frozenset())
+    if properties[0] > 5000:
+        problems.append('more than 5000 properties')
+    return problems
 
     def test_the_answer_rejects_server_fields_snake_case_whole_numbers_and_empty_groups(self):
         model = m.answer_model(())

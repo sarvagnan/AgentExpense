@@ -63,6 +63,19 @@ class ConfirmedBalanceTests(Fixture):
         reasons=list(failures(docs,self.ledger,candidate=extra))
         self.assertEqual([d['entry_id'] for d in reasons[0]['possible_duplicates']],[paid['id']])
 
+    def test_a_refusal_with_another_problem_keeps_its_duplicates_and_lists_the_problem(self):
+        from replacements import check_documents
+        paid,close,proposal=self.seed()
+        docs=load(self.ledger);rows=docs[self.ledger/'data/expenses/2026.json']
+        again=deepcopy(paid);again['id']='0000000000000004';again['date']='2026-10-30'
+        again['postings'][1]['notes']=['cleared later, date: soon']  # hledger would read a posting date
+        rows.insert(2,again)
+        with self.assertRaises(BalanceRefusal) as caught:check_documents(docs,self.ledger,candidate=again)
+        reason=caught.exception.refusal
+        self.assertEqual((reason['asserted'],reason['calculated']),('900.00','800.00'))
+        self.assertEqual([d['entry_id'] for d in reason['possible_duplicates']],[paid['id']])
+        self.assertEqual(len(reason['other_problems']),1);self.assertIn('posting date',reason['other_problems'][0])
+
     def test_human_preview_and_usual_refusal_keep_words_and_audit(self):
         paid,close,proposal=self.seed();drafts=Drafts(self.ledger);d=drafts.create('Cedar learning paid again')
         checks=preview(self.settings,drafts,d,proposal)

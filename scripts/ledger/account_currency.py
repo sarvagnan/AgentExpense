@@ -2,7 +2,7 @@
 from decimal import Decimal
 from copy import deepcopy
 import re
-from store import load, read_json
+from store import commodities, commodity_directive, load, read_json
 
 
 def check_code(code):
@@ -65,6 +65,6 @@ def currency_changes(root, code, account=None):
     if any(s['account'] == account for s in documents[root / 'data/card-statements.json']):
         raise ValueError(f'{account}: currency is fixed by a filed statement')
     metadata['currency'] = code
-    if code not in declared['commodities']:
-        declared['commodities'].append(code)
+    if code not in commodities(declared):
+        declared['commodities'].append(commodity_directive(code))
     return {root / 'data/accounts.json': declared, **changed}

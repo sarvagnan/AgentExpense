@@ -57,10 +57,11 @@ def failures(documents, root, *, candidate=None, detail=''):
             previous[key] = index
 
 
-def raise_failure(documents, root, *, candidate=None, detail=''):
+def raise_failure(documents, root, *, candidate=None, detail='', problems=()):
+    """Raise the first failing assertion as a BalanceRefusal; ``problems`` lists what else the save would break."""
     failure = next(failures(documents, root, candidate=candidate, detail=detail), None)
     if failure:
-        raise BalanceRefusal(failure)
+        raise BalanceRefusal({**failure, 'other_problems': list(problems)})
 
 
 def correction_locks(documents, root, entry):

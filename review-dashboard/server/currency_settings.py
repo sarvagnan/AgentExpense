@@ -12,7 +12,7 @@ from ledger_lock import ledger_lock, LOCK_FD_ENV
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 # The shared module uses a distinct name to avoid importing this API module again.
 from account_currency import currency_changes
-from store import dump, read_json
+from store import commodities, commodity_directive, dump, read_json
 
 
 class SettingsRecords:
@@ -140,8 +140,8 @@ def create_account(settings, kind, name, currency):
         if account in declared['accounts']:
             raise ValueError('An account with this name already exists')
         declared['accounts'][account] = dict(kind=kind, currency=currency, label=name, aliases=[name.lower()], statement=None)
-        if currency not in declared['commodities']:
-            declared['commodities'].append(currency)
+        if currency not in commodities(declared):
+            declared['commodities'].append(commodity_directive(currency))
         return {path: declared}
 
     return update_settings(settings, changes, dict(account=account, currency=currency), f'Add {name} account ({currency})')

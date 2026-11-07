@@ -76,9 +76,17 @@ The first release. The date is set when the release is tagged.
   suites, and a personal-data scanner (`make scan`). `npm ci` runs only when the
   installed packages differ from `package-lock.json` by version (`make install`
   covers both dependency sets).
+- **The JSON strict check.** `scripts/ledger/strict_check.py` checks on the store
+  what hledger's strict check finds on the journal (balance exactly, no implicit
+  conversion, balance assertions, declared accounts and commodities, date order,
+  recurring rules and their forecasts) without starting a process. It is the gate
+  in `make verify-data` and in the server's previews and saves; the strict hledger
+  check of the whole journal still runs once per save. Agreement tests run both on
+  every fixture, on generated large ledgers and on one mutation per check kind.
+  Node's validator refuses the same documents as the Python models.
 - **Save timings.** Each save writes one `save-timing` line to the server log with
   the duration of every step (pickup, prepare, lock wait, journal, store check,
-  hledger, jj, data rebuild, total); nothing is written into the ledger.
+  the JSON strict check, hledger, jj, data rebuild, total); nothing is written into the ledger.
   `make bench-save` times representative saves on a large fictional ledger from
   `scripts/fixtures/generate_large.py` in `/tmp`, with the fake agent, and exits
   non-zero when a target is missed by more than 50%; `BENCH_ENTRIES=100000` is a

@@ -9,11 +9,13 @@ import {balanceAccounts} from '../app/account-balances.ts';
 import {CURRENT_FORMAT} from '../scripts/ledger-manifest.mjs';
 import * as store from './store-fixtures.mjs';
 
-// Builder arithmetic on unit costs: these stores need no exact balance in Node, which reads what Python checked.
+// Builder arithmetic on foreign costs. Every store balances exactly (Node refuses one that doesn't, as
+// Python does), so a charge split over three lines carries total costs whose cents add up to the charge.
 const posting = (account, amount, commodity, cost) => store.posting(account, typeof amount === 'number' ? amount.toFixed(2) : amount, commodity, cost ? {cost} : {});
-const cost = (amount, commodity) => ({amount: String(amount), commodity, per: 'unit'});
-const purchase = (currency = 'INR', rate = '83.3333333333', sign = 1) => [
-  ...['Food', 'Software', 'Other'].map(category => posting(`Expenses:${category}`, sign, 'USD', cost(rate, currency))),
+const cost = (amount, commodity) => ({amount: String(amount), commodity, per: 'total'});
+const SHARES = ['83.33', '83.33', '83.34'];
+const purchase = (currency = 'INR', sign = 1) => [
+  ...['Food', 'Software', 'Other'].map((category, index) => posting(`Expenses:${category}`, sign, 'USD', cost(SHARES[index], currency))),
   posting('Pocket', -250 * sign, currency),
 ];
 const round = value => Number(value.toFixed(2));
@@ -55,9 +57,9 @@ function assertCharge(data, currency, charged) {
 
 test('foreign multi-line charges and refunds retain the pre-currency builder amounts and Review sums', async t => {
   for (const sign of [1, -1]) {
-    const postings = purchase('INR', '83.3333333333', sign);
+    const postings = purchase('INR', sign);
     const normalized = toTransaction(store.entry({id: '0000000000000001', date: '2026-10-10', status: 'pending', postings}));
-    assert.equal(round(normalized.postings.slice(0, 3).reduce((sum, p) => sum + p.cost, 0)), sign * 249.99);
+    assert.equal(round(normalized.postings.slice(0, 3).reduce((sum, p) => sum + p.cost, 0)), sign * 250);
     // The old builder inferred one rate from the card amount, even with explicit costs.
     const charged = sign * 250;
     const oldRate = Math.abs(normalized.postings.at(-1).amount / (3 * sign));
@@ -76,8 +78,8 @@ test('charged amounts net all funding postings and same-currency non-expense all
 
 test('separately funded currencies retain their own charge and allocations', async t => {
   const postings = [
-    ...['Food', 'Software', 'Other'].map(category => posting(`Expenses:${category}`, 1, 'USD', cost('0.8333333333', 'GBP'))),
-    ...['Food', 'Software', 'Other'].map(category => posting(`Expenses:${category}`, 1, 'CHF', cost('1.0033333333', 'EUR'))),
+    ...['Food', 'Software', 'Other'].map((category, index) => posting(`Expenses:${category}`, 1, 'USD', cost(['0.83', '0.83', '0.84'][index], 'GBP'))),
+    ...['Food', 'Software', 'Other'].map((category, index) => posting(`Expenses:${category}`, 1, 'CHF', cost(['1.00', '1.00', '1.01'][index], 'EUR'))),
     posting('Pocket', -2.50, 'GBP'), posting('Travel', -3.01, 'EUR'),
   ];
   const data = await build(t, postings, {accounts: {Pocket: {kind: 'card', currency: 'GBP'}, Travel: {kind: 'card', currency: 'EUR'}}});
@@ -94,8 +96,8 @@ test('separately funded currencies retain their own charge and allocations', asy
 });
 
 test('foreign forecast commitments and recurring shares allocate the actual charge', async t => {
-  const rule = store.rule({id: '0000000000000002', date: '2026-11-01', description: 'Fictional foreign commitment', postings: [posting('Expenses:Food', 1, 'USD', cost('83.3333333333', 'INR')),
-      posting('Expenses:Software', 1, 'USD', cost('83.3333333333', 'INR')), posting('Pocket', -166.67, 'INR')]});
+  const rule = store.rule({id: '0000000000000002', date: '2026-11-01', description: 'Fictional foreign commitment', postings: [posting('Expenses:Food', 1, 'USD', cost('83.33', 'INR')),
+      posting('Expenses:Software', 1, 'USD', cost('83.34', 'INR')), posting('Pocket', -166.67, 'INR')]});
   const data = await build(t, purchase(), {rules: [rule]});
   assertCharge(data, 'INR', 250);
   assert.equal(data.dashboard.months[0].recurring, 166.67);

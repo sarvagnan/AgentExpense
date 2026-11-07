@@ -44,7 +44,7 @@ class Plan(tuple):
 
 
 def _allowed(root, documents, counts):
-    """Entries whose journal lines may change, by the kinds the migration declares."""
+    """Entries (and, for empty values, rules) whose journal lines may change, by the kinds the migration declares."""
     allowed = {'unit-cost': set(), 'policy-term': set(), 'order-id': set(), 'empty-value': set()}
     old = {e['id']: e for path in sorted((root / 'data/expenses').glob('*.json')) for e in format1.read(path)}
     for path, items in documents.items():
@@ -59,10 +59,20 @@ def _allowed(root, documents, counts):
                 allowed['policy-term'].add(entry['id'])
             if any(note.startswith('order-id: ') for note in before.get('notes', [])) and 'order-id' in before:
                 allowed['order-id'].add(entry['id'])
-            # An empty label printed an empty comment line; the cleared value prints none.
-            if any(before.get(key) in ('', []) for key in format1.EMPTY_CLEARED) or '' in before.get('sources', []):
+            if _had_empty_values(before):
                 allowed['empty-value'].add(entry['id'])
+    # Rules print as periodic blocks with the same comment lines, so theirs are declared the same way.
+    forecast = root / 'data/forecast.json'
+    old_rules = {r['id']: r for r in format1.read(forecast)} if forecast.exists() else {}
+    for rule in documents.get('data/forecast.json', []):
+        if _had_empty_values(old_rules[rule['id']]):
+            allowed['empty-value'].add(rule['id'])
     return allowed
+
+
+def _had_empty_values(before):
+    """An empty label printed an empty comment line; the cleared value prints none."""
+    return any(before.get(key) in ('', []) for key in format1.EMPTY_CLEARED) or '' in before.get('sources', [])
 
 
 def plan(root, options):

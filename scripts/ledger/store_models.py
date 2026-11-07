@@ -38,7 +38,7 @@ import argparse
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from enum import StrEnum
 from functools import cache
 import json
@@ -130,12 +130,17 @@ Line = Annotated[str, StringConstraints(pattern=r'^[^\r\n]+$')]
 Note = Annotated[str, StringConstraints(pattern=r'^[^\r\n]*$')]
 Account = Annotated[str, StringConstraints(pattern=r'^[^\r\n:]+(?::[^\r\n:]+)*$')]
 Commodity = Annotated[str, StringConstraints(pattern=r'^[^\r\n"]+$')]
-Code = Annotated[str, StringConstraints(pattern=r'^[^\s";=@]+$')]
+# Whitespace spelled out, so pydantic's regex and JavaScript's agree: the union of what Python, Rust
+# and JavaScript call \s (JavaScript adds U+FEFF; Python and Rust add U+0085; Python adds U+001C–U+001F).
+WHITESPACE = r'\t\n\x0b\x0c\r\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
+Code = Annotated[str, StringConstraints(pattern=rf'^[^{WHITESPACE}";=@]+$')]
 # Exact decimal text. A posting amount always has a decimal point; a cost, an
 # original amount or a reading may be a whole number, as it was written.
 Amount = Annotated[str, StringConstraints(pattern=r'^-?(0|[1-9][0-9]*)\.[0-9]+$')]
 Number = Annotated[str, StringConstraints(pattern=r'^-?(0|[1-9][0-9]*)(\.[0-9]+)?$')]
 Unsigned = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.[0-9]+$')]
+# Greater than zero; the decimal point is optional, as in Number.
+PositiveNumber = Annotated[str, StringConstraints(pattern=r'^([1-9][0-9]*(\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)$')]
 Cents = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.[0-9]{2}$')]
 Positive = Annotated[int, Ge(1)]
 WholeNumber = Annotated[int, Ge(0)]
@@ -148,7 +153,10 @@ class Strict(BaseModel):
 
 
 class Group(Strict):
-    """A group of related optional facts: ``null`` when none is known, never all ``null`` or ``[]``."""
+    """A group of related optional facts: ``null`` when none is known, never all ``null`` or ``[]``.
+
+    Its schema carries ``x-group``, so a JSON Schema reader (Node) makes the same check."""
+    model_config = ConfigDict(json_schema_extra={'x-group': True})
 
     @model_validator(mode='after')
     def _not_empty(self):
@@ -161,7 +169,7 @@ class Group(Strict):
 
 class Cost(Strict):
     """The posting's price in another commodity: the whole price (hledger @@) or the price of one unit (@)."""
-    amount: Number = field('amount', 'Exact decimal text in the cost commodity, as written.', (A, ST))
+    amount: PositiveNumber = field('amount', 'Exact decimal text in the cost commodity, as written; greater than zero.', (A, ST))
     commodity: Commodity = field('commodity', 'The commodity the posting was paid in.', (A, ST))
     per: Literal['total', 'unit'] = field('per', '"total": the amount is the whole price. "unit": the price of one unit; '
                                           'only where it balances exactly.', (SV, ST, H))
@@ -186,34 +194,52 @@ class Posting(Strict):
     def _cost_in_another_commodity(self):
         if self.cost is not None and self.cost.commodity == self.commodity:
             raise ValueError('a cost must be in a different commodity from its posting')
+        if self.cost is not None and self.cost.per == 'total' and Decimal(self.amount) == 0:
+            raise ValueError('a total cost needs a non-zero amount')
         return self
 
 
 def balance(postings: list) -> dict[str, Decimal]:
     """Each commodity's exact sum, with a costed posting counted in its cost commodity.
 
-    A total cost counts its amount, a unit cost its price times the quantity; either
-    is signed like the posting. Accepts models or store dictionaries. Only the
+    As hledger counts it: a unit cost counts its price times the quantity; a total cost
+    counts its amount as written, negated when the quantity is negative (so a zero
+    quantity counts the whole cost). Costs are normally positive, and then either is
+    signed like the posting. Accepts models or store dictionaries. Only the
     commodities that don't sum to zero are returned.
     """
     totals: dict[str, Decimal] = defaultdict(Decimal)
-    for posting in postings:
-        raw = posting if isinstance(posting, dict) else posting.model_dump(by_alias=True)
-        amount = Decimal(raw['amount'])
-        cost = raw.get('cost')
-        if cost is None:
-            totals[raw['commodity']] += amount
-            continue
-        price = abs(Decimal(cost['amount']))
-        value = price if cost['per'] == 'total' else price * abs(amount)
-        totals[cost['commodity']] += value if amount > 0 else -value if amount < 0 else 0
+    with localcontext() as context:
+        context.prec = 200  # exact for any amount the store can hold
+        for posting in postings:
+            raw = posting if isinstance(posting, dict) else posting.model_dump(by_alias=True)
+            amount = Decimal(raw['amount'])
+            cost = raw.get('cost')
+            if cost is None:
+                totals[raw['commodity']] += amount
+                continue
+            price = Decimal(cost['amount'])
+            totals[cost['commodity']] += (-price if amount < 0 else price) if cost['per'] == 'total' else price * amount
     return {commodity: total for commodity, total in totals.items() if total != 0}
 
 
+def unbalanced(postings: list) -> str | None:
+    """Why postings don't balance exactly, in hledger's two kinds (unbalanced, or an
+    implicit conversion between commodities), or None when they balance."""
+    residue = balance(postings)
+    if not residue:
+        return None
+    raw = [posting if isinstance(posting, dict) else posting.model_dump(by_alias=True) for posting in postings]
+    text = 'the postings do not balance exactly in ' + ', '.join(sorted(residue))
+    if len({p['commodity'] for p in raw} | {p['cost']['commodity'] for p in raw if p.get('cost')}) > 1:
+        text += '; amounts in different commodities need a cost (no implicit conversion)'
+    return text
+
+
 def _balanced(postings: list) -> None:
-    unbalanced = balance(postings)
-    if unbalanced:
-        raise ValueError('the postings do not balance exactly in ' + ', '.join(sorted(unbalanced)))
+    problem = unbalanced(postings)
+    if problem:
+        raise ValueError(problem)
 
 
 # Groups of an entry --------------------------------------------------------------------
@@ -395,7 +421,7 @@ class BalanceSheetAccount(Strict):
 
 class ExpenseAccount(Strict):
     """Metadata of an Expenses account."""
-    category: Annotated[str, StringConstraints(pattern=r'^[^\r\n]*\S[^\r\n]*$')] | None = field(
+    category: Annotated[str, StringConstraints(pattern=rf'^[^\r\n]*[^{WHITESPACE}][^\r\n]*$')] | None = field(
         'category', 'Display category inherited by sub-accounts, or null.')
 
 
@@ -542,8 +568,8 @@ class Forecast(RootModel[list[Rule]]):
     model_config = ConfigDict(strict=True)
 
 
-class Statements(RootModel[list[CardStatement | BankStatement]]):
-    """data/card-statements.json: filed statements in end-date order."""
+class Statements(RootModel[list[Annotated[CardStatement | BankStatement, Field(discriminator='kind')]]]):
+    """data/card-statements.json: filed statements in end-date order; each kind has its own shape."""
     model_config = ConfigDict(strict=True)
 
 
@@ -901,11 +927,19 @@ class _Generator(GenerateJsonSchema):
         return False
 
 
+# Keywords strict structured output refuses (OpenAI Structured Outputs, used by Codex --output-schema
+# and response_format; Anthropic output_config.format): the wire schema leaves them out, and the
+# answer model still checks every one of them when the answer arrives.
+WIRE_DROPPED = frozenset({'uniqueItems', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+                          'multipleOf', 'minLength', 'maxLength'})
+
+
 def _tidy(node: Any, *, wire: bool = False) -> Any:
-    """Drop generated titles; for the wire schema also drop the x- annotations."""
+    """Drop generated titles; for the wire schema also drop the x- annotations and WIRE_DROPPED keywords."""
     if isinstance(node, dict):
         return {key: _tidy(value, wire=wire) for key, value in node.items()
-                if not (key == 'title' and isinstance(value, str)) and not (wire and key.startswith('x-'))}
+                if not (key == 'title' and isinstance(value, str))
+                and not (wire and (key.startswith('x-') or key in WIRE_DROPPED))}
     if isinstance(node, list):
         return [_tidy(item, wire=wire) for item in node]
     return node
@@ -952,6 +986,8 @@ def extension_schema() -> dict:
     schema = ExtensionDefinition.model_json_schema(schema_generator=_Generator, ref_template='#/$defs/{model}')
     return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
             '$id': 'https://example.invalid/expense-ledger/extension-definition.schema.json',
+            # The journal tags an extension field may not use (ExtensionDefinition's check), for Node.
+            'x-reserved-journal-tags': sorted(CORE_JOURNAL_TAGS),
             **_tidy(schema)}
 
 
@@ -977,7 +1013,7 @@ def compose_store_schema(core: dict, extensions: list[tuple[str, dict]], types_m
             fields[key] = {'anyOf': [value, {'type': 'null'}], 'description': item['description'],
                            'x-journal-tag': item['journal-tag'], 'x-set-by': set_by}
         defs[group] = {'additionalProperties': False, 'description': definition['description'], 'properties': fields,
-                       'required': list(fields), 'type': 'object'}
+                       'required': list(fields), 'type': 'object', 'x-group': True}
         setters_of[name] = list(dict.fromkeys(s for value in fields.values() for s in value['x-set-by']))
         properties[name] = {'anyOf': [{'$ref': f'#/$defs/{group}'}, {'type': 'null'}],
                             'description': definition['description'], 'x-set-by': setters_of[name]}

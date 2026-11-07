@@ -2,6 +2,7 @@
 from datetime import date
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -122,12 +123,32 @@ class AccountTests(SetupFixture):
             (dict(kind='bank', label=' '), '--label'),
             (dict(account='Assets:Unlabelled'), 'need --kind'),
             (dict(account='Groceries'), 'Account names look like'),
+            (dict(kind='bank', label='Other\u00a0Bank'), 'Account names look like'),
+            (dict(kind='bank', label='Other\u2009Bank'), 'Account names look like'),
             (dict(kind='bank', label='Other', account='Expenses:Other'), 'start with Assets'),
         ]
         for values, message in refusals:
             with self.subTest(values=values), self.assertRaisesRegex(ValueError, message):
                 self.add(**values)
         self.assertEqual((self.root / 'data/accounts.json').read_bytes(), before)
+
+
+class CommodityDirectiveTests(SetupFixture):
+    def test_unit_names_hledger_reads_only_quoted_are_declared_quoted(self):
+        from store import commodities
+        from strict_check import check
+        self.add(kind='investment', label='Index Units', currency='DEMO2')
+        self.add(kind='investment', label='Plain Units', currency='DEMOUNITS')
+        accounts = read_json(self.root / 'data/accounts.json')
+        self.assertEqual(accounts['commodities'], ['USD', '"DEMO2"', 'DEMOUNITS'])
+        self.assertEqual(commodities(accounts), {'USD', 'DEMO2', 'DEMOUNITS'})
+        documents = load(self.root)
+        check(documents, self.root)
+        hledger = os.environ.get('HLEDGER_BIN') or shutil.which('hledger')
+        if hledger:
+            from generate_ledger import render
+            run = subprocess.run([hledger, '-f', '-', 'check', '-s'], input=render(documents, self.root), text=True, capture_output=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
 
 
 class OpeningTests(SetupFixture):

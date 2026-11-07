@@ -2,12 +2,10 @@
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
-import os
-import shutil
-import subprocess
 
 from transactions import ProposalError
-from store import entries, extensions_of, validate
+from store import entries, validate
+from strict_check import StrictCheckError, check as strict_check
 from confirmed_balances import correction_locks, enforce_locks, enforce_order, raise_failure
 
 
@@ -62,17 +60,14 @@ def replace_entry(documents, root, before, after, *, expected, remove=None, remo
 
 
 def check_documents(documents, root, candidate=None):
-    from generate_ledger import render_entry
+    """The models, then the JSON strict check; a failing confirmed balance is a structured refusal."""
     validate(documents, root)
-    declarations=documents[root/'data/accounts.json']
-    lines=[*("commodity "+c for c in declarations['commodities']),*("account "+a for a in declarations['accounts']), '']
-    extensions=extensions_of(root)
-    for entry in entries(documents): lines.extend(render_entry(entry, extensions))
-    hledger=os.environ.get('HLEDGER_BIN') or shutil.which('hledger') or '/opt/homebrew/bin/hledger'
-    checked=subprocess.run([hledger,'-f','-','check','-s','ordereddates'],input='\n'.join(lines)+'\n',capture_output=True,text=True)
-    if checked.returncode:
-        raise_failure(documents, root, candidate=candidate, detail=checked.stderr)
-        raise ProposalError('Proposed correction fails strict hledger validation:\n'+checked.stderr)
+    try:
+        strict_check(documents, root)
+    except StrictCheckError as error:
+        if error.refusal:
+            raise_failure(documents, root, candidate=candidate, detail=str(error), problems=error.problems)
+        raise ProposalError('Proposed correction fails the strict ledger check: '+str(error)) from None
 
 
 def safe_evidence(root, relative):

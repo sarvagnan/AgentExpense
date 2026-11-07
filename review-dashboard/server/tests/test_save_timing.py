@@ -14,7 +14,7 @@ from support import Fixture, APPLICATION
 from ledger_lock import ledger_lock
 import save_timing
 
-VERIFY_STEPS = {'commit', 'verify', 'journal', 'store_check', 'schema', 'forecast_hledger', 'hledger', 'commit_jj', 'jj', 'data'}
+VERIFY_STEPS = {'commit', 'verify', 'journal', 'store_check', 'schema', 'strict_check', 'hledger', 'commit_jj', 'jj', 'data'}
 
 
 class Capture(logging.Handler):
@@ -58,12 +58,12 @@ class SaveTimingTests(Fixture):
         # Nested steps fit inside their parents; the total covers the commit and the rebuild.
         self.assertLessEqual(steps['verify'], steps['commit'])
         self.assertLessEqual(steps['journal'] + steps['store_check'] + steps['hledger'], steps['verify'])
-        self.assertLessEqual(steps['schema'] + steps['forecast_hledger'], steps['store_check'])
+        self.assertLessEqual(steps['schema'] + steps['strict_check'], steps['store_check'])
         self.assertLessEqual(steps['commit'] + steps['data'], line['total'])
         self.assertEqual(list(steps), [s for s in save_timing.STEPS if s in steps])
         text = json.dumps(self.ledger_bytes(), default=lambda b: b.decode('utf-8', 'replace'))
         self.assertNotIn('save-timing', text)
-        self.assertNotIn('forecast_hledger', text)
+        self.assertNotIn('strict_check', text)
         self.assertNotIn('save-timing', self.jj('log', '--no-graph', '-T', 'description'))
 
     def test_agent_add_logs_pickup_agent_and_prepare(self):

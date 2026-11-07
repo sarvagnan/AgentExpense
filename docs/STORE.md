@@ -184,7 +184,7 @@ One line of an entry or a rule. It is written on one line in the file.
 
 | Field | Meaning | Type | Set by |
 |---|---|---|---|
-| `amount` | The price in the cost commodity, as written. | number | agent, statement |
+| `amount` | The price in the cost commodity, as written; greater than zero. | number | agent, statement |
 | `commodity` | The commodity the posting was paid in. | commodity | agent, statement |
 | `per` | `total`: the amount is the whole price (hledger `@@`). `unit`: the price of one unit (`@`), allowed only where it balances exactly. | enum | server, statement, history |
 
@@ -347,12 +347,19 @@ and every write runs them:
 
 - **Exact balance per commodity.** The postings sum to exactly zero in each
   commodity, with no rounding tolerance.
-  - A posting with a cost counts in its cost commodity: the `total` amount, or
-    the `unit` price times the quantity. It is signed like the posting.
+  - A posting with a cost counts in its cost commodity, as hledger counts it: the
+    `unit` price times the quantity, or the `total` amount, negated when the
+    quantity is negative (a zero quantity counts the whole amount). Costs are
+    normally positive, so either is signed like the posting.
+  - When the residue spans commodities, the message says so: amounts in different
+    commodities need a cost (no implicit conversion).
   - Postings in different commodities without costs pass only when each
     commodity sums to zero on its own, as in an opening-balance entry with two
     currencies.
-- **Costs.** A cost is in a different commodity from its posting.
+- **Costs.** A cost is greater than zero and in a different commodity from its
+  posting, and a `total` cost needs a non-zero quantity. So the cost's sign is the
+  posting's, and every reader that shows a cost as its absolute value signed like
+  the quantity shows what hledger counts.
 - **Statement row.** `statement.end` requires `serial` and `page`.
 - **Duplicate links.** Targets are unique, sorted, and greater than the entry's own ID.
 - **Rules.**
@@ -362,11 +369,48 @@ and every write runs them:
     two-posting payment in one currency, a positive bill, and the current occurrence.
   - A rule's postings have no `assert`.
 
-Checks across entries stay in `store.validate` and `check_store.py` (part 3 of
-step 6h replaces them with the JSON strict check). These include ID uniqueness,
-declared accounts and commodities, account currencies, balance assertions,
-statement membership, rule references, evidence files and extension groups that
-match `ledger.json`.
+Node (`ledger-manifest.mjs`) makes the same checks with the same words: the
+schema marks each group `x-group`, statements are a union tagged by `kind`, and
+the validator runs the checks above for `Entry`, `Posting`, `Rule` and
+`BankStatement`. Store documents are parsed so that a number written with a
+decimal point or an exponent (`5.0`) is never an integer, and a repeated key is
+refused, as in Python. Patterns spell whitespace out instead of `\s`, which differs
+between Python, Rust and JavaScript, and a date in year 0000 is refused in both.
+
+Checks across entries stay in `store.validate` and `check_store.py`. These
+include ID uniqueness, account currencies, statement membership, rule
+references, evidence files and extension groups that match `ledger.json`.
+
+## The JSON strict check
+
+`scripts/ledger/strict_check.py` checks, on the validated store and without
+starting a process, what `hledger check -s ordereddates` checks on the journal
+the store renders (hledger's manual, "check"):
+
+| hledger check | The JSON strict check |
+|---|---|
+| parseable | Account names: no whitespace but the plain space (hledger reads a no-break or thin space as a space and U+0085 as a line break), no two spaces in a row or space at either end, and no leading `(`, `[`, `*`, `!` or `;`. Commodity directives: a symbol (quoted unless it is letters or currency signs), or an amount with `.` as its decimal mark, such as `1,000.00 INR` or `$1,000.00` (`1.000,00 INR` makes hledger read every amount ×100). No posting note sets a posting date: a `date:` or `date2:` tag after a space, or brackets holding only `0-9/.=-` with a digit and a separator (`[2/3]`; `[1]` stays text). The price file holds only comments and `P DATE COMMODITY AMOUNT` lines with a real year-month-day date, a decimal number, quoted symbols unless letters or currency signs, and declared commodities. |
+| autobalanced, balanced | The model validators above: every entry and rule balances exactly, with costs counted as hledger counts them and no implicit conversion. |
+| assertions | In date order, same-day entries as written, each posting's assertion holds for its own account and commodity only (no subaccounts), ignoring costs, compared exactly: the running balances `confirmed_balances.py` keeps. |
+| commodities | Every posting, cost, assertion and price commodity is declared. |
+| accounts | Every posting account is declared, exactly. |
+| ordereddates | The entries, in the order the year files hold them, are in date order. |
+| forecasts (`--forecast`) | Every rule, active or not, and every forecast transaction it renders (a saved bill's included): it balances exactly, its accounts and commodities are declared, and its period is one hledger generates on its start date. |
+
+`check_store.py` (so `make verify-data`, `make verify` and `make commit`) and the
+server's previews and saves run it as the gate. The strict hledger check of the
+whole journal still runs once per save, under the lock, as a second check. The
+agreement tests (`scripts/ledger/tests/test_strict_check.py`) run both on every
+fixture and on generated large ledgers, and break a valid ledger one way per check
+kind to require both to refuse it for the same reason. hledger counts as refusing
+also when it reads something else than the store says: other account names, or
+other balances. When a balance assertion fails, the check always reports it as a
+confirmed-balance refusal (with its possible duplicates) and lists any other
+problem beside it. Where the JSON check is stricter than hledger, it is so on
+purpose: exact balance (hledger rounds to the entry's precision), a posting date
+in a posting note, negative costs and zero quantities at a total cost, digit groups
+made of spaces in a commodity directive, and price lines with group marks,
+exponents, times or comments.
 
 ## The journal
 

@@ -51,7 +51,15 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+    except ValueError as error:
+        if not str(error).startswith('Duplicate JSON key'):
+            raise
+        # Name the document, as Node does (parseStoreJson).
+        path = Path(path)
+        label = path.relative_to(ledger_of(path)) if path.is_relative_to(ledger_of(path)) else path.name
+        raise ValueError(f'{label}: {error}') from None
 
 
 def ledger_of(path: Path) -> Path:
@@ -151,6 +159,11 @@ def serialize(path: Path, value: Any, root: Path | None = None) -> str:
         parsed = model.model_validate(value)
     except ValidationError as error:
         raise _error(str(path.relative_to(root)) if path.is_relative_to(root) else path.name, error) from None
+    return canonical(parsed)
+
+
+def canonical(parsed: Any) -> str:
+    """The canonical bytes of a document the models have already validated."""
     return canonical_text(parsed.model_dump(mode='json', by_alias=True))
 
 
@@ -197,16 +210,39 @@ def currency_codes() -> frozenset[str]:
     return frozenset(read_json(APPLICATION_ROOT / 'schema/currencies.json'))
 
 
+# A commodity directive the journal can hold: a symbol, or an amount that shows the symbol's
+# style with "." as its decimal mark, since every amount the journal writes uses ".". hledger
+# reads "1.000,00 INR" or "1,000 INR" as declaring "," and then misreads every amount, and it
+# refuses a number without a decimal mark or an unquoted symbol with a digit.
+_SYMBOL = r'"[^"\r\n]+"|[^\s\d"\-.,;]+'
+_STYLE = r'-?\d+(?:,\d+)*\.\d*'
+_DIRECTIVE = re.compile(rf'(?P<alone>{_SYMBOL})|(?P<before>{_SYMBOL}) ?{_STYLE}|{_STYLE} ?(?P<after>{_SYMBOL})')
+
+
+def bare_symbol(symbol: str) -> bool:
+    """A commodity symbol hledger reads unquoted: letters, or currency signs such as $."""
+    import unicodedata
+    return bool(symbol) and (symbol.isalpha() or all(unicodedata.category(ch) == 'Sc' for ch in symbol))
+
+
+def commodity_symbol(directive: str) -> str:
+    """The symbol a commodity directive declares, or ValueError with what to write instead."""
+    found = _DIRECTIVE.fullmatch(directive.strip()) if '\n' not in directive and '\r' not in directive else None
+    symbol = next((value for value in (found.groupdict().values() if found else ()) if value), None)
+    if symbol and (symbol.startswith('"') or bare_symbol(symbol)):
+        return symbol.strip('"')
+    raise ValueError(f'Commodity directive {directive!r} must be one symbol (quoted when it holds anything but letters '
+                     'or currency signs), or an amount with "." as its decimal mark, such as 1,000.00 INR')
+
+
+def commodity_directive(code: str) -> str:
+    """The directive that declares ``code``: bare when hledger reads it bare, otherwise quoted."""
+    return code if bare_symbol(code) else json.dumps(code, ensure_ascii=False)
+
+
 def commodities(declarations: dict) -> set[str]:
-    import shlex
-    result = set()
-    for directive in declarations['commodities']:
-        token = shlex.split(directive)[0]
-        # A numeric quantity in a declaration specifies display precision.
-        if re.fullmatch(r'[0-9.,]+', token):
-            token = shlex.split(directive)[1]
-        result.add(token)
-    return result
+    """The declared commodity symbols; ValueError for a directive the journal can't hold."""
+    return {commodity_symbol(directive) for directive in declarations['commodities']}
 
 
 def extension_mismatch(documents: dict[Path, Any], root: Path, listed: list[str]) -> None:
@@ -231,17 +267,21 @@ def extension_mismatch(documents: dict[Path, Any], root: Path, listed: list[str]
                          'NAME=' + (sorted(names)[0] if names else '<name>'))
 
 
-def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
-    """Validate every document against the models, then the checks that span documents."""
+def validate(documents: dict[Path, Any], root: Path = ROOT) -> dict[Path, Any]:
+    """Validate every document against the models, then the checks that span documents.
+
+    Returns each document's validated model, so a caller can serialise it (``canonical``)
+    without validating it again."""
     manifest = read_manifest(root)
     models = ledger_models(root)
     extension_mismatch(documents, root, list(manifest['extensions']))
+    parsed = {}
     for path, document in documents.items():
         if path.name == "ledger.json":
             continue
         kind = kind_of(path)
         try:
-            models.document(kind).model_validate(document)
+            parsed[path] = models.document(kind).model_validate(document)
         except ValidationError as error:
             raise _error(str(path.relative_to(root)), error) from None
     accounts = documents[root / 'data/accounts.json']
@@ -332,14 +372,19 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> None:
         evidence = [*((rule['origin'] or {}).get('entry-ids', [])), *((rule['removal'] or {}).get('entry-ids', []))]
         if any(identity not in actual and identity not in trashed for identity in evidence):
             raise ValueError(f"{rule['id']}: rule evidence must name existing actual entries")
+    return parsed
 
 
 def load(root: Path = ROOT) -> dict[Path, Any]:
+    return load_parsed(root)[0]
+
+
+def load_parsed(root: Path = ROOT) -> tuple[dict[Path, Any], dict[Path, Any]]:
+    """The validated documents and their models (``validate``'s result)."""
     read_manifest(root)
     paths = store_paths(root)
     documents = {path: read_json(path) for path in paths}
-    validate(documents, root)
-    return documents
+    return documents, validate(documents, root)
 
 
 def entries(documents: dict[Path, Any]) -> list[dict[str, Any]]:

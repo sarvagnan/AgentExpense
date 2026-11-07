@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationRoot, ledgerRoot } from '../../scripts/project-paths.mjs';
-import { moduleSettings, readManifest, storeSchema, validateDocument } from './ledger-manifest.mjs';
+import { moduleSettings, parseStoreJson, readManifest, storeSchema, validateDocument } from './ledger-manifest.mjs';
 import {complexRule,mainPostings,payer,varyingDetails,periodFor} from './recurring-ui.mjs';
 
 const storeRoot = ledgerRoot();
@@ -135,7 +135,7 @@ export async function loadExpenseStore(root = storeRoot) {
   const {schema, extensions} = await storeSchema(root, manifest);
   const expenseDir = path.join(root, 'data', 'expenses');
   const files = (await readdir(expenseDir).catch(error => { if (error.code === 'ENOENT') return []; throw error; })).filter((name) => name.endsWith('.json')).sort();
-  const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
+  const readJson = async (file) => parseStoreJson(await readFile(file, 'utf8'), path.relative(root, file));
   const optional = (file, fallback) => readJson(path.join(root, 'data', file)).catch(error => { if (error.code === 'ENOENT') return fallback; throw error; });
   const [years, rawRules, priceText, declarations, recurringSettings, trash, statements] = await Promise.all([
     Promise.all(files.map((name) => readJson(path.join(expenseDir, name)))),

@@ -24,8 +24,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ledger_lock import ledger_lock
+from strict_check import account_problem
 from project_paths import APPLICATION_ROOT
-from store import ROOT, dump, empty_entry, load, new_id, posting, read_json, validate
+from store import ROOT, commodities, commodity_directive, dump, empty_entry, load, new_id, posting, read_json, validate
 from account_metadata import empty
 
 KINDS = ('bank', 'card', 'cash', 'wallet', 'loan', 'investment', 'person')
@@ -53,7 +54,7 @@ def account_name(kind, label):
 def check_account_name(name):
     parts = name.split(':')
     if parts[0] not in ROOTS or len(parts) < 2 or any(not p.strip() or p != p.strip() for p in parts) \
-            or re.search(r'[\r\n;]|  |\t', name):
+            or re.search(r'[\r\n;]|  |\t', name) or account_problem(name):
         raise ValueError(f'Account names look like "Assets:Bank:Example Checking": {name!r} is not one.')
 
 
@@ -106,8 +107,8 @@ def account_changes(root, *, kind=None, label=None, currency=None, aliases=(), r
                     for existing, other in declared['accounts'].items() if other.get('kind')):
         raise ValueError(f'{name} would nest inside or around another balance-sheet account.')
     declared['accounts'][name] = meta
-    if meta.get('currency') and meta['currency'] not in declared['commodities']:
-        declared['commodities'].append(meta['currency'])
+    if meta.get('currency') and meta['currency'] not in commodities(declared):
+        declared['commodities'].append(commodity_directive(meta['currency']))
     checked = dict(documents)
     checked[root / 'data/accounts.json'] = declared
     validate(checked, root)

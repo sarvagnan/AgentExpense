@@ -491,7 +491,7 @@ including metadata and attachment names; the audit reader recomputes it.
 
 `Transaction.prepare(answer)` is the shared side-effect-free interface for 6c/6d:
 it returns the converted `entry`, `declarations`, `new_accounts`, `new_roots` and
-`proposal_hash`, after schema and strict hledger validation in scratch files.
+`proposal_hash`, after the models and the JSON strict check (`scripts/ledger/strict_check.py`) in scratch files.
 `Transaction.apply(answer, lock_fd)` repeats preparation under the ledger lock,
 checks exact consent, files/compresses evidence, appends audit, journals rollback,
 verifies/commits and durably saves its receipt. Callers own FIFO selection and the
@@ -607,7 +607,8 @@ inspector over Add; completed expenses appear in Explorer, rather than Queue.
 ### Statement-confirmed balances (6f A)
 
 All additions (usual, hand-finished and agent proposals) and replacements (including
-receipt choices) retain the final strict hledger check. `scripts/ledger/confirmed_balances.py`
+receipt choices) run the JSON strict check before writing, and `make commit` runs it
+again with the strict hledger check of the whole journal. `scripts/ledger/confirmed_balances.py`
 computes partial assertions directly from ordered store postings. A refused save
 returns `kind: confirmed_balance`, account/label, assertion date and entry ID,
 asserted/calculated/difference decimal amounts with their commodity, a structured
@@ -701,7 +702,7 @@ Each save writes one line to the server log (stderr, so the service journal), ne
 into the ledger: `save-timing {"operation": …, "outcome": "ok"|"error", "total": …,
 "steps": {…}}`, in seconds. [`save_timing.py`](save_timing.py) lists the steps (pickup,
 agent, prepare, lock wait, commit with verify, journal, store check, schema, the
-per-rule forecast hledger runs, hledger, jj, data rebuild). `make commit` reports its
+JSON strict check, hledger, jj, data rebuild). `make commit` reports its
 own steps through a temporary file named in `EXPENSES_STEP_TIMINGS`; without that
 variable (a commit from the command line) nothing is recorded. `EXPENSES_TIMING_LOG=0`
 keeps the lines out of stderr; the offline tests set it.
