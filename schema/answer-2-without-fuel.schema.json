@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AnswerCost": {
+      "additionalProperties": false,
+      "description": "The posting's price in another commodity: the whole price (hledger @@) or the price of one unit (@). Only the fields the agent sets.",
+      "properties": {
+        "amount": {
+          "description": "Exact decimal text in the cost commodity, as written.",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "commodity": {
+          "description": "The commodity the posting was paid in.",
+          "pattern": "^[^\\r\\n\"]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "commodity"
+      ],
+      "type": "object"
+    },
+    "AnswerEntryWithoutFuel": {
+      "additionalProperties": false,
+      "description": "One actual entry in data/expenses/<year>.json. Only the fields the agent sets.",
+      "properties": {
+        "date": {
+          "description": "The calendar date printed on the evidence or the payment. Its year names the file.",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "type": "string"
+        },
+        "status": {
+          "description": "\"pending\" when the classification still needs review.",
+          "enum": [
+            "confirmed",
+            "pending"
+          ],
+          "type": "string"
+        },
+        "description": {
+          "description": "The payee or what was paid for, as the evidence names it.",
+          "pattern": "^[^\\r\\n]+$",
+          "type": "string"
+        },
+        "references": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/References"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identifiers on the evidence, or null."
+        },
+        "classification": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A short note on how the expense was classified, or null."
+        },
+        "original-amount": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The amount in another currency, as printed, when the payment was converted."
+        },
+        "notes": {
+          "description": "Comment lines, in order.",
+          "items": {
+            "pattern": "^[^\\r\\n]*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "postings": {
+          "description": "At least one posting, in order.",
+          "items": {
+            "$ref": "#/$defs/AnswerPosting"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "date",
+        "status",
+        "description",
+        "references",
+        "classification",
+        "original-amount",
+        "notes",
+        "postings"
+      ],
+      "type": "object"
+    },
+    "AnswerPosting": {
+      "additionalProperties": false,
+      "description": "One line of an entry or rule. Written on one line in the store file. Only the fields the agent sets.",
+      "properties": {
+        "account": {
+          "description": "A declared account name.",
+          "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
+          "type": "string"
+        },
+        "amount": {
+          "description": "Signed exact decimal text: positive into the account, negative out of it.",
+          "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]+$",
+          "type": "string"
+        },
+        "commodity": {
+          "description": "The posting's commodity: the account currency, or units for an investment.",
+          "pattern": "^[^\\r\\n\"]+$",
+          "type": "string"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnswerCost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its price in another commodity, or null."
+        }
+      },
+      "required": [
+        "account",
+        "amount",
+        "commodity",
+        "cost"
+      ],
+      "type": "object"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "description": "An amount in a commodity.",
+      "properties": {
+        "amount": {
+          "description": "Exact decimal text, as printed.",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "commodity": {
+          "description": "The commodity code.",
+          "pattern": "^[^\\s\";=@]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "commodity"
+      ],
+      "type": "object"
+    },
+    "References": {
+      "additionalProperties": false,
+      "description": "Identifiers printed by the payee or the bank.",
+      "properties": {
+        "reference": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A payment or bank reference printed on the evidence."
+        },
+        "order-id": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The payee's order or invoice number."
+        }
+      },
+      "required": [
+        "reference",
+        "order-id"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The Add agent's answer. The server fills every other entry field when it stores the entry.",
+  "properties": {
+    "status": {
+      "description": "\"ready\": the evidence and words settle the entry. \"question\": one thing is unsettled. \"not_expense\": the draft is not an expense.",
+      "enum": [
+        "ready",
+        "question",
+        "not_expense"
+      ],
+      "type": "string"
+    },
+    "question": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "One short question when status is \"question\", otherwise null."
+    },
+    "entry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AnswerEntryWithoutFuel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The entry, or null when it cannot be given."
+    },
+    "new-accounts": {
+      "description": "Accounts the entry uses that are not declared yet.",
+      "items": {
+        "pattern": "^[^\\r\\n:]+(?::[^\\r\\n:]+)*$",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "doubts": {
+      "description": "Anything the person should check.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "attachment-names": {
+      "description": "One descriptive base name per attachment, without folder or extension.",
+      "items": {
+        "pattern": "^[^\\r\\n/\\\\]+$",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "One short reason when status is \"not_expense\", otherwise null."
+    }
+  },
+  "required": [
+    "status",
+    "question",
+    "entry",
+    "new-accounts",
+    "doubts",
+    "attachment-names",
+    "explanation"
+  ],
+  "type": "object"
+}
