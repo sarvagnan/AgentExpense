@@ -93,7 +93,14 @@ def verify(root):
     with contextlib.redirect_stdout(output):
         check(root)
     print('\n'.join(line for line in output.getvalue().splitlines() if not line.startswith('  ')))
-    command(root, os.environ.get('HLEDGER_BIN', 'hledger'), '-f', str(journal), 'check', '-s', 'ordereddates')
+    from second_check import find_hledger
+    hledger = find_hledger()
+    if hledger:
+        command(root, hledger, '-f', str(journal), 'check', '-s', 'ordereddates')
+
+
+WITHOUT_HLEDGER = ('hledger is not installed: the upgrade skips hledger\'s strict check and its report comparison '
+                   '(hledger is optional; the models, the JSON strict check and the journal and dashboard comparisons still run).')
 
 
 class CountsOnly(ValueError):
@@ -123,6 +130,17 @@ def validate_plan(step, result, root):
         load(scratch)
 
 
+DOCUMENT_KINDS = (('data/expenses/', 'entries'), ('data/forecast.json', 'rules'), ('data/card-statements.json', 'statements'),
+                  ('data/accounts.json', 'accounts'), ('data/trash.json', 'trash'), ('data/recurring-settings.json', 'recurring settings'),
+                  ('ledger.json', 'ledger settings'), ('extensions/', 'extension definitions'))
+
+
+def document_kind(message):
+    """The kind of store document a check failure is about, never its file name or values."""
+    head = str(message).split(':', 1)[0].strip()
+    return next((kind for prefix, kind in DOCUMENT_KINDS if head.startswith(prefix) or prefix.rstrip('/') in head), 'store documents')
+
+
 def rehearse(root, options, steps, version):
     """Plan and apply every step on a scratch copy; validate the result at the current format.
 
@@ -136,13 +154,25 @@ def rehearse(root, options, steps, version):
             shutil.copytree(root / 'extensions', scratch / 'extensions')
         if (root / 'ledger.json').exists():
             shutil.copyfile(root / 'ledger.json', scratch / 'ledger.json')
-        plans = {}
+        plans, first = {}, version
         while version < CURRENT_FORMAT:
             step = steps[version]
-            result = plans[version] = step.plan(scratch, options)
-            if step.TARGET_FORMAT == CURRENT_FORMAT:
-                validate_plan(step, result, scratch)
-            step.apply(scratch, result)
+            stage = 'plan'
+            try:
+                result = plans[version] = step.plan(scratch, options)
+                stage = 'check'
+                if step.TARGET_FORMAT == CURRENT_FORMAT:
+                    validate_plan(step, result, scratch)
+                stage = 'apply'
+                step.apply(scratch, result)
+            except CountsOnly:
+                raise
+            except ValueError as error:
+                if version == first and stage != 'apply':
+                    raise  # The first step's plan and its own check write their messages for the person.
+                # Writing a converted store, or a later step reading one: the error may name files and values.
+                raise CountsOnly(f'The ledger converted for format {step.TARGET_FORMAT} does not pass its checks '
+                                 f'({document_kind(error)}). Run make verify on a copy after upgrading it by hand to see details.') from None
             version = step.TARGET_FORMAT
         return plans
 
@@ -192,6 +222,9 @@ def upgrade(root, options):
             print(f'Ledger already uses format {CURRENT_FORMAT}; no changes.')
             return
         repo.require_clean()
+        from second_check import find_hledger
+        if not find_hledger():
+            print(WITHOUT_HLEDGER)
         checkpoint = repo.checkpoint()
         print('Checkpoint: ' + checkpoint[0])
         # Migrations and verification only write these paths. Preserve ignored journal bytes too.

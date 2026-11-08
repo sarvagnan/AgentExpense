@@ -270,6 +270,19 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });
     await overflow('first-import-resolved');await snap('first-import-resolved');
     record('first run: built-in and agent readings, unread file, currency mismatch blocks Finish and resolves');
+
+    // A check finishing after Import mounted must update its reason without a
+    // failed Finish request. A later pass clears the refusal in the same screen.
+    const checkedAccount=(await get('statements')).sessions.find(s=>s.statement&&['found','review'].includes(s.state)).statement.account;
+    try {
+      await control('ledger-check',{mode:'fail',kind:'assertion',account:checkedAccount});
+      await expect(page.locator('#import-status')).toContainText('The second ledger check (hledger) found a problem',{timeout:15000});
+      await expect(finishImport).toBeDisabled();
+      await control('ledger-check',{mode:'pass'});
+      await expect(finishImport).toBeEnabled({timeout:15000});
+      await expect(page.locator('#import-status')).not.toContainText('The second ledger check');
+      record('first run: late ledger check failure and pass update Finish and its reason without clicking it');
+    } finally { await control('ledger-check',{mode:'real',check:false}); }
     // Timing: Finish held in flight; the late answer still saves both files once.
     let imports = 0; const countImports = request => { if (request.url().endsWith('/api/setup/import')) imports++; };
     page.on('request', countImports);

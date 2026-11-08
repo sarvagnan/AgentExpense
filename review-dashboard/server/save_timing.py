@@ -15,9 +15,11 @@ Steps, in seconds (a step absent from the line did not run):
 - `lock_wait`: waiting for the ledger lock;
 - `commit`: all of `make commit`, which contains `verify` (all of `make
   verify-data`, including its `uv run` starts), and within that `journal` (journal
-  rebuild), `store_check` (with `schema`, the store's load and schema validation,
-  and `strict_check`, the JSON strict check with every recurring rule) and
-  `hledger` (the strict check of the whole journal); `commit_jj` is the jj calls
+  rebuild) and `store_check` (with `schema`, the store's load and schema validation,
+  and `strict_check`, the JSON strict check with every recurring rule); `hledger`
+  appears only when EXPENSES_HLEDGER_CHECK=now keeps hledger's strict check in the
+  commit (otherwise it runs after the commit, in the background: `ledger_check.py`);
+  `commit_jj` is the jj calls
   inside `make commit` (snapshot, commit, bookmark);
 - `jj`: the server's own jj calls (clean check, rollback snapshot, commit ID);
 - `data`: the dashboard data rebuild (`npm run data`).
@@ -140,7 +142,18 @@ def step(name):
 
 
 def make_commit(application, env, lock_fd):
-    """Run `make commit` exactly as before, timing it with the steps it reports."""
+    """Run `make commit` exactly as before, timing it with the steps it reports.
+
+    After a commit the background second check (hledger) is asked to check it
+    (`ledger_check.committed`); the save never waits for it."""
+    completed = _make_commit(application, env, lock_fd)
+    if completed.returncode == 0 and env.get('LEDGER_DIR'):
+        import ledger_check
+        ledger_check.committed(env['LEDGER_DIR'])
+    return completed
+
+
+def _make_commit(application, env, lock_fd):
     timing = _current.get()
     if timing is None:
         return subprocess.run(['make', 'commit'], cwd=application, env=env, pass_fds=(lock_fd,), capture_output=True, text=True)

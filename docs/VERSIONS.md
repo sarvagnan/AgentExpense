@@ -102,10 +102,13 @@ Exported Review files carry `reviewVersion` 2. Import accepts that version.
 | npm | ships with that Node | Installs the locked dashboard and agent CLI packages. |
 | Python | `requires-python` in `review-dashboard/server/pyproject.toml` (3.11+) | Server, ledger tools and tests. |
 | uv | any recent release | Runs the server environment from `uv.lock`. |
-| hledger | 1.25 or newer | See below. |
+| hledger | 1.25 or newer, optional | The second check and the hledger reports; see below. |
 | jj or git | either | Ledgers are version-controlled; dashboard saves commit with Jujutsu colocated with git. |
 
-**hledger 1.25.** The app writes a journal with `account` and `commodity`
+**hledger 1.25.** hledger is optional: the JSON strict check is the gate, and without
+hledger only the hledger reports, the background second check and, during a ledger upgrade,
+hledger's own check and report comparison are missing (the upgrade's other checks still run). When it is
+installed, the app writes a journal with `account` and `commodity`
 declarations, quoted commodity names, total costs (`@@`), balance assertions and
 periodic `~` rules, then runs `hledger check -s ordereddates` (strict checks of
 declared accounts and commodities, plus date order) and `--forecast=START..END`.

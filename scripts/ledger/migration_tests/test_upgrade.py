@@ -95,6 +95,33 @@ class MigrationTests(Repository0):
         for step in range(CURRENT_FORMAT):
             self.assertIn(f'Upgrade ledger format {step} → {step + 1} (app v{app_version()})', log)
 
+    def test_without_hledger_the_upgrade_skips_only_hledgers_check_and_reports(self):
+        """hledger is optional: on a PATH without it the upgrade runs every other check and says so once."""
+        import shutil
+        from second_check import find_hledger
+        from upgrade_ledger import WITHOUT_HLEDGER
+        tools = self.root.parent / (self.root.name + '-tools')
+        tools.mkdir()
+        self.addCleanup(shutil.rmtree, tools)
+        # A wrapper script, not a copy: jj shares its folder with hledger on this host.
+        (tools / 'jj').write_text(f'#!/bin/sh\nexec "{shutil.which("jj")}" "$@"\n')
+        (tools / 'jj').chmod(0o755)
+        node = subprocess.check_output([sys.executable, str(Path(__file__).resolve().parents[2] / 'node_toolchain.py')], text=True).strip()
+        path = os.pathsep.join([str(tools), node, '/usr/bin', '/bin'])
+        with patch.dict(os.environ, {'PATH': path, 'HLEDGER_BIN': '', 'HLEDGER': ''}):
+            self.assertIsNone(find_hledger())
+            before = snapshot(self.root)
+            self.assertEqual({'bal', 'bal-cost', 'print', 'reg'} & set(before), set(), 'No hledger reports without hledger')
+            self.assertIn('journal', before)
+            self.assertTrue(any(key.startswith('dashboard/') for key in before))
+            args = options();vars(args).update(locale='en-IN', start_date='2026-01-01');output = io.StringIO()
+            with redirect_stdout(output):
+                upgrade(self.root, args)
+            self.assertEqual(output.getvalue().count(WITHOUT_HLEDGER), 1)
+            self.assertIn('Verified', output.getvalue(), 'The store check and the JSON strict check still ran')
+            self.assertTrue(compare(before, snapshot(self.root), ignores=('meta.ledger',), emit=False))
+        self.assertEqual(read_manifest(self.root)['format'], CURRENT_FORMAT)
+
     def test_legacy_card_summary_membership_and_all_outputs_survive_unchanged(self):
         from test_ledger import CARD
         from generate_ledger import render
@@ -426,7 +453,7 @@ class FormatOneTests(Repository0):
         self.assertIn('empty values cleared: 2', dry)
         self.assertIn('journal entries that change as declared (empty-value): 1', dry)
         output = self.upgraded()
-        self.assertIn('Upgraded ledger to format 2', output)
+        self.assertIn(f'Upgraded ledger to format {CURRENT_FORMAT}', output)
         self.assertIn('journal entries that change as declared (empty-value): 1', output)
         stored = load(self.root)[self.root / 'data/forecast.json'][0]
         self.assertEqual((stored['classification'], stored['references']), (None, None))

@@ -398,8 +398,10 @@ the store renders (hledger's manual, "check"):
 | forecasts (`--forecast`) | Every rule, active or not, and every forecast transaction it renders (a saved bill's included): it balances exactly, its accounts and commodities are declared, and its period is one hledger generates on its start date. |
 
 `check_store.py` (so `make verify-data`, `make verify` and `make commit`) and the
-server's previews and saves run it as the gate. The strict hledger check of the
-whole journal still runs once per save, under the lock, as a second check. The
+server's previews and saves run it as the gate. hledger, when installed, is the second
+check: `make verify-data` and `make verify` run by hand run its strict check of the whole
+journal at once, while `make commit` (so every save) sets `EXPENSES_HLEDGER_CHECK=background`
+and the server checks each commit afterwards (see "The second check" below). The
 agreement tests (`scripts/ledger/tests/test_strict_check.py`) run both on every
 fixture and on generated large ledgers, and break a valid ledger one way per check
 kind to require both to refuse it for the same reason. hledger counts as refusing
@@ -411,6 +413,37 @@ purpose: exact balance (hledger rounds to the entry's precision), a posting date
 in a posting note, negative costs and zero quantities at a total cost, digit groups
 made of spaces in a commodity directive, and price lines with group marks,
 exponents, times or comments.
+
+## The second check (hledger, in the background)
+
+hledger is optional. When it is installed, the server checks every commit with it
+after the save has answered (`review-dashboard/server/ledger_check.py`, with the shared
+helpers in `scripts/ledger/second_check.py`):
+
+- **When:** after each commit through `make commit`, at server start-up, on "Check
+  again", and within 30 seconds of a commit made outside the server (the worker sees the
+  `main` bookmark move).
+- **Coalesced:** at most one check runs and one waits; the waiting check reads the newest
+  commit when it starts, so the last check always covers the latest commit.
+- **From a snapshot, without the lock:** the store files at the commit are read with
+  read-only jj commands (`--ignore-working-copy`) into a temporary folder, the journal is
+  rendered there and `hledger check -s ordereddates` runs on it. A save in progress is
+  never read, and no save waits for hledger.
+- **Recorded** in `drafts/ledger-check.json` (ignored and temporary, never in the
+  ledger's history): the commit checked, the time, pass or fail, hledger's finding, its
+  own text, and the entries changed since the last good check.
+
+When a check fails, every screen shows a banner, Queue › Needs you shows a Ledger check
+item, and statement Apply (which also confirms a balance) waits for the accounts the
+finding and the changed entries involve, or for every account when it can't tell. The
+item puts hledger's finding in plain words for the common kinds (unbalanced, implicit
+conversion, assertion, undeclared account or commodity, date order, parse error), with
+hledger's own text under Details. When the JSON strict check passes the same snapshot,
+the app and hledger disagree: the item says it is a problem in AgentExpense and offers
+Copy details. Otherwise it offers Ask the agent to fix it (the agent's proposal opens in
+Edit entry and changes nothing until the person saves it), Edit the entry and Check
+again. The item closes when a check passes. `make verify-data` run by hand reports a
+failure in the same words.
 
 ## The journal
 

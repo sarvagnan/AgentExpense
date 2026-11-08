@@ -19,8 +19,8 @@ The first release. The date is set when the release is tagged.
 ### Added
 
 - **Ledger and checks.** JSON in a separate ledger repository is the source of
-  truth; a generated hledger journal is checked strictly on every save
-  (`make verify-data`). Ledger format 2 is a typed store
+  truth; every save passes the JSON strict check (`make verify-data`), and hledger,
+  when installed, checks the generated journal again in the background. Ledger format 2 is a typed store
   ([docs/STORE.md](docs/STORE.md)): every entry, posting and rule is written in
   full, in kebab-case, with related facts grouped; Python reads and writes every
   document through pydantic models, Node validates against the schema generated
@@ -80,13 +80,33 @@ The first release. The date is set when the release is tagged.
   what hledger's strict check finds on the journal (balance exactly, no implicit
   conversion, balance assertions, declared accounts and commodities, date order,
   recurring rules and their forecasts) without starting a process. It is the gate
-  in `make verify-data` and in the server's previews and saves; the strict hledger
-  check of the whole journal still runs once per save. Agreement tests run both on
+  in `make verify-data` and in the server's previews and saves. Agreement tests run both on
   every fixture, on generated large ledgers and on one mutation per check kind.
   Node's validator refuses the same documents as the Python models.
+- **hledger as the background second check.** hledger is optional. Saves no longer
+  wait for it: `make commit` sets `EXPENSES_HLEDGER_CHECK=background`, and the server
+  checks each commit afterwards, coalesced (one running, one waiting, always the latest
+  commit), from a snapshot of the committed store without the ledger lock, and at
+  start-up. The result is kept in the ledger's ignored `drafts/ledger-check.json`. When
+  hledger finds a problem, every screen shows a banner, Queue › Needs you shows a Ledger
+  check item in plain words (with hledger's own text under Details and the entries
+  changed since the last good check), and statement Apply and confirmed balances wait
+  for the accounts involved. The item offers Ask the agent to fix it (a proposal in Edit
+  entry that changes nothing until the person saves it), Edit the entry and Check again,
+  or Copy details when the app and hledger disagree; it closes when a check passes.
+  `make verify-data` and `make verify` run by hand still run hledger at once and report
+  a failure in the same words; without hledger they skip it with a note, and so does
+  `make upgrade-ledger` (it skips hledger's check and report comparison only). `make
+  doctor` warns instead of failing when hledger is missing.
+  Continue creates accounts outside the draft mutex and revalidates before dispatch,
+  avoiding a deadlock with Trash polling. Apply reads refusal and pending state
+  together, passing checks resolve concurrent fix answers safely, and first-run
+  import follows late check results. Queue holds new check rows during interaction;
+  Check again retains the explanation when a last-good commit is missing.
 - **Save timings.** Each save writes one `save-timing` line to the server log with
   the duration of every step (pickup, prepare, lock wait, journal, store check,
-  the JSON strict check, hledger, jj, data rebuild, total); nothing is written into the ledger.
+  the JSON strict check, jj, data rebuild, total; hledger only when kept in the commit);
+  nothing is written into the ledger.
   `make bench-save` times representative saves on a large fictional ledger from
   `scripts/fixtures/generate_large.py` in `/tmp`, with the fake agent, and exits
   non-zero when a target is missed by more than 50%; `BENCH_ENTRIES=100000` is a
@@ -130,7 +150,8 @@ release:
    environment, which the ledger commands now run in (`LEDGER_PYTHON`); after this
    they work offline.
 2. Run `make doctor`. Fix every row marked `FAIL`; a `warn` on the Ledger row is
-   expected for an older format.
+   expected for an older format, and on the hledger row when hledger isn't installed
+   (it is optional).
 3. Finish or discard drafts waiting in the Queue: their answers are in the format 1
    shape, which the format 2 answer check refuses.
 4. Make sure the ledger's working copy is clean (`jj st` or `git status` in the

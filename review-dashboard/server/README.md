@@ -221,7 +221,7 @@ files. `tests/test_isolation.py` tests these cases with git fixtures under `/tmp
 Browser fixture APIs likewise receive disposable
 application copies for data refresh and serving; production settings are unchanged.
 Commit verification skips only the server suite to avoid recursive integration
-tests; `make verify` runs the ledger suite plus data verification. Saves run `make verify-data` under the lock without code tests. `EXPENSES_FAKE_CONFIG` belongs to tests
+tests; `make verify` runs the ledger suite plus data verification. Saves run `make verify-data` under the lock without code tests, and without hledger (`make commit` sets `EXPENSES_HLEDGER_CHECK=background`; see "The second check" below). `EXPENSES_FAKE_CONFIG` belongs to tests
 only and has no effect on the production agent runner.
 
 Nested verification in the offline server suite shares a temporary, immutable
@@ -608,7 +608,7 @@ inspector over Add; completed expenses appear in Explorer, rather than Queue.
 
 All additions (usual, hand-finished and agent proposals) and replacements (including
 receipt choices) run the JSON strict check before writing, and `make commit` runs it
-again with the strict hledger check of the whole journal. `scripts/ledger/confirmed_balances.py`
+again over the whole store; hledger then checks the commit in the background. `scripts/ledger/confirmed_balances.py`
 computes partial assertions directly from ordered store postings. A refused save
 returns `kind: confirmed_balance`, account/label, assertion date and entry ID,
 asserted/calculated/difference decimal amounts with their commodity, a structured
@@ -696,13 +696,76 @@ times become null with a retained “Receipt … not understood” note. Numeric
 slash/dash dates need an evident day (>12) or an explicitly recorded draft locale;
 the server never assumes its own locale. Other receipt facts still apply.
 
+### The second check (hledger, in the background)
+
+Server lock order is **ledger lock → drafts.mutex → statements.mutex**, taking only
+the locks an operation needs. Continue releases drafts before creating an account,
+retains successful stages, then revalidates its inputs and active state before
+dispatching statements. Audit enrichment of draft responses happens only on reads,
+after releasing drafts. Checker guards read only their record under the condition;
+the condition never waits for drafts or statements. Fix-worker answers merge under
+the draft mutex and cannot undo a passing check's resolution.
+
+hledger is optional; the JSON strict check is the gate every save waits for.
+[`ledger_check.py`](ledger_check.py) checks each commit with hledger afterwards, when
+hledger is installed (`HLEDGER_BIN`, `HLEDGER` or `hledger` on `PATH`). Without it no
+check runs, nothing is recorded, no banner shows and `GET api/ledger-check` answers
+`available: false`.
+
+- **Triggers:** every successful `make commit` the server runs
+  (`save_timing.make_commit` calls `ledger_check.committed`), start-up, Check again, and
+  the worker's tick, which compares the `main` bookmark with the last checked commit at
+  most every 30 seconds (commits from a terminal or a sync).
+- **Coalescing:** one check runs and at most one waits; the waiting one reads the newest
+  commit when it starts, so many quick saves cost at most two runs and the last covers
+  the latest commit.
+- **Snapshot:** `scripts/ledger/second_check.py snapshot` runs in its own process with
+  the server's Python. It reads the store files at the commit with
+  `jj --ignore-working-copy file show` into a temporary folder, renders the journal,
+  runs `hledger check -s ordereddates`, and on a failure also runs the JSON strict check
+  on that snapshot and lists the entries changed since the last good check. It never
+  takes the ledger lock and never reads the working copy.
+- **Record:** `LEDGER_DIR/drafts/ledger-check.json` (ignored, temporary): `commit`,
+  `checked_at`, `outcome`, `good` (the last passing commit and time), `failure`
+  (finding, hledger's text, `app_problem`, the JSON check's reason, changed entries) and
+  `fix` (the agent's fix draft). A pass clears the failure and the fix.
+
+| Method/path | Contract |
+| --- | --- |
+| GET `api/ledger-check` | `available`, `checking`, `commit`, `checked_at`, `outcome` and `item` (null unless the last check failed): kind, title, summary, details, `app_problem`, target `entry`, changed `entries` (up to 50, `more`), `since`, `accounts` and `block` (`accounts`, null for every account, and the `reason`), `fix` |
+| POST `api/ledger-check/run` | Check again: checks the latest commit and answers with the status when done (one request waits; others answer at once with `checking: true`); 409 without hledger |
+| POST `api/ledger-check/fix` | Ask the agent to fix it: 201 with a correction draft queued for the agent; 409 for an app problem or no named entry; asking again returns the same draft |
+
+The fix draft is an ordinary Edit entry draft (`correction`) with `ledger_fix`. The
+worker gives it to the agent (`agent.ledger_fix_prompt`: the finding, hledger's text,
+the entry's Edit entry form, declared accounts and the policy; the usual answer
+schema), checks the answer with the answer model (one retry with the error), and puts
+it in the draft's `hand_form`. Nothing is saved: the person opens it in Queue, checks it
+and saves it through the usual correction (`Added-by: user (correction)`, Reason
+"Ledger check: …"). A question or a failed run leaves the entry's own form for the
+person. While the item is open, `Statements.queue_apply` and first-run import refuse
+the accounts in `block` with its reason, and `Statements.work` asks again under the ledger
+lock just before applying: a session refused there goes back to review (a first-run one to
+failed) with the reason and commits nothing. While a check of a commit newer than the last
+good one runs, a queued Apply waits for its result. These checks read the record only,
+never drafts, so they keep the drafts → statements lock order. The page disables Review
+apply with "Waits for the ledger check" beside it and a short reason in the slot below it.
+
+A pass marks open fix proposals `resolved`: Edit entry says the check now passes and offers
+Discard. `fix()` is serialised, so two quick requests make one draft. A check that can't
+run (a timeout, an export error) is recorded as an app problem for that commit, so the item
+explains it and the tick doesn't retry it every 30 seconds; Check again does. Stopping the
+server kills a running snapshot process instead of waiting for it. When the last good
+commit has left the history (a rollback), the item says so and the record forgets it.
+
 ### Save timings
 
 Each save writes one line to the server log (stderr, so the service journal), never
 into the ledger: `save-timing {"operation": …, "outcome": "ok"|"error", "total": …,
 "steps": {…}}`, in seconds. [`save_timing.py`](save_timing.py) lists the steps (pickup,
 agent, prepare, lock wait, commit with verify, journal, store check, schema, the
-JSON strict check, hledger, jj, data rebuild). `make commit` reports its
+JSON strict check, jj, data rebuild; `hledger` only when `EXPENSES_HLEDGER_CHECK=now`
+keeps it in the commit). `make commit` reports its
 own steps through a temporary file named in `EXPENSES_STEP_TIMINGS`; without that
 variable (a commit from the command line) nothing is recorded. `EXPENSES_TIMING_LOG=0`
 keeps the lines out of stderr; the offline tests set it.

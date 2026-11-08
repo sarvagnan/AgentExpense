@@ -3,6 +3,10 @@ from copy import deepcopy
 import io
 import json
 from pathlib import Path
+import threading
+import time
+from contextlib import contextmanager
+from unittest.mock import patch
 from pypdf import PdfReader, PdfWriter
 from support import Fixture, png, meta
 from store import dump, load
@@ -142,3 +146,80 @@ class AddIntake(Fixture):
             staged=self.interpretation(client,identity,choices={fid:dict(new_account=dict(name='New Current',kind='bank'))})['files'][0]
             self.assertFalse(staged['mismatch']);self.assertEqual(staged['new_account']['currency'],other)
             self.assertEqual(before,(self.ledger/'data/accounts.json').read_bytes())
+
+    def test_trash_and_continue_with_a_new_account_never_invert_locks(self):
+        from currency_settings import create_account
+        from ledger_lock import ledger_lock
+        self.jj('commit', '-m', 'Declare fictional account')
+        creating, trash_locked = threading.Event(), threading.Event()
+        results = {}
+        @contextmanager
+        def bounded_lock(root):
+            deadline = time.monotonic() + 3
+            while True:
+                try:
+                    with ledger_lock(root, blocking=False) as fd:
+                        yield fd
+                    return
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise AssertionError('Continue waited for Trash while holding drafts.mutex')
+                    time.sleep(.01)
+        def create(*args):
+            creating.set()
+            self.assertTrue(trash_locked.wait(5))
+            return create_account(*args)
+        with self.client(worker=False) as client:
+            identity, files = self.attach(client, 'everyday January', [('New.csv', CSV, 'text/csv')])
+            choices = {files[0]['id']: dict(new_account=dict(kind='bank', name='New Current'))}
+            retention = client.app.state.retention
+            listing = retention.listing
+            def trash():
+                trash_locked.set()  # The HTTP route already owns the ledger lock.
+                return listing()
+            def request(key, path, **kwargs):
+                try: results[key] = getattr(client, 'post' if kwargs else 'get')(path, **kwargs)
+                except Exception as exc: results[key] = exc
+            with patch('currency_settings.create_account', create), patch('currency_settings.ledger_lock', bounded_lock), patch.object(retention, 'listing', trash):
+                first = threading.Thread(target=request, args=('continue', f'/api/drafts/{identity}/continue'), kwargs={'json': dict(choices=choices)}, daemon=True)
+                first.start(); self.assertTrue(creating.wait(5))
+                second = threading.Thread(target=request, args=('trash', '/api/trash'), daemon=True)
+                second.start(); first.join(15); second.join(15)
+                self.assertFalse(first.is_alive() or second.is_alive(), 'Trash and Continue deadlocked')
+            self.assertEqual(getattr(results['continue'], 'status_code', None), 200, results)
+            self.assertEqual(results['trash'].status_code, 200)
+            again = client.post(f'/api/drafts/{identity}/continue', json=dict(choices=choices))
+            self.assertEqual(again.json(), results['continue'].json())
+
+    def test_continue_revalidates_after_account_creation_and_reuses_the_stage_on_retry(self):
+        from currency_settings import create_account
+        self.jj('commit', '-m', 'Declare fictional account')
+        with self.client(worker=False) as client:
+            drafts = client.app.state.drafts
+            for changed in ('text', 'discarded', 'discard_requested'):
+                with self.subTest(changed=changed):
+                    identity, files = self.attach(client, 'everyday January', [(f'{changed}.csv', CSV, 'text/csv')])
+                    fid = files[0]['id']
+                    choices = {fid: dict(new_account=dict(kind='bank', name='New ' + changed))}
+                    def create(*args):
+                        result = create_account(*args)
+                        with drafts.mutex:
+                            latest = drafts.get(identity)
+                            if changed == 'text': latest['text'] = 'Edited while preparing the account'
+                            elif changed == 'discarded': latest['trashed_at'] = '2026-11-01T00:00:00+00:00'
+                            else: latest['discard_requested'] = True
+                            drafts.put(latest)
+                        return result
+                    with patch('currency_settings.create_account', side_effect=create) as created:
+                        refused = client.post(f'/api/drafts/{identity}/continue', json=dict(choices=choices))
+                        self.assertIn(refused.status_code, (404, 409), refused.text)
+                        self.assertEqual(created.call_count, 1)
+                    latest = drafts.get(identity, include_discarded=True)
+                    self.assertIn(fid, latest['intake_accounts'])
+                    self.assertFalse(any(s.get('intake_draft') == identity for s in client.get('/api/statements').json()['sessions']))
+                    latest.pop('trashed_at', None); latest.pop('discard_requested', None); drafts.put(latest)
+                    with patch('currency_settings.create_account', side_effect=AssertionError('Account was created twice')):
+                        retried = client.post(f'/api/drafts/{identity}/continue', json=dict(choices=choices))
+                    self.assertEqual(retried.status_code, 200, retried.text)
+                    for session in retried.json()['statements']:
+                        client.app.state.statements.discard(session['id'])

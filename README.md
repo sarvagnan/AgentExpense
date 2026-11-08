@@ -4,7 +4,8 @@ AgentExpense is a personal expense ledger with a dashboard, set up and kept by t
 coding agent you already use. You type a few words or drop a receipt or a statement
 on the Add page; an agent proposes the entry, and the server checks it and records it
 with its evidence and an audit line. JSON in your own ledger repository is the source
-of truth, and hledger checks the journal generated from it. Accounts keep their own
+of truth: AgentExpense's own strict check guards every save, and, when hledger is
+installed, hledger checks the journal generated from it again in the background. Accounts keep their own
 currencies, and totals are never converted. Statements are reconciled against your
 entries with their printed totals checked first.
 
@@ -14,8 +15,9 @@ migrations.
 
 ## Quick start
 
-You need Python 3.11+, uv, fnm, hledger 1.25+ and Jujutsu (jj), which ledger saves
-commit through (git is optional). Then:
+You need Python 3.11+, uv, fnm and Jujutsu (jj), which ledger saves commit through
+(git is optional). hledger 1.25+ is optional: it adds the hledger reports and a second
+check of every save. Then:
 
 ```sh
 git clone <repository URL> AgentExpense && cd AgentExpense
@@ -77,8 +79,11 @@ Schemas stay in the application's `schema/`. Ledgers use format 2, the typed sto
 older ledger stops with an upgrade instruction ([ledger migrations](migrations/README.md)).
 
 `make commit m="…"` holds the ledger lock while running `make verify-data` (journal
-generation, schema, store, audit, evidence and statement checks, and strict hledger
-validation) and commits. `make verify` also runs the ledger code tests.
+generation, schema, store, audit, evidence and statement checks and the JSON strict
+check) and commits; hledger's strict check of the journal then runs in the background on
+the server (`EXPENSES_HLEDGER_CHECK=now make commit` keeps it in the commit). `make
+verify-data` and `make verify` run by hand also run hledger at once when it is installed.
+`make verify` also runs the ledger code tests.
 
 `DASHBOARD_DATA_DIR` selects a generated-output root containing `app/data/` and
 `public/data/` (default `review-dashboard/`). A private source stamp follows the

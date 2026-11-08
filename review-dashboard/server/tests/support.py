@@ -146,7 +146,9 @@ class Fixture(unittest.TestCase):
         self.fake.write_text(f'#!{sys.executable}\n' + (SERVER / 'tests/fake_agent.py').read_text().split('\n', 1)[1])
         self.fake.chmod(0o755)
         self.settings = Settings(application=self.application, ledger=self.ledger, codex=str(self.fake),
-                                 dashboard_data=dash, state_dir=self.base / 'state', dev=True, timeout=2, old_ledger=self.old)
+                                 dashboard_data=dash, state_dir=self.base / 'state', dev=True, timeout=2, old_ledger=self.old,
+                                 # hledger's background check runs only in the tests about it (test_ledger_check.py).
+                                 ledger_check=False)
         self.environment = patch.dict(os.environ, {'EXPENSES_FAKE_CONFIG': str(self.config), 'npm_config_cache': str(self.base / '.npm-cache'), 'npm_config_update_notifier': 'false', 'DASHBOARD_DATA_DIR': str(dash), 'TMPDIR': str(artifacts), 'PYTHONDONTWRITEBYTECODE': '1', 'EXPENSES_TEST_ORACLE_CACHE': oracle_cache()})
         self.environment.start()
         self.addCleanup(self.environment.stop)

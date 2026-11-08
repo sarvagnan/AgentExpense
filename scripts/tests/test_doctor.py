@@ -128,7 +128,8 @@ class DoctorTests(DoctorFixture):
         self.assertEqual((old.status, old.detail), ('FAIL', '1.24.1 is older than 1.25'))
         self.assertEqual(self.statuses(HLEDGER_STUB_VERSION='1.25')['hledger'], 'ok')
         (self.tools / 'hledger').unlink()
-        self.assertEqual(self.statuses()['hledger'], 'FAIL')
+        missing = self.rows()['hledger']
+        self.assertEqual((missing.status, missing.detail), ('warn', 'not found (optional): no hledger reports and no second check of each save'))
         (self.tools / 'jj').unlink()
         row = self.rows()['jj / git']
         self.assertEqual((row.status, row.detail, row.fix), ('warn', 'git 2.54.0; jj not found, and saves need it', 'Install Jujutsu (jj).'))

@@ -21,10 +21,15 @@ def commit(root, message):
         raise ValueError('usage: make commit m="what changed, and on what evidence"')
     from ledger_manifest import read_manifest
     read_manifest(root)
+    # The JSON strict check is the gate; hledger, the optional second check, runs in the
+    # background after the commit (the server's ledger_check.py). EXPENSES_HLEDGER_CHECK=now
+    # keeps it in this commit's verification instead.
+    background = os.environ.get('EXPENSES_HLEDGER_CHECK') or 'background'
     with ledger_lock(root) as lock_fd:
         with timed('verify'):
             subprocess.run(['make', 'verify-data', 'LEDGER_DIR=' + str(root.resolve())], cwd=APPLICATION_ROOT, check=True,
-                           env={**os.environ, 'LEDGER_DIR': str(root.resolve()), LOCK_FD_ENV: str(lock_fd)}, pass_fds=(lock_fd,))
+                           env={**os.environ, 'LEDGER_DIR': str(root.resolve()), LOCK_FD_ENV: str(lock_fd),
+                                'EXPENSES_HLEDGER_CHECK': background}, pass_fds=(lock_fd,))
         jj(root, 'status')  # snapshot before recording the operation to restore
         operation = jj(root, 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id')
         try:

@@ -878,6 +878,95 @@ Date | Serial | Description | Amount | Direction | Foreign amount | Currency
 """
     return Response(statement_pdf(text), media_type='application/pdf')
 
+# hledger's background second check, fed by the test (never a broken fixture): the real
+# snapshot and journal, with a canned hledger result for the commit it checks.
+import threading
+ledger_check_state = dict(mode='real', release=None)
+
+
+def canned_hledger(kind, journal, text, account=None, entry_id=None):
+    import second_check
+    blocks = [b for b in second_check.blocks(text) if not b['rule'] and b['id']]
+    block = next((b for b in blocks if b['id'] == entry_id), None) if entry_id else None
+    block = block or (blocks[-1] if blocks else dict(start=1, end=1, date='2026-11-01', accounts=['Assets:Cash'], id=None))
+    account = account or next((a for a in block['accounts'] if not a.startswith(('Expenses:', 'Income:', 'Equity:'))), block['accounts'][0])
+    commodity = read_json(settings.ledger / 'ledger.json')['defaultCurrency']
+    where = f'hledger: Error: {journal}:{block["start"]}'
+    words = {
+        'unbalanced': f'{where}-{block["end"]}:\n\nThis transaction is unbalanced.\nThe real postings\' sum should be 0 but is: 0.01 {commodity}',
+        'conversion': f'{where}-{block["end"]}:\n\nThis multi-commodity transaction is unbalanced.\nAutomatic commodity conversion is not enabled.\nThe real postings\' sum should be 0 but is: -1.00 {commodity}, 1.00 XAU',
+        'assertion': f'{where}:20:\n\nBalance assertion failed in {account}\nIn commodity {commodity} at this point, excluding subaccounts, ignoring costs,\nthe asserted balance is:          50.00 {commodity}\nbut the calculated balance is:   -12.00 {commodity}\n(difference: 62.00 {commodity})',
+        'account': f'{where}:\n\nStrict account checking is enabled, and\naccount "{account}" has not been declared.\nConsider adding an account directive.',
+        'commodity': f'{where}:\n\nStrict commodity checking is enabled, and\ncommodity "XAU" has not been declared.',
+        'dates': f'{where}:\n\nOrdered dates checking is enabled, and this transaction\'s\ndate ({block["date"]}) is out of order with the previous transaction.',
+        'parse': f'{where}:33:\n  |\nunexpected \'@\'\nexpecting \';\', \'=\', end of input',
+    }
+    return False, words[kind]
+
+
+@app.post('/__test/ledger-check')
+def ledger_check_control(body: dict):
+    """mode: real (hledger itself), pass, or fail (kind, account, entry, data: the JSON check
+    refuses it too, once: fail only the commit checked now). hold: the next check waits for
+    mode release. fix: the fake agent proposes the target entry with a note added."""
+    import second_check
+    from ledger_check import LedgerCheck
+    check = app.state.ledger_check
+    mode = body['mode']
+    assert mode in ('real', 'pass', 'fail', 'release', 'status')
+    if mode == 'status':
+        return check.status()
+    if mode == 'release':
+        if ledger_check_state['release']:
+            ledger_check_state['release'].set()
+        return dict(ok=True)
+    kind = body.get('kind', 'account')
+    assert kind in ('unbalanced', 'conversion', 'assertion', 'account', 'commodity', 'dates', 'parse')
+    failing_commit = second_check.committed(settings.ledger) if body.get('once') else None
+    hold = threading.Event() if body.get('hold') else None
+    ledger_check_state.update(mode=mode, release=hold)
+    target = body.get('entry')
+    if mode == 'fail' and body.get('fix'):
+        from corrections import wire_entry
+        from store import load, entries
+        rows = [e for e in entries(load(settings.ledger)) if not any(p['assert'] for p in e['postings']) and len(e['postings']) == 2]
+        chosen = rows[-1]
+        target = chosen['id']
+        proposal = wire_entry(settings, chosen)
+        proposal['entry']['notes'] = [*proposal['entry']['notes'], 'Checked for the ledger check']
+        proposal.update(doubts=['Only a note changes; the amounts stay.'], explanation='Adds a note; the entry already balances.')
+        data = json.loads(config.read_text()); data['steps'] = [dict(answer=proposal)]
+        config.write_text(json.dumps(data)); config.with_suffix('.count').unlink(missing_ok=True)
+
+    def runner(root, commit, base):
+        if hold and not hold.is_set():
+            hold.wait(300)
+        if mode == 'real':
+            return check.run_snapshot(root, commit, base)
+        failing = mode == 'fail' and (failing_commit is None or commit == failing_commit)
+        work = Path(os.environ.get('EXPENSES_TEST_TMP', '/tmp')) / ('ledger-check-' + secrets.token_hex(6))
+        try:
+            refused = (lambda target_root: 'refused by the JSON check') if body.get('data') else second_check.json_check
+            original, second_check.json_check = second_check.json_check, refused
+            try:
+                return second_check.snapshot(root, commit, base, 'hledger', work, hledger_result=(lambda path, text: canned_hledger(
+                    kind, path, text, body.get('account'), target)) if failing else (lambda path, text: (True, '')))
+            finally:
+                second_check.json_check = original
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    check.runner = check.run_snapshot if mode == 'real' else runner
+    if hold:
+        check.runner = runner
+    if body.get('check', True):
+        check.request('test control')
+        if not hold:
+            check.wait_idle(120)
+    status = check.status()
+    return dict(status, target=target)
+
+
 # Playwright's route.fetch keeps idle connections open indefinitely. Uvicorn's default closes
 # them after 5 s, so a reused one can be reset as it is sent (CI, 2026-11-06: ECONNRESET in a
 # held route). Keep idle connections longer than any pause in a browser run.

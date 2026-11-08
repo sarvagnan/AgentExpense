@@ -6,6 +6,7 @@ import {CurrencyOptions} from './settings-dialog';
 import {request} from './live/api';
 import {statementsApi,type StatementSession} from './live/statements-api';
 import {statementNeedsAttention} from './live/use-drafts';
+import {ledgerCheckApi,ledgerCheckBlock,useLedgerCheckStatus} from './live/ledger-check';
 import {today} from './date-time';
 import {minorUnits} from './formatting';
 
@@ -249,6 +250,8 @@ function Import({title, onBack, onDone}: {title: ReactNode; onBack: () => void; 
   const [loaded, setLoaded] = useState(false), [listError, setListError] = useState('');
   const [finishing, setFinishing] = useState(false), [finishError, setFinishError] = useState('');
   const [dragging, setDragging] = useState(false), [tick, setTick] = useState(0);
+  // hledger's second check: importing waits for the accounts an open problem involves (the server refuses too).
+  const [check, setCheck] = useLedgerCheckStatus(), [checking, setChecking] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const change = useCallback((key: string, values: Partial<FileRow>, version = nextVersion()) => { setRows(xs => xs.map(row => row.key === key ? {...row, ...values, version} : row)); return version; }, [setRows]);
   useEffect(() => {
@@ -322,7 +325,11 @@ function Import({title, onBack, onDone}: {title: ReactNode; onBack: () => void; 
       const result = await request<{sessions:StatementSession[]}>('setup/import', post({sessions:ready.map(row => row.id)}), 30000);
       const queued = new Map(result.sessions.map(session => [session.id, session]));
       setRows(xs => xs.map(row => row.id && queued.has(row.id) ? {...row, session:queued.get(row.id), version:nextVersion()} : row));
-    } catch (e) { setFinishing(false); setFinishError((e as Error).message); }
+    } catch (e) { setFinishing(false); setFinishError((e as Error).message); void ledgerCheckApi.status().then(setCheck, () => undefined); }
+  }
+  async function checkAgain() {
+    setChecking(true);
+    try { setCheck(await ledgerCheckApi.again()); } catch (e) { setFinishError((e as Error).message); } finally { setChecking(false); }
   }
   // Finish lands on Add once every queued statement has been saved or refused.
   const saving = rows.filter(row => row.session && ['applying','applied'].includes(row.session.state) || finishing && row.session?.state === 'failed' && row.session.plan);
@@ -344,8 +351,9 @@ function Import({title, onBack, onDone}: {title: ReactNode; onBack: () => void; 
   const review = readRows.reduce((sum, row) => sum + pendingRows(row.session!), 0);
   const mismatch = rows.some(mismatched), waiting = rows.some(row => row.uploading || row.busy || row.session && ['reading','agent_waiting'].includes(row.session.state));
   const unchosen = rows.some(row => needsAccount(row) && !mismatched(row)), failures = rows.filter(row => !finishing && unread(row)).length;
-  const blocked = mismatch || waiting || unchosen;
-  const statusText = finishing ? 'Saving each statement and its checks…' : mismatch ? 'Resolve the currency mismatch before finishing. Nothing has been saved.'
+  const checkWait = !finishing && rows.filter(read).some(row => !!ledgerCheckBlock(check, row.session?.statement?.account));
+  const blocked = mismatch || waiting || unchosen || checkWait;
+  const statusText = finishing ? 'Saving each statement and its checks…' : checkWait ? 'The second ledger check (hledger) found a problem with these accounts, so importing waits until a check passes. Nothing has been saved.' : mismatch ? 'Resolve the currency mismatch before finishing. Nothing has been saved.'
     : waiting ? 'Reading your files. Nothing is saved until you finish.' : unchosen ? 'Choose an account for every file, or remove it. Nothing has been saved.'
     : failures ? `${readRows.length ? 'Currencies match. ' : ''}The unread ${failures === 1 ? 'file' : 'files'} won’t be imported; you can try ${failures === 1 ? 'it' : 'them'} again later.` : readRows.length ? 'Currencies match. Nothing is saved until you finish.' : 'Add your statement files to begin.';
   return <>
@@ -361,7 +369,7 @@ function Import({title, onBack, onDone}: {title: ReactNode; onBack: () => void; 
       {listError && <p className="setup-error" role="alert">{listError}</p>}
       {rows.length > 0 && <ul className="setup-files" aria-label="Files">{rows.map(row => <FileItem key={row.key} row={row} finishing={finishing} onChoose={account => void choose(row, account)} onCreate={spec => createAccount(row, spec)} onRemove={() => void remove(row)} onUnlock={password => void unlock(row, password)}/>)}</ul>}
     </div>
-    <div className="import-summary" data-blocked={blocked || undefined} aria-live="polite"><Icon name={blocked ? 'alert' : 'check'}/><div><strong>{readRows.length ? `${entries} ${entries === 1 ? 'entry' : 'entries'} found, ${review} need${review === 1 ? 's' : ''} your review.` : loaded ? 'No statements read yet.' : 'Loading your files…'}</strong><p id="import-status">{statusText}</p></div></div></section>
+    <div className="import-summary" data-blocked={blocked || undefined} aria-live="polite"><Icon name={blocked ? 'alert' : 'check'}/><div><strong>{readRows.length ? `${entries} ${entries === 1 ? 'entry' : 'entries'} found, ${review} need${review === 1 ? 's' : ''} your review.` : loaded ? 'No statements read yet.' : 'Loading your files…'}</strong><p id="import-status">{statusText}</p>{checkWait && <button type="button" className="button" disabled={checking} onClick={() => void checkAgain()}>{checking ? 'Checking…' : 'Check again'}</button>}</div></div></section>
     <Footer><Back to={onBack} disabled={finishing}/><div className="setup-footer-end">
       <button type="button" className="button primary" disabled={finishing || blocked || !readRows.length} onClick={() => void finish()}>{finishing ? 'Saving…' : `Finish with ${readRows.length} read ${readRows.length === 1 ? 'file' : 'files'}`}</button>
       {finishError && <p className="setup-error" role="alert">{finishError}</p>}</div></Footer>

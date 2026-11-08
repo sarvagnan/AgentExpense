@@ -13,6 +13,8 @@ export function hookHarness(file,dependencies={},globals={}){
   useMemo(fn,deps){const i=index++;if(!slots[i]||changed(slots[i].deps,deps))slots[i]={deps,value:fn()};return slots[i].value;},
   useCallback(fn,deps){return hooks.useMemo(()=>fn,deps);},
   useLayoutEffect(fn,deps){return hooks.useEffect(fn,deps);},
+  // A test passes a context as {value}; without one a component reads null, as with no provider.
+  useContext(context){return context&&'value' in context?context.value:null;},
  };
  const schedule=(fn,delay,interval=false)=>{const id=++sequence;timers.set(id,{fn,at:time+delay,delay,interval});return id;};
  const events=new EventTarget(),document=new EventTarget();document.hidden=false;

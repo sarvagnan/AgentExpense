@@ -8,6 +8,7 @@ import {runViewTiming} from './view-timing.mjs';
 import {runVarying} from './varying.mjs';
 import {runUpdateNotice} from './update-notice.mjs';
 import {runConfirmedBalances} from './confirmed-balances.mjs';
+import {runLedgerCheck} from './ledger-check.mjs';
 import {runAdd} from './add.mjs';
 import {runAddPolish} from './add-polish.mjs';
 import {runCorrections} from './corrections.mjs';
@@ -48,7 +49,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     await context.addInitScript(value=>{if(location.protocol==='http:'||location.protocol==='https:')localStorage.setItem('ledger-appearance',value);},theme);
     // WebKit trace screenshots capture through macOS WindowServer, which holds the surfaces while
     // the display sleeps until it aborts and ends the login session (microsoft/playwright#43066).
-    await context.tracing.start({screenshots:engine!=='webkit',snapshots:true});
+    await context.tracing.start({screenshots:engine!=='webkit'&&process.env.TRACE_SCREENSHOTS!=='0',snapshots:true});
     stage.activeContext=context;stage.activeCase=`${engine}-${theme}-${width}`;
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
@@ -169,6 +170,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       }
       if(process.env.BROWSER_FOCUS==='confirmed-balances') {
         await runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='ledger-check') {
+        await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));
         assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
       }
@@ -619,6 +625,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));
       await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runRetentionTiming',()=>runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts}));
       await timed('runViewTiming',()=>runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts}));

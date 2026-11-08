@@ -38,8 +38,8 @@ amount comes from the person.
 make doctor
 ```
 
-It checks Python, fnm and the pinned Node, npm, uv, hledger 1.25 or later, jj or
-git, installed packages, the selected ledger and the agent adapter, offline, and
+It checks Python, fnm and the pinned Node, npm, uv, hledger 1.25 or later (optional),
+jj or git, installed packages, the selected ledger and the agent adapter, offline, and
 prints a fix for each problem. It exits non-zero only for blocking problems (FAIL).
 Typical fixes, with the person's agreement since they download:
 
@@ -50,9 +50,16 @@ make install                         # dashboard and server packages from the lo
 
 `make install` runs both of the fixes `make doctor` prints for missing packages
 (`npm --prefix review-dashboard ci` and `uv sync --locked --directory review-dashboard/server`).
-Install missing tools (Python, uv, hledger, jj) with the person's usual package
-manager. Jujutsu (jj) is required even when git is installed: `make commit` and the
-dashboard save through it. Run `make doctor` again until it ends with `Ready.` Before
+Install missing tools (Python, uv, jj, and hledger if they want it) with the person's
+usual package manager. Jujutsu (jj) is required even when git is installed: `make commit`
+and the dashboard save through it. hledger is optional: AgentExpense's own JSON strict
+check guards every save, and the app works fully without it. Without hledger only two
+things are missing: the hledger reports (`hledger -f expense_ledger.ledger …`) and the
+second check, which re-checks each save with hledger in the background and opens a
+Ledger check item in Queue if hledger disagrees. Ledger upgrades (`make upgrade-ledger`,
+so `make update`) also work without it: they skip hledger's own check and report
+comparison and keep every other check. `make doctor` warns, but doesn't fail,
+when it isn't installed. Run `make doctor` again until it ends with `Ready.` Before
 setup, the Ledger row says no ledger is selected; that is expected.
 
 The ledger commands (`make new-ledger`, `make verify-data`, `make commit`) run in the
@@ -264,7 +271,7 @@ The server reads `local.json` when it starts: restart it after changing the agen
 ## 7. Verify, build and start
 
 ```sh
-make verify-data        # the store, the JSON strict check, the generated journal and strict hledger
+make verify-data        # the generated journal, the store and the JSON strict check, then hledger if installed
 make build-dashboard    # dashboard data and the static build for this ledger
 make serve              # http://127.0.0.1:8701/expenses/, Ctrl-C stops it
 ```

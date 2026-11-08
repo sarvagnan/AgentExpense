@@ -3,16 +3,21 @@ import { reloadData } from '../data';
 import { api, type Draft, request, isRemoved, rememberRemoved } from './api';
 import type { AgentStatus } from './agent-status';
 import { statementsApi, type StatementSession } from './statements-api';
+import type { LedgerCheckStatus } from './ledger-check';
 export const statementNeedsAttention = (s: StatementSession) => ['account_needed', 'currency_mismatch', 'locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
 export const needsAttention = (d: Draft) => d.receipt_reading?.state==='question' || d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
 export const isRunning = (d: Draft) => ['queued','reading','ready'].includes(d.receipt_reading?.state||'') || d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
-export const pollDelay = (drafts: Draft[], statements: StatementSession[] = []) => drafts.some(isRunning) || statements.some(s=>['reading','applying','agent_waiting'].includes(s.state)) ? 3000 : 30000;
+/** The background ledger check counts as running work: its result shows within three seconds. */
+export const pollDelay = (drafts: Draft[], statements: StatementSession[] = [], ledgerCheck: LedgerCheckStatus | null = null) => drafts.some(isRunning) || statements.some(s=>['reading','applying','agent_waiting'].includes(s.state)) || !!ledgerCheck?.checking ? 3000 : 30000;
+/** The optional check never breaks the poll: an error keeps its last status (none at first). */
+const NO_CHECK: LedgerCheckStatus = {available:false,checking:false,item:null};
 /** A failed check is retried this soon; only a second consecutive failure means offline. */
 export const OFFLINE_RETRY_MS = 2000;
 export function useDrafts() {
   const [agent,setAgent] = useState<AgentStatus>({state:'checking',reason:null});
   const [statements,setStatements] = useState<StatementSession[]>([]);
+  const [ledgerCheck,setLedgerCheck] = useState<LedgerCheckStatus|null>(null), latestCheck = useRef<LedgerCheckStatus|null>(null);
   const [discarded,setDiscarded]=useState(''),[trashCount,setTrashCount]=useState(0);
   const [drafts, setDrafts] = useState<Draft[]>([]), [online, setOnline] = useState<boolean | null>(null), [error, setError] = useState('');
   const [reloadError, setReloadError] = useState('');
@@ -34,14 +39,14 @@ export function useDrafts() {
       // Any answered check ends a run of failures, even when a newer pass supersedes this one.
       failures.current=0; clearTimeout(retry.current); retry.current=undefined;
       if (!mounted.current || leaving.current || document.hidden || controller.current.signal.aborted) continue;
-      const [listed, status, statementList, trash] = await Promise.all([api.list(controller.current.signal), request<AgentStatus>('agent-status', {signal:controller.current.signal}), statementsApi.list(controller.current.signal),request<{items:unknown[]}>('trash',{signal:controller.current.signal})]);
+      const [listed, status, statementList, trash, check] = await Promise.all([api.list(controller.current.signal), request<AgentStatus>('agent-status', {signal:controller.current.signal}), statementsApi.list(controller.current.signal),request<{items:unknown[]}>('trash',{signal:controller.current.signal}),request<LedgerCheckStatus>('ledger-check',{signal:controller.current.signal}).catch(()=>latestCheck.current??NO_CHECK)]);
       // A write/focus refresh queued while these reads were in flight. Publish
       // only the follow-up snapshot, never the older rows or receipt facts.
       if(again.current)continue;
       if(!mounted.current||leaving.current||document.hidden||controller.current.signal.aborted)return;
       for(const d of listed)if(d.trashed_at)rememberRemoved(d);
       const next = newestFirst(listed.filter(d=>!d.trashed_at&&!isRemoved(d.id)));
-      if (mounted.current) {setTrashCount(trash.items.length);setAgent(status);setStatements(statementList.sessions.filter(s=>!s.trashed_at&&!isRemoved(s.id)));latestStatements.current=statementList.sessions.filter(s=>!s.trashed_at&&!isRemoved(s.id));}
+      if (mounted.current) {setTrashCount(trash.items.length);setAgent(status);latestCheck.current=check;setLedgerCheck(check);setStatements(statementList.sessions.filter(s=>!s.trashed_at&&!isRemoved(s.id)));latestStatements.current=statementList.sessions.filter(s=>!s.trashed_at&&!isRemoved(s.id));}
       if (!mounted.current) return;
       setOnline(true); setError(''); latest.current=next; setDrafts(next);
       const additions = next.filter(d => d.state === 'added' && d.result?.entry_id && !reloaded.current.has(d.id));
@@ -59,7 +64,7 @@ export function useDrafts() {
     return busy.current;
   }, []);
   useEffect(() => { mounted.current = true; leaving.current=false; return () => { mounted.current = false; leaving.current=true; controller.current?.abort(); clearTimeout(retry.current); retry.current=undefined; }; }, [refresh]);
-  const running=drafts.some(isRunning)||statements.some(s=>['reading','applying','agent_waiting'].includes(s.state));
+  const running=drafts.some(isRunning)||statements.some(s=>['reading','applying','agent_waiting'].includes(s.state))||!!ledgerCheck?.checking;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     let active=true, generation=0;
@@ -68,7 +73,7 @@ export function useDrafts() {
       clearTimeout(timer);
       if(document.hidden || leaving.current) {controller.current?.abort();return;}
       await refresh();
-      if(active && run===generation && !document.hidden) timer=setTimeout(tick,pollDelay(latest.current,latestStatements.current));
+      if(active && run===generation && !document.hidden) timer=setTimeout(tick,pollDelay(latest.current,latestStatements.current,latestCheck.current));
     };
     const focus = () => { void tick(); };
     const hide=()=>{leaving.current=true;generation++;clearTimeout(timer);controller.current?.abort();};
@@ -81,7 +86,7 @@ export function useDrafts() {
   useEffect(()=>{const restored=()=>setDiscarded('');window.addEventListener('item-restored',restored);return()=>window.removeEventListener('item-restored',restored);},[]);
   async function discard(id:string){await api.discard(id);setDiscarded(id);latest.current=latest.current.filter(d=>d.id!==id);setDrafts(latest.current);await refresh();}
   async function restore(id:string){await api.restore(id);setDiscarded('');await refresh();}
-  return {agent,statements,trashCount,discarded,discard,restore, drafts, online, error, reloadError, refresh, attention: drafts.filter(d=>(d.state!=='added'||!!d.statement_file&&!d.handover_session)&&needsAttention(d)).length + statements.filter(statementNeedsAttention).length };
+  return {agent,statements,trashCount,discarded,discard,restore, drafts, online, error, reloadError, refresh, ledgerCheck, attention: drafts.filter(d=>(d.state!=='added'||!!d.statement_file&&!d.handover_session)&&needsAttention(d)).length + statements.filter(statementNeedsAttention).length + (ledgerCheck?.item ? 1 : 0) };
 
 }
 export type LiveDrafts = ReturnType<typeof useDrafts>;

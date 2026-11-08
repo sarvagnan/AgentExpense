@@ -128,6 +128,11 @@ class Worker:
         while not self.stop_event.is_set():
             self.sweep_retention()
             self.daily_refresh.tick()
+            if getattr(self, 'ledger_check', None):
+                try: self.ledger_check.tick()
+                except Exception:
+                    import logging
+                    logging.exception('Ledger check deferred')
             if getattr(self, 'update_notice', None):
                 try: self.update_notice.tick()
                 except Exception:
@@ -201,7 +206,7 @@ class Worker:
                 self.wake.clear()
                 continue
             try:
-                kind='bill' if draft.get('bill_request') else 'usual' if draft.get('usual_payment') else 'hand-add' if draft.get('finished_by') else 'add'
+                kind='ledger-fix' if draft.get('ledger_fix') else 'bill' if draft.get('bill_request') else 'usual' if draft.get('usual_payment') else 'hand-add' if draft.get('finished_by') else 'add'
                 with save_timing.operation(kind,queued_at=draft.get('queued_at')):
                     self.process(draft)
             except Exception as exc:
@@ -261,6 +266,10 @@ class Worker:
                     self.drafts.put(latest)
 
     def process(self, draft):
+        if draft.get('ledger_fix'):
+            # Ask the agent to fix the ledger check: a proposal for Edit entry, never a save.
+            from ledger_check import propose
+            return propose(self, draft)
         transaction = Transaction(self.settings, self.drafts, draft)
         with ledger_lock(self.settings.ledger):
             recovered = transaction.recover()

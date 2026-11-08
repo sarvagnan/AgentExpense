@@ -19,7 +19,12 @@ exchange rate: when something an entry needs is unknown, ask.
 The JSON store is authoritative: entries in `data/expenses/<year>.json`, recurring
 rules in `data/forecast.json`, card statements in `data/card-statements.json` and
 account declarations and metadata in `data/accounts.json`. The hledger journal is
-generated from it and never edited by hand. Each entry keeps its ID (16 hex characters) for
+generated from it and never edited by hand. Every save passes AgentExpense's JSON strict
+check first; hledger, when installed, checks each commit again in the background. When
+that second check fails, the Ledger check item in Queue says what hledger found; fix the
+entry it names through Edit entry (or approve the agent's proposed fix there), never by
+editing the journal, and leave statement Apply and confirmed balances for the accounts
+involved until a check passes. Each entry keeps its ID (16 hex characters) for
 life; edits and moves keep the ID.
 
 ## Double entry

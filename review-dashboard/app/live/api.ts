@@ -10,6 +10,7 @@ export type Draft = {proposal?:Proposal|null;trashed_at?:string|null;refusal?:Ba
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
   correction?:{entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings']};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
+  ledger_fix?:{state:'queued'|'working'|'ready'|'question'|'failed'|'resolved';title:string;summary:string;question?:string|null;message?:string|null;doubts?:string[]};
   declined_rules?:string[]; id: string; description?:string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
   pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
   currency_request?: {kind:'expense'|'transfer';amount:string;sourceCurrency:string;currency:string;sourceAccount:string;account:string;sourceLabel:string;accountLabel:string};

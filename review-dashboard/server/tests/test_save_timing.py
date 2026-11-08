@@ -14,7 +14,8 @@ from support import Fixture, APPLICATION
 from ledger_lock import ledger_lock
 import save_timing
 
-VERIFY_STEPS = {'commit', 'verify', 'journal', 'store_check', 'schema', 'strict_check', 'hledger', 'commit_jj', 'jj', 'data'}
+# hledger is the background second check: a save never waits for it (ledger_check.py).
+VERIFY_STEPS = {'commit', 'verify', 'journal', 'store_check', 'schema', 'strict_check', 'commit_jj', 'jj', 'data'}
 
 
 class Capture(logging.Handler):
@@ -57,7 +58,8 @@ class SaveTimingTests(Fixture):
         steps = line['steps']
         # Nested steps fit inside their parents; the total covers the commit and the rebuild.
         self.assertLessEqual(steps['verify'], steps['commit'])
-        self.assertLessEqual(steps['journal'] + steps['store_check'] + steps['hledger'], steps['verify'])
+        self.assertNotIn('hledger', steps, 'Saves no longer wait for hledger')
+        self.assertLessEqual(steps['journal'] + steps['store_check'], steps['verify'])
         self.assertLessEqual(steps['schema'] + steps['strict_check'], steps['store_check'])
         self.assertLessEqual(steps['commit'] + steps['data'], line['total'])
         self.assertEqual(list(steps), [s for s in save_timing.STEPS if s in steps])
@@ -129,6 +131,12 @@ class SaveTimingTests(Fixture):
         self.assertNotIn('step_timings.py', plain.stdout)
         self.assertIn('scripts/ledger/step_timings.py hledger -- ', timed.stdout)
         self.assertEqual(plain.stdout.splitlines()[-1], timed.stdout.splitlines()[-1].split(' -- ', 1)[1])
+        self.assertIn('scripts/ledger/second_check.py verify', plain.stdout)
+        # make commit (so every save) leaves hledger to the background check.
+        background = subprocess.run(['make', '-n', 'check'], cwd=self.application, env={**env, 'EXPENSES_HLEDGER_CHECK': 'background'}, capture_output=True, text=True)
+        self.assertEqual(background.returncode, 0, background.stderr)
+        self.assertNotIn('second_check.py', background.stdout)
+        self.assertIn('hledger second check: in the background', background.stdout)
 
 
 class StepTimingsTests(Fixture):

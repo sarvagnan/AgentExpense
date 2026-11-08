@@ -552,3 +552,27 @@ html:has(.add-page){overflow-anchor:none}
 /* Each effect sentence fits one phone line; only the narrowest phones reserve a second. */
 @media(max-width:360px){.limit-effect p{min-height:3em}}
 @media(max-width:360px){.time-limit{grid-template-columns:minmax(0,1fr)}}
+/* The second ledger check's banner (live/ledger-check.tsx): a fixed strip at the window's foot, above
+   the phone navigation, so its arrival never moves a heading, an input or a main action. The page
+   keeps room below its content for it while it shows. */
+.ledger-check-banner { position: fixed; z-index: 19; left: calc(var(--sidebar-width) + 24px); right: 24px; bottom: 16px; max-width: 1130px; margin: 0; align-items: center; box-shadow: var(--shadow-popover); }
+.ledger-check-banner > p { flex: 1; min-width: 0; margin: 0; }
+.ledger-check-banner > .button { flex: none; }
+.app.has-ledger-banner > .content { padding-bottom: 112px; }
+/* Focus scrolling (Tab, a field brought into view) stops above the banner, not under it. */
+:root:has(.ledger-check-banner) { scroll-padding-bottom: calc(var(--ledger-banner-height, 88px) + 16px); }
+.ledger-check-detail pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface-sunken); font: var(--text-caption); font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ledger-check-entries { margin: 0; padding: 0; list-style: none; }
+.ledger-check-entries li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--separator); overflow-wrap: anywhere; }
+.ledger-check-note:empty { display: none; }
+/* One reserved slot under Apply: the ledger check's wait or the applying status arrives in it, moving nothing below. */
+.statement-apply-note { min-height: calc(3 * 18px + 8px); }
+.statement-apply-note > p { margin: 8px 0 0; }
+@media (max-width: 760px) {
+  /* Above the phone navigation and any fixed save bar (their heights come from live/focus.ts). */
+  .ledger-check-banner { left: 12px; right: 12px; bottom: calc(var(--live-nav-height,64px) + var(--live-save-height,0px) + 8px); flex-wrap: wrap; }
+  .ledger-check-banner > .button { min-height: 44px; margin-left: 32px; }
+  .app.has-ledger-banner { padding-bottom: calc(76px + 156px); }
+  .app.has-ledger-banner > .content { padding-bottom: 0; }
+}
+.ledger-check-detail .queue-next > p { margin: 0 0 8px; }

@@ -76,9 +76,16 @@ test-migrations-inside:
 	HLEDGER_BIN="$(HLEDGER)" $(LEDGER_PYTHON) scripts/test_python.py -m unittest discover -s scripts/ledger/migration_tests -v
 
 # Saves validate data only; development verify and dashboard also test the code.
+# The JSON strict check (in check_store.py) is the gate. hledger is the optional second
+# check: run here at once, unless EXPENSES_HLEDGER_CHECK=background (set by make commit,
+# so every save), when the server checks each commit in the background instead.
 check:
 	HLEDGER_BIN="$(HLEDGER)" $(LEDGER_PYTHON) scripts/ledger/check_store.py
-	$(if $(EXPENSES_STEP_TIMINGS),python3 scripts/ledger/step_timings.py hledger --) "$(HLEDGER)" -f "$(LEDGER_DIR)/expense_ledger.ledger" check -s ordereddates
+ifeq ($(EXPENSES_HLEDGER_CHECK),background)
+	@echo "hledger second check: in the background (the server checks each commit; make verify-data runs it now)"
+else
+	@$(if $(EXPENSES_STEP_TIMINGS),python3 scripts/ledger/step_timings.py hledger --) python3 scripts/ledger/second_check.py verify --root "$(LEDGER_DIR)" --hledger "$(HLEDGER)"
+endif
 
 format:
 	$(LEDGER_PYTHON) scripts/ledger/store.py --format
@@ -135,7 +142,7 @@ test-scanner-inside:
 
 .PHONY: upgrade-ledger personas
 upgrade-ledger:
-	$(LEDGER_PYTHON) scripts/ledger/upgrade_ledger.py $(ARGS)
+	HLEDGER_BIN="$(HLEDGER)" $(LEDGER_PYTHON) scripts/ledger/upgrade_ledger.py $(ARGS)
 
 personas-inside:
 	@node --version

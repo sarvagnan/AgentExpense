@@ -107,10 +107,14 @@ def check_tools(environ):
     found = run([hledger, '--version'], environ) if hledger else None
     number = version_in(found)
     minimum = dotted(HLEDGER_MINIMUM)
+    # hledger is optional: the JSON strict check is the gate. Without it the app works fully;
+    # only the hledger reports and the background second check of each commit are missing.
+    # An installed hledger is used, so one too old to rely on still blocks.
     if not number:
-        rows.append(Row('hledger', FAIL, 'not found', f'Install hledger {minimum} or newer on PATH.'))
+        rows.append(Row('hledger', WARN, 'not found (optional): no hledger reports and no second check of each save',
+                        f'Install hledger {minimum} or newer on PATH for both.'))
     elif number[:2] < HLEDGER_MINIMUM:
-        rows.append(Row('hledger', FAIL, f'{dotted(number)} is older than {minimum}', f'Install hledger {minimum} or newer.'))
+        rows.append(Row('hledger', FAIL, f'{dotted(number)} is older than {minimum}', f'Install hledger {minimum} or newer, or remove it (it is optional).'))
     else:
         rows.append(Row('hledger', OK, f'{dotted(number)} (needs {minimum}+)'))
     versions = {}

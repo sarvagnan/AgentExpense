@@ -1,5 +1,6 @@
 """Live expense backend. Run from this directory with uv run app.py."""
 from contextlib import asynccontextmanager, ExitStack
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import re
 import io
@@ -167,6 +168,10 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     from update_notice import UpdateNotice
     update_notice = UpdateNotice(settings)
     worker.update_notice = update_notice
+    from ledger_check import LedgerCheck
+    ledger_check = LedgerCheck(settings)
+    ledger_check.drafts = drafts
+    worker.ledger_check = statements.ledger_check = ledger_check
 
     @asynccontextmanager
     async def lifespan(app):
@@ -174,10 +179,13 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         gate.start()
         if start_worker:
             worker.start()
+        # hledger's background second check: one check now, then after each commit.
+        ledger_check.start()
         try:
             yield
         finally:
             gate.close()
+            ledger_check.close()
             if start_worker:
                 worker.close()
 
@@ -187,6 +195,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     app.state.statements = statements
     app.state.agent_gate = gate
     app.state.update_notice = update_notice
+    app.state.ledger_check = ledger_check
     app.add_middleware(DashboardGZipMiddleware, minimum_size=1024)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.hosts))
 
@@ -256,7 +265,10 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         result['agent_pause'] = worker.pause.status()
         if isinstance(result.get('result'), dict) and result['result'].get('audit_id'):
             if receipt_lines is None:
-                return public_many([draft])[0]
+                # Mutation routes often still hold drafts.mutex here. Only the
+                # list/read routes enrich responses from a ledger-locked audit
+                # snapshot, after releasing drafts (ledger → drafts → statements).
+                return result
             if receipt_lines is not False:
                 line = next((r for r in receipt_lines if r['id'] == result['result']['audit_id']), None)
                 if line and result['result'].get('resume_rules'):
@@ -389,6 +401,34 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def update_status():
         # Reading the notice never contacts the remote; the worker checks at most daily.
         return update_notice.status()
+
+    @app.get('/api/ledger-check')
+    def ledger_check_status():
+        # Reading never starts a check; the background check records its own result.
+        return ledger_check.status()
+
+    @app.post('/api/ledger-check/run')
+    def ledger_check_again():
+        """Check again: check the latest commit now and answer with the result."""
+        if not ledger_check.request('check again'):
+            raise HTTPException(409, 'hledger isn’t installed, so there is no second check to run.')
+        # One request waits for the result; others (more tabs, a script) answer at once with
+        # checking: true and see the result in the poll, so they never hold the server's threads.
+        if ledger_check.again_mutex.acquire(blocking=False):
+            try:
+                ledger_check.wait_idle(timeout=120)
+            finally:
+                ledger_check.again_mutex.release()
+        return ledger_check.status()
+
+    @app.post('/api/ledger-check/fix', status_code=201)
+    def ledger_check_fix():
+        """Ask the agent to fix it: a correction draft the agent fills and the person saves."""
+        try:
+            draft = ledger_check.fix(drafts, worker)
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return public(draft)
 
     @app.get('/api/agent-status')
     def agent_status():
@@ -539,7 +579,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def read(identity: str):
         try:
             value = drafts.get(identity, include_discarded=True)
-            return public(value)
+            return public_many([value])[0]
         except FileNotFoundError:
             raise HTTPException(404, 'Unknown item')
 
@@ -690,18 +730,47 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 blocked=[f for f in previews['files'] if f['kind']=='ambiguous' or f.get('mismatch') or f.get('locked')]
                 if blocked:
                     return dict(blocked=True,interpretation=previews,statements=[],drafts=[])
+                original = deepcopy({key: draft.get(key) for key in ('text', 'pieces', 'files', 'client_time', 'client_zone')})
+            def current():
+                latest = get(identity)
+                if latest.get('intake_result'): return latest
+                require(latest, 'editing')
+                if latest.get('discard_requested') or any(latest.get(key) != value for key, value in original.items()):
+                    raise ValueError('This draft changed while preparing its accounts. Review it and Continue again.')
+                return latest
+            # Account creation commits under the ledger lock: never retain the
+            # draft mutex across it. Successful stages survive a changed draft,
+            # so an HTTP retry reuses the account instead of creating it again.
+            for preview in previews['files']:
+                if preview['kind'] != 'statement' or not preview.get('new_account'): continue
+                file_id, spec = preview['id'], preview['new_account']
+                with drafts.mutex:
+                    latest = current()
+                    if latest.get('intake_result'): return latest['intake_result']
+                    if file_id in latest.get('intake_accounts', {}):
+                        staged_spec = latest.get('intake_account_specs', {}).get(file_id)
+                        if staged_spec is not None and staged_spec != spec:
+                            raise ValueError('An account was already created for this file. Choose that account before continuing.')
+                        continue
+                account = create_account(settings, spec['kind'], spec['name'], spec['currency'])['account']
+                with drafts.mutex:
+                    # Keep the latest autosave/Trash metadata, even when this
+                    # request must now refuse to dispatch its old interpretation.
+                    latest = drafts.get(identity, include_discarded=True)
+                    latest.setdefault('intake_accounts', {}).setdefault(file_id, account)
+                    latest.setdefault('intake_account_specs', {}).setdefault(file_id, deepcopy(spec))
+                    drafts.put(latest)
+                    current()
+            with drafts.mutex:
+                draft = current()
+                if draft.get('intake_result'): return draft['intake_result']
                 statements_out=[]
                 for preview in previews['files']:
                     if preview['kind']!='statement': continue
                     file=next(f for f in draft['files'] if f['id']==preview['id'])
                     account=preview.get('account')
                     if preview.get('new_account'):
-                        spec=preview['new_account']
-                        staged=draft.setdefault('intake_accounts',{})
-                        if file['id'] not in staged:
-                            staged[file['id']]=create_account(settings,spec['kind'],spec['name'],spec['currency'])['account']
-                            drafts.put(draft)
-                        account=staged[file['id']]
+                        account=draft['intake_accounts'][file['id']]
                     with statements.mutex:
                         existing=next((s for s in statements.all() if s.get('intake_file')==file['id'] and s.get('intake_draft')==identity),None)
                         if existing: session=existing

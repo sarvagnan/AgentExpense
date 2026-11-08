@@ -10,6 +10,8 @@ make browser-capture
 
 The default runs every engine and all four fictional fixture personas. Both targets capture the shell, notices, Settings, opening balances, currency views,
 account dialogs and all step 4B Add/Queue and group-5 Review states. `CAPTURE=0 make browser-tests` runs assertions without captures.
+`TRACE_SCREENSHOTS=0` keeps trace DOM/network records without screenshot streams;
+WebKit trace screenshots are always disabled.
 `ENGINES` and `PERSONA` accept comma-separated subsets.
 
 Use the installed Playwright **1.64.1** at `~/.cache/expense-playwright`. Chromium
@@ -189,6 +191,18 @@ for changed states at both sizes. Passing runs remove their complete staging roo
 Failed runs retain only failing-case trace ZIPs. `KEEP_ARTIFACTS=1` retains the full
 staging root for debugging. Machine-readable `BROWSER_RESULTS` stays in stdout;
 contact sheets and captures stay in `BROWSER_SHOTS`, outside the staging root.
+
+`BROWSER_FOCUS=ledger-check` runs hledger's background second check (`ledger-check.mjs`),
+also in the default matrix. `serve.py`'s `__test/ledger-check` control feeds the check a
+canned hledger result on the real snapshot (never a broken fixture): `hold` keeps a check
+open until `release`, `fail` takes a kind, an account, `data` (the JSON check refuses it
+too) and `once` (only the commit checked now fails), and `fix` gives the fake agent a
+proposal. The suite holds the check while a save commits (no banner), releases a failure
+(the banner arrives without moving the heading, the words or Continue; Review apply
+waits with its reason), shows the Queue item for every kind and the app-problem case,
+passes Check again (banner and item gone, Apply works), and approves the fake agent's fix
+in Edit entry. Its captures are `ledger-check-banner`, `ledger-check-apply-waiting`,
+`ledger-check-<kind>`, `ledger-check-app-problem` and `ledger-check-fix-proposal`.
 
 `BROWSER_FOCUS=confirmed-balances` runs Part A's usual/agent/hand/receipt refusals,
 duplicate link, retained words, absent Retry, correction locks and same-day boundary.

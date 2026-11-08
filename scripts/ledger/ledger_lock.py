@@ -2,6 +2,10 @@
 
 The inherited descriptor is checked against .lock before it can bypass acquisition.
 Never unlink a lock file: waiters must all lock the same inode.
+
+Server lock order is ledger lock → drafts.mutex → statements.mutex. Acquire only
+the locks needed, in that order; release a draft/statement mutex before beginning
+a ledger operation. The checker's condition must never wait for either mutex.
 """
 from contextlib import contextmanager
 import fcntl

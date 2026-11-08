@@ -112,8 +112,10 @@ def snapshot(root, *, format_zero_settings=None):
         journal_path = ledger / 'expense_ledger.ledger'
         journal_path.write_text(journal)
         result = {'journal': strip_header(journal)}
-        hledger = os.environ.get('HLEDGER_BIN') or shutil.which('hledger') or '/opt/homebrew/bin/hledger'
-        for name, args in [('print', ['print']), ('bal', ['bal', '--flat']), ('bal-cost', ['bal', '--flat', '-B']), ('reg', ['reg'])]:
+        # hledger is optional: without it there are no hledger reports to compare, on either side.
+        from second_check import find_hledger
+        hledger = find_hledger()
+        for name, args in [('print', ['print']), ('bal', ['bal', '--flat']), ('bal-cost', ['bal', '--flat', '-B']), ('reg', ['reg'])] if hledger else []:
             run = subprocess.run([hledger, '-f', str(journal_path), *args], capture_output=True, text=True)
             if run.returncode:
                 raise ValueError(f'Unable to generate {name} output.')

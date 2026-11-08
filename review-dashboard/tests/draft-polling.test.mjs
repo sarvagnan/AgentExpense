@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 const source=ts.transpileModule(readFileSync(new URL('../app/live/use-drafts.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-const slots=[],effects=[],timers=new Map();let index=0,timerId=0,records=[],statements=[],healthWait=null,listWait=[],calls=0,reloads=0,dirty=false,current;
+const slots=[],effects=[],timers=new Map();let index=0,timerId=0,records=[],statements=[],ledgerCheck={available:false,checking:false,item:null},healthWait=null,listWait=[],calls=0,reloads=0,dirty=false,current;
 const window=new EventTarget(),document=new EventTarget();document.hidden=false;
 const changed=(a,b)=>!a||a.length!==b.length||a.some((x,i)=>!Object.is(x,b[i]));
 const hooks={
@@ -15,7 +15,7 @@ const hooks={
  useEffect(fn,deps){const i=index++;if(!slots[i]||changed(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,cleanup:null};effects.push(()=>{old?.cleanup?.();slots[i].cleanup=fn();});}},
 };
 const exports={};
-vm.runInNewContext(source,{exports,window,document,Event,AbortController,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),require:name=>name==='react'?hooks:name==='../data'?{reloadData:async()=>{reloads++;}}:name==='./statements-api'?{statementsApi:{list:async()=>({sessions:statements})}}:{isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:({state:'ready',reason:null}),api:{health:async()=>healthWait || ({ok:true}),list:async()=>{calls++;return listWait.length?listWait.shift():records;}}}});
+vm.runInNewContext(source,{exports,window,document,Event,AbortController,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),require:name=>name==='react'?hooks:name==='../data'?{reloadData:async()=>{reloads++;}}:name==='./statements-api'?{statementsApi:{list:async()=>({sessions:statements})}}:{isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:path==='ledger-check'?(ledgerCheck instanceof Error?Promise.reject(ledgerCheck):ledgerCheck):({state:'ready',reason:null}),api:{health:async()=>healthWait || ({ok:true}),list:async()=>{calls++;return listWait.length?listWait.shift():records;}}}});
 const render=()=>{index=0;dirty=false;current=exports.useDrafts();while(effects.length)effects.shift()();};
 async function settle(){for(let n=0;n<8;n++){await new Promise(r=>setImmediate(r));if(dirty)render();}}
 function delay(){assert.equal(timers.size,1,'Exactly one poll timer must exist');return [...timers.values()][0].delay;}
@@ -29,6 +29,12 @@ assert.equal(delay(),3000,'Reading statements must poll promptly even without an
 statements=[{state:'applying'}];await current.refresh();await settle();assert.equal(delay(),3000,'Applying statements keep the active polling interval');
 statements=[{state:'currency_mismatch'}];fire();await settle();assert.equal(delay(),30000,'A settled statement restores the idle polling interval');
 records=[{...draft('added'),statement_file:'receipt-file'}];statements=[];await current.refresh();await settle();assert.equal(current.attention,1,'A recognized statement waiting for handover needs attention');records[0].handover_session='session';await current.refresh();await settle();assert.equal(current.attention,0,'The handed-over statement is counted by its session only');
+// hledger's background check: while it runs the poll comes back in three seconds; its open item counts in Needs you.
+statements=[];records=[];ledgerCheck={available:true,checking:true,item:null};await current.refresh();await settle();assert.equal(delay(),3000,'A running ledger check keeps the active polling interval');assert.equal(current.attention,0);
+ledgerCheck={available:true,checking:false,item:{id:'ledger-check',title:'An entry doesn’t balance'}};fire();await settle();assert.equal(delay(),30000,'A finished check restores the idle interval');assert.equal(current.attention,1,'The open Ledger check item needs attention');assert.equal(current.ledgerCheck.item.title,'An entry doesn’t balance');
+// A failing status read (a 500) keeps the last status and never stops the Queue's own updates.
+ledgerCheck=new Error('Fictional server error');records=[draft('question')];fire();await settle();assert.equal(current.online,true);assert.equal(current.drafts[0].state,'question','Drafts still update');assert.equal(current.ledgerCheck.item.title,'An entry doesn’t balance','The last status stays');
+ledgerCheck={available:true,checking:false,item:null};records=[];fire();await settle();assert.equal(current.attention,0,'The item leaves Needs you when a check passes');
 statements=[];records=[draft('working')];await current.refresh();await settle();assert.equal(delay(),3000,'Answer/retry transition resets the previous idle timer');
 const before=calls;document.hidden=true;document.dispatchEvent(new Event('visibilitychange'));await settle();assert.equal(timers.size,0);assert.equal(calls,before,'Hidden pages do not fetch');
 document.hidden=false;document.dispatchEvent(new Event('visibilitychange'));await settle();assert.equal(delay(),3000);

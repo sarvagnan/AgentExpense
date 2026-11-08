@@ -163,6 +163,7 @@ function statementHarness(){
   '../date-time':{formatCalendarDate:x=>x,formatTimestamp:x=>x},'../ui':{Dialog:'dialog',Icon:'icon',PanelHeader:'header',announce(){},evidenceHref:()=>'',money:v=>String(v),plural:(n,one,many=one+'s')=>`${n} ${n===1?one:many}`,useQueryState:(name,initial)=>[name==='session'?'s'.repeat(32):initial,()=>{}]},
   '../data':{dashboard:{meta:{accounts:{}}},reloadData:async()=>{reloads.count++;}},'./api':{api:{},ApiError:class extends Error{},isRemoved:()=>false},'./statement-account':{StatementAccount:'statement-account'},
   './statements-api':{statementsApi,statementHref:()=>'',filedHref:()=>''},'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
+  './context':{LiveDraftsContext:{value:null}},'./ledger-check':{LEDGER_CHECK_HREF:'/expenses/queue/?check=ledger',ledgerCheckBlock:()=>null},
  },{document,performance:{getEntriesByType:()=>[]},localStorage:{getItem:k=>stored.get(k)??null,setItem:(k,v)=>stored.set(k,v),removeItem:k=>stored.delete(k)},requestAnimationFrame:()=>0,cancelAnimationFrame(){},innerHeight:900});
  const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
  h.render(m=>m.default({initialId:'s'.repeat(32)}));

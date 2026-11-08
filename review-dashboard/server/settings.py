@@ -44,6 +44,9 @@ class Settings:
     api_options: str = '{}'  # Canonical JSON keeps Settings hashable; never contains a key.
     update_notice: bool = False  # local.json updates.notice; off unless turned on.
     update_remote: str = 'origin'
+    # hledger's background second check of each commit (ledger_check.py); it runs only when
+    # hledger is installed. The offline tests turn it on where they test it.
+    ledger_check: bool = True
 
     @property
     def agent_home(self):

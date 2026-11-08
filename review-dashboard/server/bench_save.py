@@ -387,7 +387,7 @@ class Bench:
         out.append('')
         out.append('Seconds, median / 95th percentile (nearest rank). Committed: the server\'s operation time up to the commit '
                    '(total without the agent and data steps). Response: what the person waits for today. '
-                   'commit contains verify (journal, store_check with schema and strict_check, hledger) and commit_jj; '
+                   'commit contains verify (journal, store_check with schema and strict_check; hledger runs after the commit, in the background) and commit_jj; '
                    'jj is the server\'s own jj calls; other is committed time outside prepare, lock_wait, commit and jj.')
         failures = []
         if targets:

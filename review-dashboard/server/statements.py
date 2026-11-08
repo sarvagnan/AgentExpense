@@ -72,6 +72,8 @@ class Statements:
         self.settings, self.ledger = settings, settings.ledger
         self.root = self.ledger / 'drafts/statements'
         self.root.mkdir(parents=True, exist_ok=True)
+        # Server order: ledger lock → drafts.mutex → statements.mutex. Never
+        # acquire the ledger lock or drafts.mutex while holding this mutex.
         self.mutex = threading.RLock()
         self.changed = threading.Condition(self.mutex)
         self.in_flight = set()
@@ -559,6 +561,7 @@ class Statements:
             for s in sessions:
                 if s['state'] not in ('found', 'review') or 'plan' not in s or s.get('duplicate_of'):
                     raise ValueError(f"{s['original_name']} is not ready to import.")
+                self.refuse_while_ledger_check((s.get('statement') or {}).get('account'))
             ordered = sorted(sessions, key=lambda s: (s['statement']['periodEnd'], s['statement']['account'], s['created_at'], s['id']))
             start = datetime.now().astimezone()
             for index, s in enumerate(ordered):
@@ -645,6 +648,14 @@ class Statements:
             self.put(s)
             return s
 
+    def refuse_while_ledger_check(self, account):
+        """Apply files a statement and confirms a balance: it waits while the second
+        ledger check (hledger) has an open problem involving this account."""
+        check = getattr(self, 'ledger_check', None)
+        reason = check.blocked(account) if check else None
+        if reason:
+            raise ValueError(reason)
+
     def queue_apply(self, identity):
         with self.mutex:
             s = self.get(identity)
@@ -656,6 +667,7 @@ class Statements:
                 raise ValueError('Decide every row that needs you before applying.')
             if s['plan']['items'] and all(i['rule']=='pre_start' for i in s['plan']['items']):
                 raise ValueError('All rows are covered by opening balances; no financial changes should be applied.')
+            self.refuse_while_ledger_check((s.get('statement') or {}).get('account'))
             s.update(state='applying', queued_at=now(), error=None)
             self.put(s)
             return s
@@ -698,8 +710,19 @@ class Statements:
                         s = latest
                     transaction = StatementTransaction(self.settings, self, s)
                     recovered = s.get('committed_result') or transaction.recover()
+                    check = getattr(self, 'ledger_check', None)
+                    refused, pending = (None, False) if recovered or not check else check.apply_guard((s.get('statement') or {}).get('account'))
                     if recovered:
                         s.update(state='applied', result=refresh(self.settings,recovered), waiting=None, apply_started=False)
+                        self.put(s)
+                    elif refused:
+                        # The second check failed for this account after Apply was queued: nothing is
+                        # filed or confirmed. The session goes back with the reason; Apply again later.
+                        s.update(state='failed' if s.get('first_run') else 'review', error=refused, waiting=None,
+                                 apply_started=False, failure_reason='ledger_check')
+                        self.put(s)
+                    elif pending:
+                        s.update(waiting='Waiting for the ledger check of the latest save.', last_check=datetime.now(timezone.utc).timestamp())
                         self.put(s)
                     elif not clean(self.ledger):
                         s.update(waiting='Waiting for other ledger changes to finish.', last_check=datetime.now(timezone.utc).timestamp())

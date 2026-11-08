@@ -17,6 +17,8 @@ class Drafts:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.root = root / 'drafts'
         self.root.mkdir(exist_ok=True, parents=True)
+        # Server order: ledger lock → drafts.mutex → statements.mutex. Never
+        # acquire the ledger lock while holding this mutex (including responses).
         self.mutex = threading.RLock()
         self.changed = threading.Condition(self.mutex)
 
