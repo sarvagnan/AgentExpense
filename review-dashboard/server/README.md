@@ -111,8 +111,17 @@ for a clean ledger, retrying every 30 seconds and exposing `waiting` in the draf
 Do not edit ledger files concurrently outside the shared `.lock` protocol.
 Transaction journals recover interrupted uncommitted writes or recognise a
 completed dashboard commit before repeating work. Commit failures restore store,
-evidence and jj state. Data refresh failure leaves an added result with
-`data_stale` and `refresh_error`; rerun `npm --prefix review-dashboard run data`.
+evidence and jj state. Saves answer after commit with `data_stale` and `data_pending` while a coalesced
+background rebuild runs. A failed rebuild retains the previous generation and
+`refresh_error`. The page polls `api/data-status` while stale and automatically
+loads one immutable generation. `POST api/data-refresh` retries a failed build.
+Only the candidate's own durable receipt authorizes its build; old result reads
+cannot release a newer candidate. Forced day/builder invalidations survive
+coalescing, and generation retention starts at supersession. Refresh startup or
+cleanup failures do not stop intake or strand the builder. Completed checks wake
+waiting statements; the idle deadline also covers pause and claim expiry.
+[Verified saves](../../docs/SAVES.md) describes indexes, source invalidation,
+crash repair, lock order and publication.
 
 `not_expense` is a successful terminal result (`state=added`,
 `result.outcome=not_expense`) with an explanation and a record-only audit commit. All
@@ -195,7 +204,7 @@ For a run that writes no bytecode or environment updates in the application,
 use `PYTHONDONTWRITEBYTECODE=1 UV_NO_SYNC=1 make test-server` after dependencies are
 installed. The test launcher groups fixture applications and ledgers under its
 owned temporary root. `make test-server` activates the installed server venv through `uv`, so
-nested `make commit`/`make verify-data` subprocesses reuse its `jsonschema` even with
+terminal `make commit`/`make verify-data` invocations reuse its dependencies even with
 `UV_OFFLINE=1` and an empty `/tmp` `UV_CACHE_DIR`. Browser fixture APIs activate
 the same environment explicitly while using its Python directly; neither path
 needs pre-filled caches or a venv resync.
@@ -221,7 +230,7 @@ files. `tests/test_isolation.py` tests these cases with git fixtures under `/tmp
 Browser fixture APIs likewise receive disposable
 application copies for data refresh and serving; production settings are unchanged.
 Commit verification skips only the server suite to avoid recursive integration
-tests; `make verify` runs the ledger suite plus data verification. Saves run `make verify-data` under the lock without code tests, and without hledger (`make commit` sets `EXPENSES_HLEDGER_CHECK=background`; see "The second check" below). `EXPENSES_FAKE_CONFIG` belongs to tests
+tests; `make verify` runs the ledger suite plus data verification. Saves call the shared Python verifier/commit service in-process under the lock, with incremental checks and without code tests or hledger (`make commit` sets `EXPENSES_HLEDGER_CHECK=background`; see "The second check" below). `EXPENSES_FAKE_CONFIG` belongs to tests
 only and has no effect on the production agent runner.
 
 Nested verification in the offline server suite shares a temporary, immutable
@@ -607,8 +616,8 @@ inspector over Add; completed expenses appear in Explorer, rather than Queue.
 ### Statement-confirmed balances (6f A)
 
 All additions (usual, hand-finished and agent proposals) and replacements (including
-receipt choices) run the JSON strict check before writing, and `make commit` runs it
-again over the whole store; hledger then checks the commit in the background. `scripts/ledger/confirmed_balances.py`
+receipt choices) run the JSON strict check before writing, and the shared commit service runs the locked final gate
+using its validated baseline (or a full check after external changes); hledger then checks the commit in the background. `scripts/ledger/confirmed_balances.py`
 computes partial assertions directly from ordered store postings. A refused save
 returns `kind: confirmed_balance`, account/label, assertion date and entry ID,
 asserted/calculated/difference decimal amounts with their commodity, a structured
@@ -764,10 +773,10 @@ Each save writes one line to the server log (stderr, so the service journal), ne
 into the ledger: `save-timing {"operation": …, "outcome": "ok"|"error", "total": …,
 "steps": {…}}`, in seconds. [`save_timing.py`](save_timing.py) lists the steps (pickup,
 agent, prepare, lock wait, commit with verify, journal, store check, schema, the
-JSON strict check, jj, data rebuild; `hledger` only when `EXPENSES_HLEDGER_CHECK=now`
-keeps it in the commit). `make commit` reports its
-own steps through a temporary file named in `EXPENSES_STEP_TIMINGS`; without that
-variable (a commit from the command line) nothing is recorded. `EXPENSES_TIMING_LOG=0`
+JSON strict check and jj; background data builds have separate timing lines; `hledger` only when `EXPENSES_HLEDGER_CHECK=now`
+keeps it in the commit). The in-process verifier reports steps directly; terminal commands can still
+write steps to `EXPENSES_STEP_TIMINGS`. Save lines include the actual commit
+boundary; the bench reports the separate background build and commit-to-fresh time. `EXPENSES_TIMING_LOG=0`
 keeps the lines out of stderr; the offline tests set it.
 
 `make bench-save` (application root) generates a large fictional ledger with

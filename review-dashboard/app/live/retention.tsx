@@ -7,13 +7,13 @@ import {useInteractionSnapshot} from './interaction';
 export type Limits={delete_days:number;trash_days:number;saved_hours:number};
 export type TrashItem={id:string;kind:'entry'|'queue'|'statement';entry_id?:string;description:string;removed_at:string;reason:string;files:string[];owned_files?:string[];kept_files?:string[];expires_at:string};
 type Eligibility={entry_id:string;description:string;version:string;offered:boolean;reason:string;lock:string;delete_until:string;restore_until:string;limits:Limits;files:string[];kept:{path:string;citations:number}[];rule?:{id:string}};
-type Result={item_id?:string;entry_id?:string;description?:string;refused?:boolean;reason?:string;data_stale?:boolean};
+type Result={item_id?:string;entry_id?:string;description?:string;refused?:boolean;reason?:string;data_stale?:boolean;data_pending?:boolean};
 export const retentionChanged=()=>window.dispatchEvent(new Event('drafts-changed'));
 const operations=new Map<string,object>();
 export async function retentionOperation(body:object,id:string=crypto.randomUUID().replaceAll('-','')){
  if(!operations.has(id))operations.set(id,{...body,...clientTime()});
  const result=await request<Result>(`retention/operations/${id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(operations.get(id))},120000);
- if(result.data_stale)throw new Error('The change was saved, but dashboard data could not refresh. Retry this action to refresh it.');
+ if(result.data_stale&&!result.data_pending)throw new Error('The change was saved, but dashboard data could not refresh. Retry this action to refresh it.');
  if((body as {action?:string}).action==='queue-restore'){forgetRemoved((body as {item_id:string}).item_id);window.dispatchEvent(new Event('item-restored'));}
  if(!result.refused&&['restore','remove'].includes((body as {action:string}).action)){const b=body as {item_id?:string;items?:string[]};window.dispatchEvent(new CustomEvent('trash-items-removed',{detail:b.items||[b.item_id]}));}
  retentionChanged();if(!result.refused)await reloadData();return result;

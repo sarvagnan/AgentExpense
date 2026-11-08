@@ -118,7 +118,7 @@ class RetentionTests(Fixture):
     def test_sweep_thirty_second_clock_and_saved_then_trash_deadlines(self):
         d=self.drafts.create('Willow saved words')
         self.now+=timedelta(hours=24)
-        with patch('retention_service.time.monotonic',return_value=100):
+        with patch('retention_service.time.monotonic',return_value=100), patch.object(self.service.history,'refresh',side_effect=AssertionError('Expiry must not traverse addition history')):
             self.service.sweep()
         self.assertTrue(self.drafts.get(d['id'],include_discarded=True)['trashed_at'])
         self.now+=timedelta(days=7)
@@ -129,6 +129,13 @@ class RetentionTests(Fixture):
             self.service.sweep()
         self.assertEqual(self.service.listing()['items'],[])
         self.assertTrue(clean(self.ledger))
+
+    def test_eligibility_refreshes_history_before_using_its_cached_times(self):
+        entry=self.add(); outside=deepcopy(entry);outside['id']='b'*16
+        docs=load(self.ledger);path=self.ledger/f"data/expenses/{entry['date'][:4]}.json"
+        dump(path,[*docs[path],outside]);self.jj('commit','-m','Outside addition for eligibility cache')
+        self.assertIsNone(self.service.history.get(outside['id'],[]))
+        self.assertIsNotNone(self.service.eligibility(outside['id'])['added_at'])
 
     def test_a_ledger_jj_cannot_read_defers_the_sweep_in_one_line(self):
         # The worker's sweep against a folder that is not a jj repository (as in an

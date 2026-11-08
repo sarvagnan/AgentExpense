@@ -75,6 +75,7 @@ class LedgerCheck:
         self.drafts = None
         self.child = None  # the running snapshot process, killed on close
         self.checking_commit = None
+        self.on_finished = lambda: None
         # One "Ask the agent" at a time, and one Check again waiting: more answer with the status.
         self.fix_mutex, self.again_mutex = threading.Lock(), threading.Lock()
 
@@ -150,6 +151,7 @@ class LedgerCheck:
                     self.queued = False
                     continue
                 self.running = False
+                self.on_finished()  # worker event only; a leaf, no ledger/draft lock
                 self.condition.notify_all()
                 return
 

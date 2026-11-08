@@ -445,6 +445,14 @@ Edit entry and changes nothing until the person saves it), Edit the entry and Ch
 again. The item closes when a check passes. `make verify-data` run by hand reports a
 failure in the same words.
 
+## Server saves
+
+The server and terminal `make commit` share `scripts/ledger/commit.py`. The server
+keeps validated models and account/currency histories, checks changes under the
+ledger lock, commits, then rebuilds dashboard data in the background. Full checks
+run at startup and in `make verify`. [SAVES.md](SAVES.md) describes source-stamp
+invalidation, rollback, agreement tests and whole-generation browser publication.
+
 ## The journal
 
 Format 2 renders the same hledger journal as format 1. The comment lines come

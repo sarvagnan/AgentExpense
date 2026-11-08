@@ -151,13 +151,14 @@ def apply_bank(transaction, documents, lock_fd):
         t.save_journal(journal)
         label = metadata.get('label') or account.split(':')[-1]
         message = f"Reconcile {label} statement ending {end}\n\nMatched {len(matched)} entries; added {len(added)}; skipped {result['skipped']}.\nSource: {source}\n{t.marker}\nAdded-by: dashboard statements ({statement['reader']})"
-        completed = subprocess.run(['make','commit'],cwd=t.settings.application,env={**os.environ,'LEDGER_DIR':str(root),LOCK_FD_ENV:str(lock_fd),'EXPENSES_COMMIT_MESSAGE':message},pass_fds=(lock_fd,),capture_output=True,text=True)
+        from save_timing import make_commit
+        completed = make_commit(t.settings.application,{**os.environ,'LEDGER_DIR':str(root),LOCK_FD_ENV:str(lock_fd),'EXPENSES_COMMIT_MESSAGE':message},lock_fd)
         if completed.returncode:
             raise RuntimeError('The checked statement change failed; nothing was applied. '+(completed.stdout+completed.stderr)[-4000:])
-        result['commit_id'] = jj(root,'log','-r','@-','--no-graph','-T','commit_id')
+        result['commit_id'] = completed.stdout.strip()
         session['committed_result'] = result
         t.drafts.put(session)
-        t.journal.unlink()
+        t.finish_commit(completed)
         return result
     except BaseException:
         t.rollback(journal)

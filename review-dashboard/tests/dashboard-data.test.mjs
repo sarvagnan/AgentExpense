@@ -65,3 +65,22 @@ test('unreadable provenance fails closed and explicit replacement recovers it',a
  assert.notEqual(failed.status,0);assert.match(failed.stderr,/DASHBOARD_DATA_REPLACE=1/);assert.deepEqual(await bytes(f.out),before);
  f.build({DASHBOARD_DATA_REPLACE:'1'});assert.equal(JSON.parse(await readFile(stamp)).format,1);
 });
+
+test('initial provenance publication never exposes a partial stamp to another reader',async()=>{
+ const f=await fixture();
+ const stamp=join(f.out,'app/data/.source-ledger.json');
+ const code=`import fs from 'node:fs';import assert from 'node:assert/strict';import {syncBuiltinESMExports} from 'node:module';
+ const stamp=${JSON.stringify(stamp)},write=fs.writeFileSync;
+ fs.writeFileSync=(file,value,options)=>{
+  if(String(file).includes('.source-ledger')){
+   write(file,'{',options);
+   if(fs.existsSync(stamp))assert.doesNotThrow(()=>JSON.parse(fs.readFileSync(stamp,'utf8')),'A concurrent reader saw partial provenance');
+   return write(file,value,{...options,flag:'w'});
+  }
+  return write(file,value,options);
+ };syncBuiltinESMExports();
+ const {guardDashboardData}=await import(${JSON.stringify(join(f.application,'scripts/dashboard-data.mjs'))});
+ guardDashboardData();assert.equal(JSON.parse(fs.readFileSync(stamp,'utf8')).format,1);`;
+ const result=spawnSync(process.execPath,['--input-type=module','-e',code],{env:f.env,encoding:'utf8'});
+ assert.equal(result.status,0,result.stderr);
+});

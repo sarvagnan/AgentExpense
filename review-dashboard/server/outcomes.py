@@ -57,7 +57,7 @@ class OutcomeTransaction(Transaction):
             result = make_commit(self.settings.application, env, lock_fd)
             if result.returncode:
                 raise RuntimeError('Could not commit the audit record: ' + (result.stdout + result.stderr)[-3000:])
-            self.journal.unlink()
+            self.finish_commit(result)
         except BaseException:
             self.rollback(journal)
             raise

@@ -11,6 +11,7 @@ class AgentPause:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.mutex = threading.RLock()
         self.check_thread = None
+        self.on_finished = lambda: None
         try: self.value = json.loads(self.path.read_text())
         except FileNotFoundError: self.value = {}
 
@@ -57,7 +58,10 @@ class AgentPause:
         with self.mutex:
             due=self.value.get('kind')=='auth' and self.clock()>=datetime.fromisoformat(self.value['resumes_at'])
             if due and (not self.check_thread or not self.check_thread.is_alive()):
-                self.check_thread=threading.Thread(target=self.blocked,args=(gate,),name='expense-pause-recheck',daemon=True)
+                def recheck():
+                    try: self.blocked(gate)
+                    finally: self.on_finished()
+                self.check_thread=threading.Thread(target=recheck,name='expense-pause-recheck',daemon=True)
                 self.check_thread.start()
 
     def success(self):

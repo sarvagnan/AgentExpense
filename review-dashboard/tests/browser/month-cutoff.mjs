@@ -32,7 +32,7 @@ export async function runMonthCutoff({page, stage, expect, go, overflow, snap, r
   for(const f of data.forecasts)f.variableAfterDay=14;
   data.forecast=data.forecasts.find(row=>row.currency===data.meta.ledger.defaultCurrency);
   const response=route=>route.fulfill({status:200,contentType:'application/gzip',body:gzipSync(JSON.stringify(data))});
-  await page.route('**/data/dashboard.json.gz',response);
+  await page.route('**/dashboard.json.gz',response);
   try {
     await go('explorer/');
     await expect(page.locator('.page-heading p')).toContainText('recorded through');
@@ -60,6 +60,6 @@ export async function runMonthCutoff({page, stage, expect, go, overflow, snap, r
     await overflow('overdue forecast at today');await snap('forecast-overdue-at-today');
     record('6b2 today cut-off, same-day Explorer/category keys, overdue expected payment and chart/table total agree');
   } finally {
-    await page.unroute('**/data/dashboard.json.gz',response);
+    await page.unroute('**/dashboard.json.gz',response);
   }
 }

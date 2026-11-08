@@ -345,6 +345,7 @@ input.field:disabled, textarea.field:disabled, select.field:disabled {
 @media (hover:hover) { .identity:hover { background:var(--surface-raised); } }
 .avatar { width:28px; height:28px; flex:none; display:grid; place-items:center; border-radius:50%; background:var(--selection-fill); color:var(--accent); font-weight:600; }
 .identity-text { min-width:0; flex:1; overflow-wrap:anywhere; }
+.identity-name { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .identity small { display:block; color:var(--text-secondary); font:var(--text-caption); }
 .sidebar nav hr { height:1px; border:0; background:var(--separator); margin:10px 8px; }
 .phone-top { display:none; }

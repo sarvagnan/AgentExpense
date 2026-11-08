@@ -54,7 +54,12 @@ def jj(root, *args):
 
 
 def clean(root):
-    return not jj(root, 'diff', '--summary')
+    result = not jj(root, 'diff', '--summary')
+    if result:
+        from save_service import get
+        if service := get(root):
+            service.before()
+    return result
 
 
 def command_failure(exc):
@@ -77,7 +82,7 @@ def reject_invisible(value, field='answer'):
             reject_invisible(item, field)
 
 
-def to_store(answer, root, file_count):
+def to_store(answer, root, file_count, *, documents=None):
     """The format 2 entry an answer or form describes, with the declarations it needs and its new accounts."""
     from answers import entry_extensions
     answer = deepcopy(answer)
@@ -90,7 +95,7 @@ def to_store(answer, root, file_count):
                         extensions=entry_extensions(root, a.get('extensions')), notes=list(a['notes']),
                         postings=[posting(p['account'], p['amount'], p['commodity'],
                                           cost={**p['cost'], 'per': 'total'} if p['cost'] else None) for p in a['postings']])
-    declared = load(root)[root / 'data/accounts.json']
+    declared = (load(root) if documents is None else documents)[root / 'data/accounts.json']
     existing = set(declared['accounts'])
     new = sorted(set(answer['new-accounts']) - existing)
     for account in new:
@@ -140,23 +145,25 @@ def to_store(answer, root, file_count):
     return entry, {**declared, 'accounts': accounts, 'commodities': commodities}, new
 
 
-def check(entry, declarations, root):
-    # All validation happens on isolated store files. Evidence isn't filed yet.
-    with tempfile.TemporaryDirectory(prefix='expense-check-') as tmp:
-        fixture = Path(tmp)
-        for path in store_paths(root):
-            dest = fixture / path.relative_to(root)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, dest)
-        copy_settings(root, fixture)
-        dump(fixture / 'data/accounts.json', declarations)
-        candidate = {**entry, 'evidence': []}
-        try:
-            add_entry(candidate, root=fixture, dry_run=True)
-        except BalanceRefusal:
-            raise
-        except (ValueError, TypeError, KeyError) as exc:
-            raise ProposalError(str(exc)) from exc
+def check(entry, declarations, root, *, documents=None):
+    # Pure in-memory preview; evidence has not been filed. The final locked gate
+    # checks its actual paths, audit and membership before a commit can exist.
+    from store import new_id
+    from replacements import check_documents
+    documents = load(root) if documents is None else dict(documents)
+    documents[root / 'data/accounts.json'] = declarations
+    used = {row['id'] for values in documents.values() if isinstance(values, list) for row in values}
+    candidate = {**entry, 'id': new_id(used), 'evidence': []}
+    path = root / 'data/expenses' / f"{entry['date'][:4]}.json"
+    rows = documents[path] = list(documents.get(path, []))
+    index = next((i for i, row in enumerate(rows) if row['date'] > entry['date']), len(rows))
+    rows.insert(index, candidate)
+    try:
+        check_documents(documents, root, candidate=candidate)
+    except BalanceRefusal:
+        raise
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ProposalError(str(exc)) from exc
 
 
 def safe_name(name):
@@ -193,9 +200,9 @@ def payment(entry, accounts=None):
             'payment_account': ', '.join(dict.fromkeys(p['account'] for p in postings))}
 
 
-def message_for(settings, draft, entry, new, answer):
+def message_for(settings, draft, entry, new, answer, *, accounts=None):
     quote = lambda text: json.dumps(text, ensure_ascii=False)
-    paid = payment(entry,load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'])
+    paid = payment(entry,load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'] if accounts is None else accounts)
     lines = [f"Add {entry['description']} via dashboard", '', f"Typed: {quote(draft['text'])}",
              f'Saved: {saved_local(draft)}',
              f"Total: {paid['total']}, {paid['payment_account']}",
@@ -215,6 +222,7 @@ class Transaction:
         self.root = settings.ledger
         self.journal = drafts.folder(draft['id']) / 'transaction.json'
         self.marker = 'Draft: ' + draft['id']
+        self.data_candidate = None
 
     def save_journal(self, journal):
         tmp = self.journal.with_suffix('.tmp')
@@ -225,6 +233,10 @@ class Transaction:
         tmp.replace(self.journal)
 
     def snapshot(self, targets):
+        with save_timing.step('snapshot'):
+            return self._snapshot(targets)
+
+    def _snapshot(self, targets):
         files = {}
         directories = set()
         for path in targets:
@@ -242,6 +254,10 @@ class Transaction:
                    'operation': jj(self.root, 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id'),
                    'parent': jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id'),
                    'result': None}
+        from save_service import get
+        if service := get(self.root):
+            service.rollback_operation = journal['operation']
+            service.checkpoint = service.index
         self.save_journal(journal)
         return journal
 
@@ -262,6 +278,10 @@ class Transaction:
             if path.exists():
                 path.rmdir()
         jj(self.root, 'status')
+        from save_service import get
+        from data_refresh import get as data_job
+        if service := get(self.root): service.rolled_back()
+        if data := data_job(self.root): data.rolled_back()
         self.journal.unlink()
 
     def recover(self):
@@ -290,7 +310,15 @@ class Transaction:
         completed = save_timing.make_commit(self.settings.application, env, lock_fd)
         if completed.returncode:
             raise RuntimeError('Ledger commit failed verification: ' + (completed.stdout+completed.stderr)[-5000:])
-        return jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+        self.data_candidate = getattr(completed, 'data_candidate', None)
+        return completed.stdout.strip()
+
+    def finish_commit(self, completed=None):
+        """Remove the recovery journal only after persisting the success receipt."""
+        self.journal.unlink()
+        from data_refresh import get
+        if job := get(self.root):
+            job.activate(getattr(completed, 'data_candidate', self.data_candidate))
 
     def prepare(self, answer, *, person=None):
         """Pure preview: schema, conversion, declarations, the JSON strict check in scratch.
@@ -317,19 +345,20 @@ class Transaction:
             raise ProposalError(str(exc)) from None
         if checked['status'] != 'ready' or not checked['entry']:
             raise ProposalError('A complete ready entry is required')
-        entry, declarations, new = to_store(checked, self.root, len(self.draft['files']))
+        documents = load(self.root)
+        entry, declarations, new = to_store(checked, self.root, len(self.draft['files']), documents=documents)
         if self.draft.get('correction'):
             from corrections import prepare_replacement
             prepare_replacement(self.settings, self.draft, entry, declarations)
         else:
-            check(entry, declarations, self.root)
-        existing = load(self.root)[self.root/'data/accounts.json']['accounts']
+            check(entry, declarations, self.root, documents=documents)
+        existing = documents[self.root/'data/accounts.json']['accounts']
         roots = {a.split(':')[0] for a in existing}
         return dict(entry=entry, declarations=declarations, new_accounts=new,
                     new_roots=[a for a in new if a.split(':')[0] not in roots],
-                    proposal_hash=proposal_hash(answer))
+                    proposal_hash=proposal_hash(answer), documents=documents)
 
-    def publish(self, documents, record, result, lock_fd, message, *, copies=(), moves=(), removals=()):
+    def publish(self, documents, record, result, lock_fd, message, *, copies=(), moves=(), removals=(), audit_lines=None):
         """Publish a replacement/merge through the same checked recovery boundary."""
         from audit import append, audit_path
         from replacements import check_documents
@@ -347,22 +376,23 @@ class Transaction:
                 source.rename(target)
             for path in removals: path.unlink()
             for path,value in documents.items(): dump(path,value)
-            append(self.root,record)
+            append(self.root,record,lines=audit_lines)
             journal['result']=result;self.save_journal(journal)
             result['commit_id']=self.verified_commit(lock_fd,message)
             self.draft['committed_result']=result;self.drafts.put(self.draft)
-            self.journal.unlink()
+            self.finish_commit()
             return result
         except BaseException:
             self.rollback(journal)
             raise
 
-    def apply(self, answer, lock_fd, *, person=None):
+    def apply(self, answer, lock_fd, *, person=None, prepared=None):
         if self.draft.get('correction'): raise ValueError('Save this form through the correction service to keep the entry identity')
         from rules_service import policy
         policy(self.settings)
-        prepared = self.prepare(answer, person=person)
+        prepared = prepared if prepared is not None else self.prepare(answer, person=person)
         entry, declarations, new = prepared['entry'], prepared['declarations'], prepared['new_accounts']
+        documents = prepared['documents']
         required = new if self.draft.get('finished_by') else prepared['new_roots']
         consent = self.draft.get('account_consent')
         if required and (not consent or consent['proposal_hash'] != prepared['proposal_hash'] or set(required)-set(consent['accounts'])):
@@ -374,7 +404,8 @@ class Transaction:
         targets = evidence_paths(answer, self.draft, self.root)
         entry['evidence'] = [str(p.relative_to(self.root)) for p in targets]
         from outcomes import draft_event
-        from audit import append, audit_path
+        from audit import append, audit_path, records
+        audit_lines = records(self.root)
         audit_record = draft_event(self.draft, 'added')
         journal = self.snapshot([audit_path(self.root, audit_record), *store_paths(self.root), self.root / 'data/expenses' / (entry['date'][:4] + '.json'),
                                  self.root / 'expense_ledger.ledger', *targets])
@@ -384,10 +415,11 @@ class Transaction:
                 shutil.copyfile(self.drafts.folder(self.draft['id']) / 'files' / file['name'], target)
                 compress(target)
             dump(self.root / 'data/accounts.json', declarations)
-            identity = add_entry(entry, root=self.root)
+            documents[self.root/'data/accounts.json'] = declarations
+            identity = add_entry(entry, root=self.root, documents=documents)
             from rules_service import addition_effects
-            recurring = addition_effects(self.root, identity, self.draft)
-            entry=next(e for e in entries(load(self.root)) if e['id']==identity)
+            recurring = addition_effects(self.root, identity, self.draft, documents=documents, lines=audit_lines)
+            entry=next(e for e in entries(documents) if e['id']==identity)
             result = dict(outcome='ready', entry_id=identity, description=entry['description'],
                           new_accounts=new, sources=entry['evidence'], **payment(entry,declarations['accounts']))
             if recurring['rule'] or recurring['resume_rules']:
@@ -400,21 +432,21 @@ class Transaction:
                 result['usual_payment'] = deepcopy(self.draft['usual_payment'])
             audit_record['entry_id'] = identity
             audit_record['files'] = [dict(original_name=f['original_name'], **({'filed_path': result['sources'][i]} if i < len(result['sources']) else {})) for i, f in enumerate(self.draft['files'])]
-            append(self.root, audit_record)
+            append(self.root, audit_record, lines=audit_lines)
             if recurring.get('paid_bill'):
                 from audit import event
                 from rules_service import digest
                 append(self.root,event('rule',rule_action='bill-paid',rule_id=recurring['rule']['id'],
                     request_id=self.draft['id'],request_hash=digest(dict(draft=self.draft['id'],bill=recurring['paid_bill'])),
                     rule_changes=recurring['rule_changes'],bill=recurring['paid_bill'],text=self.draft['text'],
-                    files=audit_record['files'],doubts=audit_record['doubts'],entry_id=identity))
+                    files=audit_record['files'],doubts=audit_record['doubts'],entry_id=identity),lines=audit_lines)
             journal['result'] = result
             self.save_journal(journal)
-            result['commit_id'] = self.verified_commit(lock_fd, message_for(self.settings, self.draft, entry, new, answer))
+            result['commit_id'] = self.verified_commit(lock_fd, message_for(self.settings, self.draft, entry, new, answer, accounts=declarations['accounts']))
             # Persist the receipt before the journal is removed.
             self.draft['committed_result'] = result
             self.drafts.put(self.draft)
-            self.journal.unlink()
+            self.finish_commit()
             return result
         except BaseException:
             self.rollback(journal)
@@ -422,6 +454,9 @@ class Transaction:
 
 
 def refresh(settings, result):
+    from data_refresh import get
+    if job := get(settings.ledger):
+        return job.result(result)
     with save_timing.step('data'):
         return _refresh(settings, result)
 

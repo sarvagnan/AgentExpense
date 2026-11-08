@@ -42,7 +42,7 @@ class AdditionTimes:
             else: self.times.clear();self.initial.clear();self.first_commits.clear();self.commit_count=0
         commits = subprocess.check_output(args, text=True).splitlines()
         known = set(self.times) | self.initial
-        # History is visited only once for each process/head, outside requests.
+        # History is visited only once per process/head, before eligibility uses it.
         for index, line in enumerate(commits):
             commit, stamp = line.split(' ', 1)
             rank=self.commit_count;self.commit_count+=1

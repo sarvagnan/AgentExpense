@@ -27,6 +27,7 @@ class DailyRefresh:
         self.settings, self.clock, self.today = settings, clock, today
         self.next_check = 0
         self.retry_failed = False
+        self.failed_version = None
 
     def tick(self):
         now = self.clock()
@@ -35,6 +36,22 @@ class DailyRefresh:
         self.next_check = now + self.interval
         try:
             today = self.today()
+            from data_refresh import get
+            job = get(self.settings.ledger)
+            if job:
+                status = job.status()
+                # A running or acknowledged queued build belongs to its caller;
+                # maintenance must not replace a person's Retry.
+                if status['updating']: return
+                if status['refresh_error'] and status['version'] != self.failed_version:
+                    self.failed_version = status['version']
+                    self.retry_failed = True
+                    self.next_check = now + self.failure_backoff
+                    logger.error('Daily dashboard refresh failed; retrying in 10 minutes: %s', status['refresh_error'])
+                    return
+                if not status['data_stale']:
+                    self.retry_failed = False
+                    self.failed_version = None
             source_matches = check_source(self.settings.dashboard_data, self.settings.ledger)
             path = public_data(self.settings.dashboard_data) / 'dashboard.json.gz'
             built_today = json.loads(gzip.decompress(path.read_bytes()))['meta'].get('today') if path.exists() else None
@@ -44,8 +61,15 @@ class DailyRefresh:
                 with ledger_lock(self.settings.ledger, blocking=False):
                     if not clean(self.settings.ledger):
                         return
-                    result = refresh(self.settings, {})
-                    if result.get('data_stale'):
+                    if job:
+                        # A local-day change affects every date-sensitive builder.
+                        from second_check import committed
+                        job.prepare(force=True, day=today)
+                        job.activate(job.committed(committed(self.settings.ledger)))
+                        result = job.result({})
+                    else:
+                        result = refresh(self.settings, {})
+                    if result.get('data_stale') and not result.get('data_pending'):
                         raise RuntimeError(result.get('refresh_error', 'Dashboard refresh failed'))
                     self.retry_failed = False
             except BlockingIOError:

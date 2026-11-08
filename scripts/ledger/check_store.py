@@ -161,10 +161,11 @@ def check(root: Path = ROOT) -> None:
         _check(root)
 
 
-def _check(root: Path) -> None:
+def _check(root: Path, *, loaded=None, strict_checker=None, membership_checker=None, canonical_cache=None, emit=print) -> None:
+    print = emit
     from step_timings import timed
     with timed("schema"):
-        documents, parsed = load_parsed(root)
+        documents, parsed = loaded if loaded is not None else load_parsed(root)
     if has_extension(read_manifest(root), 'fuel'):
         fuel = read_json(root / 'data/fuel-log.json')
         if not isinstance(fuel, dict) or not isinstance(fuel.get('entries'), list):
@@ -176,12 +177,17 @@ def _check(root: Path) -> None:
         raise ValueError('ledger.json is not canonical; run make format')
     audit_records = records(root)
     print(f"Verified {len(audit_records)} audit lines")
-    for line, identity in missing_entries(root, {e["id"] for e in entries(documents)}):
+    for line, identity in missing_entries(root, {e["id"] for e in entries(documents)}, lines=audit_records):
         print(f"WARNING: audit {line} references missing entry {identity}")
     evidence = set()
     for path, document in documents.items():
-        if path.read_bytes() != canonical(parsed[path]).encode("utf-8"):
+        raw = path.read_bytes()
+        verdict = (type(parsed[path]), raw)
+        known = canonical_cache is not None and canonical_cache.get(path) == verdict
+        if not known and raw != canonical(parsed[path]).encode("utf-8"):
             raise ValueError(f"{path.relative_to(root)} is not canonical; run make format")
+        if canonical_cache is not None:
+            canonical_cache[path] = verdict
         if path.name in ("accounts.json", "recurring-settings.json"):
             continue
         if path.name == 'trash.json':
@@ -203,7 +209,7 @@ def _check(root: Path) -> None:
                     if ".." in Path(source).parts or not (root / source).is_file():
                         raise ValueError(f"{entry['id']}: missing or invalid evidence path {source!r}")
                     evidence.add(source)
-    membership = check_card_statements(documents, root)
+    membership = (membership_checker or check_card_statements)(documents, root)
     print(f"Verified {len(membership['statements'])} account statements by membership ({sum(s['rows'] for s in membership['statements'])} rows)")
     print(f"Unbilled card entries through latest statement end: {len(membership['unbilled'])}")
     for entry in membership["unbilled"]:
@@ -211,7 +217,7 @@ def _check(root: Path) -> None:
     check_price_coverage(documents, root)
     from strict_check import check as strict_check
     with timed("strict_check"):
-        strict_check(documents, root)
+        (strict_checker or strict_check)(documents, root)
     print(f"Verified {len(entries(documents))} actual entries, {len(documents[root / 'data/forecast.json'])} forecast rules, {len(evidence)} Bills paths and {len(documents) + 1} canonical files")
 
 

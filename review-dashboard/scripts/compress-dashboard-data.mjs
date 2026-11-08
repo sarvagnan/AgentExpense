@@ -14,7 +14,7 @@ await mkdir(target, { recursive: true });
 let total = 0;
 for (const name of ['dashboard', 'pending-transactions', ...(fuel ? ['fuel-log'] : []), 'add-patterns']) {
   const json = JSON.stringify(JSON.parse(await readFile(dashboardDataPath('app/data', `${name}.json`), 'utf8')));
-  const gzipped = gzipSync(json, { level: 9 });
+  const gzipped = gzipSync(json, { level: 6 });
   // The live server streams these files while a save rebuilds them: replace each one whole.
   const destination = dashboardDataPath('public/data', `${name}.json.gz`), temporary = `${destination}.${process.pid}.tmp`;
   try { await writeFile(temporary, gzipped); await rename(temporary, destination); }

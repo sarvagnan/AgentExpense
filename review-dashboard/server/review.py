@@ -90,10 +90,10 @@ def statement_members(documents, root):
     return {m['entry-id'] for s in documents[root/'data/card-statements.json'] for m in s.get('members',[]) if m.get('entry-id')}
 
 
-def snapshot(root, *, clock=None):
-    documents = load(root)
+def snapshot(root, *, clock=None, documents=None, lines=None):
+    documents = load(root) if documents is None else documents
     actual = entries(documents)
-    lines = records(root)
+    lines = records(root) if lines is None else lines
     decisions, touched = decision_state(lines)
     accounts = documents[root / 'data/accounts.json']['accounts']
     public = {e['id']: summary(e, accounts, touched) for e in actual}
@@ -110,7 +110,7 @@ def snapshot(root, *, clock=None):
     for entry in actual:
         for link in entry.get('possible-duplicate-of', []):
             other = public[link['id']]
-            items.append(dict(id='pair:'+entry['id']+':'+other['id'], kind='duplicate', important=True, reason=REASONS[link['reason']], machineReason=link['reason'], kept_id=merge_order(entry, next(e for e in actual if e['id'] == other['id']), lines, root)[0]['id'], entries=[public[entry['id']], other]))
+            items.append(dict(id='pair:'+entry['id']+':'+other['id'], kind='duplicate', important=True, reason=REASONS[link['reason']], machineReason=link['reason'], kept_id=merge_order(entry, next(e for e in actual if e['id'] == other['id']), lines, root, documents=documents)[0]['id'], entries=[public[entry['id']], other]))
             paired.update((entry['id'], other['id']))
     for entry in actual:
         identity = entry['id']
@@ -128,8 +128,7 @@ def snapshot(root, *, clock=None):
                                   statement_id=statement['id'], row_serial=row['serial'], row=row,
                                   entries=[public[identity] for identity in row['review-candidates']]))
     items.sort(key=lambda item: not item['important'])
-    history = [line for line in lines if line['kind'] == 'review-action']
-    for line in history: line['canUndo'] = False  # Historical reversals remain readable.
+    history = [{**line,'canUndo':False} for line in lines if line['kind'] == 'review-action']
     export_entries = deepcopy(public)
     originals = {}
     for line in history:
@@ -251,15 +250,16 @@ def apply(settings, body, *, clock=None):
                 transaction = Transaction(settings, store, draft)
                 transaction.marker = 'Review: ' + draft['id']
                 transaction.recover()
-        prior = next((r for r in records(root) if r.get('request_id') == identity), None)
+        lines = records(root)
+        prior = next((r for r in lines if r.get('request_id') == identity), None)
         if prior:
             if prior['request_hash'] != request_hash:
                 raise ValueError('This request id was already used for a different action')
             return dict(audit_id=prior['id'], replayed=True)
         if not clean(root):
             raise ValueError('The ledger has uncommitted changes; finish them before reviewing')
-        state = snapshot(root, clock=clock)
         documents = load(root)
+        state = snapshot(root, clock=clock, documents=documents, lines=lines)
         rules_before = deepcopy(documents[root / 'data/forecast.json'])
         actual = {e['id']: e for e in entries(documents)}
         action = body.get('action')
@@ -358,7 +358,7 @@ def apply(settings, body, *, clock=None):
             change['reason'] = link['reason']
             unlink_pair(actual, one, two)
             if action == 'merge':
-                kept, removed = merge_order(first, second, records(root), root)
+                kept, removed = merge_order(first, second, lines, root, documents=documents)
                 bank_members = statement_members(documents, root)
                 if ((kept['statement'] or {}).get('end') or kept['id'] in bank_members) and ((removed['statement'] or {}).get('end') or removed['id'] in bank_members):
                     raise ValueError('Both entries belong to filed statements. Reconcile their membership before merging.')
@@ -399,7 +399,7 @@ def apply(settings, body, *, clock=None):
         recurring_changes = rule_changes(rules_before, documents[root / 'data/forecast.json'])
         if recurring_changes:
             record['rule_changes'] = recurring_changes
-        _, touched = decision_state(records(root))
+        _, touched = decision_state(lines)
         for change in changes:
             touched[change['entry_id']] = record['id']
             if change.get('other_id'):
@@ -418,12 +418,12 @@ def apply(settings, body, *, clock=None):
         result = dict(audit_id=record['id'], action=action, changes=changes)
         transaction.publish(documents, record, result, fd,
                             f'Review: {action}\n\n{transaction.marker}\nAudit: {record["id"]}\nDecisions: {len(changes)}',
-                            moves=evidence_moves)
+                            moves=evidence_moves, audit_lines=lines)
     return refresh(settings, result)
 
 
-def merge_order(first, second, lines, root=None):
-    bank_members = statement_members(load(root), root) if root else set()
+def merge_order(first, second, lines, root=None, *, documents=None):
+    bank_members = statement_members(load(root) if documents is None else documents, root) if root else set()
     first_member, second_member = bool((first['statement'] or {}).get('end')) or first['id'] in bank_members, bool((second['statement'] or {}).get('end')) or second['id'] in bank_members
     if first_member != second_member:
         return (first, second) if first_member else (second, first)

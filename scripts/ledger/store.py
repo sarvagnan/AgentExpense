@@ -10,6 +10,7 @@ key order. docs/STORE.md describes the shape.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from collections import Counter
 from decimal import Decimal
 from functools import lru_cache
@@ -18,6 +19,7 @@ from pathlib import Path
 import re
 import secrets
 import stat
+import threading
 from typing import Any
 
 # Direct script execution puts this directory on sys.path; share the application helper.
@@ -31,6 +33,68 @@ import store_models as m
 ROOT = ledger_root()
 KINDS = {'accounts.json': 'accounts', 'forecast.json': 'forecast', 'card-statements.json': 'card-statements',
          'recurring-settings.json': 'recurring-settings', 'trash.json': 'trash'}
+
+# A bounded, opt-in model cache owned by the server's save service. It is a leaf
+# lock: no ledger/draft/statement lock is ever acquired while it is held. Keys
+# include the composed model and exact JSON (1, 1.0 and true are distinct).
+# Full CLI checks do not enable it. Cross-document checks below always run.
+_model_memos = {}
+
+
+class ModelMemo:
+    def __init__(self, canonical_cache=None):
+        self.lock = threading.RLock()
+        self.rows = {}
+        self.documents = {}
+        self.loaded = None
+        self.canonical_cache = canonical_cache if canonical_cache is not None else {}
+        self.canonical_values = {}
+        self.audit_lines = set()
+
+    def unchanged(self, path, document, *, root=None):
+        verdict = self.canonical_cache.get(path)
+        if verdict is None or verdict[0] is not canonical_model(path, root):
+            return False
+        raw = verdict[1]
+        if not path.exists() or path.read_bytes() != raw:
+            return False
+        with self.lock:
+            known = self.canonical_values.get(path)
+            if known is None or known[0] != raw:
+                known = raw, json.dumps(json.loads(raw), ensure_ascii=False, separators=(',', ':'))
+                self.canonical_values[path] = known
+            return json.dumps(document, ensure_ascii=False, separators=(',', ':')) == known[1]
+
+    def validate(self, model, document, *, entries_model=None):
+        if entries_model is None or not isinstance(document, list):
+            return model.model_validate(document)
+        with self.lock:
+            document_key = (model, hashlib.sha256(json.dumps(document, ensure_ascii=False, separators=(',', ':')).encode()).digest())
+            if document_key in self.documents:
+                return self.documents[document_key]
+            retained, values = {}, []
+            for row in document:
+                key = (entries_model, json.dumps(row, ensure_ascii=False, separators=(',', ':')))
+                value = self.rows.get(key)
+                if value is None:
+                    try:
+                        value = entries_model.model_validate(row)
+                    except ValidationError:
+                        # The full document keeps its normal indexed error paths.
+                        return model.model_validate(document)
+                retained[key] = value
+                values.append(value)
+            result = model.model_construct(root=values)
+            # Keep only the latest version of each ID, plus other year files.
+            changed_ids = {row.get('id') for row in document if isinstance(row, dict)}
+            self.rows = {key: value for key, value in self.rows.items() if getattr(value, 'id', None) not in changed_ids}
+            self.rows.update(retained)
+            if len(self.rows) > 200000:
+                self.rows = retained
+            self.documents[document_key] = result
+            if len(self.documents) > 24:
+                self.documents.pop(next(iter(self.documents)))
+            return result
 
 
 def new_id(used: set[str]) -> str:
@@ -99,6 +163,11 @@ def ledger_models(root: Path = ROOT) -> m.LedgerModels:
     extensions = extensions_of(root)
     listed = json.dumps({item.name: {'ask': item.ask} for item in extensions})
     return _models(listed, tuple(item.text for item in extensions))
+
+
+def canonical_model(path: Path, root: Path | None = None):
+    """Identity of the definition that decides this document's canonical order."""
+    return ordered_manifest if kind_of(path) == 'manifest' else ledger_models(root or ledger_of(path)).document(kind_of(path))
 
 
 def _error(path: str, error: ValidationError) -> ValueError:
@@ -181,7 +250,16 @@ def write_text(path: Path, text: str) -> None:
 
 def dump(path: Path, value: Any, root: Path | None = None) -> None:
     """Validate a whole document against its model and write it canonically."""
-    write_text(Path(path), serialize(Path(path), value, root))
+    path = Path(path)
+    memo = _model_memos.get((root or ledger_of(path)).resolve()) if kind_of(path) else None
+    if memo and memo.unchanged(path, value, root=root):
+        return  # already validated, canonical and byte-identical; no write
+    text = serialize(path, value, root)
+    write_text(path, text)
+    if memo is not None:
+        # serialize validated this whole document and produced its canonical
+        # bytes. Reuse that exact verdict; external byte changes still miss it.
+        memo.canonical_cache[path] = (canonical_model(path, root), text.encode('utf-8'))
 
 
 def store_paths(root: Path = ROOT) -> list[Path]:
@@ -281,7 +359,9 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> dict[Path, Any]:
             continue
         kind = kind_of(path)
         try:
-            parsed[path] = models.document(kind).model_validate(document)
+            memo = _model_memos.get(root.resolve())
+            parsed[path] = (memo.validate(models.document(kind), document, entries_model=models.entry if kind == 'expenses' else None)
+                            if memo else models.document(kind).model_validate(document))
         except ValidationError as error:
             raise _error(str(path.relative_to(root)), error) from None
     accounts = documents[root / 'data/accounts.json']
@@ -383,8 +463,26 @@ def load_parsed(root: Path = ROOT) -> tuple[dict[Path, Any], dict[Path, Any]]:
     """The validated documents and their models (``validate``'s result)."""
     read_manifest(root)
     paths = store_paths(root)
+    memo = _model_memos.get(root.resolve())
+    def signature():
+        selected = [*paths, root/'ledger.json']
+        return (ledger_models(root), tuple((path, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+                for path in selected for s in [path.stat()]))
+    stamp = signature() if memo else None
+    if memo:
+        with memo.lock:
+            if memo.loaded and memo.loaded[0] == stamp:
+                _, encoded, parsed = memo.loaded
+                # Isolated mutable values for each caller, from already validated
+                # exact JSON; duplicate keys were checked on the original read.
+                return {Path(path): value for path, value in json.loads(encoded).items()}, parsed
     documents = {path: read_json(path) for path in paths}
-    return documents, validate(documents, root)
+    parsed = validate(documents, root)
+    if memo and signature() == stamp:
+        encoded = json.dumps({str(path): value for path, value in documents.items()}, ensure_ascii=False, separators=(',', ':'))
+        with memo.lock:
+            memo.loaded = stamp, encoded, parsed
+    return documents, parsed
 
 
 def entries(documents: dict[Path, Any]) -> list[dict[str, Any]]:

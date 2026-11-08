@@ -1,6 +1,8 @@
 """Shared dashboard output location and private source-ledger provenance."""
 import json
 import os
+import secrets
+import stat
 from pathlib import Path
 from project_paths import APPLICATION_ROOT
 
@@ -27,3 +29,16 @@ def check_source(output, ledger):
     if not matches and os.environ.get('DASHBOARD_DATA_REPLACE') != '1':
         raise ValueError('DASHBOARD_DATA_DIR belongs to a different ledger; choose another output folder or set DASHBOARD_DATA_REPLACE=1 to replace it.')
     return matches
+
+
+def write_source(output, ledger):
+    """Publish the complete provenance document without truncating a reader's file."""
+    stamp = output / 'app/data/.source-ledger.json'
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    temporary = stamp.with_name(f'.source-ledger.{secrets.token_hex(8)}.tmp')
+    try:
+        temporary.write_text(json.dumps(dict(format=1, ledger=str(ledger.resolve()))) + '\n')
+        if stamp.exists(): temporary.chmod(stat.S_IMODE(stamp.stat().st_mode))
+        temporary.replace(stamp)
+    finally:
+        temporary.unlink(missing_ok=True)

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 from app import create_app
 from settings import Settings
 from agent import now
-from currency_settings import update_settings
+from currency_settings import update_settings as save_fixture_settings
 from ledger_lock import ledger_lock
 from store import read_json, empty_entry, posting
 from account_metadata import complete
@@ -27,6 +27,51 @@ assert Path(settings.codex).name == 'fake-agent'
 add_clock_shift=0
 app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime.now(timezone.utc)+timedelta(seconds=add_clock_shift))
 from fastapi.responses import Response
+
+
+def update_settings(*args, **kwargs):
+    """Fixture seeding finishes its data before the browser begins the scenario."""
+    result = save_fixture_settings(*args, **kwargs)
+    assert app.state.data_refresh.wait_idle(120)
+    return app.state.data_refresh.result(result)
+
+
+def fixture_refresh(result):
+    """Publish fixture commits made outside the production save service."""
+    job = app.state.data_refresh
+    job.retry()
+    assert job.wait_idle(120)
+    return job.result(result)
+
+
+@app.post('/__test/data-refresh')
+def data_refresh_control(body: dict):
+    import threading
+    job = app.state.data_refresh
+    mode = body.get('mode', 'status')
+    if mode == 'hold':
+        assert job.wait_idle(120)
+        release, entered = threading.Event(), threading.Event()
+        original = job.runner
+        def held(candidate):
+            entered.set()
+            assert release.wait(120), 'Browser did not release the data rebuild'
+            original(candidate)
+        job._test_release, job._test_entered, job._test_original = release, entered, original
+        job.runner = held
+    elif mode == 'release' and hasattr(job, '_test_release'):
+        job.runner = job._test_original
+        job._test_release.set()
+    elif mode == 'fail':
+        assert job.wait_idle(120)
+        job._test_original = job.runner
+        def failed(candidate):
+            raise RuntimeError('Injected browser data build failure')
+        job.runner = failed
+        job.retry()
+    elif mode == 'wait':
+        assert job.wait_idle(120)
+    return {**job.status(), 'held': bool(getattr(job, '_test_entered', None) and job._test_entered.is_set())}
 
 
 # Format 2 store and answer values (docs/STORE.md): every key present.
@@ -294,8 +339,7 @@ def reset_review():
             dump(path,document)
         jj(settings.ledger,'commit','-m','Restore fictional browser review baseline')
         jj(settings.ledger,'bookmark','set','main','-r','@-')
-    from transactions import refresh
-    return refresh(settings,dict(reset=True))
+    return fixture_refresh(dict(reset=True))
 
 
 @app.post('/__test/receipt')
@@ -795,7 +839,7 @@ def first_run_fixture(body: dict):
     global first_run_saved
     import subprocess
     from store import dump
-    from transactions import jj, refresh
+    from transactions import jj
     from ledger_manifest import ordered_manifest
     root = settings.ledger
     skip = {'.jj', '.git', 'drafts', '.lock', 'expense_ledger.ledger'}
@@ -848,7 +892,9 @@ def first_run_fixture(body: dict):
         config.write_text(json.dumps(data))
         config.with_suffix('.count').unlink(missing_ok=True)
         app.state.worker.pause.success()
-    return refresh(settings, dict(fresh=not restored, restored=restored))
+    # This fixture writes and commits outside the production save service. Seed
+    # its ready generation explicitly before opening a browser on the new store.
+    return fixture_refresh(dict(fresh=not restored, restored=restored))
 
 
 @app.post('/__test/first-run-file')

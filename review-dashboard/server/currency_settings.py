@@ -110,10 +110,10 @@ def _update_settings(settings, get_changes, result, description):
             run = make_commit(settings.application, {**os.environ, 'LEDGER_DIR': str(settings.ledger), LOCK_FD_ENV: str(fd), 'EXPENSES_COMMIT_MESSAGE': message}, fd)
             if run.returncode:
                 raise RuntimeError('Settings change failed verification: ' + (run.stdout + run.stderr)[-4000:])
-            result['commit_id'] = jj(settings.ledger, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+            result['commit_id'] = run.stdout.strip()
             draft['committed_result'] = result
             records.put(draft)
-            transaction.journal.unlink()
+            transaction.finish_commit(run)
         except BaseException:
             transaction.rollback(journal)
             raise

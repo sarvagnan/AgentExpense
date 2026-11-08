@@ -148,7 +148,7 @@ export async function runAccountGroups({page,base,persona,width,stage,expect,con
   // 7. A data reload landing while a group view is open keeps the view, its period and the switch.
   await go('account-summary/?account=Banks');
   const drafts=base+'api/drafts?include_added=true',failures=[];
-  const reload=await hold(page,base+'data/dashboard.json.gz',{transform:body=>{const next=JSON.parse(gunzipSync(body));next.transactions.find(t=>t.description==='Rowan Card payment').description='Rowan Card payment, reloaded';return gzipSync(JSON.stringify(next));}});
+  const reload=await hold(page,'**/dashboard.json.gz',{transform:body=>{const next=JSON.parse(gunzipSync(body));next.transactions.find(t=>t.description==='Rowan Card payment').description='Rowan Card payment, reloaded';return gzipSync(JSON.stringify(next));}});
   let added=false;
   const forwarded=forward(page,async(response,route)=>route.fulfill({response,json:[{id:'6'.repeat(32),state:'added',text:'Rowan timing',pieces:null,created_at:new Date().toISOString(),saved_at:null,queued_at:null,files:[],runs:[],questions:[],error:null,waiting:null,result:{outcome:'added',entry_id:'6'.repeat(16)}},...await response.json()]}),{failures});
   const addition=route=>{if(added)return route.fallback();added=true;return forwarded(route);};

@@ -23,7 +23,9 @@ class LifecycleTests(Fixture):
             self.save(client, identity)
             draft = self.wait(client, identity, 'added')
             result = draft['result']
-            self.assertFalse(result['data_stale'], result)
+            self.assertIn('data_pending', result)
+            self.assertTrue(client.app.state.data_refresh.wait_idle(30))
+            self.assertFalse(client.app.state.data_refresh.status()['data_stale'])
             entries = json.loads((self.ledger / 'data/expenses/2026.json').read_text())
             self.assertEqual(len(entries), 1)
             self.assertEqual(entries[0]['id'], result['entry_id'])
@@ -240,9 +242,8 @@ class SafetyTests(Fixture):
         self.assertEqual(self.jj('diff','-r','@-','--name-only').splitlines(),['data/additions/'+line['time'][:4]+'.jsonl'])
 
     def test_commit_failure_restores_files(self):
-        (self.application / 'Makefile').write_text('commit:\n\t@echo injected failure >&2\n\t@exit 1\n')
         before = self.bytes()
-        with self.client() as client:
+        with patch('commit.verify', side_effect=ValueError('injected failure')), self.client() as client:
             identity = self.create(client)
             self.save(client, identity)
             draft = self.wait(client, identity, 'failed')
@@ -268,25 +269,28 @@ class SafetyTests(Fixture):
         self.assertEqual(process.returncode, 0, out + err)
 
     def test_refresh_failure_keeps_commit(self):
-        package_path = self.application / 'review-dashboard/package.json'
-        package = json.loads(package_path.read_text())
-        package['scripts']['data'] = 'node -e "process.exit(9)"'
-        package_path.write_text(json.dumps(package))
         with self.client() as client:
+            job = client.app.state.data_refresh
+            self.assertTrue(job.wait_idle(30))
+            job.runner = lambda candidate: (_ for _ in ()).throw(RuntimeError('injected refresh failure'))
             identity = self.create(client)
             self.save(client, identity)
             draft = self.wait(client, identity, 'added')
+            self.assertTrue(job.wait_idle(30))
+            draft=client.get(f'/api/drafts/{identity}').json()
             self.assertTrue(draft['result']['data_stale'])
-            self.assertTrue(draft['result']['refresh_error'])
+            self.assertIn('injected refresh failure',draft['result']['refresh_error'])
             self.assertEqual(len(json.loads((self.ledger / 'data/expenses/2026.json').read_text())), 1)
 
     def test_bookmark_failure_undoes_commit_and_files(self):
-        helper = self.application / 'scripts/ledger/commit.py'
-        helper.write_text(helper.read_text().replace("            jj(root, 'bookmark', 'set', 'main', '-r', '@-')",
-                                                      "            raise RuntimeError('injected bookmark failure')"))
+        import commit
+        original = commit.jj
+        def fail(root,*args):
+            if args[:2]==('bookmark','set'): raise RuntimeError('injected bookmark failure')
+            return original(root,*args)
         before = self.bytes()
         parent = self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id')
-        with self.client() as client:
+        with patch('commit.jj',side_effect=fail), self.client() as client:
             identity = self.create(client)
             self.save(client, identity)
             draft = self.wait(client, identity, 'failed')

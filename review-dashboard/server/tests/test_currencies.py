@@ -101,13 +101,8 @@ class CurrencyTests(Fixture):
     def test_failed_settings_verification_rolls_back(self):
         self.setup_currencies();self.jj('commit','-m','Currency baseline')
         before=self.bytes()
-        real_run=subprocess.run
-        def run(args,*a,**kw):
-            if args==['make','commit']:
-                return subprocess.CompletedProcess(args,1,'','Injected verification failure')
-            return real_run(args,*a,**kw)
         from currency_settings import update_currency
-        with patch('currency_settings.subprocess.run',side_effect=run),self.assertRaisesRegex(RuntimeError,'failed verification'):
+        with patch('commit.verify',side_effect=ValueError('injected failure')),self.assertRaisesRegex(RuntimeError,'failed verification'):
             update_currency(self.settings,'EUR')
         self.assertEqual(self.bytes(),before);self.assertTrue(clean(self.ledger))
 
@@ -256,7 +251,7 @@ class CurrencyTests(Fixture):
     def test_account_creation_rolls_back_verification_failure_and_rejects_dirty_ledger(self):
         from currency_settings import create_account
         before=self.bytes()
-        with patch('currency_settings.subprocess.run',return_value=subprocess.CompletedProcess([],1,'','injected failure')):
+        with patch('commit.verify',side_effect=ValueError('injected failure')):
             with self.assertRaisesRegex(RuntimeError,'failed verification'):
                 create_account(self.settings,'card','Willow Card','EUR')
         self.assertEqual(self.bytes(),before);self.assertTrue(clean(self.ledger))

@@ -9,8 +9,8 @@ import { AgentNotice, agentIdentity, type AgentStatus } from './live/agent-statu
 import { UpdateNotice, knownUpdateStatus, refreshUpdateStatus } from './live/update-notice';
 
 async function saveSetting(path:string,body:unknown) {
-  const result=await request<{data_stale?:boolean}>(path,post(body),120000);
-  if(result.data_stale)throw new Error('The change was saved, but dashboard data could not refresh. Retry saving to refresh it.');
+  const result=await request<{data_stale?:boolean;data_pending?:boolean}>(path,post(body),120000);
+  if(result.data_stale&&!result.data_pending)throw new Error('The change was saved, but dashboard data could not refresh. Retry saving to refresh it.');
 }
 const post = (body: unknown): RequestInit => ({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 export function CurrencyOptions({current}: {current:string}) {

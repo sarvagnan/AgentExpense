@@ -91,7 +91,7 @@ test('API URLs, action errors, timeouts and atomic concurrent data reload',async
   const stopWrite=new AbortController();const writing=request('drafts',{method:'POST',body:'{}',signal:stopWrite.signal});stopWrite.abort();await assert.rejects(writing,e=>e.name==='AbortError');assert.equal(writeSignal.aborted,true,'Writes retain transport cancellation');
   const m=await server.ssrLoadModule('/app/data.ts');let notified=0;const off=m.subscribeData(()=>notified++);let calls=0;
   globalThis.fetch=async(url,init)=>{calls++;assert.equal(init.cache,'no-store');return new Response(JSON.stringify({tag:'new',url,meta:{ledger:{extensions:{fuel:{ask:true}}}}}));};
-  const a=m.reloadData(),b=m.reloadData(),c=m.reloadData();assert.notEqual(a,b,'A reload asked for during a read gets a read that starts after it');assert.equal(b,c,'Callers during one read share one follow-up');await Promise.all([a,b]);assert.equal(calls,6,'Two whole snapshots: the first read and one shared follow-up');assert.equal(notified,2);const prior=m.dashboard;
+  const a=m.reloadData(),b=m.reloadData(),c=m.reloadData();assert.notEqual(a,b,'A reload asked for during a read gets a read that starts after it');assert.equal(b,c,'Callers during one read share one follow-up');await Promise.all([a,b]);assert.equal(calls,8,'Two status reads and two whole snapshots: the first read and one shared follow-up');assert.equal(notified,2);const prior=m.dashboard;
   globalThis.fetch=async()=>new Response('error',{status:500});await assert.rejects(m.reloadData(),/HTTP 500/);assert.equal(m.dashboard,prior);assert.equal(notified,2,'A failed read publishes nothing');off();
  }finally{globalThis.fetch=original;await server.close();}
 });

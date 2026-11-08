@@ -7,7 +7,7 @@ import {hold as holdShared} from './held.mjs';
 // the dashboard while the person reads, types, navigates or saves elsewhere. Each case
 // holds that reload open, acts during it, releases it and checks that nothing was lost.
 function holdData(page,base,change=()=>{}){
- return holdShared(page,base+'data/dashboard.json.gz',{transform:body=>{const data=JSON.parse(gunzipSync(body));change(data);return gzipSync(JSON.stringify(data));}});
+ return holdShared(page,'**/dashboard.json.gz',{transform:body=>{const data=JSON.parse(gunzipSync(body));change(data);return gzipSync(JSON.stringify(data));}});
 }
 // The added row copies a real one, so every screen reading Queue rows can render it.
 const addition=id=>rows=>{const real=rows.find(d=>d.state==='added');assert.ok(real,'The fixture has an added row');return [{...real,id:id.repeat(32),created_at:new Date().toISOString(),receipt_reading:null,result:{...real.result,entry_id:id.repeat(16)}},...rows];};
@@ -17,7 +17,7 @@ export async function runViewTiming({page,base,persona,expect,control,go,refresh
  await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});await control('add-pause',{enabled:false});
  const seed=await control('retention',{});
  // App shell: the first data read is unreadable; Retry's read is held, then lands.
- const dataUrl=base+'data/dashboard.json.gz';let unreadable=true;
+ const dataUrl='**/dashboard.json.gz';let unreadable=true;
  const broken=async route=>{if(!unreadable)return route.fallback();unreadable=false;await route.fulfill({status:200,contentType:'application/gzip',body:'not ledger data'});};
  await page.route(dataUrl,broken);
  try{

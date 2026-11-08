@@ -34,12 +34,12 @@ export function useRuleOperation(onSaved?:()=>void|Promise<void>) {
     if(retry.current?.signature!==signature)retry.current={signature,id:crypto.randomUUID().replaceAll('-',''),body:{...body,...clientTime()}};
     running.current=true;setBusy(true);setError('');
     try {
-      const result=await request<{data_stale?:boolean}>('rules/operations/'+retry.current.id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(retry.current.body)},120000);
+      const result=await request<{data_stale?:boolean;data_pending?:boolean}>('rules/operations/'+retry.current.id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(retry.current.body)},120000);
       retry.current=null;
       try {await reloadData();await onSaved?.();}
       catch {setError('Saved. The dashboard could not refresh; use Refresh rules to load the saved change.');}
       draftsChanged();
-      if(result.data_stale)setError('Saved. Dashboard refresh is still needed.');
+      if(result.data_stale&&!result.data_pending)setError('Saved. Dashboard refresh is still needed.');
       return true;
     }catch(e){setError((e as Error).message);return false;}finally{running.current=false;setBusy(false);}
   }

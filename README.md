@@ -78,7 +78,7 @@ Schemas stay in the application's `schema/`. Ledgers use format 2, the typed sto
 [extensions](docs/EXTENSIONS.md), `data/accounts.json` ordered account metadata; an
 older ledger stops with an upgrade instruction ([ledger migrations](migrations/README.md)).
 
-`make commit m="…"` holds the ledger lock while running `make verify-data` (journal
+`make commit m="…"` holds the ledger lock while running the shared Python data verifier (journal
 generation, schema, store, audit, evidence and statement checks and the JSON strict
 check) and commits; hledger's strict check of the journal then runs in the background on
 the server (`EXPENSES_HLEDGER_CHECK=now make commit` keeps it in the commit). `make

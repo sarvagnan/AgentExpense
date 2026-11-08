@@ -1,31 +1,10 @@
-"""One structured timing line per save, in the server log only (never the ledger).
+"""Structured server save timings, never ledger data.
 
-The worker, the settings writer and statement Apply open an `operation`. Steps
-inside it add their wall time; `make commit` hands its own steps back through a
-temporary file named in EXPENSES_STEP_TIMINGS (`scripts/ledger/step_timings.py`).
-When the operation ran a commit, successful or not, the logger `expenses.timing`
-writes one line:
-
-    save-timing {"operation": "edit", "outcome": "ok", "total": 2.91, "steps": {...}}
-
-Steps, in seconds (a step absent from the line did not run):
-- `pickup`: from the Queue position (`queued_at`) to the worker starting the item;
-- `agent`: the agent's reading (Add only);
-- `prepare`: the proposal check, including the JSON strict check in scratch;
-- `lock_wait`: waiting for the ledger lock;
-- `commit`: all of `make commit`, which contains `verify` (all of `make
-  verify-data`, including its `uv run` starts), and within that `journal` (journal
-  rebuild) and `store_check` (with `schema`, the store's load and schema validation,
-  and `strict_check`, the JSON strict check with every recurring rule); `hledger`
-  appears only when EXPENSES_HLEDGER_CHECK=now keeps hledger's strict check in the
-  commit (otherwise it runs after the commit, in the background: `ledger_check.py`);
-  `commit_jj` is the jj calls
-  inside `make commit` (snapshot, commit, bookmark);
-- `jj`: the server's own jj calls (clean check, rollback snapshot, commit ID);
-- `data`: the dashboard data rebuild (`npm run data`).
-
-`total` runs from the worker starting the operation (or the request, for direct
-writes) to its end, including the data rebuild; `pickup` lies before it.
+The shared in-process verifier reports journal/store/schema/strict/jj steps through
+step_timings.observer. `committed` pins the real commit boundary; operation total
+ends at the saved response. Dashboard builds log separate data-timing lines.
+The bench joins those builds outside its response measurement. Terminal callers
+can still use EXPENSES_STEP_TIMINGS without importing the server.
 """
 from __future__ import annotations
 
@@ -37,7 +16,6 @@ import logging
 import os
 import subprocess
 import sys
-import tempfile
 import time
 
 from settings import APPLICATION
@@ -47,8 +25,8 @@ import ledger_lock as _ledger_lock  # noqa: E402
 import step_timings  # noqa: E402
 
 LOG = logging.getLogger('expenses.timing')
-STEPS = ('pickup', 'agent', 'prepare', 'lock_wait', 'commit', 'verify', 'journal', 'store_check', 'schema',
-         'strict_check', 'hledger', 'commit_jj', 'jj', 'data')
+STEPS = ('pickup', 'agent', 'prepare', 'lock_wait', 'snapshot', 'commit', 'verify', 'journal', 'store_check', 'schema',
+         'strict_check', 'hledger', 'commit_jj', 'jj', 'data_snapshot', 'index', 'data')
 _current = contextvars.ContextVar('expenses_save_timing', default=None)
 
 
@@ -61,7 +39,8 @@ class Timing:
 
     def line(self, outcome):
         steps = {name: round(self.steps[name], 4) for name in (*STEPS, *sorted(set(self.steps) - set(STEPS))) if name in self.steps}
-        return dict(operation=self.name, outcome=outcome, total=round(time.perf_counter() - self.start, 4), steps=steps)
+        return dict(operation=self.name, outcome=outcome, total=round(time.perf_counter() - self.start, 4), steps=steps,
+                    **({'committed': round(self.committed, 4)} if hasattr(self, 'committed') else {}))
 
 
 def configure_log():
@@ -142,10 +121,10 @@ def step(name):
 
 
 def make_commit(application, env, lock_fd):
-    """Run `make commit` exactly as before, timing it with the steps it reports.
+    """Call the shared locked verifier and commit in this long-lived process.
 
-    After a commit the background second check (hledger) is asked to check it
-    (`ledger_check.committed`); the save never waits for it."""
+    Request the independent hledger check after success; never wait for it.
+    """
     completed = _make_commit(application, env, lock_fd)
     if completed.returncode == 0 and env.get('LEDGER_DIR'):
         import ledger_check
@@ -154,17 +133,41 @@ def make_commit(application, env, lock_fd):
 
 
 def _make_commit(application, env, lock_fd):
-    timing = _current.get()
-    if timing is None:
-        return subprocess.run(['make', 'commit'], cwd=application, env=env, pass_fds=(lock_fd,), capture_output=True, text=True)
-    handle, path = tempfile.mkstemp(prefix='expense-steps-', suffix='.jsonl')
-    os.close(handle)
+    from pathlib import Path
+    import commit as ledger_commit
+    from save_service import get
+    from data_refresh import get as data_job
+    root = Path(env['LEDGER_DIR']).resolve()
+    service, data = get(root), data_job(root)
+    output = []
+    token = step_timings.observer.set(record)
+    started, boundary, candidate = time.perf_counter(), None, None
+    def accepted(identity, documents):
+        nonlocal boundary, candidate
+        at = time.perf_counter()
+        boundary = at
+        if timing := _current.get(): timing.committed = at - timing.start
+        if service:
+            with step('index'): service.accepted(identity, documents)
+        if data: candidate = data.committed(identity, at=at)
+    def prepare_data():
+        if data:
+            try:
+                with step('data_snapshot'): data.prepare()
+            except Exception as exc: data.failed_prepare(str(exc))
     try:
-        with step('commit'):
-            completed = subprocess.run(['make', 'commit'], cwd=application, env={**env, step_timings.ENV: path},
-                                       pass_fds=(lock_fd,), capture_output=True, text=True)
-        for name, seconds in step_timings.read(path).items():
-            timing.add(name, seconds)
+        identity = ledger_commit.commit(root, env['EXPENSES_COMMIT_MESSAGE'], lock_fd=lock_fd,
+            rollback_operation=service.rollback_operation if service else None,
+            index=service.index if service else None, canonical_cache=service.canonical if service else None,
+            emit=lambda *args: output.append(' '.join(map(str, args))),
+            hledger_mode=env.get('EXPENSES_HLEDGER_CHECK'),
+            before_commit=prepare_data if data else None,
+            after_commit=accepted)
+        completed = subprocess.CompletedProcess(['in-process', 'commit'], 0, identity+'\n', '')
+        completed.data_candidate = candidate
         return completed
+    except Exception as exc:
+        return subprocess.CompletedProcess(['in-process', 'commit'], 1, '\n'.join(output), str(exc))
     finally:
-        os.unlink(path)
+        record('commit', (boundary if boundary is not None else time.perf_counter()) - started)
+        step_timings.observer.reset(token)

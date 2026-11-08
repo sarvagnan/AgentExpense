@@ -25,12 +25,8 @@ class ShellSettingsTests(Fixture):
 
     def test_name_verification_failure_rolls_back(self):
         from currency_settings import update_name
-        before=self.bytes();real_run=subprocess.run
-        def run(args,*a,**kw):
-            if args==['make','commit']:
-                return subprocess.CompletedProcess(args,1,'','Injected failure')
-            return real_run(args,*a,**kw)
-        with patch('currency_settings.subprocess.run',side_effect=run),self.assertRaisesRegex(RuntimeError,'failed verification'):
+        before=self.bytes()
+        with patch('commit.verify',side_effect=ValueError('injected failure')),self.assertRaisesRegex(RuntimeError,'failed verification'):
             update_name(self.settings,'River Ledger')
         self.assertEqual(self.bytes(),before)
         self.assertTrue(clean(self.ledger))

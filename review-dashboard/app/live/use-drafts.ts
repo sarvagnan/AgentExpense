@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { reloadData } from '../data';
+import { reloadData, observeDataStatus } from '../data';
 import { api, type Draft, request, isRemoved, rememberRemoved } from './api';
 import type { AgentStatus } from './agent-status';
 import { statementsApi, type StatementSession } from './statements-api';
@@ -36,6 +36,7 @@ export function useDrafts() {
       // Let this cheap read finish across navigation. Aborting a health fetch
       // during document teardown can surface a WebKit access-control error.
       const health = await api.health(); if (!health.ok) throw new Error('The live server is unavailable.');
+      if(health.data)observeDataStatus(health.data);
       // Any answered check ends a run of failures, even when a newer pass supersedes this one.
       failures.current=0; clearTimeout(retry.current); retry.current=undefined;
       if (!mounted.current || leaving.current || document.hidden || controller.current.signal.aborted) continue;

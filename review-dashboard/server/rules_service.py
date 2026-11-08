@@ -78,12 +78,14 @@ def complete_rule(value, day):
     return rule
 
 
-def addition_effects(root, entry_id, draft):
+def addition_effects(root, entry_id, draft, *, documents=None, lines=None):
     """Called inside Transaction.apply before its single audit/verified commit."""
-    documents=load(root); rules=documents[root/'data/forecast.json']; before=deepcopy(rules)
-    lines=records(root); ignored=ignored_entries(lines)
+    documents=load(root) if documents is None else documents
+    rules=documents[root/'data/forecast.json']; before=deepcopy(rules)
+    lines=records(root) if lines is None else lines; ignored=ignored_entries(lines)
     actual=[e for e in entries(documents) if e['id'] not in ignored]
     entry=next(e for e in actual if e['id']==entry_id)
+    entry_before=deepcopy(entry)
     accounts=documents[root/'data/accounts.json']['accounts']
     link=None; resumed=[]; paid_bill=None; usual=draft.get('usual_payment')
     declined=set(draft.get('declined_rules', []))
@@ -142,7 +144,9 @@ def addition_effects(root, entry_id, draft):
         made=[found['rule']]; rules.extend(made)
         entry['rule']=dict(id=made[0]['id'],occurrence=entry['date'])
     validate(documents,root)
-    for path,value in documents.items(): dump(path,value)
+    if entry != entry_before:
+        path=root/'data/expenses'/f"{entry['date'][:4]}.json";dump(path,documents[path])
+    if rules != before:dump(root/'data/forecast.json',rules)
     return dict(rule_changes=rule_changes(before,rules), made_rules=[r['id'] for r in made],
                 rule=entry['rule'], next_due=next((r['date'] for r in rules if (entry['rule'] or {}).get('id')==r['id']),None), resume_rules=resumed,
                 **({'paid_bill':paid_bill} if paid_bill else {}))
@@ -510,7 +514,7 @@ def operate(settings, op_id, body, *, clock=None):
                     'Agent doubts: '+('; '.join(record['doubts']) or 'none'),f'Draft: {op_id}',
                     f"Added-by: user (bill, rule {rule['id']})"])
             result['commit_id']=tx.verified_commit(fd,message)
-            draft['committed_result']=result;store.put(draft);tx.journal.unlink()
+            draft['committed_result']=result;store.put(draft);tx.finish_commit()
         except BaseException:
             tx.rollback(journal);raise
     return refresh(settings,result)

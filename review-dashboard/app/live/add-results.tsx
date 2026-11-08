@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {dashboard} from '../data';
+import {dashboard,dataStatus} from '../data';
 import {announce,money,useQueryState,Icon} from '../ui';
 import {plainReason} from '../first-run';
 import {ruleHref} from '../rules';
@@ -22,7 +22,7 @@ export function useAddResults(live:LiveDrafts){
  return rows.filter(row=>{
   if(isRemoved(row.id)||(row.value as Draft).trashed_at)return false;
   const entryId=row.type==='draft'?(row.value as Draft).result?.entry_id:undefined;
-  return !entryId||!dashboard?.transactions||dashboard.transactions.some(entry=>entry.storeId===entryId||entry.id===entryId);
+  return !entryId||dataStatus?.data_stale||!dashboard?.transactions||dashboard.transactions.some(entry=>entry.storeId===entryId||entry.id===entryId);
  });
 }
 export function AddResults({live,rows}:{live:LiveDrafts;rows:ReturnType<typeof useAddResults>}){
@@ -54,7 +54,8 @@ function ResultRow({type,value,live,onOpen}:{onOpen:(id:string)=>void;type:Visit
  const d=value as Draft,status=draftStatus(d),r=d.result,facts=r?resultFacts(r):{total:'',account:''};
  const title=(r?.description||d.text||'Expense with an attachment')+(facts.total?` · ${facts.total}`:'');
  // Added items and saved bills have left the Queue: link the entry or the rule's bill instead.
- const link=r?.entry_id?<a className="result-link" href={`?entry=${r.entry_id}`} onClick={e=>{e.preventDefault();onOpen(r.entry_id!);}}>Open entry<Icon name="chevron-right"/></a>
+ const entryReady=!!r?.entry_id&&dashboard.transactions.some(entry=>entry.id===r.entry_id||entry.storeId===r.entry_id);
+ const link=r?.entry_id?<a className="result-link" aria-disabled={!entryReady||undefined} href={`?entry=${r.entry_id}`} onClick={e=>{e.preventDefault();if(entryReady)onOpen(r.entry_id!);}}>Open entry<Icon name="chevron-right"/></a>
   :status==='Bill saved'?(r?.rule_id?<a className="result-link" href={ruleHref(r.rule_id)}>Open the rule’s bill<Icon name="chevron-right"/></a>:null)
   :status==='Needs an answer'&&!d.receipt_reading?<a className="result-link" href={queueHref(d.id)}>{d.questions.at(-1)?.question||'Answer in Queue'}<Icon name="chevron-right"/></a>
   :status==='Failed'?<a className="result-link" href={queueHref(d.id)}>Retry in Queue<Icon name="chevron-right"/></a>

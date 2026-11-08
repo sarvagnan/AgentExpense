@@ -9,7 +9,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build && node scripts/build-static-views.mjs",
     "check:data": "node scripts/check-dashboard-data.mjs",
-    "data": "node scripts/copy-fuel-log.mjs && node scripts/build-dashboard-data.mjs && node scripts/build-review-data.mjs && node scripts/build-add-patterns.mjs && node scripts/check-dashboard-data.mjs && node scripts/compress-dashboard-data.mjs",
+    "data": "EXPENSES_BUILD_SNAPSHOT=1 node scripts/build-data.mjs",
     "start": "vite preview --host 127.0.0.1",
     "lint": "tsc --noEmit",
     "test": "python3 ../scripts/test_run.py node scripts/test-dashboard.mjs"

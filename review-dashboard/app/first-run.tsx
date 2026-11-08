@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
 import './styles/first-run.css';
-import {dashboard,dataVersion,reloadData,subscribeData} from './data';
+import {dashboard,dataStatus,dataVersion,reloadData,subscribeData} from './data';
 import {Icon,dayLabel,money,useAppearance} from './ui';
 import {CurrencyOptions} from './settings-dialog';
 import {request} from './live/api';
@@ -16,6 +16,7 @@ import {minorUnits} from './formatting';
 export type Step = 'about' | 'start' | 'today' | 'import';
 export type FirstRunDone = {path:'today'|'import'; entries?:number; review?:number; unsaved?:number; unread?:number};
 type Kind = 'bank'|'card'|'cash'|'wallet'|'loan'|'investment'|'person';
+type AboutValues = {name:string;currency:string};
 export type AccountRow = {key:string; kind:Kind; label:string; balance:string; currency:string; existing?:boolean};
 
 // Polls statement readings and saves while any file is being read or saved.
@@ -34,7 +35,8 @@ function setFlag(on: boolean) { try { if (on) localStorage.setItem(FLAG, dashboa
 
 /** A ledger with no entries opens the first run while it has no accounts, or while
  * this browser is bringing in statements (which creates accounts before any entry). */
-export function needsFirstRun() {
+export function needsFirstRun(active=false) {
+  if(dataStatus?.data_stale&&!active)return false;
   const accounts = Object.values(dashboard.meta.accounts).some(meta => meta.kind);
   // An address naming a setup step (Accounts’ “Set up opening balances”) opens it while the ledger is fresh.
   return dashboard.transactions.length === 0 && (!accounts || flagged() || readStep() !== null);
@@ -56,6 +58,7 @@ export default function FirstRun({onDone}: {onDone: (result: FirstRunDone) => vo
   // Coming back while statements are being brought in (accounts exist, no entries) resumes there.
   const [step, setStep] = useState<Step>(() => readStep() || (flagged() && Object.values(dashboard.meta.accounts).some(meta => meta.kind) ? 'import' : 'about'));
   const [rows, setRows] = useState<AccountRow[]>(() => initialRows());
+  const [about,setAbout]=useState<AboutValues>(()=>({name:dashboard.meta.ledger.name,currency:dashboard.meta.ledger.defaultCurrency}));
   const [status, setStatus] = useState('');
   const heading = useRef<HTMLHeadingElement>(null), frame = useRef<HTMLDivElement>(null);
   const first = useRef(true);
@@ -90,9 +93,9 @@ export default function FirstRun({onDone}: {onDone: (result: FirstRunDone) => vo
     <header className="setup-brand"><span className="wordmark"><span className="wordmark-badge" aria-hidden="true">A</span>AgentExpense</span>
       <button type="button" className="appearance" onClick={() => setAppearance(appearance === 'light' ? 'dark' : 'light')}><Icon name={appearance === 'light' ? 'moon' : 'sun'}/>{appearance === 'light' ? 'Dark' : 'Light'} appearance</button></header>
     <main className={`setup-content ${step === 'today' || step === 'import' ? 'wide' : ''}`} id="main-content" data-setup-step={step}>
-      {step === 'about' && <About title={title} onNext={() => go('start')}/>}
+      {step === 'about' && <About title={title} saved={about} onSaved={setAbout} onNext={() => go('start')}/>}
       {step === 'start' && <Start title={title} onChoose={go}/>}
-      {step === 'today' && <Today title={title} rows={rows} setRows={setRows} onBack={() => go('start')} onDone={finish}/>}
+      {step === 'today' && <Today title={title} main={about.currency} rows={rows} setRows={setRows} onBack={() => go('start')} onDone={finish}/>}
       {step === 'import' && <Import title={title} onBack={() => go('start')} onDone={finish}/>}
     </main>
     <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{status}</p>
@@ -111,17 +114,18 @@ function Back({to, disabled=false}: {to: () => void; disabled?: boolean}) {
   return <button type="button" className="button plain" disabled={disabled} onClick={to}><Icon name="chevron-left"/>Back</button>;
 }
 
-function About({title, onNext}: {title: ReactNode; onNext: () => void}) {
-  const [name, setName] = useState(dashboard.meta.ledger.name);
-  const [currency, setCurrency] = useState(dashboard.meta.ledger.defaultCurrency);
+function About({title, saved, onSaved, onNext}: {title: ReactNode; saved:AboutValues; onSaved:(value:AboutValues)=>void; onNext: () => void}) {
+  const [name, setName] = useState(saved.name);
+  const [currency, setCurrency] = useState(saved.currency);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || !name.trim()) return;
     setBusy(true); setError('');
     try {
-      if (name.trim() !== dashboard.meta.ledger.name || currency !== dashboard.meta.ledger.defaultCurrency) {
+      if (name.trim() !== saved.name || currency !== saved.currency) {
         await request('setup/about', post({name:name.trim(), currency}), 120000);
+        onSaved({name:name.trim(),currency});
         await reloadData().catch(() => undefined);
       }
       setBusy(false); onNext();
@@ -177,8 +181,8 @@ const KIND_HINT: Partial<Record<Kind, string>> = {
   person:'Money owed between you and someone. Use a negative amount when you owe them.',
 };
 
-function Today({title, rows, setRows, onBack, onDone}: {title: ReactNode; rows: AccountRow[]; setRows: (update: (rows: AccountRow[]) => AccountRow[]) => void; onBack: () => void; onDone: (result: FirstRunDone) => void}) {
-  const main = dashboard.meta.ledger.defaultCurrency, start = today();
+function Today({title, main, rows, setRows, onBack, onDone}: {title: ReactNode; main:string; rows: AccountRow[]; setRows: (update: (rows: AccountRow[]) => AccountRow[]) => void; onBack: () => void; onDone: (result: FirstRunDone) => void}) {
+  const start = today();
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const added = useRef<string | null>(null);
   // Rows nobody has typed in follow a main currency chosen in About you.

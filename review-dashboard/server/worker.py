@@ -3,6 +3,7 @@ import fcntl
 from pathlib import Path
 import subprocess
 import threading
+import time
 
 from starlette.exceptions import HTTPException
 
@@ -41,12 +42,14 @@ class Worker:
         self.settings, self.drafts = settings, drafts
         self.stop_event, self.wake = threading.Event(), threading.Event()
         self.thread = None
+        self.clock = time.monotonic
         self.calls = []
         self.receipt_cancellations = {}
         self.retry_interval = 30
         self.daily_refresh = DailyRefresh(settings)
         from agent_pause import AgentPause
         self.pause = AgentPause(settings.ledger)
+        self.pause.on_finished = lambda: self.wake.set()
 
     def call(self, operation, kind='call'):
         """Run a checked human operation on this ledger's FIFO worker.
@@ -124,10 +127,46 @@ class Worker:
         except Exception:
             logging.exception('Retention sweep deferred')
 
+    def idle_delay(self, next_maintenance):
+        """Sleep until the earliest condition that has no queue producer event."""
+        from datetime import datetime
+        delays = [max(0, next_maintenance - self.clock())]
+        if pause := self.pause.status():
+            remaining = (datetime.fromisoformat(pause['resumes_at']) - self.pause.clock()).total_seconds()
+            if remaining > 0: delays.append(remaining)
+        with self.drafts.mutex:
+            at = self.drafts.clock()
+            for draft in self.drafts.all():
+                if claim := draft.get('claim'):
+                    delays.append(max(0, (datetime.fromisoformat(claim['expires_at']) - at).total_seconds()))
+                elif (draft['state'] == 'queued' and not draft.get('discard_requested') and
+                      (draft.get('bill_request') or draft.get('finished_by') or draft.get('proposal') or not self.pause.blocked())):
+                    # all() can expire a claim between work inspection and this
+                    # deadline calculation. Rescan that now-ready item at once.
+                    delays.append(0)
+        if statements := getattr(self, 'statements', None):
+            with statements.mutex:
+                if any(s['state'] == 'applying' and s.get('waiting') and not s.get('discarded_until') for s in statements.all()):
+                    delays.append(.5)
+        return min(delays)
+
     def loop(self):
+        next_maintenance = 0
         while not self.stop_event.is_set():
-            self.sweep_retention()
-            self.daily_refresh.tick()
+            # Clear before inspecting work. A producer setting the event during
+            # inspection is retained through wait; no poll and no lost wakeup.
+            self.wake.clear()
+            maintenance = self.clock() >= next_maintenance
+            if maintenance:
+                next_maintenance = self.clock() + 30
+                self.sweep_retention()
+                self.daily_refresh.tick()
+                from data_refresh import get as data_job
+                if data := data_job(self.settings.ledger):
+                    try: data.tick()
+                    except Exception:
+                        import logging
+                        logging.exception('Dashboard data refresh deferred')
             if getattr(self, 'ledger_check', None):
                 try: self.ledger_check.tick()
                 except Exception:
@@ -202,8 +241,7 @@ class Worker:
                     draft.update(state='working', waiting=None)
                     self.drafts.put(draft)
             if not draft:
-                self.wake.wait(0.5)
-                self.wake.clear()
+                self.wake.wait(self.idle_delay(next_maintenance))
                 continue
             try:
                 kind='ledger-fix' if draft.get('ledger_fix') else 'bill' if draft.get('bill_request') else 'usual' if draft.get('usual_payment') else 'hand-add' if draft.get('finished_by') else 'add'
@@ -378,7 +416,7 @@ class Worker:
                             self.drafts.put(draft);return
                         draft['waiting'] = None
                         self.drafts.put(draft)
-                        result = transaction.apply(answer, fd, person=not from_agent)
+                        result = transaction.apply(answer, fd, person=not from_agent, prepared=prepared)
                     else:
                         result = None
                         draft['waiting'] = 'Waiting for a clean ledger; checking again in 30 seconds'

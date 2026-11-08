@@ -254,7 +254,7 @@ class BankApply(Fixture):
         before={p:p.read_bytes() for p in self.ledger.glob('data/**/*.json')}
         sessions.queue_apply(session['id'])
         import threading
-        with patch('bank_statements.subprocess.run',return_value=type('Failed',(),dict(returncode=1,stdout='',stderr='Fictional verification failure'))()):
+        with patch('commit.verify',side_effect=ValueError('Fictional verification failure')):
             sessions.work(threading.Event())
         self.assertEqual(sessions.get(session['id'])['state'],'failed')
         self.assertEqual(before,{p:p.read_bytes() for p in self.ledger.glob('data/**/*.json')})

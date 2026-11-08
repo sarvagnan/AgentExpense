@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -38,7 +39,11 @@ def event(kind, **fields):
 
 
 def records(root=ROOT):
-    validator = Draft202012Validator(read_json(SCHEMA), format_checker=FORMATS)
+    from store import _model_memos
+    memo = _model_memos.get(root.resolve())
+    schema = read_json(SCHEMA)
+    schema_key = hashlib.sha256(json.dumps(schema).encode()).digest() if memo else None
+    validator = Draft202012Validator(schema, format_checker=FORMATS)
     used = set()
     result = []
     for path in sorted((root / 'data/additions').glob('*.jsonl')):
@@ -47,8 +52,17 @@ def records(root=ROOT):
         for number, line in enumerate(path.read_text().splitlines(), 1):
             try:
                 record = json.loads(line, object_pairs_hook=_unique_object)
-                validator.validate(record)
-                validate_consent(record)
+                key = (schema_key, hashlib.sha256(line.encode()).digest()) if memo else None
+                if memo is not None:
+                    with memo.lock: checked = key in memo.audit_lines
+                else: checked = False
+                if not checked:
+                    validator.validate(record)
+                    validate_consent(record)
+                    if memo is not None:
+                        with memo.lock:
+                            if len(memo.audit_lines) > 100000: memo.audit_lines.clear()
+                            memo.audit_lines.add(key)
                 if record['id'] in used:
                     raise ValueError('Duplicate audit ID ' + record['id'])
                 if datetime.fromisoformat(record['time']).year != int(path.stem):
@@ -64,11 +78,11 @@ def audit_path(root, record):
     return root / 'data/additions' / (record['time'][:4] + '.jsonl')
 
 
-def append(root, record):
-    """Caller holds the ledger lock; O_APPEND never rewrites an existing line."""
+def append(root, record, *, lines=None):
+    """Caller holds the lock; optional lines are its current locked audit snapshot."""
     Draft202012Validator(read_json(SCHEMA), format_checker=FORMATS).validate(record)
     validate_consent(record)
-    existing = next((r for r in records(root) if r['id'] == record['id']), None)
+    existing = next((r for r in (records(root) if lines is None else lines) if r['id'] == record['id']), None)
     if existing:
         if existing != record:
             raise ValueError('Audit ID already contains a different record')
@@ -84,10 +98,11 @@ def append(root, record):
         handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
+    if lines is not None: lines.append(record)
 
 
-def missing_entries(root, entry_ids):
-    return [(r['id'], identity) for r in records(root) for identity in
+def missing_entries(root, entry_ids, *, lines=None):
+    return [(r['id'], identity) for r in (records(root) if lines is None else lines) for identity in
             ([r['entry_id']] if r['kind'] == 'draft' and r.get('entry_id') else r.get('entry_ids', []) if r['kind'] == 'statement' else []) if identity not in entry_ids]
 
 

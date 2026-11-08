@@ -1,6 +1,7 @@
 import path from 'node:path';
 import os from 'node:os';
-import {existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
+import {existsSync, readFileSync, realpathSync, mkdirSync, writeFileSync, linkSync, rmSync} from 'node:fs';
+import {randomUUID} from 'node:crypto';
 import {applicationRoot, ledgerRoot} from './project-paths.mjs';
 
 export function dashboardDataRoot() {
@@ -24,6 +25,12 @@ export function guardDashboardData() {
   }
   if (replace) for (const folder of ['app/data', 'public/data']) rmSync(dashboardDataPath(folder), {recursive:true, force:true});
   mkdirSync(path.dirname(stamp), {recursive:true});
-  try { writeFileSync(stamp, JSON.stringify(expected) + '\n', {flag:'wx'}); }
+  const temporary = path.join(path.dirname(stamp), `.source-ledger.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(temporary, JSON.stringify(expected) + '\n', {flag:'wx'});
+    // Atomic exclusive creation preserves the guard if another ledger won a race.
+    linkSync(temporary, stamp);
+  }
   catch (error) { if (error.code === 'EEXIST') return guardDashboardData(); throw error; }
+  finally { rmSync(temporary, {force:true}); }
 }

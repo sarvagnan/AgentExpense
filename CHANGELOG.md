@@ -12,6 +12,21 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Saves share an in-process Python verifier with terminal `make commit`, reuse
+  validated entries and account balance histories, and refresh whole dashboard
+  generations in the background. External changes invalidate the baseline;
+  rollback and startup repair retain the verification boundary. Queue work wakes
+  on an event.
+- Dashboard rebuilds require their own durable save receipt, retain forced day
+  and builder invalidations, and keep superseded generations for ten minutes.
+  Canonical caches include model identity. Waiting imports, agent pauses and
+  claims resume at their deadlines; refresh failures remain retryable.
+
+### Upgrade notes
+
+Rebuild the dashboard and restart the server. No ledger-format migration is
+required. Generated data is repaired at startup when its durable marker is stale.
+
 ## [0.1.0] - Unreleased
 
 The first release. The date is set when the release is tagged.

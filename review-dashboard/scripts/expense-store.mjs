@@ -130,7 +130,13 @@ export function expandForecast(rules, start, end) {
 
 /** Read the JSON source once for both dashboard and review builders. Never read generated ledger text.
  * Every store document is validated against the ledger's composed format 2 schema (docs/STORE.md). */
-export async function loadExpenseStore(root = storeRoot) {
+const snapshotStores = new Map();
+export function loadExpenseStore(root = storeRoot) {
+  if (process.env.EXPENSES_BUILD_SNAPSHOT !== '1') return readExpenseStore(root);
+  if (!snapshotStores.has(root)) snapshotStores.set(root, readExpenseStore(root));
+  return snapshotStores.get(root);
+}
+async function readExpenseStore(root) {
   const manifest = await readManifest(root);
   const {schema, extensions} = await storeSchema(root, manifest);
   const expenseDir = path.join(root, 'data', 'expenses');

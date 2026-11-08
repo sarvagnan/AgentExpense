@@ -15,7 +15,7 @@ from ledger_lock import ledger_lock
 import save_timing
 
 # hledger is the background second check: a save never waits for it (ledger_check.py).
-VERIFY_STEPS = {'commit', 'verify', 'journal', 'store_check', 'schema', 'strict_check', 'commit_jj', 'jj', 'data'}
+VERIFY_STEPS = {'commit', 'verify', 'journal', 'store_check', 'schema', 'strict_check', 'commit_jj', 'jj'}
 
 
 class Capture(logging.Handler):
@@ -59,9 +59,10 @@ class SaveTimingTests(Fixture):
         # Nested steps fit inside their parents; the total covers the commit and the rebuild.
         self.assertLessEqual(steps['verify'], steps['commit'])
         self.assertNotIn('hledger', steps, 'Saves no longer wait for hledger')
-        self.assertLessEqual(steps['journal'] + steps['store_check'], steps['verify'])
-        self.assertLessEqual(steps['schema'] + steps['strict_check'], steps['store_check'])
-        self.assertLessEqual(steps['commit'] + steps['data'], line['total'])
+        self.assertLessEqual(steps['journal'] + steps['store_check'], steps['verify'] + .0002)  # four-decimal rounding
+        self.assertLessEqual(steps['schema'] + steps['strict_check'], steps['store_check'] + .0002)
+        self.assertLessEqual(steps['commit'], line['total'])
+        self.assertNotIn('data', steps, 'Background builds do not delay the save')
         self.assertEqual(list(steps), [s for s in save_timing.STEPS if s in steps])
         text = json.dumps(self.ledger_bytes(), default=lambda b: b.decode('utf-8', 'replace'))
         self.assertNotIn('save-timing', text)
@@ -81,26 +82,14 @@ class SaveTimingTests(Fixture):
         self.assertLessEqual(line['steps']['agent'] + line['steps']['commit'], line['total'])
 
     def test_failed_commit_logs_error_outcome_and_reads_log_nothing(self):
-        real_run = subprocess.run
-        files = []
-        def fail(args, *a, **kw):
-            if args == ['make', 'commit']:
-                files.append(Path(kw['env']['EXPENSES_STEP_TIMINGS']))
-                files[-1].write_text('{"step": "verify", "seconds": 0.25}\nnot json\n')
-                return subprocess.CompletedProcess(args, 1, '', 'Injected verification failure')
-            return real_run(args, *a, **kw)
         from currency_settings import update_name
-        with captured() as lines, patch('currency_settings.subprocess.run', side_effect=fail):
+        with captured() as lines, patch('commit.verify', side_effect=ValueError('Injected verification failure')):
             with self.assertRaisesRegex(RuntimeError, 'failed verification'):
                 update_name(self.settings, 'Refused Ledger')
         self.assertEqual(len(lines), 1, lines)
         line = lines[0][1]
         self.assertEqual((line['operation'], line['outcome']), ('settings', 'error'))
-        self.assertEqual(line['steps']['verify'], 0.25)
         self.assertNotIn('data', line['steps'])
-        self.assertEqual(len(files), 1)
-        self.assertFalse(files[0].exists())
-        self.assertFalse(files[0].is_relative_to(self.ledger))
         with captured() as lines, self.client(worker=False) as client:
             self.assertEqual(client.get('/api/rules').status_code, 200)
             self.assertEqual(client.get('/api/drafts').status_code, 200)

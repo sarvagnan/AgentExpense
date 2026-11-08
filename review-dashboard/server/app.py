@@ -172,10 +172,16 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     ledger_check = LedgerCheck(settings)
     ledger_check.drafts = drafts
     worker.ledger_check = statements.ledger_check = ledger_check
+    ledger_check.on_finished = lambda: worker.wake.set()
+    from save_service import SaveService
+    from data_refresh import DataRefresh
+    saves, data_refresh = SaveService(settings), DataRefresh(settings)
 
     @asynccontextmanager
     async def lifespan(app):
         drafts.purge()
+        saves.start()
+        data_refresh.start()
         gate.start()
         if start_worker:
             worker.start()
@@ -188,6 +194,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             ledger_check.close()
             if start_worker:
                 worker.close()
+            data_refresh.close()
+            saves.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.retention = retention
@@ -196,6 +204,25 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     app.state.agent_gate = gate
     app.state.update_notice = update_notice
     app.state.ledger_check = ledger_check
+    app.state.saves, app.state.data_refresh = saves, data_refresh
+
+    @app.get('/api/data-status')
+    def data_status():
+        return data_refresh.status()
+
+    @app.post('/api/data-refresh')
+    def retry_data():
+        try: return data_refresh.retry()
+        except ValueError as exc: raise HTTPException(409, str(exc)) from exc
+
+    @app.get('/api/data/{generation}/{name}')
+    def data_generation(generation: str, name: str):
+        if not re.fullmatch(r'[0-9a-f]{32}', generation) or name not in ('dashboard.json.gz', 'pending-transactions.json.gz', 'fuel-log.json.gz', 'add-patterns.json.gz'):
+            raise HTTPException(404)
+        path = data_refresh.folder / generation / 'public/data' / name
+        try: content = path.read_bytes()
+        except FileNotFoundError: raise HTTPException(404)
+        return Response(content, media_type='application/gzip', headers={'Cache-Control': 'no-store'})
     app.add_middleware(DashboardGZipMiddleware, minimum_size=1024)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.hosts))
 
@@ -260,6 +287,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     def public(draft, receipt_lines=None):
         result = dict(draft)
+        if isinstance(result.get('result'), dict) and result['result'].get('commit_id'):
+            result['result'] = data_refresh.result(result['result'])
         if result.get('claim'):
             result['claim'] = {'expires_at': result['claim']['expires_at']}
         result['agent_pause'] = worker.pause.status()
@@ -395,7 +424,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.get('/api/health')
     def health():
         return {'ok': True, 'base_path': settings.base_path, 'worker': bool(worker.thread and worker.thread.is_alive()),
-                'agent': gate.status(), 'agent_pause': worker.pause.status()}
+                'agent': gate.status(), 'agent_pause': worker.pause.status(), 'data': data_refresh.status()}
 
     @app.get('/api/update')
     def update_status():

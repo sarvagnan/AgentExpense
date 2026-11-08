@@ -17,9 +17,9 @@ export type Draft = {proposal?:Proposal|null;trashed_at?:string|null;refusal?:Ba
   statement_file?: string; handover_session?: string; client_time?: string; client_zone?: string; created_at: string; saved_at: string | null; queued_at: string | null; files: Attachment[];
   runs: { start: string; doubts: string[]; error?: string | null }[];
   questions: { question: string; answer: string | null }[]; unsent_answer?: {question_index: number; answer: string; updated_at?: number}; error: string | null; waiting: string | null;
-  result: null | {rule?:{id:string;occurrence:string};rule_id?:string;next_due?:string;made_rules?:string[];resume_rules?:{id:string;description:string}[];weekly_review_note?:string;audit_id?:string;usual_payment?:{estimated:boolean}; outcome: string; explanation?: string; entry_id?: string; description?: string; total?: string; payment_account?: string; new_accounts?: string[]; sources?: string[]; data_stale?: boolean; refresh_error?: string };
+  result: null | {rule?:{id:string;occurrence:string};rule_id?:string;next_due?:string;made_rules?:string[];resume_rules?:{id:string;description:string}[];weekly_review_note?:string;audit_id?:string;usual_payment?:{estimated:boolean}; outcome: string; explanation?: string; entry_id?: string; description?: string; total?: string; payment_account?: string; new_accounts?: string[]; sources?: string[]; data_stale?: boolean;data_pending?:boolean; refresh_error?: string };
 };
-export type CorrectionResult={entry_id:string;description:string;changed:string[];rule:{status:string;description:string|null;next_due:string|null};data_stale?:boolean};
+export type CorrectionResult={entry_id:string;description:string;changed:string[];rule:{status:string;description:string|null;next_due:string|null};data_stale?:boolean;data_pending?:boolean};
 export const apiUrl = (path: string, base = import.meta.env.BASE_URL) => `${base.replace(/\/?$/, '/')}api/${path.replace(/^\//, '')}`;
 export class ApiError extends Error {
   readonly status: number;
@@ -93,7 +93,7 @@ export const api = {
   correctionForm:(id:string)=>request<Draft>(`entries/${id}/correction-form`,json('POST')),
   correct:(id:string,op:string,body:object)=>request<CorrectionResult>(`entries/${id}/corrections/${op}`,json('POST',body),120000),
   receiptChoice:(id:string,choice:'use'|'keep')=>request<Draft>(`drafts/${id}/receipt-choice`,json('POST',{choice}),120000),
-  health: (signal?: AbortSignal) => request<{ok: boolean}>('health', {signal, keepalive:true}, 5000),
+  health: (signal?: AbortSignal) => request<{ok: boolean;data?:import('../data').DataStatus}>('health', {signal, keepalive:true}, 5000),
   list: (signal?: AbortSignal) => request<Draft[]>('drafts?include_added=true', {signal}),
   get: async (id: string) => {
     if(removed.has(id))return removedItem<Draft>(id)!;

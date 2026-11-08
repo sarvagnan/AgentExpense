@@ -32,7 +32,7 @@ export async function runRetentionTiming({page,base,persona,expect,control,go,re
  }finally{await receiptPoll.release();}
  record('6f C timing: receipt dates arriving during Delete keep the confirmation target and committed action');
  await go('trash/');const row=page.locator('.trash-row'),restore=row.getByRole('button',{name:'Restore',exact:true});await expect(row).toHaveCount(1);
- const trashPoll=await hold(page,base+'api/trash','GET',null,2),restoreSave=await hold(page,base+'api/retention/operations/*','POST',value=>({...value,data_stale:true}));
+ const trashPoll=await hold(page,base+'api/trash','GET',null,2),restoreSave=await hold(page,base+'api/retention/operations/*','POST',value=>({...value,data_stale:true,data_pending:false}));
  try{
   await refresh();await trashPoll.ready;await restore.hover();const box=await restore.boundingBox();await unchanged(restore,box,expect);await restore.click();await restoreSave.ready;
   await trashPoll.release();await expect(row).toHaveCount(1);await expect(page.locator('.trash-page [role=alert]')).toHaveCount(0);await restoreSave.release();await expect(page.locator('.trash-page [role=alert]')).toContainText('The change was saved, but dashboard data could not refresh.');await expect(page.locator('.trash-page [role=alert] strong')).toHaveText('Saved. The views didn’t refresh.');await expect(restore).toBeEnabled();await snap('retention-restore-refresh-error');

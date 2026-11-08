@@ -576,3 +576,6 @@ html:has(.add-page){overflow-anchor:none}
   .app.has-ledger-banner > .content { padding-bottom: 0; }
 }
 .ledger-check-detail .queue-next > p { margin: 0 0 8px; }
+
+.data-refresh-notice { position: fixed; z-index: 60; bottom: calc(var(--live-bottom-space, 0px) + 1rem); right: 1rem; max-width: min(32rem, calc(100vw - 2rem)); padding: .6rem .9rem; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface-sunken); box-shadow: var(--shadow-popover); font-size: .85rem; pointer-events:none; }
+.data-refresh-notice .text-button { pointer-events:auto; }

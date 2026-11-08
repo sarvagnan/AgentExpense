@@ -96,6 +96,7 @@ class Retention:
             return self.entry_status(docs, entry, records(root))
 
     def entry_status(self, docs, entry, lines):
+        self.history.refresh()
         root=self.settings.ledger; settings=limits(read_manifest(root)); added=self.history.get(entry['id'], lines)
         reason=coverage(docs, root, entry)
         until=(datetime.fromisoformat(added)+timedelta(days=settings['delete_days'])).isoformat() if added else None
@@ -127,6 +128,7 @@ class Retention:
         saved=self.expired_saved(values['saved_hours'],now)
         reopened=[]
         if values['delete_days']>before['delete_days']:
+            self.history.refresh()
             for e in entries(docs):
                 added=self.history.get(e['id'],lines)
                 if added and not coverage(docs,root,e) and datetime.fromisoformat(added)+timedelta(days=before['delete_days'])<=now<datetime.fromisoformat(added)+timedelta(days=values['delete_days']): reopened.append(dict(id=e['id'],description=e['description']))
@@ -340,7 +342,6 @@ class Retention:
             with ledger_lock(root,blocking=False):
                 self.recover(RetentionRecords(root))
                 if not clean(root): return
-                self.history.refresh()
             settings=limits(read_manifest(root));now=utc(self.clock)
             for item in self.expired_saved(settings['saved_hours'],now):
                 self.operate(secrets.token_hex(16),dict(action='queue-discard',item_id=item['id'],reason='Saved for later expired'))

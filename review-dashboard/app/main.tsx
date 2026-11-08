@@ -84,7 +84,7 @@ function App() {
 
   useEffect(() => {
     const remember = () => sessionWrite(`ledger-view:${routeFor(window.location.pathname)}`, window.location.search);
-    const handleHistory = () => { remember(); setView(routeFor(window.location.pathname)); if (dashboard) setSetup(needsFirstRun()); };
+    const handleHistory = () => { remember(); setView(routeFor(window.location.pathname)); if (dashboard) setSetup(active=>needsFirstRun(active)); };
     remember();
     const handleNavigation = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

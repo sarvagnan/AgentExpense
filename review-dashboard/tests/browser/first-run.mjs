@@ -42,6 +42,7 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await overflow('first-about');await snap('first-about');
     await name.fill('   ');await expect(next).toBeDisabled();
     await name.fill(names[persona]);await expect(next).toBeEnabled();
+    await control('data-refresh',{mode:'hold'});
     const about = page.waitForResponse(r => r.url().endsWith('/api/setup/about') && r.request().method() === 'POST');
     await name.press('Enter');
     assert.equal((await about).status(), 200);
@@ -56,6 +57,8 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     page.on('request', countAbout);
     await next.click();await expect(heading('How would you like to start?')).toBeVisible();
     page.off('request', countAbout);assert.equal(aboutWrites, 0);
+    assert.equal((await control('data-refresh',{mode:'status'})).held,true);
+    await control('data-refresh',{mode:'release'});await control('data-refresh',{mode:'wait'});
     await page.getByRole('button', {name:/^Start from today/}).click();
     await expect(heading('Your accounts, as of today')).toBeFocused();
     const rows = page.locator('.setup-account');
@@ -114,6 +117,7 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     // are disabled, and the late success still lands on Add with its confirmation.
     let openings = 0; const countOpenings = request => { if (request.url().endsWith('/api/setup/opening')) openings++; };
     page.on('request', countOpenings);
+    await control('data-refresh',{mode:'hold'});
     const held = await hold(page, base + 'api/setup/opening', 'POST');
     try {
       await finishSetup.click();await held.ready;
@@ -138,6 +142,9 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     // The confirmation belongs to this first visit; Accounts holds the balances.
     await notice.getByRole('link', {name:'Accounts'}).click();
     await expect(page.locator('.content h1').first()).toBeVisible();
+    await expect(page.locator('.setup-content')).toHaveCount(0);
+    assert.equal((await control('data-refresh',{mode:'status'})).held,true);
+    await control('data-refresh',{mode:'release'});await control('data-refresh',{mode:'wait'});
     await page.goBack();await expect(page.locator('.content h1')).toHaveText('Add');await expect(page.locator('.first-run-done')).toHaveCount(0);
     record('first run: Start from today saves accounts and opening balances once, even with Finish held in flight');
 
@@ -312,6 +319,7 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     assert.equal((await get('setup')).fresh, false);
     record('first run: Bring in past statements imports read files in order, with pending rows in Review');
   } finally {
+    await control('data-refresh',{mode:'release'});await control('data-refresh',{mode:'wait'});
     await quiesce();
     const restored = await control('first-run', {restore:true});
     assert.equal(restored.data_stale, false, restored.refresh_error);

@@ -16,8 +16,7 @@ Environment:
 
 Each operation reports `response`, the time the person waits for the saved result
 (an HTTP response, or the queued item reaching its result); `committed`, the server's
-time to the commit (its operation total without the agent's reading and the data
-rebuild); and the server's per-step timings (`save_timing.py`). Targets, at the
+time to the recorded commit boundary (excluding the agent's reading); and the server's per-step timings (`save_timing.py`). Targets, at the
 default size only: committed median ≤ 1 s and 95th percentile ≤ 2 s for every
 operation, data rebuild median ≤ 2 s, and Add pickup median ≤ 0.2 s. The run exits
 with status 1 when a target is missed by more than 50%, as a regression guard.
@@ -39,6 +38,7 @@ import shutil
 import statistics
 import sys
 import tempfile
+import threading
 import time
 
 SERVER = Path(__file__).resolve().parent
@@ -48,7 +48,7 @@ sys.path[:0] = [str(SERVER), str(SERVER / 'tests'), str(APPLICATION / 'scripts/f
 TARGETS = dict(committed_median=1.0, committed_p95=2.0, data_median=2.0, pickup_median=0.2)
 SLACK = 1.5  # a regression is a target missed by more than 50%
 OPERATIONS = ('add', 'hand-add', 'edit', 'delete', 'restore', 'bill', 'statement-apply', 'review', 'settings')
-STEP_COLUMNS = ('prepare', 'lock_wait', 'journal', 'store_check', 'schema', 'strict_check', 'hledger', 'verify', 'commit_jj', 'commit', 'jj', 'other', 'data')
+STEP_COLUMNS = ('agent', 'prepare', 'lock_wait', 'snapshot', 'journal', 'store_check', 'schema', 'strict_check', 'hledger', 'verify', 'commit_jj', 'data_snapshot', 'commit', 'jj', 'other', 'index', 'data', 'commit_to_fresh')
 AGENT_DATE = '2026-10-30'
 
 
@@ -62,6 +62,8 @@ class Sample:
     @property
     def committed(self):
         steps = self.line['steps']
+        if 'committed' in self.line:
+            return self.line['committed'] - steps.get('agent', 0.0)
         return self.line['total'] - steps.get('data', 0.0) - steps.get('agent', 0.0)
 
     def step(self, name):
@@ -90,6 +92,7 @@ class Bench:
         self.root, self.entries, self.reps, self.seed = root, entries, reps, seed
         self.samples: list[Sample] = []
         self.lines: list[dict] = []
+        self.line_condition = threading.Condition()
         self.notes: list[str] = []
         self.epoch = time.time()
         # A deadlock guard only; a stress-size save takes minutes.
@@ -131,7 +134,9 @@ class Bench:
 
         class Capture(logging.Handler):
             def emit(self, record):
-                bench.lines.append(dict(record.save_timing, at=round(record.created - bench.epoch, 3)))
+                with bench.line_condition:
+                    bench.lines.append(dict(record.save_timing, at=round(record.created - bench.epoch, 3)))
+                    bench.line_condition.notify_all()
         handler = Capture(logging.INFO)
         save_timing.LOG.addHandler(handler)
         stack.callback(save_timing.LOG.removeHandler, handler)
@@ -139,9 +144,12 @@ class Bench:
         self.client = stack.enter_context(TestClient(app))
         self.drafts = app.state.drafts
         self.sessions = app.state.statements
+        self.data_refresh = app.state.data_refresh
+        if not self.data_refresh.wait_idle(self.timeout):
+            raise RuntimeError('Initial data build did not finish')
         from transactions import refresh
         result = refresh(self.settings, {})
-        if result.get('data_stale'):
+        if result.get('data_stale') and not result.get('data_pending'):
             raise RuntimeError('Initial data build failed: ' + result.get('refresh_error', ''))
 
     # --- helpers ---------------------------------------------------------
@@ -154,10 +162,11 @@ class Bench:
         return entries(self.documents())
 
     def take_line(self, kinds, since):
-        for index in range(since, len(self.lines)):
-            if self.lines[index]['operation'] in kinds:
-                return self.lines[index]
-        raise RuntimeError(f'No timing line for {kinds}: {self.lines[since:]}')
+        with self.line_condition:
+            self.line_condition.wait_for(lambda: any(line['operation'] in kinds for line in self.lines[since:]),self.timeout)
+            for line in self.lines[since:]:
+                if line['operation'] in kinds: return line
+            raise RuntimeError(f'No timing line for {kinds}: {self.lines[since:]}')
 
     def ok(self, response, status=200):
         if response.status_code != status:
@@ -179,6 +188,12 @@ class Bench:
     def record(self, operation, response, kinds, since, pickup=None):
         sample = Sample(operation, response, self.take_line(kinds, since), pickup)
         sample.line = dict(sample.line, done=round(time.time() - self.epoch, 3))
+        if not self.data_refresh.wait_idle(self.timeout):
+            raise RuntimeError('Background data build did not finish')
+        if self.data_refresh.status()['data_stale']:
+            raise RuntimeError('Background data build failed')
+        sample.line['steps']['data'] = self.data_refresh.build_seconds
+        sample.line['steps']['commit_to_fresh'] = self.data_refresh.fresh_seconds
         if sample.line['outcome'] != 'ok':
             raise RuntimeError(f'{operation} failed: {sample.line}')
         self.samples.append(sample)
@@ -386,7 +401,7 @@ class Bench:
                        f'{cell([s.pickup for s in rows])} | ' + ' | '.join(steps) + ' |')
         out.append('')
         out.append('Seconds, median / 95th percentile (nearest rank). Committed: the server\'s operation time up to the commit '
-                   '(total without the agent and data steps). Response: what the person waits for today. '
+                   '(the recorded commit boundary, excluding the agent). Response: the saved response, before background data work. '
                    'commit contains verify (journal, store_check with schema and strict_check; hledger runs after the commit, in the background) and commit_jj; '
                    'jj is the server\'s own jj calls; other is committed time outside prepare, lock_wait, commit and jj.')
         failures = []
@@ -396,7 +411,7 @@ class Bench:
                 if not rows:
                     continue
                 committed = [s.committed for s in rows]
-                data = [s.line['steps']['data'] for s in rows if 'data' in s.line['steps']]
+                data = [s.line['steps'].get('commit_to_fresh',s.line['steps']['data']) for s in rows if 'data' in s.line['steps']]
                 checks = [('committed median', statistics.median(committed), TARGETS['committed_median']),
                           ('committed p95', percentile(committed, .95), TARGETS['committed_p95'])]
                 if data:

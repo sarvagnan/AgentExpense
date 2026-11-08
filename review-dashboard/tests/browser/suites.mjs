@@ -9,6 +9,7 @@ import {runVarying} from './varying.mjs';
 import {runUpdateNotice} from './update-notice.mjs';
 import {runConfirmedBalances} from './confirmed-balances.mjs';
 import {runLedgerCheck} from './ledger-check.mjs';
+import {runLightSave} from './light-save.mjs';
 import {runAdd} from './add.mjs';
 import {runAddPolish} from './add-polish.mjs';
 import {runCorrections} from './corrections.mjs';
@@ -87,6 +88,10 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
+      if(process.env.BROWSER_FOCUS==='light-save') {
+        await runLightSave({page,base,persona,expect,control,go,refresh,record,quiesce,snap});
+        await context.tracing.stop();await context.close();continue;
+      }
       if(process.env.BROWSER_FOCUS==='cleanup') {
         await go('add/');await expect(page.getByRole('heading',{name:'Add',exact:true})).toBeVisible();
         console.log('CLEANUP_BROWSER_READY');
@@ -361,12 +366,12 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       stale.meta.defaultMonth='2026-10';stale.meta.today='2026-10-31';
       stale.months=stale.months.filter(row=>row.month!==currentMonth);
       const oldData=route=>route.fulfill({status:200,contentType:'application/gzip',body:gzipSync(JSON.stringify(stale))});
-      await page.route('**/data/dashboard.json.gz',oldData);
+      await page.route('**/dashboard.json.gz',oldData);
       await go('explorer/');
       await expect(page.getByText('Nothing recorded this month yet',{exact:true})).toBeVisible();
       await expect(page.locator('.metrics,.calendar,.currency-series')).toHaveCount(0);
       await snap('explorer-current-empty');
-      await page.unroute('**/data/dashboard.json.gz',oldData);
+      await page.unroute('**/dashboard.json.gz',oldData);
       await page.getByRole('button',{name:'Previous month',exact:true}).click();
       await expect(page).toHaveURL(/month=2026-10/);
       if(persona!=='empty')await expect(page.locator('.entries-table tbody tr').first()).toBeVisible();
@@ -626,6 +631,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));
+      await timed('runLightSave',()=>runLightSave({page,base,persona,expect,control,go,refresh,record,quiesce,snap}));
       await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runRetentionTiming',()=>runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts}));
       await timed('runViewTiming',()=>runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts}));

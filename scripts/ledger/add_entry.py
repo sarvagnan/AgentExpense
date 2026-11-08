@@ -10,12 +10,12 @@ from store import ROOT, _unique_object, dump, load, new_id, validate
 from strict_check import StrictCheckError, check as strict_check
 
 
-def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
+def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False, documents=None) -> str:
     if not isinstance(entry, dict) or entry.get('id') is not None:
         raise ValueError('Supply one format 2 entry with "id": null')
     if 'schedule' in entry:
         raise ValueError('This helper adds actual entries, not forecast rules')
-    documents = load(root)
+    documents = load(root) if documents is None else documents
     used = {e['id'] for items in documents.values() if isinstance(items, list) for e in items}
     entry = {**entry, 'id': new_id(used)}
     day = entry.get('date')
@@ -43,8 +43,7 @@ def add_entry(entry: dict, *, root: Path = ROOT, dry_run: bool = False) -> str:
         raise ValueError('Proposed entry fails the strict ledger check: ' + str(error)) from None
     # All input checks precede writes, including dry runs. Same-day order remains stable.
     if not dry_run:
-        for file, document in documents.items():
-            dump(file, document)
+        dump(path, items)
     return entry['id']
 
 

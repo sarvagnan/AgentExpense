@@ -61,15 +61,13 @@ class ReviewTests(Fixture):
     def test_resolve_followup_idempotency_versions_and_audit(self):
         rows=self.seed();identity=rows[0]['id'];unchanged=deepcopy(rows[0]);before=self.jj('log','-r','@-','--no-graph','-T','commit_id')
         body=self.body('followup',identity,decision=self.decide('followup'))
-        with patch('review.subprocess.run', wraps=subprocess.run) as run:
+        with patch('commit.commit', wraps=__import__('commit').commit) as run:
             result=apply(self.settings,body)
         self.check_commit(before,'followup')
         self.assertEqual(read_json(self.ledger/'data/expenses/2026.json')[0],unchanged)
         self.assertEqual(snapshot(self.ledger)['count'],3)
-        calls=[c for c in run.call_args_list if c.args[0]==['make','commit']]
-        self.assertEqual(len(calls),1)
-        fd=calls[0].kwargs['pass_fds'][0]
-        self.assertEqual(calls[0].kwargs['env']['EXPENSES_LEDGER_LOCK_FD'] if 'EXPENSES_LEDGER_LOCK_FD' in calls[0].kwargs['env'] else calls[0].kwargs['env'][__import__('ledger_lock').LOCK_FD_ENV],str(fd))
+        self.assertEqual(run.call_count,1)
+        self.assertGreaterEqual(run.call_args.kwargs['lock_fd'],0)
         parent=self.jj('log','-r','@-','--no-graph','-T','commit_id')
         self.assertTrue(apply(self.settings,body)['replayed']);self.assertEqual(parent,self.jj('log','-r','@-','--no-graph','-T','commit_id'))
         with self.assertRaisesRegex(ValueError,'different action'):apply(self.settings,{**body,'action':'resolve'})
@@ -168,11 +166,7 @@ class ReviewTests(Fixture):
         rows=self.seed();state=snapshot(self.ledger)
         payload=dict(reviewVersion=2,transactions=[{**e,'decision':self.decide()} for e in state['entries'].values()])
         preview=import_preview(self.ledger,payload);before=self.bytes()
-        real_run=subprocess.run
-        def fail(args,*a,**kw):
-            if args==['make','commit']:return subprocess.CompletedProcess(args,1,'','Injected failure')
-            return real_run(args,*a,**kw)
-        with patch('review.subprocess.run',side_effect=fail),self.assertRaisesRegex(RuntimeError,'failed verification'):
+        with patch('commit.verify',side_effect=ValueError('Injected failure')),self.assertRaisesRegex(RuntimeError,'failed verification'):
             apply(self.settings,self.body('import',payload=payload,preview_token=preview['token']))
         self.assertEqual(self.bytes(),before);self.assertTrue(clean(self.ledger));self.assertEqual(records(self.ledger),[])
         apply(self.settings,self.body('followup',rows[0]['id'],decision=self.decide('followup')))

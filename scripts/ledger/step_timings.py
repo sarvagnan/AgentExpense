@@ -8,15 +8,19 @@ As a wrapper: `python3 step_timings.py STEP -- COMMAND [ARG ...]` runs COMMAND a
 records its wall time as STEP, exiting with its status.
 """
 from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import os
 from pathlib import Path
 import time
 
 ENV = 'EXPENSES_STEP_TIMINGS'
+observer = ContextVar('ledger_step_observer', default=None)
 
 
 def record(step: str, seconds: float) -> None:
+    if callback := observer.get():
+        callback(step, seconds)
     path = os.environ.get(ENV)
     if path:
         with open(path, 'a', encoding='utf-8') as handle:

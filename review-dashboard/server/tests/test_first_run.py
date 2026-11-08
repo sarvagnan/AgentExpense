@@ -70,7 +70,8 @@ class FirstRun(Fixture):
                     dict(kind='cash', label='Cash', currency='USD', balance='0')]
             response = client.post('/api/setup/opening', json=dict(start=today, accounts=rows))
             self.assertEqual(response.status_code, 200, response.text)
-            self.assertFalse(response.json()['data_stale'], response.json().get('refresh_error'))
+            self.assertTrue(client.app.state.data_refresh.wait_idle(30))
+            self.assertFalse(client.app.state.data_refresh.status()['data_stale'])
             self.assertIn('Record opening balances for 5 accounts in first run', self.description())
             self.assertTrue(clean(self.ledger))
             documents = load(self.ledger)
@@ -124,7 +125,7 @@ class FirstRun(Fixture):
         before = self.bytes()
         import subprocess
         from first_run import save_opening
-        with patch('currency_settings.subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', 'injected failure')):
+        with patch('commit.verify',side_effect=ValueError('injected failure')):
             with self.assertRaisesRegex(RuntimeError, 'failed verification'):
                 save_opening(self.settings, date.today().isoformat(), [dict(kind='bank', label='Alder Checking', currency='USD', balance='1.00')])
         self.assertEqual(self.bytes(), before)
@@ -212,6 +213,72 @@ class FirstRun(Fixture):
         self.assertEqual(len(audit), 3)
         self.assertTrue(all(d.get('by') == 'first run' and d['action'] == 'pending' for r in audit for d in r['decisions']))
         self.assertTrue(clean(self.ledger))
+
+    def test_several_imports_rejoin_on_check_completion_without_a_maintenance_wait(self):
+        from datetime import datetime, timezone
+        from dataclasses import replace
+        from fastapi.testclient import TestClient
+        from app import create_app
+        app = create_app(self.settings, start_worker=False)
+        worker, statements, check = app.state.worker, app.state.statements, app.state.ledger_check
+        held, releases = threading.Condition(), []
+        hold = [False]
+        def runner(root, commit, base):
+            if hold[0]:
+                release = threading.Event()
+                with held: releases.append(release);held.notify_all()
+                if not release.wait(20): raise RuntimeError('import check was not released')
+            return dict(ok=True, seconds=0)
+        check.runner = runner
+        with TestClient(app) as client:
+            account = client.post('/api/setup/accounts',json=dict(kind='card',label='Fictional import card',currency='USD')).json()['account']
+            identities = []
+            for month, previous, amount in [(1,0,1),(2,1,2),(3,3,3)]:
+                identity = self.upload(client, card_pdf('USD',f'2026-{month:02d}-01',f'2026-{month:02d}-28',previous,
+                    [(f'2026-{month:02d}-05','Fictional import payment',f'{amount:.2f}')],f'FI{month}'),f'fictional-{month}.pdf')
+                identities.append(identity)
+            self.work(client)
+            for identity in identities:
+                assigned = client.post(f'/api/setup/statements/{identity}/account',json=dict(account=account))
+                self.assertEqual(assigned.status_code,200,assigned.text)
+            self.work(client)
+            for identity in identities:
+                session = statements.get(identity)
+                self.assertEqual(session['state'],'found',session.get('error'))
+            check.settings = replace(self.settings, ledger_check=True);check.hledger = '/bin/false'
+            check.start();self.assertTrue(check.wait_idle(10));hold[0] = True
+            response = client.post('/api/setup/import',json=dict(sessions=identities))
+            self.assertEqual(response.status_code,202,response.text)
+            wall = [datetime.now(timezone.utc)]
+            class Clock(datetime):
+                @classmethod
+                def now(cls,tz=None):return wall[0].astimezone(tz) if tz else wall[0].replace(tzinfo=None)
+            worker.clock = lambda:100
+            worker.daily_refresh.next_check = float('inf')
+            event, delays = threading.Event(), []
+            class Event:
+                def set(self):event.set()
+                def clear(self):event.clear()
+                def wait(self,delay):
+                    if all(statements.get(i)['state']=='applied' for i in identities):
+                        worker.stop_event.set();return
+                    delays.append(delay)
+                    self_case.assertLessEqual(delay,.5,'First-run import fell back to the maintenance deadline: '+str([
+                        {key:statements.get(i).get(key) for key in ('state','waiting','error')} for i in identities]))
+                    with held:self_case.assertTrue(held.wait_for(lambda:bool(releases),10))
+                    release = releases.pop(0);release.set()
+                    self_case.assertTrue(check.wait_idle(10))
+                    self_case.assertTrue(event.is_set(),'Check completion did not wake the import worker')
+                    wall[0] += timedelta(seconds=.5)
+            self_case = self
+            worker.wake = Event()
+            try:
+                with patch('statements.datetime',Clock): worker.loop()
+                self.assertEqual({statements.get(i)['state'] for i in identities},{'applied'})
+                self.assertGreaterEqual(len(delays),2)
+            finally:
+                hold[0] = False
+                for release in releases:release.set()
 
     def test_agent_reading_in_another_currency_waits_and_is_reused_for_the_right_account(self):
         self.set_answers(answer('EUR'))

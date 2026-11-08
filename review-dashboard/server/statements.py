@@ -113,6 +113,9 @@ class Statements:
             session = json.loads((self.folder(identity) / 'session.json').read_text())
             if session.get('discarded_until') and not include_discarded:
                 raise FileNotFoundError('Discarded statement session')
+            if (session.get('result') or {}).get('commit_id'):
+                from data_refresh import get
+                if job := get(self.ledger): session['result'] = job.result(session['result'])
             return ensure_context(session)
 
     def all(self):
@@ -682,13 +685,22 @@ class Statements:
     def work(self, stop_event, before=None):
         with self.mutex:
             self.purge()
-            for waiting in self.all():
+            sessions = self.all()
+            for waiting in sessions:
                 if waiting['state']=='agent_waiting' and not waiting.get('discarded_until') and not self.agent_pause.blocked():
                     waiting['state']='reading';self.put(waiting)
-            queued = sorted((s for s in self.all() if not s.get('discarded_until') and s['state'] in ('reading','applying') and not s.get('waiting')), key=lambda s:(s['queued_at'],s['id']))
+            def prior_import(s):
+                # A later statement's replan needs this account's earlier import
+                # committed, even while that earlier Apply waits for its check.
+                return s.get('first_run') and any(other.get('first_run') and other['state']=='applying'
+                    and not other.get('discarded_until')
+                    and (other.get('statement') or {}).get('account') == (s.get('statement') or {}).get('account')
+                    and (other['queued_at'],other['id']) < (s['queued_at'],s['id']) for other in sessions)
+            available = [s for s in sessions if not s.get('discarded_until') and not prior_import(s)]
+            queued = sorted((s for s in available if s['state'] in ('reading','applying') and not s.get('waiting')), key=lambda s:(s['queued_at'],s['id']))
             # Waiting sessions periodically rejoin; they must not block other work.
             if not queued:
-                queued = [s for s in self.all() if s['state']=='applying' and s.get('waiting') and not s.get('discarded_until')]
+                queued = sorted((s for s in available if s['state']=='applying' and s.get('waiting')), key=lambda s:(s['queued_at'],s['id']))
                 if queued and datetime.now(timezone.utc).timestamp() - queued[0].get('last_check', 0) < .5:
                     return False
             if not queued or before and queued[0]['queued_at'] > before:
@@ -918,10 +930,10 @@ class StatementTransaction(Transaction):
             completed=make_commit(self.settings.application,env,lock_fd)
             if completed.returncode:
                 raise RuntimeError('The checked statement change failed; nothing was applied. '+(completed.stdout+completed.stderr)[-4000:])
-            result['commit_id']=jj(self.root,'log','-r','@-','--no-graph','-T','commit_id')
+            result['commit_id']=completed.stdout.strip()
             s['committed_result']=result
             self.drafts.put(s)
-            self.journal.unlink()
+            self.finish_commit(completed)
             return result
         except BaseException:
             self.rollback(journal)
