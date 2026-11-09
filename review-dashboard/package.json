@@ -15,7 +15,7 @@
     "test": "python3 ../scripts/test_run.py node scripts/test-dashboard.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.316",
+    "@anthropic-ai/claude-code": "2.1.319",
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@openai/codex": "0.166.0",
     "@opencode/cli": "2.2.5",
