@@ -18,7 +18,7 @@
     "@anthropic-ai/claude-code": "2.1.316",
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@openai/codex": "0.166.0",
-    "@opencode/cli": "2.2.5",
+    "@opencode/cli": "2.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
