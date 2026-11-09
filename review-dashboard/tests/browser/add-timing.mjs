@@ -27,8 +27,11 @@ export async function runAddTiming({page,base,stage,persona,expect,control,go,re
  try{await refresh();await poll.ready;await control('add-result',{id:seeded.id,state:'question'});await words.fill('Meal during poll 20');await upload.hover();const box=await upload.boundingBox();await refresh();await poll.release();await expect(page.locator('.just-added')).toContainText('Needs an answer');await stable(upload,box,expect);await expect(words).toHaveValue('Meal during poll 20');}finally{await poll.release();}
  record('Add held result lookup and superseded draft poll preserve input and pointer geometry');
  await reset();await control('scenario',{mode:'question'});await words.fill('Fictional payment');await expect(button).toBeEnabled();const save=await holdAddResponse(page,base+'api/drafts/*/save','POST');
- try{await button.click();await save.ready;await expect(words).toBeDisabled();await expect(button).toBeDisabled();await expect(page.locator('.add-savebar')).toContainText('Saving');await save.release();await expect(words).toBeEnabled();await expect(words).toBeFocused();await words.fill('Next expense 22');await refresh();await expect(words).toHaveValue('Next expense 22');await expect(page.locator('.add-savebar .live-error')).toHaveCount(0);}finally{await save.release();}
- record('Add held save locks deliberate input, prevents resubmission, and restores next-entry focus');
+ try{await button.click();await save.ready;await expect(words).toBeEnabled();await expect(button).toBeDisabled();await words.fill('Newer words during the save');await words.focus();await expect(page.locator('.add-savebar')).toContainText('Saving');await save.release();await expect(words).toBeEnabled();await expect(words).toHaveValue('Newer words during the save');await expect(words).toBeFocused();await words.fill('Next expense 22');await refresh();await expect(words).toHaveValue('Next expense 22');await expect(page.locator('.add-savebar .live-error')).toHaveCount(0);}finally{await save.release();}
+ record('Add held save keeps input editable, prevents duplicate submission, and retains newer words and focus');
+ await reset();await control('scenario',{mode:'question'});await words.fill('Another fictional payment');await expect(button).toBeEnabled();const movedFocus=await holdAddResponse(page,base+'api/drafts/*/save','POST');
+ try{await button.click();await movedFocus.ready;const examples=page.getByRole('button',{name:'Examples',exact:true});await examples.focus();await movedFocus.release();await expect(words).toHaveValue('');await expect(examples).toBeFocused();}finally{await movedFocus.release();}
+ record('Add held completion returns ordinary saves to the input but never steals a newer chosen focus');
  await reset();
 }
 

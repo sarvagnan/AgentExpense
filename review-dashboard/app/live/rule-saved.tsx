@@ -1,3 +1,4 @@
+import {ActionFeedback} from './pending-actions';
 import {useState} from 'react';
 import {dayLabel} from '../ui';
 import {RuleEditor} from '../rule-editor';
@@ -18,6 +19,7 @@ export function RuleSaved({draft,online,compact=false }:{draft:Draft;online:bool
     {resumes.map(rule=><section key={rule.id}><p><strong>Resume {rule.description}?</strong></p><div className="rule-actions"><button className="button" disabled={op.busy||online!==true} onClick={()=>void op.operate({action:'resumed',rule_id:rule.id})}>Resume</button><button className="button" disabled={op.busy||online!==true} onClick={()=>{void op.operate({action:'kept',rule_id:rule.id}).then(ok=>{if(ok)setKeptPaused(xs=>[...xs,rule.id]);});}}>Keep paused</button></div></section>)}
     {!compact&&draft.receipt_reading&&<p className="live-hint">{draft.receipt_reading.state==='question'?'The receipt has details to check.':'The payment is saved. Receipt reading continues.'} <a href={`${import.meta.env.BASE_URL}add/?draft=${draft.id}`}>Open receipt details</a></p>}
     {compact&&<button className="text-button" aria-expanded={more} onClick={()=>setMore(!more)}>{more?'Less':'More'}</button>}{(!compact||more)&&<p className="live-hint">The weekly review will look at this payment.</p>}{op.error&&<p className="live-error" role="alert">{op.error}</p>}
+    {(!!r.made_rules?.length||!!r.resume_rules?.length)&&<ActionFeedback scope="rules" match={item=>{const id=JSON.parse(item.body).rule_id;return !!r.made_rules?.includes(id)||!!r.resume_rules?.some(rule=>rule.id===id);}}/>}
     {editing&&<RuleEditor rule={editing} onClose={()=>setEditing(null)} onSaved={refresh}/>}
   </article>;
 }

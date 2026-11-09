@@ -171,3 +171,46 @@ class PersonAmountTests(Fixture):
         calls = self.calls()
         self.assertEqual(len(calls), 2)
         self.assertIn('postings.0.amount', calls[1]['argv'][-1])
+
+
+class PlainRefusalTests(Fixture):
+    COST = 'A cost is always positive. For a refund, make the amount negative and keep the cost positive.'
+
+    def bad_cost(self, amount):
+        answer = ready(new=False)
+        answer['entry']['postings'][0]['cost'] = dict(amount=amount, commodity='USD')
+        return answer
+
+    def test_hand_form_keeps_zero_and_negative_costs_and_explains_refunds(self):
+        drafts = Drafts(self.ledger)
+        for amount in ('0', '-1.00'):
+            with self.subTest(amount=amount):
+                draft = drafts.create('Fictional refund')
+                form = self.bad_cost(amount)
+                result = preview(self.settings, drafts, draft, form)
+                self.assertFalse(result['ok'])
+                self.assertEqual(result['checks'], [self.COST])
+                self.assertEqual(drafts.get(draft['id'])['hand_form'], form)
+
+    def test_fake_agents_retry_gets_plain_cost_refusal_and_never_commits_bad_cost(self):
+        self.set_answers(self.bad_cost('0.00'), ready(new=False))
+        with self.client() as client:
+            identity = self.create(client, 'Fictional lunch')
+            self.save(client, identity)
+            self.wait(client, identity, 'added')
+        prompt = self.calls()[1]['argv'][-1]
+        self.assertIn(self.COST, prompt)
+        self.assertNotIn('String should match pattern', prompt)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_reachable_form_refusals_do_not_expose_validator_text(self):
+        for field, value in [('date', '2026-02-30'), ('description', 'Two\nlines')]:
+            answer = ready(new=False); answer['entry'][field] = value
+            with self.assertRaises(AnswerError) as failure:
+                check(answer, self.ledger, form=True)
+            self.assertNotRegex(str(failure.exception), r'String should|validation error|Input should|https://errors|\^\[')
+        for field, value in [('amount', 'oops'), ('account', ':Bad'), ('commodity', 'Two\nlines')]:
+            answer = ready(new=False); answer['entry']['postings'][0][field] = value
+            with self.assertRaises(AnswerError) as failure:
+                check(answer, self.ledger, form=True)
+            self.assertNotRegex(str(failure.exception), r'String should|validation error|Input should|https://errors|\^\[')

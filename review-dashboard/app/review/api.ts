@@ -3,7 +3,7 @@ import {request} from '../live/api';
 export type Decision={status:'resolved'|'followup'|'unreviewed';account:string;label:string;notes:string;updatedAt:string};
 export type Entry={id:string;version:string;date:string;originalDate:string;description:string;amount:string;signedAmount?:string;signedAmounts?:Record<string,string>;amounts?:Record<string,string>;currency:string;account:string;accountLabel:string;currentAccount:string;kind:string;sources:string[];source:string;sourceReference:string;statement:boolean;notes:string[];status:string;postings:{account:string;amount:string;commodity:string}[]};
 export type Item={id:string;kind:'duplicate'|'doubt'|'pending'|'overlap';important:boolean;reason:string;machineReason?:string;doubts?:string[];added_at?:string;entries:Entry[];kept_id?:string;statement_id?:string;row_serial?:string;row?:{date:string;description:string;amount:string}};
-export type ReviewChange={entry_id:string;other_id?:string;reason?:string;decision?:Decision;kept_id?:string;removed_id?:string;sources?:string[];notes?:string[]};
+export type ReviewChange={entry_id:string;before_version?:string;after_version?:string;other_id?:string;reason?:string;decision?:Decision;kept_id?:string;removed_id?:string;sources?:string[];notes?:string[]};
 export type History={id:string;time:string;action:string;canUndo:boolean;changes:ReviewChange[]};
 export type Snapshot={export_entries:Record<string,Entry>;count:number;important:number;items:Item[];entries:Record<string,Entry>;decisions:Record<string,Decision>;accounts:string[];history:History[]};
 export type Preview={drafts:number;valid:number;unknown:number;changed:number;already:number;token:string};

@@ -1,3 +1,4 @@
+import {PendingActions} from './live/pending-actions';
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import Dashboard, { type View } from './dashboard';
@@ -121,7 +122,7 @@ function App() {
     };
   }, []);
 
-  if (load.state === 'ready') return setup ? <FirstRun onDone={finishSetup}/> : <Dashboard view={view} />;
+  if (load.state === 'ready') return <><PendingActions/>{setup ? <FirstRun onDone={finishSetup}/> : <Dashboard view={view} />}</>;
   return <main className="loading-state" aria-busy={load.state === 'loading'}>
     <div role="status" className={load.state === 'failed' ? 'load-failure' : undefined}><span className="wordmark-badge" aria-hidden="true">A</span>{load.state === 'loading' ? <p>Loading ledger data…</p> : <><h1>Ledger unavailable</h1><p>We couldn’t fetch your ledger data. Check your connection and try again.</p><button type="button" className="button primary" onClick={() => retry(true)}>Retry</button><details><summary>Details</summary><p>{load.message}</p><p>If the data files are missing, run <code>npm run data</code>.</p></details></>}</div>
   </main>;

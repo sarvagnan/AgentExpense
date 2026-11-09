@@ -45,14 +45,58 @@ def person_amounts(form):
     return form
 
 
+def refusal_message(error: ValidationError, *, person: bool) -> str:
+    """Useful recovery, without model types, regexes or validator internals."""
+    first = error.errors()[0]
+    parts = first['loc']
+    where = '.'.join(str(part) for part in parts) or 'answer'
+    if len(parts) >= 2 and parts[-2:] == ('cost', 'amount'):
+        from decimal import Decimal, InvalidOperation
+        try:
+            if Decimal(str(first.get('input'))) <= 0:
+                return 'A cost is always positive. For a refund, make the amount negative and keep the cost positive.'
+        except InvalidOperation:
+            pass
+        reason = 'Enter a positive cost, such as 12.50.'
+    elif first['type'] == 'missing':
+        reason = 'Fill in this field.'
+    elif first['type'] == 'extra_forbidden':
+        reason = 'This field is not supported here. Remove it and try again.'
+    elif parts and parts[-1] in ('amount', 'balance'):
+        reason = 'Enter a number with a decimal point, such as 12.50. Use a minus sign for money paid out.'
+    elif parts and parts[-1] in ('date', 'occurrence', 'next-session'):
+        reason = 'Choose a real calendar date.'
+    elif parts and parts[-1] in ('commodity', 'currency'):
+        reason = 'Enter a currency or commodity on one line, without quotation marks.'
+    elif parts and parts[-1] == 'account':
+        reason = 'Choose an account, or enter its full path with one colon between each part.'
+    elif first['type'] in ('literal_error', 'enum'):
+        reason = 'Choose one of the available options.'
+    elif first['type'] == 'string_pattern_mismatch':
+        reason = 'Use a single line of text in the format shown by this field.'
+    elif first['type'] == 'value_error':
+        # Model cross-field checks already supply the bookkeeping reason. Drop
+        # pydantic's prefix; never expose its input/type/URL rendering.
+        reason = first['msg'].removeprefix('Value error, ')
+        if 'cost must be in a different commodity' in reason:
+            reason = 'A cost uses a different currency from its posting. For the same currency, remove the cost.'
+        elif 'total cost needs a non-zero amount' in reason:
+            reason = 'A posting with a total cost needs an amount other than zero.'
+    else:
+        reason = 'Check this field and try again.'
+    if not person:
+        return f'Please check {where}: {reason}'
+    posting = next((part + 1 for part in parts if isinstance(part, int)), None)
+    label = str(parts[-1]).replace('-', ' ').capitalize() if parts else 'Entry'
+    return f'{"Posting " + str(posting) + " · " if posting else ""}{label}: {reason}'
+
+
 def check(value, root, *, form: bool) -> None:
     models = ledger_models(root)
     try:
         (models.form if form else models.answer).model_validate(value)
     except ValidationError as error:
-        first = error.errors()[0]
-        where = '.'.join(str(part) for part in first['loc']) or 'answer'
-        raise AnswerError(f'Please check {where}: {first["msg"]}') from None
+        raise AnswerError(refusal_message(error, person=form)) from None
 
 
 def entry_extensions(root, given: dict | None) -> dict:

@@ -1,3 +1,4 @@
+import {markApplyCancellation,committedResult,enqueueWrite,writeSnapshot,type WriteOptions} from './direct-writes';
 import type {BalanceRefusal,BalanceLock} from './balance-refusal';
 import type { Piece } from './builder';
 import {clientTime} from '../date-time';
@@ -42,10 +43,67 @@ if(typeof window!=='undefined') {
   window.addEventListener('pagehide',()=>{departing=true;});
   window.addEventListener('pageshow',()=>{departing=false;});
 }
-export async function request<T>(path: string, options: RequestInit = {}, timeout = 12000): Promise<T> {
+export async function request<T>(path: string, options: WriteOptions = {}, timeout = 12000): Promise<T> {
+  if(departing)throw new DOMException('Request cancelled','AbortError');
+  return enqueueWrite(path,options,(retry=false,accepted,waiting)=>resumeWrite<T>(path,options,timeout,retry,accepted,waiting));
+}
+export async function resumeWrite<T>(path:string,options:RequestInit,timeout=120000,recover=false,accepted?:()=>void,waiting?:()=>void):Promise<T>{
+  if(recover&&['accounts','setup/accounts'].includes(path)){
+    const body=JSON.parse(String(options.body||'{}')) as {kind:string;name?:string;label?:string;currency:string};
+    const parent=({bank:'Assets:Bank',card:'Liabilities:Credit Cards',cash:'Assets:Cash',wallet:'Assets:Wallet',loan:'Liabilities:Loans',investment:'Assets:Investments',person:'Assets:People'} as Record<string,string>)[body.kind],account=parent+':'+(body.label||body.name||'').trim();
+    const known=await transport<{accounts:string[]}>('setup',{},timeout);
+    if(parent&&known.accounts.includes(account)){const current=await transport<{account_currency:string;commit_id:string}>('settings?account='+encodeURIComponent(account),{},timeout);if(current.account_currency===body.currency)return {...body,account,commit_id:current.commit_id,replayed:true} as T;}
+  }
+  if(recover&&path==='setup/opening'){
+    const body=JSON.parse(String(options.body||'{}')) as {operation_id?:string};
+    if(body.operation_id){const result=await transport<{committed?:boolean}>('setup/operations/'+body.operation_id,{},timeout);if(result.committed!==false)return result as T;}
+  }
+  if(recover&&['settings/name','settings/default-currency','accounts/currency'].includes(path)){
+    const wanted=JSON.parse(String(options.body||'{}')) as {name?:string;currency?:string;account?:string};
+    const current=await transport<{name:string;currency:string;account_currency?:string;commit_id:string}>('settings'+(wanted.account?'?account='+encodeURIComponent(wanted.account):''),{},timeout);
+    const matches=path==='settings/name'?current.name===wanted.name:path==='accounts/currency'?current.account_currency===wanted.currency:current.currency===wanted.currency;
+    if(matches)return {...wanted,commit_id:current.commit_id,replayed:true} as T;
+  }
+  // Usual and bill endpoints already validate their frozen request hash/body
+  // on replay, including queued and completed drafts. Let that check run.
+  const source=path.match(/^(drafts\/[^/]+)\/(hand-add|approve-accounts)$|^(statements\/[^/]+)\/apply$/);
+  const cancellation=path.match(/^(statements\/[^/]+)\/cancel$/);if(cancellation)markApplyCancellation(cancellation[1]);
+  const result=await committedResult(path,async()=>{
+    if(recover&&path==='setup/import'){const body=JSON.parse(String(options.body||'{}')) as {sessions:string[]};const sessions=await Promise.all(body.sessions.map(id=>transport<{state:string}>('statements/'+id,{},timeout)));if(sessions.every(item=>['applying','applied'].includes(item.state)))return {sessions} as T;}
+    if(recover&&source){
+      const value=await transport<{state:string;result?:unknown;claim?:unknown;finished_by?:unknown;account_question?:unknown}>(source[1]||source[3],{},timeout);
+      // An added Hand draft counts only if this endpoint finished it: after an
+      // expired claim the agent may have added the draft from the original words.
+      const action=source[2],pending=['queued','working'].includes(value.state),committed=value.state==='added'&&!!value.result&&(action!=='hand-add'||!!value.finished_by);
+      // A queued draft can still be claimed for Hand, or waiting for account
+      // consent. Only the marker set by this endpoint proves it was accepted.
+      const sent=source[3]?['applying','applied'].includes(value.state):committed||
+        action==='hand-add'&&pending&&!!value.finished_by&&!value.claim||
+        action==='approve-accounts'&&value.state==='queued'&&!value.account_question;
+      if(sent)return value as T;
+    }
+    return transport<T>(path,options,timeout);
+  },source=>transport(source,{},timeout),slow=>new Promise(resolve=>setTimeout(resolve,slow?1000:250)),value=>new ApiError(409,value.error||value.refusal?.message||'The entry was not saved. Open Queue to check it.',{detail:value.refusal}),accepted,waiting);
+  completeWrite(path,options,result);return result;
+}
+/** All successful paths, including shelf retry and reload recovery, publish the
+ * same tombstones and notifications before the job is acknowledged. */
+function completeWrite(path:string,options:RequestInit,result:unknown){
+ const value=result as {refused?:boolean}|undefined;if(value?.refused)return;
+ const method=(options.method||'GET').toUpperCase();if(['GET','HEAD'].includes(method))return;const queue=path.match(/^(drafts|statements)\/([^/]+)(\/restore)?$/);
+ if(queue&&method==='DELETE'){rememberRemoved({id:queue[2]});window.dispatchEvent(new Event('item-removed'));}
+ if(queue&&queue[3]&&method==='POST'){forgetRemoved(queue[2]);window.dispatchEvent(new Event('item-restored'));}
+ if(path.startsWith('retention/operations/')){
+  const body=JSON.parse(String(options.body||'{}')) as {action:string;item_id?:string;items?:string[]};
+  if(body.action==='queue-restore'&&body.item_id){forgetRemoved(body.item_id);window.dispatchEvent(new Event('item-restored'));}
+  if(['restore','remove','queue-restore'].includes(body.action))window.dispatchEvent(new CustomEvent('trash-items-removed',{detail:body.items||[body.item_id]}));
+ }
+ if(queue&&(method==='DELETE'||method==='POST'&&queue[3])||path.startsWith('retention/operations/'))window.dispatchEvent(new Event('drafts-changed'));
+}
+async function transport<T>(path:string,options:RequestInit,timeout:number):Promise<T>{
   if(departing)throw new DOMException('Request cancelled','AbortError');
   const item=path.match(/^drafts\/([^/]+)/)?.[1],method=(options.method||'GET').toUpperCase();
-  if(item&&isRemoved(item)&&!['GET','HEAD','DELETE'].includes(method)&&!path.endsWith('/restore'))throw new DOMException('Item moved to Trash','AbortError');
+  if(item&&(isRemoved(item)||isRemovalPending(item))&&!['GET','HEAD','DELETE'].includes(method)&&!path.endsWith('/restore'))throw new DOMException('Item moved to Trash','AbortError');
   const read = ['GET','HEAD'].includes((options.method || 'GET').toUpperCase());
   // A write can already be in flight before pagehide. Keep ordinary JSON writes
   // alive too, without changing explicit cancellation. Eight thousand UTF-16
@@ -82,6 +140,17 @@ export async function request<T>(path: string, options: RequestInit = {}, timeou
   } finally {if(!started)clearTimeout(timer);options.signal?.removeEventListener('abort',cancelled);}
 }
 
+/** A removal is visibly pending until its own committed response. List reads
+ * may finish in any order; keep the last visible item in that slot meanwhile. */
+const visibleItems=new Map<string,{id:string;trashed_at?:string|null}>();
+export const isRemovalPending=(id:string)=>writeSnapshot().some(item=>item.method==='DELETE'&&/^(drafts|statements)\/[^/]+$/.test(item.path)&&item.path.split('/')[1]===id&&['queued','saving','waiting'].includes(item.state));
+export const pendingRemovalItem=<T,>(id:string)=>isRemovalPending(id)?visibleItems.get(id) as T|undefined:undefined;
+export function keepPendingItems<T extends {id:string;trashed_at?:string|null}>(kind:'drafts'|'statements',items:T[]):T[]{
+ const pending=writeSnapshot().filter(item=>item.method==='DELETE'&&item.path.startsWith(kind+'/')&&item.path.split('/').length===2&&['queued','saving','waiting'].includes(item.state)).map(item=>item.path.split('/')[1]);
+ const result=items.map(item=>{if(pending.includes(item.id))return (visibleItems.get(item.id)||item) as T;if(!item.trashed_at)visibleItems.set(item.id,item);return item;});
+ for(const id of pending)if(!result.some(item=>item.id===id)&&visibleItems.has(id))result.push(visibleItems.get(id) as T);
+ return result;
+}
 // A removal tombstone outlives in-flight list/result reads on this page.
 const removed = new Map<string,{id:string;trashed_at?:string|null}>();
 export const forgetRemoved = (id:string) => removed.delete(id);
@@ -91,15 +160,16 @@ export function rememberRemoved<T extends {id:string;trashed_at?:string|null}>(i
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}) });
 export const api = {
   correctionForm:(id:string)=>request<Draft>(`entries/${id}/correction-form`,json('POST')),
-  correct:(id:string,op:string,body:object)=>request<CorrectionResult>(`entries/${id}/corrections/${op}`,json('POST',body),120000),
-  receiptChoice:(id:string,choice:'use'|'keep')=>request<Draft>(`drafts/${id}/receipt-choice`,json('POST',{choice}),120000),
+  correct:(id:string,op:string,body:object,options:WriteOptions={})=>request<CorrectionResult>(`entries/${id}/corrections/${op}`,{...json('POST',body),...options},120000),
+  receiptChoice:(id:string,choice:'use'|'keep',options:WriteOptions={})=>request<Draft>(`drafts/${id}/receipt-choice`,{...json('POST',{choice}),...options},120000),
   health: (signal?: AbortSignal) => request<{ok: boolean;data?:import('../data').DataStatus}>('health', {signal, keepalive:true}, 5000),
-  list: (signal?: AbortSignal) => request<Draft[]>('drafts?include_added=true', {signal}),
+  list: async(signal?:AbortSignal)=>keepPendingItems('drafts',await request<Draft[]>('drafts?include_added=true',{signal})),
   get: async (id: string) => {
     if(removed.has(id))return removedItem<Draft>(id)!;
+    const pending=pendingRemovalItem<Draft>(id);if(pending)return pending;
     const value=await request<Draft>(`drafts/${encodeURIComponent(id)}`);
-    if(value.trashed_at)rememberRemoved(value);
-    return removedItem<Draft>(id)||value;
+    if(value.trashed_at&&!isRemovalPending(id))rememberRemoved(value);
+    return removedItem<Draft>(id)||keepPendingItems('drafts',[value])[0];
   },
   create: (text: string, pieces: unknown, client_updated_at=0,declined_rules:string[]=[]) => request<Draft>('drafts', json('POST', {text, pieces, client_updated_at, declined_rules, ...clientTime()})),
   edit: (id: string, text: string, pieces: unknown, client_updated_at=0,declined_rules:string[]=[]) => request<Draft>(`drafts/${id}`, json('PATCH', {text, pieces, client_updated_at, declined_rules, ...clientTime()})),
@@ -108,15 +178,15 @@ export const api = {
   currency: (id:string, body:{amount?:string;rate?:string;estimate:boolean}) => request<Draft>(`drafts/${id}/currency`,json('POST',body)),
   claim: (id:string,claim_token?:string)=>request<{draft:Draft;claim_token:string;form:Proposal}>(`drafts/${id}/claim`,json('POST',{claim_token})),
   handForm:(id:string,claim_token:string,proposal:Proposal,sources?:string[],reason?:string)=>request<HandChecks>(`drafts/${id}/hand-form`,json('POST',{claim_token,proposal,...(sources?{sources}:{}),...(reason!==undefined?{reason}:{})})),
-  handAdd:(id:string,claim_token:string,proposal_hash:string,approved_accounts:string[])=>request<Draft>(`drafts/${id}/hand-add`,json('POST',{claim_token,proposal_hash,approved_accounts})),
+  handAdd:(id:string,claim_token:string,proposal_hash:string,approved_accounts:string[],options:WriteOptions={})=>request<Draft>(`drafts/${id}/hand-add`,{...json('POST',{claim_token,proposal_hash,approved_accounts}),...options}),
   release:(id:string,claim_token:string,proposal?:Proposal)=>request<Draft>(`drafts/${id}/release`,json('POST',{claim_token,proposal})),
   approveAccounts:(id:string,proposal_hash:string)=>request<Draft>(`drafts/${id}/approve-accounts`,json('POST',{proposal_hash})),
   resolveRefusal:(id:string,action:'edit'|'answer')=>request<Draft>(`drafts/${id}/resolve-refusal`,json('POST',{action})),
   retry: (id: string) => request<Draft>(`drafts/${id}/retry`, json('POST')),
   keepAnswer: (id: string, question_index: number, answer: string, updated_at=0) => request<Draft>(`drafts/${id}/unsent-answer`, json('PATCH', {question_index, answer, updated_at})),
-  restore: async (id: string) => {const value=await request<Draft>(`drafts/${id}/restore`, json('POST'));removed.delete(id);return value;},
+  restore: (id:string)=>request<Draft>(`drafts/${id}/restore`,json('POST')),
   cancelUpload: (id: string, token: string) => request<Draft>(`drafts/${id}/uploads/${token}`, json('DELETE')),
-  discard: async (id: string) => {const value=removed.get(id);removed.set(id,value||{id,trashed_at:new Date().toISOString()} as Draft);try{await request<void>(`drafts/${id}`, json('DELETE'));window.dispatchEvent(new Event('item-removed'));}catch(error){if(!value)removed.delete(id);throw error;}},
+  discard:(id:string)=>request<void>(`drafts/${id}`,json('DELETE')),
   remove: (id: string, file: string, claimToken?:string) => request<Draft>(`drafts/${id}/files/${file}${claimToken?'?claim_token='+encodeURIComponent(claimToken):''}`, json('DELETE')),
 };
 export const fileUrl = (id: string, file: string) => apiUrl(`drafts/${encodeURIComponent(id)}/files/${encodeURIComponent(file)}`);

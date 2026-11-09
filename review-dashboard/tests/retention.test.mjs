@@ -17,14 +17,14 @@ test('Discard suppresses later result GETs and stale list rows',async()=>{
  await new Promise(resolve=>setImmediate(resolve));assert.equal(fetched,0,'Discard must stop all subsequent result polling, including a stale list response');
 });
 test('Queue groups omit added items, order worker before FIFO, and preserve Saved for later',()=>{
- const exports={};vm.runInNewContext(compile('../app/live/drafts.tsx'),{exports,require:()=>({})});
+ const exports={};vm.runInNewContext(compile('../app/live/drafts.tsx'),{exports,require:name=>name==='./direct-writes'?{writeSnapshot:()=>[],enqueueWrite:(_path,_options,send)=>send(),committedResult:(_path,send)=>send()}:{}});
  const base={created_at:'2026-11-01T00:00:00Z',queued_at:'2026-11-01T00:00:00Z',files:[],text:'Fictional item'};
  const groups=exports.queueGroups([{...base,id:'a',state:'added'},{...base,id:'b',state:'editing'},{...base,id:'c',state:'question'},{...base,id:'d',state:'queued'},{...base,id:'e',state:'working'},{...base,id:'f',state:'queued',queued_at:'2026-11-01T01:00:00Z'}]);
  assert.equal(JSON.stringify(groups.map(g=>[g.name,g.items.map(d=>d.id)])),JSON.stringify([['Needs you',['c']],['In progress',['e','d','f']],['Saved for later',['b']]]));
 });
 test('Discard fences late reads and autosaves at the API boundary',async()=>{
  const exports={},window=new EventTarget();let reads=0,writes=0,release;
- vm.runInNewContext(compile('../app/live/api.ts'),{exports,window,Event,Date,DOMException,AbortController,setTimeout,clearTimeout,require:()=>({clientTime:()=>({})}),fetch:async(_path,options)=>{
+ vm.runInNewContext(compile('../app/live/api.ts'),{exports,window,Event,Date,DOMException,AbortController,setTimeout,clearTimeout,require:name=>name==='./direct-writes'?{writeSnapshot:()=>[],enqueueWrite:(_path,_options,send)=>send(),committedResult:(_path,send)=>send()}:{clientTime:()=>({})},fetch:async(_path,options)=>{
   if(options.method==='DELETE'){writes++;return new Response(null,{status:204});}
   reads++;return new Promise(resolve=>{release=()=>resolve(new Response(JSON.stringify({id:'f'.repeat(32),state:'editing',text:'Stale words',files:[]})));});
  }});

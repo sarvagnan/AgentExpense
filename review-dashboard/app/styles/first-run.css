@@ -70,6 +70,7 @@
 .setup-new-account { display: grid; grid-template-columns: 100px minmax(0, 1fr) 82px; gap: 10px; align-items: end; max-width: 520px; margin-top: 12px; padding: 12px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface-sunken); }
 .setup-new-account h3 { grid-column: 1 / -1; font: var(--text-body-strong); }
 .setup-new-account .field { width: 100%; }
+.setup-new-account > .action-error-slot, .setup-new-account > .action-feedback { grid-column: 1 / -1; }
 .setup-new-account .setup-new-account-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
 .setup-password { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; max-width: 420px; margin-top: 12px; }
 .setup-password label { flex: 1 1 200px; }
@@ -110,3 +111,11 @@
   .setup-footer .button { white-space: normal; text-align: center; }
   .setup-dropzone { padding: 18px 10px; }
 }
+
+/* Known import status sentences keep their reading space while saving. */
+.import-summary #import-status { min-block-size:3lh; }
+@media(max-width:760px) { .import-summary #import-status { min-block-size:7lh; } }
+
+/* Keep file text at the same width while Remove is unavailable during import. */
+.setup-file-remove-space { width:var(--control-height); height:var(--control-height); flex:none; }
+@media(max-width:760px) { .setup-file-remove-space { width:44px; height:44px; } }

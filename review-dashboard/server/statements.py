@@ -30,6 +30,10 @@ from statement_readers import Registry, RowDateError, check_statement, signed, m
 from ledger_manifest import read_manifest
 
 
+class _ReplanSession(dict):
+    """Private working copy: reader publications are deferred until replanning ends."""
+
+
 def fingerprint(root):
     return sha256(b''.join(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes() for p in [root/'ledger.json', *store_paths(root)])).hexdigest()
 
@@ -87,6 +91,8 @@ class Statements:
         return path
 
     def put(self, session, *, force=False):
+        if isinstance(session, _ReplanSession):
+            return
         with self.mutex:
             folder = self.folder(session['id'])
             folder.mkdir(exist_ok=True)
@@ -585,6 +591,7 @@ class Statements:
 
         A built-in reader reads the file again. An agent's reading is checked again
         from its saved, cited answer; the agent is never asked a second time."""
+        s = _ReplanSession(deepcopy(s))
         account = s['statement']['account']
         s['no_agent'] = True
         try:
@@ -608,13 +615,14 @@ class Statements:
         latest = self.get(s['id'], include_discarded=True)
         if latest.get('generation', 0) != s.get('generation', 0) or latest.get('discarded_until'):
             return
+        latest = s
         if latest['state'] in ('found', 'review') and 'plan' in latest:
             self.first_run_pending(latest)
             latest.update(state='applying', error=None, waiting=None)
         elif latest['state'] not in ('already_filed',):
             latest.update(state='failed' if 'plan' in latest else 'couldnt_read', error=latest.get('error') or 'This statement could not be checked again after the one before it.')
         latest.pop('no_agent', None)
-        self.put(latest)
+        self.put(dict(latest))
 
     def decide(self, identity, serial, body):
         with self.mutex:

@@ -62,6 +62,8 @@ def data_refresh_control(body: dict):
     elif mode == 'release' and hasattr(job, '_test_release'):
         job.runner = job._test_original
         job._test_release.set()
+    elif mode == 'retry':
+        job.retry()
     elif mode == 'fail':
         assert job.wait_idle(120)
         job._test_original = job.runner
@@ -328,7 +330,7 @@ def reset_review():
     # Test-only reset in a disposable repository. Production audit is append-only;
     # tests restore the complete seed before exercising the next matrix case.
     with ledger_lock(settings.ledger):
-        (settings.ledger/'data/trash.json').unlink(missing_ok=True)
+        dump(settings.ledger/'data/trash.json',[])
         shutil.rmtree(settings.ledger/'data/trash-files',ignore_errors=True)
         for path in (settings.ledger/'data/additions').glob('*.jsonl'):
             if path not in original_audit:
@@ -499,7 +501,7 @@ def finish_controls(body: dict):
     worker.pause.fail('usage_limit')
     draft=app.state.drafts.create('Copper Finch Café, finish by hand')
     form=json.loads(config.read_text())['steps'][0]['answer']
-    draft.update(state='failed',queued_at=now(),saved_at=now(),last_proposal=form,error='Usage limit',failure_kind='usage_limit')
+    draft.update(state='queued' if body.get('queued') else 'failed',queued_at=now(),saved_at=now(),last_proposal=form,error='Usage limit',failure_kind='usage_limit')
     app.state.drafts.put(draft)
     return dict(id=draft['id'])
 
@@ -763,14 +765,16 @@ def retention_confirm(body: dict):
 
 
 @app.post('/__test/retention-saved-statement')
-def retention_saved_statement():
+def retention_saved_statement(body:dict={}):
     from pypdf import PdfWriter
     import io
     data=io.BytesIO();writer=PdfWriter();writer.add_blank_page(width=200,height=200);writer.add_metadata({"/Title":"Fictional Saved for later statement"});writer.write(data)
     statements=app.state.statements
     with statements.mutex:
         session=statements.create(data.getvalue(),'Willow-saved-statement.pdf')
-        session.update(state='saved',cancelled=True);statements.put(session)
+        session.update(state='currency_mismatch' if body.get('currency_mismatch') else 'locked' if body.get('locked') else 'saved',cancelled=not bool(body.get('currency_mismatch')));
+        if body.get('currency_mismatch'): session['file_currency']=body['currency_mismatch']
+        statements.put(session)
     return dict(id=session['id'])
 
 
@@ -1016,4 +1020,38 @@ def ledger_check_control(body: dict):
 # Playwright's route.fetch keeps idle connections open indefinitely. Uvicorn's default closes
 # them after 5 s, so a reused one can be reset as it is sent (CI, 2026-11-06: ECONNRESET in a
 # held route). Keep idle connections longer than any pause in a browser run.
+
+@app.post('/__test/worker-hold')
+def hold_worker(body:dict):
+    """A controlled FIFO gate, without a sleep or a ledger lock."""
+    import threading
+    worker=app.state.worker
+    if body.get('release'):
+        if gate:=getattr(worker,'_review_gate',None): gate.set()
+        return dict(released=True)
+    entered,gate=threading.Event(),threading.Event()
+    worker._review_gate=gate
+    def wait():
+        entered.set()
+        assert gate.wait(120),'The browser must release its FIFO gate'
+    thread=threading.Thread(target=lambda:worker.call(wait,kind='browser-controlled-gate'),daemon=True)
+    thread.start()
+    assert entered.wait(10),'The FIFO gate did not start'
+    return dict(held=True)
+
+@app.post('/__test/review-action-scenario')
+def review_action_scenario():
+    from store import load, commodities
+    from review import link_pair
+    root=settings.ledger;documents=load(root);code=read_json(root/'ledger.json')['defaultCurrency']
+    declared=documents[root/'data/accounts.json'];pay='Assets:Bank:Willow Review';category='Expenses:Review Coverage'
+    declared['accounts'][pay]=meta(pay,kind='bank',currency=code,label='Willow Review')
+    declared['accounts'][category]=meta(category)
+    if code not in commodities(declared): declared['commodities'].append(code)
+    ids=['6ab4000000000001','6ab4000000000002','6ab4000000000003']
+    made=[store_entry(id=identity,date='2026-10-0'+str(index+1),description=name,status='pending' if index==2 else 'confirmed',postings=[posting(category,'12.00',code),posting(pay,'-12.00',code)]) for index,(identity,name) in enumerate(zip(ids,['Meadow receipt','Meadow earlier payment','Willow review decision']))]
+    actual={entry['id']:entry for entry in made};link_pair(actual,ids[0],ids[1],'dissimilar-name')
+    documents.setdefault(root/'data/expenses/2026.json',[]).extend(made);documents[root/'data/expenses/2026.json'].sort(key=lambda entry:entry['date'])
+    return dict(ids=ids,category=category,**update_settings(settings,lambda:documents,dict(seeded=True),'Fictional review action cases'))
+
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning',timeout_keep_alive=900)

@@ -91,7 +91,7 @@ def add_account(settings, kind, label, currency):
     return update_settings(settings, changes, result, f'Add {label} account ({currency}) in first run')
 
 
-def save_opening(settings, start, accounts, today=None):
+def save_opening(settings, start, accounts, today=None, operation_id=None):
     """Declare every account and its opening balance on `start` (the browser's date)."""
     try:
         day = date.fromisoformat(start)
@@ -124,4 +124,5 @@ def save_opening(settings, start, accounts, today=None):
         result['accounts'] = [name for name, meta in declared.items() if meta.get('kind')]
         return changed
 
-    return update_settings(settings, changes, result, f'Record opening balances for {len(rows)} account{"s" if len(rows) != 1 else ""} in first run')
+    request_hash=__import__('hashlib').sha256(json.dumps(dict(start=start,accounts=accounts),sort_keys=True).encode()).hexdigest()
+    return update_settings(settings, changes, result, f'Record opening balances for {len(rows)} account{"s" if len(rows) != 1 else ""} in first run',operation_id,request_hash)

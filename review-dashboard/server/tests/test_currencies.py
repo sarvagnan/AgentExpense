@@ -258,3 +258,35 @@ class CurrencyTests(Fixture):
         (self.ledger/'unfinished.txt').write_text('Human work')
         with self.assertRaisesRegex(ValueError,'uncommitted'):
             create_account(self.settings,'bank','Willow Current','EUR')
+
+
+class CommittedSettingsTests(Fixture):
+    def test_current_settings_read_is_locked_committed_and_makes_no_commit(self):
+        before = self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+        with self.client() as client:
+            response = client.get('/api/settings')
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['commit_id'], before)
+            self.assertEqual(response.json()['name'], read_json(self.ledger / 'ledger.json')['name'])
+        self.assertEqual(self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id'), before)
+
+    def test_current_settings_can_confirm_an_uncertain_name_write_without_writing_again(self):
+        with self.client() as client:
+            saved = client.post('/api/settings/name', json={'name': 'Fictional acknowledged ledger'})
+            self.assertEqual(saved.status_code, 200, saved.text)
+            before = self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+            current = client.get('/api/settings').json()
+            self.assertEqual(current['name'], 'Fictional acknowledged ledger')
+            self.assertEqual(current['commit_id'], before)
+            self.assertEqual(self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id'), before)
+
+    def test_current_settings_never_acknowledges_an_uncommitted_candidate(self):
+        from ledger_lock import ledger_lock
+        with self.client() as client:
+            with ledger_lock(self.ledger):
+                path = self.ledger / 'ledger.json'; value = read_json(path)
+                value['name'] = 'Fictional uncommitted candidate'; dump(path, value)
+            response = client.get('/api/settings')
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertIn('uncommitted changes', response.json()['detail'])
+            self.assertNotIn('Fictional uncommitted candidate', response.text)

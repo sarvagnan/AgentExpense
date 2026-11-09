@@ -42,6 +42,21 @@ class SettingsRecords:
         temporary.replace(path)
 
 
+def current_settings(settings, account=None):
+    """Committed metadata for an uncertain-response retry; never expose a candidate."""
+    from ledger_manifest import read_manifest
+    with ledger_lock(settings.ledger):
+        if not clean(settings.ledger):
+            raise ValueError('The ledger has uncommitted changes; finish them before checking the saved settings')
+        manifest = read_manifest(settings.ledger)
+        result = dict(name=manifest['name'], currency=manifest['defaultCurrency'],
+                      commit_id=jj(settings.ledger, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id'))
+        if account:
+            details = account_details(settings, account)
+            result.update(account=account, account_currency=details['currency'])
+        return result
+
+
 def update_currency(settings, code, account=None):
     return update_settings(settings, lambda: currency_changes(settings.ledger, code, account),
                            dict(currency=code, account=account),
@@ -80,23 +95,32 @@ def account_details(settings, account):
                 openingBalance=format(opening, 'f') if reason is None else None)
 
 
-def update_settings(settings, get_changes, result, description):
+def update_settings(settings, get_changes, result, description, operation_id=None, request_hash=None):
     from save_timing import operation
     with operation('settings'):
-        return _update_settings(settings, get_changes, result, description)
+        return _update_settings(settings, get_changes, result, description, operation_id, request_hash)
 
 
-def _update_settings(settings, get_changes, result, description):
+def _update_settings(settings, get_changes, result, description, operation_id=None, request_hash=None):
     records = SettingsRecords(settings.ledger)
     with ledger_lock(settings.ledger) as fd:
         for folder in records.root.iterdir():
             if (folder / 'transaction.json').exists():
                 draft = json.loads((folder / 'record.json').read_text())
                 Transaction(settings, records, draft).recover()
+        if operation_id:
+            path=records.folder(operation_id)/'record.json'
+            if path.exists():
+                previous=json.loads(path.read_text())
+                if previous.get('request_hash')!=request_hash:
+                    raise ValueError('This setup request changed. Check the saved accounts before starting again.')
+                if previous.get('committed_result'):
+                    return refresh(settings,previous['committed_result'])
         if not clean(settings.ledger):
             raise ValueError('The ledger has uncommitted changes; finish them before changing settings')
         changes = get_changes()
-        draft = dict(id=secrets.token_hex(16))
+        draft = dict(id=operation_id or secrets.token_hex(16))
+        if operation_id: draft['request_hash']=request_hash
         records.put(draft)
         transaction = Transaction(settings, records, draft)
         journal = transaction.snapshot([*changes, settings.ledger / 'expense_ledger.ledger'])
@@ -145,3 +169,16 @@ def create_account(settings, kind, name, currency):
         return {path: declared}
 
     return update_settings(settings, changes, dict(account=account, currency=currency), f'Add {name} account ({currency})')
+
+
+def setup_operation(settings, identity):
+    """Read or recover an identified opening transaction without resubmitting it."""
+    records=SettingsRecords(settings.ledger)
+    with ledger_lock(settings.ledger):
+        path=records.folder(identity)/'record.json'
+        if not path.exists(): return None
+        draft=json.loads(path.read_text())
+        if 'request_hash' not in draft: return None
+        transaction=Transaction(settings,records,draft)
+        if transaction.journal.exists(): transaction.recover()
+        return draft.get('committed_result')

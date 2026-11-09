@@ -64,7 +64,8 @@ async function staging(persona) {
   const {readdir,symlink}=await import('node:fs/promises');
   await mkdir(join(dash,'node_modules'));
   for(const name of await readdir(join(source,'review-dashboard/node_modules')))if(!name.startsWith('.vite'))await symlink(join(source,'review-dashboard/node_modules',name),join(dash,'node_modules',name));
-  await cp(join(source,'fixtures/ledgers',persona),ledger,{recursive:true,filter,preserveTimestamps:true});
+  if(process.env.BROWSER_LARGE==='1')await run(python,[join(source,'scripts/fixtures/generate_large.py'),'--dir',ledger,'--no-repository'],{cwd:app,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},log:join(root,'large.log')});
+  else await cp(join(source,'fixtures/ledgers',persona),ledger,{recursive:true,filter,preserveTimestamps:true});
   await readFile(join(ledger,'AGENTS.md'),'utf8');
   await writeFile(join(ledger,'.gitignore'),'/drafts/\n/.lock\n/expense_ledger.ledger\n');
   const jjConfig=join(root,'jj.toml');await writeFile(jjConfig,'[user]\nname = "Browser Fixture"\nemail = "browser@example.invalid"\n');
@@ -152,7 +153,7 @@ try {
         assert.ok((await page.title()).includes('mockup'));
         await context.close();
       }
-      await runSuite({browser:activeBrowser,engine,stage,expect,results,checkpoint,themes,capture:process.env.CAPTURE==='0'?async()=>{}:async(page,info)=>capture(page,manifest,{...info,engine,persona})});
+      await runSuite({browser:activeBrowser,engine,stage,expect,results,checkpoint,themes,capture:process.env.CAPTURE==='0'?async()=>{}:async(page,info)=>{if(!process.env.BROWSER_CAPTURE_PREFIX||info.state.startsWith(process.env.BROWSER_CAPTURE_PREFIX))await capture(page,manifest,{...info,engine,persona});}});
       await activeBrowser.close();activeBrowser=null;
       console.log(`PASS ${persona} ${engine}`);
     }

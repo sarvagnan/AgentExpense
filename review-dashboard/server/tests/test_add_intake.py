@@ -6,6 +6,7 @@ from pathlib import Path
 import threading
 import time
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 from pypdf import PdfReader, PdfWriter
 from support import Fixture, png, meta
@@ -40,6 +41,14 @@ class AddIntake(Fixture):
                 response=client.post('/api/add/interpret',json=dict(text=text))
                 self.assertEqual(response.json()['kind'],'statement',text)
             self.assertEqual(client.post('/api/add/interpret',json=dict(text='everyday lunch 12')).json()['kind'],'expense')
+
+    def test_word_interpretation_reads_atomic_documents_during_a_writer(self):
+        from transactions import ledger_lock as real_lock
+        with self.client(worker=False) as client, ThreadPoolExecutor(max_workers=1) as pool:
+            with real_lock(self.ledger), patch('store.load', side_effect=ValueError('Temporary rule link during a multi-document write')):
+                response=pool.submit(client.post, '/api/add/interpret', json=dict(text='everyday October')).result(5)
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertEqual(response.json()['kind'],'statement')
 
     def test_csv_recognition_and_continue_are_separate_and_idempotent(self):
         with self.client(worker=False) as client:

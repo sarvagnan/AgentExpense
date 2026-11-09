@@ -260,6 +260,10 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         try:
             read_manifest(settings.ledger)
         except (ValueError, OSError) as exc:
+            if request.scope['path'] == '/api/add/interpret' and isinstance(exc, (json.JSONDecodeError, OSError)):
+                # A hint may be blank during rollback; unsupported ledger
+                # formats still use the normal guard below.
+                return await call_next(request)
             from fastapi.responses import JSONResponse
             return JSONResponse({'detail': str(exc)}, status_code=409)
         return await call_next(request)
@@ -465,6 +469,14 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from adapters import status_details
         return {**gate.status(), **status_details(settings), 'agent_pause': worker.pause.status()}
 
+    @app.get('/api/settings')
+    def committed_settings(account: str | None = None):
+        from currency_settings import current_settings
+        try:
+            return current_settings(settings, account)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.post('/api/settings/name')
     def ledger_name(body: NameChange):
         from currency_settings import update_name
@@ -530,9 +542,17 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def first_run_opening(body: dict = Body(...)):
         from first_run import save_opening
         try:
-            return save_opening(settings, body.get('start'), body.get('accounts'))
+            return save_opening(settings, body.get('start'), body.get('accounts'),operation_id=body.get('operation_id'))
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+
+    @app.get('/api/setup/operations/{identity}')
+    def first_run_operation(identity:str):
+        from currency_settings import setup_operation
+        try: result=setup_operation(settings,identity)
+        except ValueError as exc: raise HTTPException(409,str(exc)) from None
+        if result is None: return dict(committed=False)
+        return result
 
     @app.post('/api/setup/statements/{identity}/account')
     def first_run_statement_account(identity: str, body: AccountSelection):
@@ -552,8 +572,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         identities = body.get('sessions')
         if not isinstance(identities, list) or not all(isinstance(i, str) for i in identities):
             raise HTTPException(422, 'Choose the read statements to import.')
-        for identity in identities:
-            statement_get(identity)
+        sessions=[statement_get(identity) for identity in identities]
+        if sessions and all(session.get('first_run') and session['state'] in ('applying','applied') for session in sessions):
+            return dict(sessions=sessions)
         try:
             require_fresh(settings.ledger)
             queued = statements.first_run_import(identities)
@@ -726,8 +747,18 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.post('/api/add/interpret')
     def interpret_words(body: dict):
         from add_intake import word_statement
-        from store import load
-        return word_statement(str(body.get('text',''))[:100000], load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'], read_manifest(settings.ledger).get('locale','en'))
+        from store import read_json
+        # These independent documents are atomically replaced. Interpretation is
+        # a hint: a concurrent commit may pair old aliases with the new locale;
+        # the save path validates the current linked store under its own lock.
+        try:
+            accounts = read_json(settings.ledger/'data/accounts.json')['accounts']
+            locale = read_manifest(settings.ledger).get('locale','en')
+        except (OSError, ValueError, KeyError, TypeError):
+            # Rollback may briefly restore an empty document. A typing hint can
+            # be blank; the locked save still validates the complete store.
+            return dict(kind='expense', account=None)
+        return word_statement(str(body.get('text',''))[:100000], accounts, locale)
 
     async def intake_body(request):
         # Avoid validation errors echoing passwords into responses or diagnostics.

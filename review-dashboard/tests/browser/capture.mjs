@@ -5,6 +5,7 @@ export const shots = resolve(process.env.BROWSER_SHOTS || join(process.env.AGENT
 assert.ok(shots.startsWith('/tmp/') || shots.startsWith('/private/tmp/'),'Browser captures must stay under /tmp');
 const escape = value => String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 export async function capture(page, manifest, info) {
+  const scroll=await page.evaluate(()=>({x:scrollX,y:scrollY}));
   await mkdir(shots,{recursive:true});
   const name=[info.engine,info.persona,info.state,info.theme,info.width].join('-');
   const file=name+'.png';
@@ -16,7 +17,7 @@ export async function capture(page, manifest, info) {
     // Fixed phone controls belong at the document foot in a full-page companion.
     const style=await page.addStyleTag({content:'.skip-link{position:absolute!important}@media(max-width:760px){body{position:relative}.phone-live-nav{position:absolute!important;top:auto!important;bottom:0!important}.phone-more-views{position:absolute!important;top:auto!important;bottom:calc(var(--live-nav-height,64px) + 12px)!important}.add-savebar{position:absolute!important;top:auto!important;bottom:var(--live-nav-height,64px)!important}}'});
     try {await page.screenshot({path:join(shots,full),fullPage:true,animations:'disabled'});}
-    finally {await style.evaluate(node=>node.remove());}
+    finally {await style.evaluate(node=>node.remove());await page.evaluate(({x,y})=>window.scrollTo(x,y),scroll);}
   }
   const entry={...info,file,full,route:new URL(page.url()).pathname+new URL(page.url()).search};
   manifest.push(entry);

@@ -17,14 +17,18 @@ export type DataStatus = {version:number;epoch?:string;generation:string|null;da
 export let dataStatus:DataStatus|null = null;
 let backendStatus:DataStatus|null=null, publishedGeneration:string|null|undefined;
 const retiredEpochs=new Set<DataStatus['epoch']>();
+let departure=0;
+function fence(visit:number){if(leaving||visit!==departure)throw Object.assign(new Error('The page left before the read completed.'),{name:'AbortError'});}
 export async function retryDataRefresh() {
+  const visit=departure;
   try {
-    const response=await fetch(`${import.meta.env.BASE_URL}api/data-refresh`,{method:'POST'});
+    const response=await fetch(`${import.meta.env.BASE_URL}api/data-refresh`,{method:'POST',keepalive:true});fence(visit);
     if(!response.ok)throw new Error('The saved views could not refresh.');
-    const status:unknown=await response.json();
+    const status:unknown=await response.json();fence(visit);
     if(!validStatus(status))throw new Error('The saved views could not refresh.');
     observeDataStatus(status);
   } catch(error) {
+    if(leaving||visit!==departure)return;
     if(dataStatus){dataStatus={...dataStatus,data_stale:true,refresh_error:error instanceof Error?error.message:String(error)};notifyStatus();}
   }
 }
@@ -48,18 +52,18 @@ export function observeDataStatus(status?:DataStatus, refresh=true) {
   clearTimeout(readyTimer);readyTimer=undefined;
   if(status.data_stale && !status.refresh_error && !document.hidden&&!statusReading)pollReadiness();
   else if(refresh&&!status.data_stale&&dataStatus.data_stale)void reloadData().catch(()=>{
-    if(dataStatus){dataStatus={...dataStatus,data_stale:true,refresh_error:'The saved views could not load.'};notifyStatus();}
+    if(!leaving&&dataStatus){dataStatus={...dataStatus,data_stale:true,refresh_error:'The saved views could not load.'};notifyStatus();}
   });
 }
 async function checkDataReady() {
   if(statusReading||leaving)return;statusReading=true;
-  let failed=false;
-  try {const response=await fetch(`${import.meta.env.BASE_URL}api/data-status`,{cache:'no-store'});if(!response.ok)throw new Error('Data status unavailable');const next:unknown=await response.json();if(!validStatus(next))throw new Error('Invalid data status');observeDataStatus(next);}
+  let failed=false;const visit=departure;
+  try {const response=await fetch(`${import.meta.env.BASE_URL}api/data-status`,{cache:'no-store',keepalive:true});fence(visit);if(!response.ok)throw new Error('Data status unavailable');const next:unknown=await response.json();fence(visit);if(!validStatus(next))throw new Error('Invalid data status');observeDataStatus(next);}
   catch {failed=true;}
   finally {statusReading=false;pollReadiness(failed?2000:250);}
 }
 if(typeof window!=='undefined') {
-  window.addEventListener('pagehide',()=>{leaving=true;clearTimeout(readyTimer);readyTimer=undefined;});
+  window.addEventListener('pagehide',()=>{leaving=true;departure++;clearTimeout(readyTimer);readyTimer=undefined;});
   window.addEventListener('pageshow',()=>{leaving=false;if(dataStatus?.data_stale)void checkDataReady();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(readyTimer);readyTimer=undefined;}else if(dataStatus?.data_stale)void checkDataReady();});
 }
@@ -74,15 +78,17 @@ export function setData(next: { dashboard: DashboardData; review: ReviewData; fu
 }
 
 export async function fetchGzipJson<T>(name: string, generation:string|null|undefined=publishedGeneration): Promise<T> {
-  const response = await fetch(`${import.meta.env.BASE_URL}${generation?`api/data/${generation}/`:'data/'}${name}.json.gz`, { cache: 'no-store' });
+  const visit=departure;fence(visit);
+  const response = await fetch(`${import.meta.env.BASE_URL}${generation?`api/data/${generation}/`:'data/'}${name}.json.gz`, { cache: 'no-store', keepalive:true });fence(visit);
   if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const buffer=await response.arrayBuffer();fence(visit);
+  const bytes = new Uint8Array(buffer);
   // Static servers send .gz as application/gzip; if one decoded it already, the gzip magic bytes are gone.
   const gzipped = bytes[0] === 0x1f && bytes[1] === 0x8b;
   // WebKit may back Blob.stream() with a document-bound blob URL. A refresh
   // finishing during navigation must decode bytes without that retired origin.
   const body = new ReadableStream<BufferSource>({start(controller) { controller.enqueue(bytes); controller.close(); }});
-  const text = await new Response(gzipped ? body.pipeThrough(new DecompressionStream('gzip')) : body).text();
+  const text = await new Response(gzipped ? body.pipeThrough(new DecompressionStream('gzip')) : body).text();fence(visit);
   return JSON.parse(text) as T;
 }
 
@@ -100,10 +106,12 @@ function waitForInitialReady() {
 export async function loadData() {
  for(;;) {
   if(leaving){if(dashboard)return;await waitForInitialReady();continue;}
+  const visit=departure;
+  try{
   let status:DataStatus|null=null;
-  const response=await fetch(`${import.meta.env.BASE_URL}api/data-status`,{cache:'no-store'});
+  const response=await fetch(`${import.meta.env.BASE_URL}api/data-status`,{cache:'no-store',keepalive:true});fence(visit);
   if(!response.ok&&response.status!==404)throw new Error(`data-status: HTTP ${response.status}`);
-  const value:unknown=response.ok?await response.json().catch(()=>null):null;
+  const value:unknown=response.ok?await response.json().catch(()=>null):null;fence(visit);
   if(leaving){if(dashboard)return;await waitForInitialReady();continue;}
   if(validStatus(value))status=value;
   else if(backendStatus)throw new Error('The saved views are temporarily unavailable.');
@@ -115,8 +123,11 @@ export async function loadData() {
     fetchGzipJson<DashboardData>('dashboard',generation),
     fetchGzipJson<ReviewData>('pending-transactions',generation),
   ]);
+  fence(visit);
   const fuel = hasExtension(loadedDashboard.meta.ledger, 'fuel') ? await fetchGzipJson<FuelData>('fuel-log',generation) : {meta: {}, entries: []};
+  fence(visit);
   if (hasExtension(loadedDashboard.meta.ledger, 'fuel')) await import('./styles/fuel.css');
+  fence(visit);
   if(leaving){if(dashboard)return;await waitForInitialReady();continue;}
   const pending=backendStatus?.data_stale&&backendStatus.updating&&!backendStatus.refresh_error;
   if(status&&backendStatus&&(backendStatus.generation!==generation||backendStatus.data_stale&&(!!dashboard||pending))){
@@ -127,6 +138,7 @@ export async function loadData() {
   if(backendStatus)dataStatus={...backendStatus};
   setData({ dashboard:loadedDashboard, review, fuel });
   return;
+  }catch(error){if(!leaving&&visit===departure)throw error;if(dashboard)return;await waitForInitialReady();}
  }
 }
 

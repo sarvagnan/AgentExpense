@@ -44,6 +44,17 @@ class LedgerBusy(ValueError):
 
 class ProposalError(ValueError):
     """An agent can correct this error; infrastructure errors must not be retried."""
+    def __init__(self, message):
+        text = str(message)
+        if 'cost must be in a different commodity' in text:
+            text = 'A cost uses a different currency from its posting. For the same currency, remove the cost.'
+        elif 'total cost needs a non-zero amount' in text:
+            text = 'A posting with a total cost needs an amount other than zero.'
+        elif 'Value error, ' in text:
+            text = text.split('Value error, ', 1)[1].split(' [type=', 1)[0]
+        elif any(raw in text for raw in ('validation error', 'input_value=', 'https://errors.pydantic', 'String should match pattern')):
+            text = 'Please check the entry’s accounts, dates and amounts, then check the entry again.'
+        super().__init__(text)
 
 
 def jj(root, *args):

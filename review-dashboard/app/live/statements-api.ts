@@ -1,4 +1,4 @@
-import {request,removedItem,rememberRemoved,forgetRemoved,isRemoved} from './api';
+import {request,keepPendingItems,pendingRemovalItem,isRemovalPending,removedItem,rememberRemoved,forgetRemoved,isRemoved} from './api';
 import {clientTime} from '../date-time';
 export type StatementRow = {date:string;serial:string;description:string;amount:string;direction:'Debit'|'Credit';page:number;citation?:{page?:number;line?:number;sheet?:string;row?:number};balance?:string|null;reference?:string|null;disposition?:string;foreignAmount:string|null;foreignCurrency:string|null;entry_id?:string;entry_description?:string;conversion_notes?:string[]};
 export type Decision = {action:'match';entry_id:string}|{action:'account'|'pending';account?:string}|{action:'reset'|'conversion'};
@@ -11,8 +11,8 @@ export const statementsApi={
  mapping:(id:string,enabled:boolean)=>request<StatementSession>(`statements/${id}/mapping`,json('POST',{enabled})),
  retry:(id:string)=>request<StatementSession>(`statements/${id}/retry`,json('POST')),
  assign:(id:string,account:string)=>request<StatementSession>(`statements/${id}/account`,json('POST',{account})),
- list:(signal?:AbortSignal)=>request<StatementList>('statements',{signal}),
- get:async(id:string,signal?:AbortSignal)=>{if(isRemoved(id))return removedItem<StatementSession>(id)!;const result=await request<StatementSession>(`statements/${id}`,{signal});if(result.trashed_at)rememberRemoved(result);return removedItem<StatementSession>(id)||result;},
+ list:async(signal?:AbortSignal)=>{const value=await request<StatementList>('statements',{signal});return {...value,sessions:keepPendingItems('statements',value.sessions)};},
+ get:async(id:string,signal?:AbortSignal)=>{if(isRemoved(id))return removedItem<StatementSession>(id)!;const pending=pendingRemovalItem<StatementSession>(id);if(pending)return pending;const result=await request<StatementSession>(`statements/${id}`,{signal});if(result.trashed_at&&!isRemovalPending(id))rememberRemoved(result);return removedItem<StatementSession>(id)||keepPendingItems('statements',[result])[0];},
  upload:(file:File,token:string,signal?:AbortSignal)=>{const data=new FormData();data.append('file',file);data.append('upload_id',token);for(const [key,value] of Object.entries(clientTime()))data.append(key,value);return request<StatementSession>('statements',{method:'POST',body:data,signal},120000);},
  cancelUpload:(token:string)=>request<void>(`statements/uploads/${token}`,json('DELETE')),
  cancelApply:(id:string)=>request<StatementSession>(`statements/${id}/cancel`,json('POST')),
@@ -21,8 +21,8 @@ export const statementsApi={
  review:(id:string)=>request<StatementSession>(`statements/${id}/review`,json('POST')),
  decide:(id:string,serial:string,body:Decision)=>request<StatementSession>(`statements/${id}/rows/${serial}`,json('PATCH',body)),
  apply:(id:string)=>request<StatementSession>(`statements/${id}/apply`,json('POST')),
- discard:async(id:string)=>{const previous=removedItem<StatementSession>(id);rememberRemoved(previous||{id});try{await request<void>(`statements/${id}`,json('DELETE'));}catch(error){if(!previous)forgetRemoved(id);throw error;}},
- restore:async(id:string)=>{const result=await request<StatementSession>(`statements/${id}/restore`,json('POST'));forgetRemoved(id);return result;},
+ discard:(id:string)=>request<void>(`statements/${id}`,json('DELETE')),
+ restore:(id:string)=>request<StatementSession>(`statements/${id}/restore`,json('POST')),
  filed:(end:string,signal?:AbortSignal,account?:string)=>request<{summary:Summary;rows:StatementRow[]}>(`statements/filed/${end}${account?`?account=${encodeURIComponent(account)}`:''}`,{signal}),
  handover:(id:string)=>request<StatementSession>(`drafts/${id}/statements`,json('POST')),
 };

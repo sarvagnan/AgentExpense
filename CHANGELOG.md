@@ -12,6 +12,36 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Hand Retry sends a claimed queued draft again; worker recovery checks acceptance for each operation. Statement Apply keeps other sessions usable, survives a lost Cancel response (including a return after off-screen confirmation) and announces cancellation once. Missing result records end polling with an honest unknown-outcome notice; temporary read failures keep retrying. Statements filed elsewhere point to their stored reconciliation.
+
+- Page completion clears the local error belonging to a committed Retry, including receipt choices, Queue details, retention and first-run forms. Receipt completion refreshes once and retains newer composer words. Browser action coverage rejects Saved beside its own stale alert.
+
+- Successful statement Discard replays clear the old refusal and show their Trash destination, including shelf and recovery retries. A connected control chosen during Discard keeps focus.
+
+- Direct actions share immediate pending feedback and an ordered browser save
+  queue, with explicit retry/reload recovery. Forms retain newer typing across
+  late replies, including Add restoration. Cost refusals explain positive costs
+  and negative refund amounts in plain words. First-run account forms retain
+  newer fields through creation. Worker acceptance releases the page FIFO (except statement Apply) while
+  committed-result polling stays pending; terminal refusals retain their reasons.
+  Feedback is owned by its form/item, coalescing keeps the newest resource choice,
+  and all retry paths share removal/restore completion effects. Background word
+  interpretation reads only atomic accounts/locale documents without a writer lock. Retained form setters stay stable
+  while typing, so opening-balance initialization does not restart each render.
+  Recovery clears submitted values after unmount, expires after 24 hours, retains
+  rule versions and clears on Cancel/Back. Setup opening operations replay their
+  committed result, hand retries reclaim/check their form, and data reads fence
+  document departure with keepalive transports. Review keeps acknowledged fields
+  visible before refreshed decisions arrive; statement feedback and setup status
+  text retain space through longer failure reasons. Bill removal retries its own
+  operation, and a reopened failed account-currency form keeps its submitted choice.
+  Late already-paid guards retain the usual-payment action’s position. Slot Retry
+  replays its job instead of newer form values. Recovered retries retain worker
+  callbacks, failed polls stay pending, cancellation keeps the checklist quietly,
+  and statement Apply prevents later writes overtaking it. First-run replanning
+  publishes no transient found state; kept fields and versions clear as a group,
+  and typing hints survive rollback-time read failures.
+
 - Saves share an in-process Python verifier with terminal `make commit`, reuse
   validated entries and account balance histories, and refresh whole dashboard
   generations in the background. External changes invalidate the baseline;

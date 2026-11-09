@@ -35,7 +35,7 @@ export async function guard(route, work) {
  * rejects if one cannot be fetched (or none arrives within `limit` ms); `release()` lets
  * them through and rethrows a failure, unless it only says the page or request is gone.
  */
-export async function hold(page, pattern, {method = 'GET', count = 1, transform = null, limit = 120000} = {}) {
+export async function hold(page, pattern, {method = 'GET', count = 1, transform = null, accept = null, limit = 120000} = {}) {
   let resolveReady, rejectReady, open;
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
   const gate = new Promise(resolve => open = resolve);
@@ -46,6 +46,7 @@ export async function hold(page, pattern, {method = 'GET', count = 1, transform 
     let fetched = false;
     const task = guard(route, async () => {
       const response = await fetchRoute(route); let body = await response.body();
+      if (accept && !accept(body,response)) {seen--;fetched=true;await route.fulfill({response,body});return;}
       if (transform) body = await transform(body, response);
       fetched = true; if (++completed === count) resolveReady();
       await gate; await route.fulfill({response, body});

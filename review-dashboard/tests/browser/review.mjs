@@ -61,15 +61,16 @@ export async function runReview({browser,context,page,base,persona,engine,theme,
  await open();dialog=page.getByRole('dialog');await expect(dialog.getByLabel('Notes (optional)',{exact:true})).toHaveValue('Checked invented receipt');
  // Deliver the successful commit with an unreadable response: the app must keep
  // its recovery request, then safely retry the same ID after document reload.
- const forwarded=[];
- await page.route('**/api/review/actions',forward(page,async(response,route)=>{assert.ok(response.ok(),'The resolve commit succeeded');await route.fulfill({status:200,contentType:'application/json',body:'{'});},{failures:forwarded,fetch:{timeout:180000}}),{times:1});
+ const forwarded=[];let submittedRequest;
+ await page.route('**/api/review/actions',forward(page,async(response,route)=>{assert.ok(response.ok(),'The resolve commit succeeded');submittedRequest=route.request().postDataJSON();await route.fulfill({status:200,contentType:'application/json',body:'{'});},{failures:forwarded,fetch:{timeout:180000}}),{times:1});
  await dialog.getByRole('button',{name:'Resolve',exact:true}).click();
- await expect(page.locator('[aria-label="Unsent review"]')).toBeVisible();
+ const failed=dialog.locator('.action-feedback [data-action-state="failed"]');await expect(failed).toBeVisible();await expect(failed.getByRole('button',{name:'Retry',exact:true})).toBeEnabled();await expect(dialog.getByLabel('Notes (optional)',{exact:true})).toHaveValue('Checked invented receipt');
+ const manifest=JSON.parse(await readFile(join(stage.ledger,'ledger.json'))),outboxKey=(manifest.review?.storageKey||`agentexpense-review-v2:${manifest.id}`)+':outbox';assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),outboxKey),submittedRequest,'The active form retains the exact request, without inserting a recovery panel');await expect(page.locator('[aria-label="Unsent review"]')).toHaveCount(0);
  await expect(dialog.getByRole('button',{name:'Resolve',exact:true})).toBeEnabled({timeout:180000});
  assert.deepEqual(forwarded,[],'The forwarded resolve reached the server');
- await go('review/');await expect(page.locator('[aria-label="Unsent review"]')).toBeVisible();
+ await go('review/');await expect(page.locator('[aria-label="Unsent review"]')).toBeVisible();assert.equal((await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),outboxKey)).request_id,submittedRequest.request_id);
  await page.getByRole('button',{name:'Retry saved request',exact:true}).click();await expect(page.locator('[aria-label="Unsent review"]')).toHaveCount(0,{timeout:180000});await waitCount(initialCount-1);
- state=await get();assert.equal(state.entries[entry.id].status,'confirmed');assert.equal(state.entries[entry.id].description,'Willow learning');
+ assert.equal(await page.evaluate(key=>localStorage.getItem(key),outboxKey),null);state=await get();assert.equal(state.entries[entry.id].status,'confirmed');assert.equal(state.entries[entry.id].description,'Willow learning');
  assert.equal(state.history.filter(h=>h.action==='resolve'&&h.changes.some(c=>c.entry_id===entry.id)).length,1);
  record('5 Follow-up retains entry; Resolve saves account/label/notes; reload retries a lost response exactly once');
  // Export an actual file, restore the disposable baseline, import and preview

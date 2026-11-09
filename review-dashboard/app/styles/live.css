@@ -530,13 +530,13 @@ html:has(.add-page){overflow-anchor:none}
 .trash-remove-list li+li{margin-top:8px}
 .trash-remove-list p{margin:2px 0 0;color:var(--text-secondary);overflow-wrap:anywhere}
 .notice-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:8px}
-.trash-row{padding:var(--space-4);display:flex;justify-content:space-between;gap:var(--space-4);border-bottom:1px solid var(--separator)}
-.trash-row h2{font:var(--text-headline);overflow-wrap:anywhere}
-.trash-row p{margin-top:var(--space-2)}
-.trash-row .trash-refusal{margin:var(--space-3) 0 0}.trash-row .trash-refusal p{margin-top:2px}
-.trash-row[data-selected="true"]{background:var(--selection-fill-inactive);box-shadow:inset 3px 0 var(--accent)}
+:is(.trash-row,.trash-result-row){padding:var(--space-4);display:flex;justify-content:space-between;gap:var(--space-4);border-bottom:1px solid var(--separator)}
+:is(.trash-row,.trash-result-row) h2{font:var(--text-headline);overflow-wrap:anywhere}
+:is(.trash-row,.trash-result-row) p{margin-top:var(--space-2)}
+:is(.trash-row,.trash-result-row) .trash-refusal{margin:var(--space-3) 0 0}:is(.trash-row,.trash-result-row) .trash-refusal p{margin-top:2px}
+:is(.trash-row,.trash-result-row)[data-selected="true"]{background:var(--selection-fill-inactive);box-shadow:inset 3px 0 var(--accent)}
 .trash-actions{display:flex;align-items:flex-start;gap:var(--space-2);flex-shrink:0}
-@media(max-width:760px){.queue-table .draft-row{padding:var(--space-3)}.queue-heading{padding:var(--space-3)}.trash-row{display:block}.trash-actions{margin-top:var(--space-3)}.queue-amount{font-size:13px}}
+@media(max-width:760px){.queue-table .draft-row{padding:var(--space-3)}.queue-heading{padding:var(--space-3)}:is(.trash-row,.trash-result-row){display:block}.trash-actions{margin-top:var(--space-3)}.queue-amount{font-size:13px}}
 .queue-table section>ul{list-style:none;margin:0;padding:0}
 
 /* Settings grows downward only: a limit's effect appears under its own selector, and a
@@ -579,3 +579,49 @@ html:has(.add-page){overflow-anchor:none}
 
 .data-refresh-notice { position: fixed; z-index: 60; bottom: calc(var(--live-bottom-space, 0px) + 1rem); right: 1rem; max-width: min(32rem, calc(100vw - 2rem)); padding: .6rem .9rem; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface-sunken); box-shadow: var(--shadow-popover); font-size: .85rem; pointer-events:none; }
 .data-refresh-notice .text-button { pointer-events:auto; }
+
+/* Acknowledgements have a permanent place after the action, never above input. */
+.action-feedback { min-block-size: 4.75rem; padding-block: .5rem; }
+.action-state { display: flex; align-items: flex-start; gap: .75rem; min-inline-size: 0; }
+.action-state > span { flex: 1; overflow-wrap: anywhere; }
+.action-state.failed, .action-state.interrupted { color: var(--text); }
+.action-state .button { flex: none; }
+.pending-actions { position: fixed; inset-inline-end: 1rem; inset-block-end: max(5rem, calc(var(--live-bottom-space, 0px) + 1rem)); z-index: 85; max-inline-size: min(24rem, calc(100vw - 2rem)); background: var(--surface); color: var(--text); border: 1px solid var(--control-border); border-radius: var(--radius-panel); }
+.pending-actions summary { cursor: pointer; padding: .5rem .75rem; }
+.pending-actions details > div { max-block-size: 35vh; overflow: auto; padding: .75rem; }
+.pending-actions details > div > div { padding-block: .5rem; }
+.pending-actions a { margin-inline-end: .75rem; }
+/* A form already carries this feedback. Keep its controls clear; the shelf
+   returns automatically when navigation removes the local active slot. */
+/* The shelf keeps unrelated work reachable even while a form has its own status. */
+.button:active:not(:disabled), .icon-button:active:not(:disabled) { filter: brightness(.9); }
+
+.action-error-slot { block-size: 3.5rem; overflow: auto; }
+.action-feedback { max-block-size: 4.75rem; overflow: auto; }
+.dialog-footer .button.primary, .detail-footer .button.primary { min-inline-size: 16ch; }
+
+.trash-error-slot { block-size: 5rem; overflow: auto; }
+.dialog-footer .destructive-filled, .review-action-row .primary { min-inline-size: 16ch; }
+.dialog > .action-feedback, .settings-form > .action-feedback { padding-inline: var(--space-4); }
+
+.trash-actions .button { min-inline-size: 12ch; }
+.trash-outcome { min-block-size: 2lh; }
+
+.pending-label { display: inline-grid; }
+.pending-label > span, .pending-label::before, .pending-label::after { grid-area: 1 / 1; }
+.pending-label::before { content: "Saving…"; visibility: hidden; }
+.pending-label::after { content: attr(data-label); visibility: hidden; }
+
+.action-state > span:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 600px) { .action-state > span { border-inline-end: 2px dotted var(--control-border); padding-inline-end: .4rem; } }
+
+.action-scroll-cue { display: none; }
+@media (max-width:600px) { .action-state.failed, .action-state.interrupted { position:relative; padding-block-end:.8rem; } .action-state.failed > span, .action-state.interrupted > span { max-block-size:2.7rem; overflow:auto; } .action-scroll-cue { display:block; position:absolute; inset-block-end:0; inset-inline-start:0; font-size:.65rem; } }
+
+/* Feedback uses its own row, so a longer refusal cannot wrap the actions. */
+.statement-session-heading.panel-header { display:grid; grid-template-columns:minmax(0,1fr) auto; }
+.statement-session-heading > .action-feedback { grid-column:1 / -1; grid-row:2; min-width:0; }
+.statement-session-heading > .statement-actions { grid-column:2; grid-row:1; align-self:start; }
+@media(max-width:760px) { .statement-session-heading.panel-header { grid-template-columns:minmax(0,1fr); } .statement-session-heading > .statement-actions { grid-column:1; grid-row:2; } .statement-session-heading > .action-feedback { grid-row:3; } }
+/* Background publication must not cover an open dialog's fields or actions. */
+body:has(.dialog-layer) .data-refresh-notice { z-index:49; }

@@ -1,3 +1,4 @@
+import {useWriteOwner} from './pending-actions';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { dashboard, fetchGzipJson, reloadData } from '../data';
 import { clientTime, localDate } from '../date-time';
@@ -25,23 +26,27 @@ export function useRules(online:boolean|null) {
   return {data,error,ready,refresh};
 }
 /** Preserve operation identity after an uncertain response; a changed payload gets a new identity. */
-export function useRuleOperation(onSaved?:()=>void|Promise<void>) {
+export function useRuleOperation(onSaved?:()=>void|Promise<void>,resource='page',resume=true) {
+  const owner=useWriteOwner(`rule:${resource}`,resume);
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const retry=useRef<{signature:string;id:string;body:object}|null>(null),running=useRef(false);
-  async function operate(body:object) {
-    if(running.current)return false;
+  const inFlight=useRef(new Set<string>()),lastBody=useRef<object|null>(null);
+  useEffect(()=>{const saved=(event:Event)=>{const detail=(event as CustomEvent<{path:string;previousReason:string}>).detail;if(detail?.path===`rules/operations/${retry.current?.id}`&&detail.previousReason)setError(current=>current===detail.previousReason?'':current);};window.addEventListener('direct-write-saved',saved);return()=>window.removeEventListener('direct-write-saved',saved);},[]);
+  async function operate(body:object,clearRetained?:Record<string,string|null>) {
     const signature=JSON.stringify(body);
+    if(inFlight.current.has(signature))return false;
+    inFlight.current.add(signature);lastBody.current=body;
     if(retry.current?.signature!==signature)retry.current={signature,id:crypto.randomUUID().replaceAll('-',''),body:{...body,...clientTime()}};
     running.current=true;setBusy(true);setError('');
     try {
-      const result=await request<{data_stale?:boolean;data_pending?:boolean}>('rules/operations/'+retry.current.id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(retry.current.body)},120000);
-      retry.current=null;
+      const result=await request<{data_stale?:boolean;data_pending?:boolean}>('rules/operations/'+retry.current.id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(retry.current.body),writeOwner:owner,clearRetained},120000);
+      if(retry.current?.signature===signature)retry.current=null;
       try {await reloadData();await onSaved?.();}
       catch {setError('Saved. The dashboard could not refresh; use Refresh rules to load the saved change.');}
       draftsChanged();
       if(result.data_stale&&!result.data_pending)setError('Saved. Dashboard refresh is still needed.');
       return true;
-    }catch(e){setError((e as Error).message);return false;}finally{running.current=false;setBusy(false);}
+    }catch(e){setError((e as Error).message);return false;}finally{inFlight.current.delete(signature);running.current=inFlight.current.size>0;setBusy(running.current);}
   }
-  return {operate,busy,error};
+  return {operate,busy,error,owner,retry:()=>lastBody.current?operate(lastBody.current):Promise.resolve(false)};
 }

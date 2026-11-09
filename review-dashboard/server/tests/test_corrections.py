@@ -53,7 +53,7 @@ class CorrectionTests(Fixture):
         for field in ['Edit Willow corrected via dashboard','Entry: '+before['id'],'Changed: ','Reason: "','Rule: kept','Evidence: Bills/2027-01-02/Willow.png','Draft: '+op,'Added-by: user (correction)']: self.assertIn(field,message)
         shutil.rmtree(self.ledger/'drafts/corrections')
         self.assertTrue(self.save(before,body,op)['replayed']);self.assertTrue(clean(self.ledger))
-        with self.assertRaisesRegex(ValueError,'different correction'): self.save(before,{**body,'reason':'different'},op)
+        with self.assertRaisesRegex(ValueError,'Open the saved entry and compare'): self.save(before,{**body,'reason':'different'},op)
 
     def test_stale_and_untouched_forms_are_refused(self):
         e=self.seed();body=self.body(e)

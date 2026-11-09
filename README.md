@@ -13,6 +13,10 @@ The application and your ledger are two separate repositories: the application h
 no personal data, so updates never touch your records except through checked ledger
 migrations.
 
+Direct actions show their pending result in place. Retry replays the saved request;
+its committed result clears that action’s earlier refusal and keeps newer words.
+The pending shelf makes the same recovery available after navigation or reload.
+
 ## Quick start
 
 You need Python 3.11+, uv, fnm and Jujutsu (jj), which ledger saves commit through

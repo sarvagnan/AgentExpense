@@ -7,11 +7,12 @@ import { paymentAccounts } from '../../scripts/account-metadata.mjs';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {fetchGzipJson} from '../data';
 import {announce} from '../ui';
-import {api,isRemoved, ApiError, request, upload, type Attachment, type Draft} from './api';
+import {api,isRemoved,isRemovalPending, ApiError, request, upload, type Attachment, type Draft} from './api';
 import {buildSentence, draftPieces, type PatternData} from './builder';
 import {readStored, writeStored, findRecoveryDraft, restorePieceEdits} from './persistence';
 import {draftsChanged} from './use-drafts';
 const KEY='ledger-add-v1';
+type UsualRequest={rule_id:string;date:string;amount?:string;update_rule?:boolean;account?:string;remember_account?:boolean;another_anyway?:boolean;amount_anyway?:boolean;bill_only?:boolean;pay_by?:string};
 type Recovery={updatedAt?:number;id:string|null;text:string;edits:Record<string,string>;declined_rules?:string[];fileChoices?:Record<string,FileChoice>;uploads?:{key:string;name:string;error:string;cancelled?:boolean}[]};
 export type Pending={key:string;name:string;file?:File;progress:number;error:string;busy:boolean;cancelled?:boolean;controller?:AbortController};
 const blank=():Recovery=>({id:null,text:'',edits:{},declined_rules:[]});
@@ -31,7 +32,7 @@ export function useComposer(active:boolean){
   const built=useMemo(()=>buildSentence(form.text,{...patterns,extensions:dashboard.meta.ledger.extensions,payments:paymentAccounts(dashboard.meta.accounts)},form.edits,!!draft?.files.length),[form,patterns,draft?.files.length,dashboard.meta.accounts]);
   const builtRef=useRef(built);builtRef.current=built;
   function persist(next=current.current,items=uploads.current){setLocalOK(writeStored(KEY,{...next,uploads:items.map(p=>({key:p.key,name:p.name,error:p.error,cancelled:p.cancelled}))}));}
-  function update(next:Recovery){if(next.id&&next.id===current.current.id)next={...next,declined_rules:[...new Set([...(current.current.declined_rules||[]),...(next.declined_rules||[])])]};if(next.text!==current.current.text || JSON.stringify(next.edits)!==JSON.stringify(current.current.edits) || JSON.stringify(next.declined_rules)!==JSON.stringify(current.current.declined_rules))next={...next,updatedAt:Math.max(Date.now(),(current.current.updatedAt||0)+1)};current.current=next;setForm(next);setSuccess('');persist(next);}
+  function update(next:Recovery){if(next.text!==current.current.text&&(!next.id||next.id!==current.current.id))setDirectPath(null);if(next.id&&isRemovalPending(next.id)){next={...next,id:null};setDraft(null);setDirectPath(null);}if(next.id&&next.id===usualRetry.current?.id&&fingerprint(next)!==fingerprint(usualRetry.current.submitted)){next={...next,id:null};setDraft(null);setDirectPath(null);}if(next.id&&next.id===current.current.id)next={...next,declined_rules:[...new Set([...(current.current.declined_rules||[]),...(next.declined_rules||[])])]};if(next.text!==current.current.text || JSON.stringify(next.edits)!==JSON.stringify(current.current.edits) || JSON.stringify(next.declined_rules)!==JSON.stringify(current.current.declined_rules))next={...next,updatedAt:Math.max(Date.now(),(current.current.updatedAt||0)+1)};current.current=next;setForm(next);setSuccess('');persist(next);}
   function changeUploads(fn:(xs:Pending[])=>Pending[]){const next=fn(uploads.current);uploads.current=next;setPending(next);persist(current.current,next);}
   useEffect(()=>{if(!active)return;let alive=true;void fetchGzipJson<PatternData>('add-patterns').then(x=>{if(alive)setPatterns(x);},()=>{if(alive)setPatternError('History suggestions are unavailable. You can still describe the expense.');});return()=>{alive=false;};},[active]);
   async function ensureDraft():Promise<Draft>{
@@ -60,21 +61,35 @@ export function useComposer(active:boolean){
     restoration.current=task;return task;
   }
   async function restoreSnapshot(requested?:string|null):Promise<void>{
-    const run=++generation.current;
+    const run=++generation.current,started=current.current;
     let id=requested||current.current.id;
     try{
-      if(!id){const list=await api.list();if(run!==generation.current || current.current.id)return;id=findRecoveryDraft(current.current,list)?.id||null;}
+      if(!id){const list=await api.list();if(run!==generation.current || current.current.id || current.current!==started)return;id=findRecoveryDraft(current.current,list)?.id||null;}
       if(!id)return;
       setRecovering(true);const ticket=++fileRequest.current;const d=await api.get(id);if(run!==generation.current)return;
+      const edited=current.current!==started;
       if(d.state==='editing'&&!d.intake_complete&&!d.trashed_at){
-        if(ticket===fileRequest.current)setDraft(d);
-        if(id!==current.current.id || (d.client_updated_at||0)>(current.current.updatedAt||0) || (!current.current.text && !Object.keys(current.current.edits).length)){
+        if(edited&&!current.current.id&&(!started.id||started.id===id))update({...current.current,id});
+        if(ticket===fileRequest.current&&current.current.id===id||!edited&&ticket===fileRequest.current)setDraft(d);
+        if(!edited&&(id!==current.current.id || (d.client_updated_at||0)>(current.current.updatedAt||0) || (!current.current.text && !Object.keys(current.current.edits).length))){
           const next={id,updatedAt:d.client_updated_at||0,text:d.text,edits:restorePieceEdits(d.pieces),fileChoices:current.current.id===id?current.current.fileChoices:undefined,declined_rules:d.declined_rules||[]};current.current=next;setForm(next);persist(next);setSynced(fingerprint(next));
         }
         if(d.declined_rules?.some(id=>!current.current.declined_rules?.includes(id)))update({...current.current,declined_rules:[...new Set([...(current.current.declined_rules||[]),...d.declined_rules])]});
         changeUploads(xs=>xs.filter(p=>!d.files.some(f=>f.id===p.key)));
-      }else{if(d.result)rememberResults([{id:d.id,type:'draft'}]);if(d.intake_result)rememberResults([...d.intake_result.statements.map(s=>({id:s.id,type:'statement' as const})),...d.intake_result.drafts.map(x=>({id:x.id,type:'draft' as const}))].reverse());if(!requested){const latest=findRecoveryDraft(current.current,await api.list());if(latest && latest.id!==id)return restoreSnapshot(latest.id);}update(blank());setDraft(null);setSuccess('Your previous item is in Queue.');}
-    }catch(e){if(e instanceof ApiError&&e.status===404){if(!requested){const latest=findRecoveryDraft(current.current,await api.list().catch(()=>[]));if(latest)return restoreSnapshot(latest.id);}update({...current.current,id:null});setDraft(null);setError('Your previous item is no longer available. Your words are kept; choose any files again.');}else if(id) setSyncError(`Could not restore Queue. ${(e as Error).message}`);}
+      }else{
+        if(d.result)rememberResults([{id:d.id,type:'draft'}]);if(d.intake_result)rememberResults([...d.intake_result.statements.map(s=>({id:s.id,type:'statement' as const})),...d.intake_result.drafts.map(x=>({id:x.id,type:'draft' as const}))].reverse());
+        if(!requested&&current.current===started){const list=await api.list();if(run!==generation.current)return;if(current.current===started){const latest=findRecoveryDraft(started,list);if(latest&&latest.id!==id)return restoreSnapshot(latest.id);}}
+        if(current.current===started){update(blank());setDraft(null);}else if(current.current.id===id){update({...current.current,id:null});setDraft(null);}
+        setSuccess('Your previous item is in Queue.');
+      }
+    }catch(e){
+      if(run!==generation.current)return;
+      if(e instanceof ApiError&&e.status===404){
+        if(!requested&&current.current===started){const list=await api.list().catch(()=>[]);if(run!==generation.current)return;if(current.current===started){const latest=findRecoveryDraft(started,list);if(latest)return restoreSnapshot(latest.id);}}
+        if(current.current.id===id){update({...current.current,id:null});setDraft(null);}
+        setError('Your previous item is no longer available. Your words are kept; choose any files again.');
+      }else if(id)setSyncError(`Could not restore Queue. ${(e as Error).message}`);
+    }
     finally{if(run===generation.current)setRecovering(false);}
   }
   async function refreshFiles(id:string){const ticket=++fileRequest.current;const d=await api.get(id);if(current.current.id===id && ticket===fileRequest.current)setDraft(d);draftsChanged();}
@@ -93,24 +108,35 @@ export function useComposer(active:boolean){
   function retry(item:Pending){if(item.cancelled){void cancel(item);return;}if(!item.file)return;changeUploads(xs=>xs.filter(p=>p.key!==item.key));pick([item.file]);}
   async function remove(file:Attachment){const id=current.current.id!;await api.remove(id,file.id);await refreshFiles(id);}
   // The usual-payment card on show: a fixed card offers Add as usual first; a varying card needs a choice before anything is sent.
+  const [directPath,setDirectPath]=useState<string|null>(null);
   const [usualCard,setUsualCard]=useState<''|'fixed'|'varies'>(''),ruleDecisionNeeded=usualCard==='varies';
-  const usualRetry=useRef<{id:string;signature:string;body:{bill_only?:boolean}}|null>(null);
+  const usualRetry=useRef<{id:string;signature:string;body:{bill_only?:boolean};submitted:Recovery}|null>(null);
+  const completedUsual=useRef(new Set<string>());
+  function finishUsual(id:string,bill:boolean,submitted:Recovery){
+    if(completedUsual.current.has(id))return;completedUsual.current.add(id);
+    rememberResults([{id,type:'draft'}]);
+    if(current.current.id===id){update(fingerprint(current.current)===fingerprint(submitted)?blank():{...current.current,id:null});setDraft(null);setPasswords({});changeUploads(()=>[]);setSynced('');}
+    setError('');setLastSavedId(id);setSuccess(bill?'Saved. Your unpaid bill is recorded.':'Saved. Your usual payment is recorded.');draftsChanged();
+  }
+  useEffect(()=>{const saved=(event:Event)=>{const detail=(event as CustomEvent<{path:string;result:Draft}>).detail,match=detail?.path.match(/^drafts\/([^/]+)\/(bill|usual)$/);if(!match)return;const attempt=usualRetry.current;if(attempt?.id===match[1])finishUsual(attempt.id,match[2]==='bill',attempt.submitted);else if(current.current.id===match[1]&&detail.result.state==='added')finishUsual(match[1],match[2]==='bill',{...current.current,text:detail.result.text,edits:restorePieceEdits(detail.result.pieces)});};window.addEventListener('direct-write-saved',saved);return()=>window.removeEventListener('direct-write-saved',saved);},[]);
   async function saveUsual(id:string,body:{bill_only?:boolean}){
     const {bill_only,...payload}=body;
-    const result=await request<Draft>(`drafts/${id}/${bill_only?'bill':'usual'}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},120000);
+    const path=`drafts/${id}/${bill_only?'bill':'usual'}`;setDirectPath(path);
+    const result=await request<Draft>(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},120000);
     if(result.refusal)throw new ApiError(409,'A confirmed balance would change.',{detail:result.refusal});
     return result;
   }
-  async function save(usual?:{rule_id:string;date:string;amount?:string;update_rule?:boolean;account?:string;remember_account?:boolean;another_anyway?:boolean;amount_anyway?:boolean;bill_only?:boolean;pay_by?:string}){
+  const lastSave=useRef<UsualRequest|undefined>(undefined);
+  async function save(usual?:UsualRequest){
     if(savingRef.current||uploads.current.some(p=>p.busy))return;
-    savingRef.current=true;setSaving(true);setError('');
-    try{await syncing.current;const d=await ensureDraft();if(d.state==='editing'){await api.edit(d.id,current.current.text,draftPieces(builtRef.current,current.current.edits),current.current.updatedAt||0,current.current.declined_rules);
-        if(usual){const signature=JSON.stringify(usual);if(usualRetry.current?.id!==d.id||usualRetry.current.signature!==signature)usualRetry.current={id:d.id,signature,body:{...usual,...clientTime()}};await saveUsual(d.id,usualRetry.current.body);}else if(d.files.length){
+    lastSave.current=usual;savingRef.current=true;setSaving(true);setError('');const submitted=current.current;
+    try{await syncing.current;const d=await ensureDraft();if(d.state==='editing'){await api.edit(d.id,submitted.text,draftPieces(buildSentence(submitted.text,{...patterns,extensions:dashboard.meta.ledger.extensions,payments:paymentAccounts(dashboard.meta.accounts)},submitted.edits,!!d.files.length),submitted.edits),submitted.updatedAt||0,submitted.declined_rules);
+        if(usual){const signature=JSON.stringify(usual);if(usualRetry.current?.id!==d.id||usualRetry.current.signature!==signature)usualRetry.current={id:d.id,signature,body:{...usual,...clientTime()},submitted};await saveUsual(d.id,usualRetry.current.body);}else if(d.files.length){
           const result=await request<{blocked:boolean;statements:StatementSession[];drafts:Draft[]}>(`drafts/${d.id}/continue`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({choices:current.current.fileChoices||{},passwords,...clientTime()})},120000);
           if(result.blocked)throw Error('Check the file choices, account and password before continuing.');
           rememberResults([...result.statements.map(s=>({id:s.id,type:'statement' as const})),...result.drafts.map(x=>({id:x.id,type:'draft' as const}))].reverse());
           setPasswords({});
-        }else {await api.save(d.id);rememberResults([{id:d.id,type:'draft'}]);}}else if(usual && usualRetry.current?.id===d.id){await saveUsual(d.id,usualRetry.current.body);}else throw Error('This item has already been sent. Open Queue to see it.');if(usual)rememberResults([{id:d.id,type:'draft'}]);update(blank());setDraft(null);setPasswords({});changeUploads(()=>[]);setSynced('');setLastSavedId(d.id);setSuccess(usual?.bill_only?'Saved. Recording your unpaid bill.':usual?'Saved. Adding your usual payment.':'Saved. The agent is working on it in Queue.');draftsChanged();announce('Saved to Queue. Ready for the next expense.');return true;}
+        }else {await api.save(d.id);rememberResults([{id:d.id,type:'draft'}]);}}else if(usual && usualRetry.current?.id===d.id){await saveUsual(d.id,usualRetry.current.body);}else throw Error('This item has already been sent. Open Queue to see it.');if(usual){finishUsual(d.id,!!usual.bill_only,submitted);return true;}if(current.current.id===d.id)update(current.current.text===submitted.text&&JSON.stringify(current.current.edits)===JSON.stringify(submitted.edits)?blank():{...current.current,id:null});setDraft(null);setPasswords({});changeUploads(()=>[]);setSynced('');setLastSavedId(d.id);setSuccess('Saved. The agent is working on it in Queue.');draftsChanged();announce('Saved to Queue. Ready for the next expense.');return true;}
     catch(e){if(e instanceof ApiError&&e.refusal)draftsChanged();else setError(`Could not save. ${(e as Error).message}`);return false;}
     finally{savingRef.current=false;setSaving(false);}
   }
@@ -118,6 +144,7 @@ export function useComposer(active:boolean){
   useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if((!localOK&&!serverSaved&&!!form.text)||pending.some(p=>p.busy)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[localOK,serverSaved,form.text,pending]);
   function forgetDiscarded(id:string){if(current.current.id!==id)return;generation.current++;fileRequest.current++;setRecovering(false);update(blank());setDraft(null);setPasswords({});setError('');setSyncError('');setSynced('');}
   function retryStorage(){persist();void sync();}
-  return {usualCard,setUsualCard,ruleDecisionNeeded,form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,extensions:dashboard.meta.ledger.extensions,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,forgetDiscarded,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};
+  async function retrySave(){const attempt=usualRetry.current;if(!attempt||completedUsual.current.has(attempt.id))return save(lastSave.current);if(savingRef.current)return;savingRef.current=true;setSaving(true);setError('');try{await saveUsual(attempt.id,attempt.body);finishUsual(attempt.id,!!attempt.body.bill_only,attempt.submitted);return true;}catch(e){setError(`Could not save. ${(e as Error).message}`);return false;}finally{savingRef.current=false;setSaving(false);}}
+  return {retrySave,directPath,usualCard,setUsualCard,ruleDecisionNeeded,form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,extensions:dashboard.meta.ledger.extensions,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,forgetDiscarded,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};
 }
 export type Composer=ReturnType<typeof useComposer>;

@@ -95,6 +95,22 @@ class FirstRun(Fixture):
                 self.assertEqual(refused.status_code, 409, refused.text)
                 self.assertIn('setup is finished', refused.json()['detail'])
 
+    def test_opening_operation_replays_its_committed_result_before_freshness_check(self):
+        body=dict(operation_id='a'*32,start=date.today().isoformat(),accounts=[dict(kind='bank',label='Willow',currency='USD',balance='100.00')])
+        with self.client(worker=False) as client:
+            first=client.post('/api/setup/opening',json=body)
+            self.assertEqual(first.status_code,200,first.text)
+            before=self.bytes()
+            replay=client.post('/api/setup/opening',json=body)
+            self.assertEqual(replay.status_code,200,replay.text)
+            self.assertEqual(replay.json()['commit_id'],first.json()['commit_id'])
+            read=client.get('/api/setup/operations/'+body['operation_id'])
+            self.assertEqual(read.status_code,200,read.text)
+            self.assertEqual(read.json()['commit_id'],first.json()['commit_id'])
+            changed={**body,'accounts':[dict(kind='bank',label='Other',currency='USD',balance='20.00')]}
+            self.assertEqual(client.post('/api/setup/opening',json=changed).status_code,409)
+            self.assertEqual(self.bytes(),before)
+
     def test_refused_openings_leave_the_ledger_unchanged(self):
         today = date.today()
         good = dict(kind='bank', label='Alder Checking', currency='USD', balance='10.00')
@@ -325,8 +341,15 @@ class FirstRun(Fixture):
             # Another write changes the ledger before Finish: the checklist is rebuilt from the saved answer.
             client.post('/api/setup/accounts', json=dict(kind='card', label='Lumen Card', currency='USD'))
             self.assertEqual(client.post('/api/setup/import', json=dict(sessions=[identity])).status_code, 202)
-            with patch('agent.run', side_effect=AssertionError('agent asked again')) as run:
+            sessions = client.app.state.statements
+            published = []
+            original_put = sessions.put
+            def observed_put(session, **options):
+                original_put(session, **options)
+                published.append(sessions.get(identity)['state'])
+            with patch('agent.run', side_effect=AssertionError('agent asked again')) as run, patch.object(sessions, 'put', side_effect=observed_put):
                 self.work(client)
                 run.assert_not_called()
+            self.assertNotIn('found', published, 'A poll must never mistake an intermediate replan for a terminal result')
             self.assertEqual(client.get(f'/api/statements/{identity}').json()['state'], 'applied')
             self.assertEqual(len(self.calls()), 1)

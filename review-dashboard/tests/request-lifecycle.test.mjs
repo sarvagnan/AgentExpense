@@ -8,7 +8,7 @@ test('late reads and autosave writes stop on pagehide; in-flight requests and pa
   const source=ts.transpileModule(readFileSync(new URL('../app/live/api.ts',import.meta.url),'utf8').replace('import.meta.env.BASE_URL',"'/expenses/'"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const window=new EventTarget(),exports={};let calls=0,release,signal;
   const fetch=async(_url,options)=>{calls++;if(calls>1)return new Response('{}');signal=options.signal;return new Promise(resolve=>{release=()=>resolve(new Response('{}'));});};
-  vm.runInNewContext(source,{exports,window,fetch,DOMException,AbortController,setTimeout,clearTimeout,require:()=>({clientTime:()=>({})})});
+  vm.runInNewContext(source,{exports,window,fetch,DOMException,AbortController,setTimeout,clearTimeout,require:name=>name==='./direct-writes'?{writeSnapshot:()=>[],enqueueWrite:(_path,_options,send)=>send(),committedResult:(_path,send)=>send()}:{clientTime:()=>({})}});
   const {request}=exports;
   const inflight=request('drafts',{method:'POST'});
   window.dispatchEvent(new Event('pagehide'));
@@ -23,7 +23,7 @@ test('late reads and autosave writes stop on pagehide; in-flight requests and pa
 test('small JSON autosaves use keepalive, while large text and explicit transport choices remain supported',async()=>{
   const source=ts.transpileModule(readFileSync(new URL('../app/live/api.ts',import.meta.url),'utf8').replace('import.meta.env.BASE_URL',"'/expenses/'"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const options=[],exports={},window=new EventTarget();
-  vm.runInNewContext(source,{exports,window,fetch:async(_url,init)=>{options.push(init);return new Response('{}');},DOMException,AbortController,setTimeout,clearTimeout,require:()=>({clientTime:()=>({})})});
+  vm.runInNewContext(source,{exports,window,fetch:async(_url,init)=>{options.push(init);return new Response('{}');},DOMException,AbortController,setTimeout,clearTimeout,require:name=>name==='./direct-writes'?{writeSnapshot:()=>[],enqueueWrite:(_path,_options,send)=>send(),committedResult:(_path,send)=>send()}:{clientTime:()=>({})}});
   await exports.api.create('Fictional expense, 12, paid with cash',null);
   await exports.api.edit('fictional','Updated words',null);
   assert.deepEqual(options.map(init=>init.keepalive),[true,true],'Ordinary autosave writes must finish across document departure');

@@ -1,3 +1,10 @@
+import {assertActionCoverage} from './action-coverage.mjs';
+import {runDataDeparture} from './data-departure.mjs';
+import {consumeInjected422} from './expected-errors.mjs';
+import {runDirectStates,runAccountCreate,runReviewCoverage} from './direct-states.mjs';
+import {runImmediateLatency} from './immediate-latency.mjs';
+import {observeDirectWrites} from './direct-write-observer.mjs';
+import {runImmediateActions,runAccountCurrencyAction} from './immediate-actions.mjs';
 import {benignConsole} from './console-filter.mjs';
 import {runRetention} from './retention.mjs';
 import {runViewCaptures} from './capture.mjs';
@@ -54,7 +61,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     stage.activeContext=context;stage.activeCase=`${engine}-${theme}-${width}`;
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
-    page.on('console',message=>{if(message.type()==='error'&&!benignConsole(message.text()))errors.push(message.text());});
+    page.on('console',message=>{if(message.type()==='error'&&!consumeInjected422(page,message)&&!benignConsole(message.text()))errors.push(message.text());});
     await page.route('**/*',route=>{const url=route.request().url();return url.startsWith(base) || url.startsWith('blob:') || url.startsWith('data:')?route.continue():route.abort('blockedbyclient');});
     const record=(name)=>{results.push({persona,engine,theme,width,test:name,pass:true});console.log(`  PASS ${persona} ${engine} ${theme} ${width}: ${name}`);};
     const commits=()=>execFileSync('jj',['-R',ledger,'log','-r','ancestors(@)','--no-graph','-T','commit_id'],{env:stage.env,encoding:'utf8'}).trim().length/40;
@@ -64,6 +71,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       try{return await run();}finally{console.log('SUITE_TIMING '+JSON.stringify({persona,engine,theme,width,name,seconds:(performance.now()-started)/1000,commits:commits()-before}));}
     };
     const snap=(state)=>capture(page,{state,theme,width,height});
+    const directObserver=await observeDirectWrites({page,base,snap,record});
     const go=async(route)=>{await page.waitForLoadState('networkidle');await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);await page.waitForLoadState('networkidle');};
     const overflow=async(label)=>{
       // On overflow, name the outermost elements reaching past the viewport, so a failure says where.
@@ -72,6 +80,13 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         return {width,html:document.documentElement.scrollWidth,body:document.body.scrollWidth,...(past.length?{past}:{})};});
       assert.ok(value.html<=value.width+1 && value.body<=value.width+1,`${label}: horizontal overflow ${JSON.stringify(value)}`);
     };
+    // Firefox's protocol converts rectangle endpoints separately and can report
+    // 43.999969px for a rendered 44px control at a fractional screen position.
+    const emptyTargets=async()=>{
+      if(page.viewportSize().width>=760)return;
+      const heights=await page.locator('.empty .button.primary').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().height));
+      for(const height of heights)assert.ok(height>=44,`Empty-view primary actions have a 44px phone touch target: ${height}px at ${page.url()}`);
+    };
     const refresh=async()=>{await page.evaluate(()=>window.dispatchEvent(new Event('drafts-changed')));};
     const quiesce=async({writesSettled=false}={})=>{
       if(page.url().startsWith(base)){
@@ -79,7 +94,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         // Await real network completion, clear only the test composer's recovery
         // copy, then unload the app before deleting ignored server records.
         if(!writesSettled)await page.waitForLoadState('networkidle');
-        await page.evaluate(()=>{localStorage.removeItem('ledger-add-v1');for(const key of Object.keys(sessionStorage))if(key.startsWith('ledger-add-visit-'))sessionStorage.removeItem(key);});
+        await page.evaluate(()=>{localStorage.removeItem('ledger-add-v1');for(const key of Object.keys(sessionStorage))if(key.startsWith('ledger-add-visit-')||key.startsWith('ledger-form-')||key.startsWith('ledger-direct-writes-'))sessionStorage.removeItem(key);});
         await page.goto('about:blank');
       }
     };
@@ -88,16 +103,48 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
+      if(process.env.BROWSER_FOCUS==='route-targets') {
+        for(const route of routes){await go(route+'/');await overflow(route);await emptyTargets();await page.setViewportSize({width:320,height});await overflow(route+' at 320');await emptyTargets();await page.setViewportSize(size);await emptyTargets();await snap('route-targets-'+route);record('route targets: '+route+' fits target/320px and its rendered phone primary targets are at least 44px');}
+        await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(['post-direct','post-add'].includes(process.env.BROWSER_FOCUS)) {
+        // Resume only suites not reached when an earlier primary case failed.
+        if(process.env.BROWSER_FOCUS==='post-add'){
+          await runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});await runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});await runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce});await runAccountCreate({page,base,persona,expect,control,go,quiesce,snap,record});await runDirectStates({page,base,persona,stage,expect,control,go,quiesce,snap,record,errors});
+        }
+        await runDataDeparture({page,base,expect,control,go,record,snap});await runImmediateActions({page,base,persona,expect,control,go,quiesce,snap,record,errors});await runLightSave({page,base,persona,expect,control,go,refresh,record,quiesce,snap});await runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});await runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts});await runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts});await runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money});await runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});await runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce,consoleErrors:errors});if(process.env.BROWSER_FOCUS==='post-add'){console.log('ACTION_COVERAGE_COMPLETE '+JSON.stringify(assertActionCoverage(page)));record('resumed post-Add suites have complete action-table evidence');}await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='review-round') {
+        await runAccountCreate({page,base,persona,expect,control,go,quiesce,snap,record});await runDirectStates({page,base,persona,stage,expect,control,go,quiesce,snap,record,errors});await runDataDeparture({page,base,expect,control,go,record,snap});await runImmediateActions({page,base,persona,expect,control,go,quiesce,snap,record,errors});await runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce,consoleErrors:errors});console.log('ACTION_COVERAGE_COMPLETE '+JSON.stringify(assertActionCoverage(page)));await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='recovery-settings') {await runDataDeparture({page,base,expect,control,go,record,snap});await runImmediateActions({page,base,persona,expect,control,go,quiesce,snap,record,errors});await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();continue;}
+      if(process.env.BROWSER_FOCUS==='data-departure') {await runDataDeparture({page,base,expect,control,go,record,snap});await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();continue;}
+      if(process.env.BROWSER_FOCUS==='account-create') {await runAccountCreate({page,base,persona,expect,control,go,quiesce,snap,record});await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();continue;}
+      if(process.env.BROWSER_FOCUS==='review-writes') {await runReviewCoverage({page,base,persona,stage,expect,control,go,quiesce,snap,record});await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();continue;}
+      if(process.env.BROWSER_FOCUS==='direct-states') {
+        await runDirectStates({page,base,persona,stage,expect,control,go,quiesce,snap,record,errors});await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='latency') {
+        await runImmediateLatency({page,base,expect,go,record,control,quiesce,stage});await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='immediate') {
+        await runImmediateActions({page,base,persona,expect,control,go,quiesce,snap,record,errors});
+        assert.deepEqual(errors,[],'No browser errors');await directObserver.close();await context.tracing.stop();await context.close();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='account-currency') {
+        await runAccountCurrencyAction({page,base,expect,control,go,quiesce,snap,record,errors});
+        assert.deepEqual(errors,[],'No browser errors');await directObserver.close();await context.tracing.stop();await context.close();continue;
+      }
       if(process.env.BROWSER_FOCUS==='light-save') {
         await runLightSave({page,base,persona,expect,control,go,refresh,record,quiesce,snap});
-        await context.tracing.stop();await context.close();continue;
+        await directObserver.close();await context.tracing.stop();await context.close();continue;
       }
       if(process.env.BROWSER_FOCUS==='cleanup') {
         await go('add/');await expect(page.getByRole('heading',{name:'Add',exact:true})).toBeVisible();
         console.log('CLEANUP_BROWSER_READY');
         if(process.env.BROWSER_CLEANUP_PROBE==='term')await new Promise(()=>{});
         assert.notEqual(process.env.BROWSER_CLEANUP_PROBE,'fail','Deliberate test-root cleanup failure');
-        await context.tracing.stop();await context.close();continue;
+        await directObserver.close();await context.tracing.stop();await context.close();continue;
       }
       const table = JSON.parse(await readFile(join(stage.env.DASHBOARD_DATA_DIR,'app/data/dashboard.json'),'utf8')).meta.currencyMinorUnits;
       assert.deepEqual(table,JSON.parse(await readFile(join(stage.app,'schema/currency-minor-units.json'),'utf8')),'The page data ships the versioned minor-unit table');
@@ -116,22 +163,26 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       if(process.env.BROWSER_FOCUS==='part-c-details') {
         const args={browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts};
         for(const run of [runReview,runRules,runAdd,runCorrections,runConfirmedBalances])await timed(run.name,()=>run(args));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='review') {
         await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='workflows') {
         await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='readers') {
         await timed('runReaderWorkflows',()=>runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='add-polish') {
@@ -140,72 +191,86 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       }
       if(process.env.BROWSER_FOCUS==='add') {
         await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='retention-timing') {
         await runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts});
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='account-groups') {
         await timed('runAccountGroups',()=>runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='view-timing') {
         await runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts});
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='retention') {
         await runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='first-run') {
-        await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce,consoleErrors:errors}));
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='varying') {
         await runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='confirmed-balances') {
         await runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='ledger-check') {
         await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='corrections') {
         await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='rules') {
         await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='update-notice') {
         await runUpdateNotice({page,base,expect,go,snap,overflow,record});
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='views') {
         await timed('runViewCaptures',()=>runViewCaptures({page,persona,width,height,expect,go,snap,overflow,record}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         record('console and page errors');await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='finish') {
         await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
-        assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
+        await directObserver.close();
+      assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
       await control('gate',{state:'ready'});
@@ -357,7 +422,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
           await page.goBack();await expect(page.getByRole('heading',{name:'Accounts',exact:true})).toBeVisible();await expect(setup).toBeVisible();
           record('empty Accounts routes to opening balances and back without a commit');
         }
-        if(width<760)for(const action of await page.locator('.empty .button.primary').all())assert.ok((await action.boundingBox()).height>=44,'Empty-view primary actions have a 44px phone touch target');
+        await emptyTargets();
       }
       record('all nine routes render at 320px and target viewport without overflow or console errors');
       // November is empty in every source persona, even though data ends in October.
@@ -631,14 +696,20 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));
+      await timed('runAccountCreate',()=>runAccountCreate({page,base,persona,expect,control,go,quiesce,snap,record}));
+      await timed('runDirectStates',()=>runDirectStates({page,base,persona,stage,expect,control,go,quiesce,snap,record,errors}));
+      await timed('runDataDeparture',()=>runDataDeparture({page,base,expect,control,go,record,snap}));
+      await timed('runImmediateActions',()=>runImmediateActions({page,base,persona,expect,control,go,quiesce,snap,record,errors}));
       await timed('runLightSave',()=>runLightSave({page,base,persona,expect,control,go,refresh,record,quiesce,snap}));
       await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runRetentionTiming',()=>runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts}));
       await timed('runViewTiming',()=>runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts}));
       await timed('runAccountGroups',()=>runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money}));
       await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
-      await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce}));
+      await timed('runFirstRun',()=>runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce,consoleErrors:errors}));
+      console.log('ACTION_COVERAGE_COMPLETE '+JSON.stringify(assertActionCoverage(page)));record('every declared action has held failure, exact committed Retry, named usable control, geometry and focus evidence');
       }
+      await directObserver.close();
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
       record('console and page errors');
       await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});

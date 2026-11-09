@@ -1,5 +1,9 @@
+import {assertOwnAlertsClear} from './action-alerts.mjs';
+import {coveredAction} from './action-coverage.mjs';
+import {directAction} from './direct-states.mjs';
 import assert from 'node:assert/strict';
 import {hold as holdResponse, settleTasks} from './held.mjs';
+import {holdWrite} from './immediate-actions.mjs';
 
 // The first-run screens (step 9-2) on a fresh template copy of each persona's ledger,
 // in its own currency and locale. Both paths save through real locked, verified
@@ -13,7 +17,9 @@ async function unchanged(locator, box) {
   for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(next[key] - box[key]) < 1, `${key}: control moved during a background response (${box[key]} → ${next[key]}; ${JSON.stringify(await locator.page().evaluate(() => ({scrollY, innerHeight, height:document.documentElement.scrollHeight})))})`);
 }
 
-export async function runFirstRun({page, base, persona, width, expect, control, overflow, snap: capture = async () => {}, record, quiesce}) {
+export async function runFirstRun({page, base, persona, width, expect, control, overflow, snap: capture = async () => {}, record, quiesce, consoleErrors=[]}) {
+  await page.addInitScript(()=>{window.__setupInputEvents=[];document.addEventListener('input',event=>{if(event.target.matches('input,textarea'))window.__setupInputEvents.push({id:event.target.id,label:event.target.closest('label')?.textContent?.trim(),value:event.target.value,trusted:event.isTrusted});},true);});
+  const fillChecked=async(field,value)=>{const before=await field.evaluate(node=>node.dataset.inputEvents=String(Number(node.dataset.inputEvents||0)));await field.evaluate(node=>{if(!node.dataset.counting){node.dataset.counting='yes';node.addEventListener('input',()=>node.dataset.inputEvents=String(Number(node.dataset.inputEvents||0)+1));}});await field.fill(value);const count=await field.evaluate(node=>Number(node.dataset.inputEvents));console.log('FILL_CHECK '+JSON.stringify({persona,engine:page.context().browser().browserType().name(),width,value,inputEventsBefore:Number(before),inputEventsAfter:count}));assert.ok(count>Number(before),'Each fill dispatches an input event before the value assertion');await expect(field).toHaveValue(value);};
   // Each capture starts at the top of the page; tall screens also get a full-page companion.
   const snap = async state => { await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); }); await capture(state); };
   const get = async path => { const r = await fetch(base + 'api/' + path); assert.ok(r.ok, await r.clone().text()); return r.json(); };
@@ -37,11 +43,11 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await expect(heading('A little about you')).toBeVisible();
     const name = page.locator('#setup-name'), next = page.getByRole('button', {name:'Continue', exact:true});
     await expect(name).toHaveValue('New ledger');
-    await name.fill('');await expect(next).toBeDisabled();
+    await fillChecked(name, '');await expect(next).toBeDisabled();
     await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });
     await overflow('first-about');await snap('first-about');
-    await name.fill('   ');await expect(next).toBeDisabled();
-    await name.fill(names[persona]);await expect(next).toBeEnabled();
+    await fillChecked(name, '   ');await expect(next).toBeDisabled();
+    await fillChecked(name, names[persona]);await expect(next).toBeEnabled();
     await control('data-refresh',{mode:'hold'});
     const about = page.waitForResponse(r => r.url().endsWith('/api/setup/about') && r.request().method() === 'POST');
     await name.press('Enter');
@@ -64,8 +70,8 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     const rows = page.locator('.setup-account');
     const fill = async (index, kind, label, balance) => {
       const row = rows.nth(index);
-      await row.getByLabel('Kind').selectOption(kind);await row.getByLabel('Account name').fill(label);
-      await row.locator('.account-balance').fill(balance);
+      await row.getByLabel('Kind').selectOption(kind);await fillChecked(row.getByLabel('Account name'), label);
+      await fillChecked(row.locator('.account-balance'), balance);
     };
     const finishSetup = page.getByRole('button', {name:'Finish setup', exact:true});
     await expect(rows).toHaveCount(1);await expect(finishSetup).toBeDisabled();
@@ -74,6 +80,12 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await page.getByRole('button', {name:'Add account', exact:true}).click();
     await expect(rows.nth(1).getByLabel('Account name')).toBeFocused();
     await fill(1, 'bank', 'Meadow Savings', '4650.00');
+    // Force publication and a row insertion/removal between input and blur.
+    await control('data-refresh',{mode:'hold'});await control('data-refresh',{mode:'retry'});
+    const meadow=rows.nth(1).getByLabel('Account name');await fillChecked(meadow,'Meadow Savings under publication');
+    await page.getByRole('button',{name:'Add account',exact:true}).click();await rows.last().locator('.account-remove').click();
+    await control('data-refresh',{mode:'release'});await control('data-refresh',{mode:'wait'});await meadow.blur();await expect(meadow).toHaveValue('Meadow Savings under publication');await fillChecked(meadow,'Meadow Savings');
+    record('opening input: every fill has an immediate value assertion and input event; held publication plus row insertion/removal preserves the name through blur');
     await page.getByRole('button', {name:'Add account', exact:true}).click();
     await fill(2, 'card', 'Lumen Card', '337.50');
     await expect(rows.nth(2).locator('.field-label').nth(2)).toHaveText('Amount owed');
@@ -85,19 +97,19 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     // Grade A-2: Remove sits in the fields row (no line of its own), and a whole balance gains its decimals on leaving the field.
     const remove=await rows.nth(1).evaluate(row=>{const button=row.querySelector('.account-remove').getBoundingClientRect(),fields=row.querySelector('.account-fields').getBoundingClientRect(),line=row.querySelector('.opening-line').getBoundingClientRect();return {inside:button.top>=fields.top-1&&button.bottom<=fields.bottom+1,lineHeight:line.height};});
     assert.ok(remove.inside,'Remove sits within the account fields');assert.ok(remove.lineHeight<=24,`The opening line holds only its text (${remove.lineHeight})`);
-    await rows.nth(1).locator('.account-balance').fill('4650');await rows.nth(1).locator('.account-balance').blur();
+    await fillChecked(rows.nth(1).locator('.account-balance'), '4650');await rows.nth(1).locator('.account-balance').blur();
     await expect(rows.nth(1).locator('.account-balance')).toHaveValue(currency==='JPY'?'4650':'4650.00');
     for (let i = 0; i < 3; i++) await expect(rows.nth(i).locator('.account-currency')).toHaveValue(currency);
     await expect(finishSetup).toBeEnabled();
     await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });
     await overflow('first-accounts');await snap('first-accounts');
     // Invalid amounts, duplicate names and an unnamed row block Finish with a reason.
-    await rows.nth(0).locator('.account-balance').fill('12.345');
+    await fillChecked(rows.nth(0).locator('.account-balance'), '12.345');
     await expect(rows.nth(0).locator('.setup-error')).toContainText('decimal places');await expect(finishSetup).toBeDisabled();
-    await rows.nth(0).locator('.account-balance').fill('1840.25');
-    await rows.nth(1).getByLabel('Account name').fill('alder checking');
+    await fillChecked(rows.nth(0).locator('.account-balance'), '1840.25');
+    await fillChecked(rows.nth(1).getByLabel('Account name'), 'alder checking');
     await expect(rows.nth(1).locator('.setup-error')).toContainText('Another account has this name');await expect(finishSetup).toBeDisabled();
-    await rows.nth(1).getByLabel('Account name').fill('Meadow Savings');await expect(finishSetup).toBeEnabled();
+    await fillChecked(rows.nth(1).getByLabel('Account name'), 'Meadow Savings');await expect(finishSetup).toBeEnabled();
     // More kinds: a Person row explains what its balance means, then is removed.
     await page.getByRole('button', {name:'Add account', exact:true}).click();
     await fill(3, 'person', 'Casey Morgan', '75');
@@ -113,8 +125,8 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await expect(rows.nth(0).locator('.account-currency')).toHaveValue(currency);
     await overflow('first-accounts-mixed');await snap('first-accounts-mixed');
     record('first run: opening-balance rows, card amount owed, More kinds, second currency, validation');
-    // Timing: Finish held in flight. A second click sends nothing, Back and the fields
-    // are disabled, and the late success still lands on Add with its confirmation.
+    // Timing: Finish held in flight. A disabled second click sends nothing; Back
+    // and fields remain available. An unchanged completion lands on Add.
     let openings = 0; const countOpenings = request => { if (request.url().endsWith('/api/setup/opening')) openings++; };
     page.on('request', countOpenings);
     await control('data-refresh',{mode:'hold'});
@@ -124,8 +136,8 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
       const saving = page.getByRole('button', {name:'Saving…', exact:true});
       await expect(saving).toBeDisabled();
       await saving.click({force:true});
-      await expect(page.getByRole('button', {name:'Back', exact:true})).toBeDisabled();
-      await expect(rows.nth(0).locator('.account-balance')).toBeDisabled();
+      await expect(page.getByRole('button', {name:'Back', exact:true})).toBeEnabled();
+      await expect(rows.nth(0).locator('.account-balance')).toBeEnabled();
       await expect(errors).toHaveCount(0);
     } finally { await held.release(); }
     await expect(page.locator('.content h1')).toHaveText('Add', {timeout:60000});
@@ -148,6 +160,7 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await page.goBack();await expect(page.locator('.content h1')).toHaveText('Add');await expect(page.locator('.first-run-done')).toHaveCount(0);
     record('first run: Start from today saves accounts and opening balances once, even with Finish held in flight');
 
+    console.log('FIRST_RUN_INPUT_EVENTS '+JSON.stringify({persona,width,events:await page.evaluate(()=>window.__setupInputEvents)}));
     // ---- Bring in past statements ----
     await quiesce();
     await control('first-run', {agent_currency:foreign});
@@ -216,14 +229,14 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     const cardForm = row(cardName).getByRole('group', {name:'New account'});
     await row(badName).getByRole('button', {name:`Add an account in ${currency}`}).click();
     const badForm = row(badName).getByRole('group', {name:'New account'});
-    await badForm.getByLabel('Account name').fill('Meadow Savings');
+    await fillChecked(badForm.getByLabel('Account name'), 'Meadow Savings');
     await expect(badForm.getByLabel('Currency')).toBeDisabled();await expect(badForm.getByLabel('Currency')).toHaveValue(currency);
     const creating = await hold(page, base + 'api/setup/accounts', 'POST');
     let box;
     try {
       await badForm.getByRole('button', {name:'Add account', exact:true}).click();await creating.ready;
-      await expect(badForm.getByRole('button', {name:'Adding…', exact:true})).toBeDisabled();
-      await cardForm.getByLabel('Kind').selectOption('card');await cardForm.getByLabel('Account name').fill('Lumen Card');
+      await expect(badForm.getByRole('button', {name:'Saving…', exact:true})).toBeDisabled();
+      await cardForm.getByLabel('Kind').selectOption('card');await fillChecked(cardForm.getByLabel('Account name'), 'Lumen Card');
       // Measure where a person pointing at the field sees it: fully in view, whole-pixel scroll.
       await cardForm.getByLabel('Account name').evaluate(element => { element.scrollIntoView({block:'center'}); window.scrollTo(0, Math.round(window.scrollY)); });
       await cardForm.getByLabel('Account name').hover();
@@ -233,29 +246,67 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     await expect(cardForm.getByLabel('Account name')).toHaveValue('Lumen Card');
     await expect(cardForm.getByLabel('Account name')).toBeEnabled();await unchanged(cardForm.getByLabel('Account name'), box);
     await expect(row(badName)).toHaveAttribute('data-state', 'couldnt_read', {timeout:60000});
+    await page.getByRole('button',{name:'Choose files',exact:true}).hover();await page.getByRole('button',{name:'Choose files',exact:true}).focus();
     await expect(row(badName).locator('.setup-tag')).toHaveText('Couldn’t be read');
     await expect(row(badName).locator('.file-detail')).toContainText("printed totals don't add up");
     // One plain sentence; the checker's figures are behind Details.
     await expect(row(badName).locator('.file-detail')).toHaveText("The printed totals don't add up, so nothing was saved.");
     await expect(row(badName).locator('.file-more summary')).toHaveText('Details');
     record('first run timing: a held account creation keeps another file’s typed account and position');
-    await cardForm.getByRole('button', {name:'Add account', exact:true}).click();
-    await expect(row(cardName)).toHaveAttribute('data-state', 'found', {timeout:60000});
-    await expect(row(cardName).locator('.setup-tag')).toHaveText('Read by a built-in reader');
-    await expect(row(cardName).locator('.file-detail')).toHaveText('3 entries found · totals checked');
-    await expect(row(cardName).locator('select.file-account')).toHaveValue('Liabilities:Credit Cards:Lumen Card');
+    // Give the file another valid card account. Reload also checks that its
+    // kept account form survives before the following held creation begins.
+    const alternateResponse=await page.request.post(base+'api/setup/accounts',{data:{kind:'card',label:'Cedar alternate',currency}});assert.ok(alternateResponse.ok());const alternate=await alternateResponse.json();
+    await page.reload({waitUntil:'networkidle'});await expect(cardForm.getByLabel('Account name')).toHaveValue('Lumen Card');
+    // Account creation uses the same held refusal/Retry pattern. Its original
+    // request stays frozen while the person types the next account's fields.
+    const cardNameField=cardForm.getByLabel('Account name'),cardSave=cardForm.locator('.setup-new-account-actions .primary');
+    const paints=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const accountFailure=await holdWrite(page,base+'api/setup/accounts',{fail:true});
+    try{
+      await cardSave.click();await accountFailure.ready;await expect(cardForm.locator('.action-feedback [data-action-state="saving"]')).toBeVisible();await expect(cardForm.locator('.action-feedback')).toContainText('Saving…');
+      await fillChecked(cardNameField, 'Willow next account');await cardNameField.focus();
+      await paints();const controls=[cardNameField,cardSave,cardForm.locator('h3')],before=await Promise.all(controls.map(node=>node.boundingBox()));
+      await capture('immediate-setup-account-pending');await accountFailure.release();
+      await expect(cardForm.locator('.action-feedback')).toContainText('Your words are kept');await paints();await expect(cardNameField).toHaveValue('Willow next account');await expect(cardNameField).toBeFocused();
+      const after=await Promise.all(controls.map(node=>node.boundingBox()));before.forEach((box,index)=>{for(const key of ['x','y'])assert.ok(Math.abs(box[key]-after[index][key])<=2,'Account creation feedback moved '+key);});
+      await capture('immediate-setup-account-failed');
+    }finally{await accountFailure.release();}
+    await fillChecked(cardNameField, 'Lumen Card');
+    const accountSuccess=await holdWrite(page,base+'api/setup/accounts');
+    try{
+      await cardForm.locator('.action-feedback').getByRole('button',{name:'Retry',exact:true}).click();const accepted=await accountSuccess.ready;await expect(cardForm.locator('.action-feedback [data-action-state="saving"]')).toBeVisible();
+      await row(cardName).locator('select.file-account').selectOption(alternate.account);
+      await fillChecked(cardNameField, 'Willow account typed during Retry');await cardNameField.focus();const controls=[cardNameField,cardSave,cardForm.locator('h3')],before=await Promise.all(controls.map(node=>node.boundingBox()));await paints();
+      const exact=page.waitForResponse(response=>response.request()===accepted);exact.catch(()=>{});await accountSuccess.release();const committed=await exact;assert.ok(committed.ok());const outcome=await committed.json();await expect(cardForm.locator('.action-feedback')).toContainText('Saved.',{timeout:60000});await expect(cardForm.locator('.action-feedback [data-action-state="saved"]')).toBeVisible();
+      await expect(row(cardName)).toHaveAttribute('data-state', 'found', {timeout:60000});await expect(cardSave).toHaveText('Add account');
+      await expect(cardNameField).toHaveValue('Willow account typed during Retry');await expect(cardNameField).toBeFocused();await paints();const after=await Promise.all(controls.map(node=>node.boundingBox()));before.forEach((box,index)=>{for(const key of ['x','y'])assert.ok(Math.abs(box[key]-after[index][key])<=2,'Account success moved control '+index+' at '+key);});assert.match(outcome.commit_id,/^[a-f0-9]{40}$/);assert.equal(outcome.label,accepted.postDataJSON().label);assert.equal(outcome.currency,accepted.postDataJSON().currency);await assertOwnAlertsClear(page,expect,await cardNameField.evaluateHandle(node=>node.closest('.setup-file')));coveredAction(page,'setup-account',{failed:true,saved:true,visibleSaved:'Owned account Saved.',outcomeChecked:true,ownAlertsCleared:true,usable:'Account name',before,after,outcome});console.log('ACTION_COVERAGE '+JSON.stringify({action:'setup-account',failed:true,saved:true,visibleSaved:'Owned account Saved.',outcomeChecked:true,ownAlertsCleared:true,usable:'Account name',before,after,outcome}));
+      const selected=await (await page.request.get(base+'api/statements/'+await row(cardName).getAttribute('data-session'))).json();assert.equal(selected.statement.account,alternate.account,'The late declaration must keep the newer file-account choice');
+      await capture('immediate-setup-account-saved-newer-fields');
+    }finally{await accountSuccess.release();}
+    record('first run account: held failure and Retry keep newer fields/file-account choice/focus and ≤2px controls');
+    await page.getByRole('button',{name:'Choose files',exact:true}).hover();await page.getByRole('button',{name:'Choose files',exact:true}).focus();
+    await expect(row(cardName).getByRole('option',{name:`Lumen Card (${currency})`,exact:true})).toHaveCount(1);
+    const cardSession=await row(cardName).getAttribute('data-session');
+    const reread=page.waitForResponse(async response=>response.request().method()==='GET'&&response.url()===base+'api/statements/'+cardSession&&await response.json().then(value=>value.state==='found'&&value.statement?.account==='Liabilities:Credit Cards:Lumen Card'),{timeout:60000});reread.catch(()=>{});
+    await row(cardName).locator('select.file-account').selectOption('Liabilities:Credit Cards:Lumen Card');await page.getByRole('button',{name:'Choose files',exact:true}).hover();await page.getByRole('button',{name:'Choose files',exact:true}).focus();await reread;await expect(row(cardName)).toHaveAttribute('data-state','found',{timeout:60000});
     // The agent file's currency is unknown until it is read: add an account and choose its currency.
     await expect(row(agentName).locator('.field-label').first()).toHaveText('Account');
     await row(agentName).getByRole('button', {name:'Add an account', exact:true}).click();
     const agentForm = row(agentName).getByRole('group', {name:'New account'});
-    await agentForm.getByLabel('Account name').fill('Willow Travel');await agentForm.getByLabel('Currency').selectOption(foreign);
+    await expect(row(cardName).locator('.setup-tag')).toHaveText('Read by a built-in reader');await expect(row(cardName).locator('.file-detail')).toHaveText('3 entries found · totals checked');await expect(row(cardName).locator('select.file-account')).toHaveValue('Liabilities:Credit Cards:Lumen Card');
+    await fillChecked(agentForm.getByLabel('Account name'), 'Willow Travel');await agentForm.getByLabel('Currency').selectOption(foreign);
     await agentForm.getByRole('button', {name:'Add account', exact:true}).click();
     await expect(row(agentName)).toHaveAttribute('data-state', 'found', {timeout:90000});
+    // File headers and account options wait while the pointer/focus uses their
+    // controls. Leave them explicitly before checking the published reading.
+    await expect(cardNameField).toHaveValue('Willow account typed during Retry');
+    await page.getByRole('button',{name:'Choose files',exact:true}).hover();await page.getByRole('button',{name:'Choose files',exact:true}).focus();
     await expect(row(agentName).locator('.setup-tag')).toHaveText('Read by the agent');
     await expect(row(agentName).locator('.file-detail')).toHaveText('2 entries found · source values and totals checked');
     await expect(row(agentName).locator('.field-label').first()).toHaveText(`Account · file in ${foreign}`);
     const summary = page.locator('.import-summary');
     await expect(summary.locator('strong')).toHaveText('5 entries found, 5 need your review.');
+    await expect(finishImport).toBeDisabled();await expect(page.locator('#import-status')).toHaveText('Save or cancel the open account form before finishing the statements.');await cardForm.getByRole('button',{name:'Cancel',exact:true}).click();
     await expect(page.locator('#import-status')).toHaveText('Currencies match. The unread file won’t be imported; you can try it again later.');
     await expect(finishImport).toHaveText('Finish with 2 read files');await expect(finishImport).toBeEnabled();
     await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });
@@ -293,15 +344,9 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     // Timing: Finish held in flight; the late answer still saves both files once.
     let imports = 0; const countImports = request => { if (request.url().endsWith('/api/setup/import')) imports++; };
     page.on('request', countImports);
-    const finishing = await hold(page, base + 'api/setup/import', 'POST');
-    try {
-      await finishImport.click();await finishing.ready;
-      await expect(page.getByRole('button', {name:'Saving…', exact:true})).toBeDisabled();
-      await expect(page.getByRole('button', {name:'Back', exact:true})).toBeDisabled();
-      await expect(page.locator('.setup-file .icon-button')).toHaveCount(0);
-    } finally { await finishing.release(); }
+    await directAction({page,base,expect,snap:capture,record})('setup-import',finishImport,'**/api/setup/import',{container:page.locator('.setup-content'),other:page.getByRole('button',{name:'Back',exact:true})});
     await expect(page.locator('.content h1')).toHaveText('Add', {timeout:120000});
-    page.off('request', countImports);assert.equal(imports, 1);
+    page.off('request', countImports);assert.equal(imports, 2,'One held failure and one committed Retry');
     const importNotice = page.locator('.first-run-done');
     await expect(importNotice).toContainText('Statements imported.');await expect(importNotice).toContainText('5 entries found. 5 are waiting in Review.');
     // The unread file is the Queue badge's one item, and the notice says so.

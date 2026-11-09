@@ -8,3 +8,5 @@
 .review-footer-tools{margin-top:20px}
 .server-review .review-footer-tools .button.review-csv{padding-inline:0}
 .server-review .review-notice{border-color:var(--separator)}
+/* Kept-edit and saved instructions share space while a decision commits. */
+.review-server-form>.live-hint{min-block-size:3lh}

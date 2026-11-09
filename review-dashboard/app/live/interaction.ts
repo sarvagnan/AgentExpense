@@ -16,3 +16,12 @@ export function useInteractionSnapshot<T>(value:T,enabled=true){
  useEffect(()=>{if(enabled&&(pointer.current||focus.current))hold();},[enabled]);
  return [held?held.value:value,interaction,release] as const;
 }
+
+/** A completion may finish its write after navigation, typing or a new focus.
+ * Only the unchanged initiating interaction may close a form or move onward. */
+export function useActionGuard(){
+ const revision=useRef(0),mounted=useRef(true);
+ const touch=(event?:{target:EventTarget|null})=>{const target=event?.target as HTMLElement|null|undefined;if(target?.closest?.(':disabled'))return;revision.current++;};
+ useEffect(()=>{mounted.current=true;const events=['pointerdown','keydown','focusin'];events.forEach(name=>document.addEventListener(name,touch,true));return()=>{mounted.current=false;events.forEach(name=>document.removeEventListener(name,touch,true));};},[]);
+ return {touch,begin:()=>revision.current,unchanged:(ticket:number)=>mounted.current&&revision.current===ticket,interaction:{onPointerDownCapture:touch,onKeyDownCapture:touch,onFocusCapture:touch}};
+}

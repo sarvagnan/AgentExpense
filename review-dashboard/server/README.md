@@ -836,7 +836,11 @@ statement.
   (`kind`, `label`, `currency`, `balance` as typed: owed for cards and loans), declares
   them and records each opening balance as a balance assertion on `start`, which
   becomes `startDate`. An account declared earlier with the same kind and currency is
-  opened as it is.
+  opened as it is. An optional 32-character hexadecimal `operation_id` identifies
+  the settings transaction. Repeating that ID and body returns its original
+  committed result before the freshness check; changing its body refuses.
+- `GET /api/setup/operations/{id}` reads or recovers that opening transaction
+  without resubmitting it; an unknown/uncommitted ID returns `{committed:false}`.
 - `POST /api/setup/accounts` adds one bank or card account for a statement file.
 - `POST /api/setup/statements/{id}/account` assigns a file to an account, also after it
   was read or could not be read; the file is read again. An agent reading of the same
@@ -845,5 +849,38 @@ statement.
   `currency_mismatch` with the checked answer kept.
 - `POST /api/setup/import` queues the read files in period order. Rows nobody decided
   go in as pending entries for Review (their audit decisions say `by: first run`).
+  Repeating an already-accepted first-run session set returns its current applying
+  or applied sessions before checking freshness; it does not queue another apply.
   Before each apply the worker rebuilds a later statement's checklist against the
   ledger the earlier one changed, from the file or the saved answer, never the agent.
+
+
+Direct-write responses keep their existing API shapes and commit semantics.
+The browser now queues direct writes and polls worker-backed hand-add, usual,
+bill and statement Apply responses until their authoritative committed result.
+Answer/form validation errors use practical field instructions; a non-positive
+cost explains how to represent a refund. See [verified saves](../../docs/SAVES.md).
+
+`GET /api/settings` reads committed ledger name, default `currency` and
+`commit_id` under the ledger lock. With `?account=<exact account>` it also
+returns `account` and `account_currency`. An uncommitted working copy returns
+409; the read creates no commit. The browser uses this to confirm a matching
+metadata write after a lost response before deciding whether to submit again.
+
+Words-only `/api/add/interpret` reads accounts and manifest independently from
+atomically replaced documents. It takes no writer lock and never loads the linked
+store on a typing pause. A commit between reads can briefly mix alias and locale
+versions in a hint; all saves still use the checked, locked transaction boundary.
+Store cross-field proposal failures are translated at `ProposalError`, including
+same-currency costs and a zero posting with a total cost.
+
+The browser keeps accepted statement Apply ahead of later direct writes until
+the result settles; its cancel endpoint bypasses page ordering. A cancelled
+Apply returns the real review session without an error. The initiating page
+shows a quiet checklist-kept acknowledgement, while review with an error remains
+a refusal. First-run replanning reads into a private session copy and publishes
+once, preserving applying throughout the rebuild. Typing interpretation catches
+rollback-time account/manifest read errors and returns an empty expense hint.
+
+Unsupported ledger formats retain their normal rejection, including typing hints.
+Only transient document-read/JSON-parse failures take the blank-hint path.

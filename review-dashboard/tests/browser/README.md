@@ -332,3 +332,166 @@ connections for 15 minutes. `settleTasks` lets the tasks a render has queued run
 paused `page.clock` advances, so a timer the app starts in an effect is not missed.
 `tests/held-routes.test.mjs` checks the helpers with route and page doubles. GitHub CI
 runs the browsers in Light only (`THEMES=light`); see `docs/RELEASING.md`.
+
+
+`BROWSER_FOCUS=immediate` forces a direct request to wait before reaching the
+server, then exercises failure and Retry, newer typing, FIFO saves across closing
+and reopening Settings, focus and 2 px geometry, and the completed-draft Add
+restore race (ae-yu0). The deliberate 422 is excluded by its exact expected
+console message only after its refusal assertion passes. Other console/page
+errors remain failures. The full suite also holds every actual direct-write
+request before forwarding it and records each action family’s pending state;
+`CAPTURE=1` captures those states on their actual routes. The shared queue’s unit
+tests force failures, replay identities, duplicate submissions, interrupted-page
+recovery and asynchronous committed-result polls with a controlled 250 ms clock.
+The first-run fixture reset clears only its test browser’s recovery copies.
+
+
+`BROWSER_FOCUS=direct-states` forces held refusals and Retry through hand additions,
+corrections, each rule lifecycle action and rule editing, unpaid bills, Delete,
+Restore, permanent removal, statement Apply, Review decisions and first-run
+About/opening writes. It captures pending and failed states and checks input,
+focus and ≤2 px geometry across each refusal. It also checks zero/negative costs
+through the actual Edit form. These cases run in the full suite.
+
+`BROWSER_LARGE=1 BROWSER_FOCUS=latency CAPTURE=0 THEMES=light PERSONA=asha make browser-tests`
+generates the large fictional ledger inside the browser test root. Five held
+Settings saves per engine and size measure pointer-down to a computed pressed-state frame checkpoint and
+click to a pending-DOM frame checkpoint (not physical display/GPU paint). `IMMEDIATE_LATENCY` output retains every sample; no CPU
+or network throttling is applied.
+
+Action timing captures use the exact viewport only: a full-page resize can
+trigger the application’s mobile viewport observer. Other capture helpers
+restore document scroll after their full-page companion. The forced stale-publication Settings regression also saves back to
+the old published name before refreshed data arrives; both writes must occur.
+A held usual-payment failure and shelf-completion regression checks that newer
+words autosave to a different draft and never rewrite the original audit words.
+
+`BROWSER_CAPTURE_PREFIX=immediate- CAPTURE=1` keeps captures for changed action
+states while running every assertion in the full suite. It does not select or
+skip tests. Without the prefix, every requested capture is retained.
+
+The Add timing suite holds intake submission while newer words remain editable,
+then separately focuses Examples before releasing a save. The ordinary
+next-entry focus return must work without stealing that newer chosen focus.
+Committed-result failures preserve structured confirmed-balance refusals, so
+the existing recovery notice remains the authority rather than a duplicate
+generic save-bar error.
+
+The controlled-frame `useLiveFocus` regression checks that background bar or
+refresh-notice measurements cannot scroll an older caret while the person is
+pointing elsewhere. A new focus or explicit viewport resize still reveals it.
+The held receipt-choice case checks actual phone Upload coordinates while
+the result becomes shorter.
+
+The immediate FIFO case trial-clicks Add's next Continue while Settings is held,
+so a fixed shelf cannot cover that phone action. Local pending/failure feedback
+keeps the shelf out of the current form's controls; the hand Retry case checks
+the small feedback Retry as well as the main action. Response waiters attach a
+rejection handler before clicking, so a failed target check retains its original
+trace instead of surfacing only the later page-close rejection.
+
+The first-run suite also holds account creation before the server, injects a
+refusal, then retries while a newer account name is typed. It checks retained
+fields/focus and 2 px input/button/heading positions, and captures
+`immediate-setup-account-{pending,failed,saved-newer-fields}`. The server regression holds a writer and makes a full linked-store load fail:
+words-only interpretation must still answer from its two atomic documents,
+without taking the writer lock.
+While the retried declaration is held, the first-run test also selects another
+valid file account. The late declaration must preserve that server-side choice;
+only an explicit subsequent selection assigns the newly created account. A held
+hook test covers unchanged, newer-choice and unmounted import completions.
+The retained-state unit regression checks that typing and adding opening rows
+keep a stable setter, preventing dependent initialization effects from restarting.
+
+`BROWSER_FOCUS=account-currency` creates a disposable opening-only account in each
+persona and holds its real dialog save before the server. A refusal and Retry
+must retain a newer selection/focus, keep controls within 2 px, acknowledge only
+committed currency and permit an explicit save back. It captures
+`immediate-account-currency-{pending,failed,saved-newer-selection}` and also runs
+inside the immediate-action suite in the full pass.
+
+Review regressions use `BROWSER_FOCUS=direct-states`, `account-create`,
+`review-writes`, `data-departure`, `first-run` and `immediate` while developing in one engine and
+persona. The action coverage table is `action-coverage.mjs`; each listed control
+needs a held refusal and a held committed retry, exact URL/method/result checks,
+its own pending notice, named usable controls and geometry/focus evidence across
+two animation frames. Direct DELETEs and draft/statement restores are observed.
+Injected HTTP errors are excluded only for their registered exact request URL
+and exact status text. Worker result reads are also held, including cancelled
+Apply returning to review.
+
+The first-run fill helper asserts every value immediately and counts input events.
+A data rebuild and opening-row insertion/removal are forced between typing and
+blur. The fixture reset atomically writes empty Trash instead of unlinking a path
+a concurrent list read may already have enumerated. Data departure cases hold a
+read through full-document navigation, exercise back/forward and forced persisted
+page events, and require a real load failure to remain visible and retryable.
+Only if WebKit still logs the narrowly specified teardown message may its
+navigation-only exception be used; ordinary load and console failures stay errors.
+
+The complete case enforces all 42 action IDs in `action-coverage.mjs`.
+`BROWSER_FOCUS=review-round` runs just these changed states, including lifecycle
+and setup checks, for Dark captures; it also enforces the table.
+`BROWSER_DIRECT_REMAINING=1 BROWSER_FOCUS=direct-states` skips the already checked
+Hand/rule/bill group during focused development. It must not be set in the final
+complete pass. The lifecycle case holds both status and generation-gzip reads.
+Actual history navigation and explicitly dispatched persisted events are logged
+separately; a forced event is not evidence that the browser used its BFCache.
+No WebKit navigation console exception is currently installed.
+
+For targeted development, `BROWSER_DIRECT_REVIEW_ONLY=1 BROWSER_FOCUS=direct-states`
+runs the worker-result, Review and setup group. `BROWSER_FOCUS=recovery-settings`
+runs lifecycle departure followed by Settings/reload recovery, including cleanup
+through an opaque document. The lifecycle event logger is installed only on HTTP
+documents; errors from the application are still collected normally.
+
+The ordinary Review lost-response case checks owned failure/Retry in the active
+dialog and the exact persisted request body. It expects the recovered-outbox
+panel only after reopening, then retries the same request ID and requires one
+resolve audit event. The usual-payment completion check keeps newer Add words
+visible while paid history arrives; fixed and varying guards follow the action
+row so that refresh cannot displace its controls.
+
+Second-review coverage requires a visible owned Saved acknowledgement or the
+actual destination, and checks state/action/commit against the real response or
+final server read. Queue/statement DELETE instead requires 204 and the exact Trash
+item. The table rejects event-only evidence. The first pending wait requires a
+rendered visible slot. Only forms/rows that close may remove measured nodes.
+Relevant controls are named per row; only Restore entry, Restore Queue item and
+Restore statement use sidebar Queue because the lone Trash row and Empty Trash
+actions are disabled during that operation. Rule cases use Refresh rules; bills
+use Pay by; approval uses Answer the agent instead; account creation uses the
+statement’s Discard, Queue/statement discard use Queue Refresh, and Review
+separation uses Export decisions.
+
+Hand addition holds a real added result. Statement cancellation waits for the
+exact cancel response, holds its real review result without rewriting it, and
+requires quiet acknowledgement. It queues a real Settings write behind accepted
+Apply and proves Cancel bypasses it. `fillChecked` logs input-event counts before
+its value assertion, including the full WebKit/Sam shard.
+
+Immediate-state captures also retain full-page companions when content is taller
+than the viewport, so a focused phone field cannot hide the action’s evidence.
+
+The Hand result hold also injects one exact-URL HTTP 500 after POST acceptance,
+requires Still in Queue with unchanged geometry, and asserts no claim request.
+It then releases the real added result. `BROWSER_DIRECT_HAND_ONLY=1` selects this
+Hand/correction group for development and must be unset in the full pass.
+
+Statement discard completion requires its current card to disappear, the visible “Item moved to Trash” notice, and no stale alert. The permanent Statement details region is not expected to detach.
+
+The `post-direct` focus resumes the suites after direct actions for a primary case that stopped earlier. Combine its evidence with the completed prefix; it does not rerun the matrix. New-rule outcome checks use explicit Refresh rules after the test closes its retained editor, so a still-running background list refresh cannot race the interaction snapshot. Import outcomes compare each session ID, state and commit after sorting by ID.
+The held-action helper explicitly scrolls the chosen editable input into view before focusing and measuring its baseline. Release/failure geometry remains bounded by 2 px; this avoids measuring a deferred browser focus scroll as application layout movement.
+The focused `BROWSER_DIRECT_RECEIPT_ONLY=1 BROWSER_DIRECT_REMAINING=1` probe selects the receipt group. Ordinary direct-state runs now enforce that every owning form clears its visible alert after commit, including receipt choices; the action table requires `ownAlertsCleared` for every row. Receipt rows also wait for their completed reading to replace the choice controls. The maintained `receipt-replay.test.mjs` contains the original stale-error regression.
+
+`action-alerts.mjs` checks the owning form and the exact earlier refusal outside portals, without treating unrelated reader warnings as that job’s failure. Shared completion tests cover scoped subscriptions, coalesced owners, newer identical-message errors, and explicit opening Continue.
+
+
+`BROWSER_FOCUS=route-targets` reruns the nine route/empty-state target checks at the selected size and 320px. It measures the DOM rectangle's rendered height against the same 44px minimum: Firefox's protocol bounding box can round a 44px control to 43.999969px at a fractional screen position. This does not change the 2px action geometry checks. Statement fixture filenames use the context's media color scheme, so Light and Dark never reuse an undefined theme filename. Review Separate waits for the resolved card to disappear and checks its real success destination, connected heading and outside focus.
+
+`BROWSER_FOCUS=post-add` resumes only the suites after Add, through first run, with the complete action-table gate. Combine it with the retained primary prefix and an Add rerun; it does not restart the matrix.
+
+Fourth-round targeted runs use `BROWSER_FOCUS=review-round` in every engine/persona at both sizes, plus one complete Chromium persona. Hand begins with a claimed queued draft and forces a failed-before-server POST before Retry. Statement Cancel forwards the actual POST then loses its response; a second locked statement in the same mounted view retains usable controls, newer password, focus and 2px geometry while the first job ends. Unit regressions additionally force reload replay, operation-specific markers, transient reads/404, known committed purged import results, late success/refusal/mapping ownership and one cancellation announcement.
+
+The final cancellation probe holds the server-confirmed Cancel response while Apply finishes with another session selected, returns to the original session, then loses the reply. It requires the original Discard to remain busy until that reply ends, then become enabled without a false alert. Cancellation confirmation is tested independently of whether an announcement was shown.

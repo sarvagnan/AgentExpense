@@ -35,6 +35,7 @@ export async function openLiveRules({page,base,expect}) {
 
 export async function runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}) {
   await page.clock.setFixedTime(new Date('2026-11-02T12:00:00Z'));
+  const submitted=new Set();
   const get=async path=>{const response=await fetch(base+'api/'+path);assert.ok(response.ok,await response.clone().text());return response.json();};
   const clickOp=async button=>{const [result]=await Promise.all([page.waitForResponse(r=>r.url().includes('/api/rules/operations/')&&r.request().method()==='POST',{timeout:180000}),button.click()]);assert.ok(result.ok(),await result.text());};
   const wait=async(id,state='added')=>{await expect.poll(async()=>(await get('drafts/'+id)).state,{timeout:180000}).toBe(state);return get('drafts/'+id);};
@@ -51,7 +52,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
     await guess().getByRole('button',{name:'Add as usual',exact:true}).click();
     await expect(words()).toHaveValue('');
     const draft=await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text===text)?.id).toBeTruthy().then(async()=>(await get('drafts?include_added=true')).find(d=>d.text===text));
-    const result=await wait(draft.id);await refresh();await expect(page.locator('.just-added-row').first()).toContainText(result.result.description);return result;
+    submitted.add(draft.id);const result=await wait(draft.id);await refresh();await expect(page.locator('.just-added-row').first()).toContainText(result.result.description);return result;
   };
   await go('add/');await expect(words()).toBeEnabled();
   const countPath=join(stage.root,'fake.count');
@@ -91,7 +92,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await words().fill('Birch rent 109 '+seed.currency);await guess().getByLabel('Add another anyway',{exact:true}).check();
   const [duplicateResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/usual')&&r.request().method()==='POST'),guess().getByRole('button',{name:'Add as usual',exact:true}).click()]);
   assert.ok(duplicateResponse.ok(),await duplicateResponse.text());const duplicate=await duplicateResponse.json();await expect(words()).toHaveValue('');
-  await wait(duplicate.id);
+  submitted.add(duplicate.id);await wait(duplicate.id);
   await refresh();await page.waitForLoadState('networkidle');await expect(page.locator('.just-added-row').first()).toContainText('Birch rent');await expect(saved().getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);
   record('6c2 updating rule amount, duplicate-period disclosure, View entry and explicit override');
   await add('Fable support 15 '+seed.currency,async()=>{await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await guess().getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await guess().getByLabel('Use this account from now on',{exact:true}).check();await settled();await snap('rule-missing-payer');});
@@ -106,10 +107,11 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await expect(saved()).toContainText('Made a rule for Pine studio');await expect(saved().getByRole('button',{name:'Edit rule'})).toBeVisible();await snap('rule-automatic-made');
   await clickOp(saved().getByRole('button',{name:'Don’t make a rule',exact:true}));await expect(saved().getByRole('button',{name:'Don’t make a rule',exact:true})).toHaveCount(0);
   assert.equal((await byName('Pine studio')).lifecycle,'removed');
-  const pine=(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Pine studio'));assert.ok(pine.result.entry_id);
+  const pine=(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Pine studio'));submitted.add(pine.id);assert.ok(pine.result.entry_id);
   await control('rule-agent',{});
   await words().fill('Cedar archive payment 20 '+seed.currency);await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(words()).toHaveValue('');
   await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Cedar archive'))?.state,{timeout:180000}).toBe('added');await refresh();
+  submitted.add((await get('drafts?include_added=true')).find(d=>d.text.startsWith('Cedar archive')).id);
   await expect(saved()).toContainText('Resume Cedar archive?');await snap('rule-resume-match');await clickOp(saved().getByRole('button',{name:'Resume',exact:true}));
   await expect.poll(async()=>(await byName('Cedar archive')).lifecycle).toBe('active');
   record('6c2 normal additions offer Edit rule, Don’t make a rule and Resume paused match');
@@ -142,7 +144,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   assert.equal(await category.evaluate(select=>select.selectedOptions[0].textContent),'Rule Workflow › Juniper ended');
   assert.deepEqual(await category.evaluate(select=>[...select.options].filter(option=>option.value&&/^Expenses:/.test(option.textContent)).length),0,'No category option shows a raw path');
   assert.equal(await newRule.locator('.rule-amount-choice').evaluate(node=>getComputedStyle(node).borderTopStyle),'none','The Amount group has no fieldset box');
-  await page.mouse.move(1,1);await snap('rules-new');await clickOp(newRule.getByRole('button',{name:'Save rule',exact:true}));await expect(newRule).toHaveCount(0);await expect(row('Kestrel club')).toBeVisible();
+  await page.mouse.move(1,1);await snap('rules-new');await expect(newRule.locator('input[inputmode="decimal"]')).toHaveValue('16.25');await clickOp(newRule.getByRole('button',{name:'Save rule',exact:true}));await expect(newRule).toHaveCount(0);await expect(row('Kestrel club')).toBeVisible();
   const suggestions=page.getByRole('region',{name:'Suggested rules'});
   await expect(suggestions).toContainText('Mallow workshop');await snap('rules-suggested');await clickOp(suggestions.locator('article').filter({has:page.getByRole('heading',{name:'Mallow workshop',exact:true})}).getByRole('button',{name:'Confirm rule',exact:true}));await expect(row('Mallow workshop')).toBeVisible();
   await clickOp(suggestions.locator('article').filter({has:page.getByRole('heading',{name:'Olive workshop',exact:true})}).getByRole('button',{name:'Dismiss',exact:true}));await expect(suggestions).not.toContainText('Olive workshop');await reload();await expect(suggestions).not.toContainText('Olive workshop');
@@ -154,6 +156,13 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   const logs=(await import('node:fs/promises')).readdir;
   const audit=(await Promise.all((await logs(join(stage.ledger,'data/additions'))).map(y=>readFile(join(stage.ledger,'data/additions',y),'utf8')))).join('\n').split('\n').filter(Boolean).map(JSON.parse);
   assert.ok(audit.some(r=>r.draft_id===first.id&&r.usual_payment));assert.ok(audit.some(r=>r.retention_action==='deleted'&&r.selected.includes(first.result.entry_id)));assert.ok(audit.some(r=>r.usual_payment?.another_anyway));assert.ok(audit.some(r=>r.rule_action==='kept'));assert.ok(audit.some(r=>r.rule_action==='removed'&&r.rule_changes.some(c=>c.before===null)));
-  const completed=(await get('drafts?include_added=true')).filter(d=>!d.trashed_at);const unsettled=completed.filter(d=>d.state!=='added'||d.audit_pending);assert.deepEqual(unsettled.map(d=>[d.state,d.text,!!d.audit_pending]),[],'Every submitted write settled before fixture reset');
+  const completed=(await get('drafts?include_added=true')).filter(d=>!d.trashed_at);
+  // Looking at an already-paid usual card can autosave an unsent composer copy.
+  // It is not a submitted payment: check every submitted ID, and never mistake
+  // an editing draft for an unfinished financial write during fixture cleanup.
+  for(const id of submitted)assert.equal((await get('drafts/'+id)).state,'added',`Submitted payment ${id} settled`);
+  const unsent=completed.filter(d=>d.state==='editing'&&!submitted.has(d.id));
+  assert.ok(unsent.every(d=>!d.result&&!d.audit_pending),'Unsent composer copies have no saved result or pending audit');
+  const unsettled=completed.filter(d=>(d.state!=='editing'||submitted.has(d.id))&&(d.state!=='added'||d.audit_pending));assert.deepEqual(unsettled.map(d=>[d.state,d.text,!!d.audit_pending]),[],'Every submitted write settled before fixture reset');
   await quiesce({writesSettled:true});await page.unroute('**/api/health');await control('reset-review',{});await resetDrafts({persona,empty:true});
 }

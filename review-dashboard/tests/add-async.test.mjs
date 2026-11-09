@@ -12,7 +12,7 @@ function composerFixture(overrides={}){
   './add-intake':{useAddInterpretation:()=>({value:null,busy:false,error:''})},'./add-visit':{rememberResults(){}},'../date-time':{clientTime:()=>({})},
   '../data':{dashboard:{meta:{ledger:{modules:{}},accounts:{}}},fetchGzipJson:async()=>({patterns:{},people:[],accounts:[]})},
   '../../scripts/account-metadata.mjs':{paymentAccounts:()=>({})},'../ui':{announce(){}},
-  './api':{api,ApiError,isRemoved:value=>removed.has(value),request:async()=>({}),upload:async()=>{record={...record,files:[file]};},...overrides.transport},
+  './api':{api,ApiError,isRemovalPending:()=>false,isRemoved:value=>removed.has(value),request:async()=>({}),upload:async()=>{record={...record,files:[file]};},...overrides.transport},
   './builder':{buildSentence:text=>({fields:{what:{value:text}}}),draftPieces:built=>built},
   './persistence':{readStored:()=>saved,writeStored:(_key,next)=>{saved=next;return true;},findRecoveryDraft:()=>null,restorePieceEdits:()=>({})},'./use-drafts':{draftsChanged(){}},...overrides.dependencies,
  };
@@ -192,4 +192,51 @@ test('Health, autosave and long request deadlines fire at 5s, 12s and 120s on a 
   const saving=h.exports.api.edit(id,'Fictional words',null).then(()=>null,error=>error.message);await h.advance(11999);assert.equal(signals[1].aborted,false);await h.advance(1);assert.match(await saving,/took too long/);
   const continuing=h.exports.request(`drafts/${id}/continue`,{method:'POST'},120000).then(()=>null,error=>error.message);await h.advance(119999);assert.equal(signals[2].aborted,false);await h.advance(1);assert.match(await continuing,/took too long/);assert.equal(h.timers.size,0);
  }finally{h.close();}
+});
+
+test('Composer restoration started with no ID cannot clear newer typing after a completed draft replies',async()=>{
+ const held=deferred(),f=composerFixture({api:{list:()=>held.promise}}),{h}=f;
+ try{await h.settle();const restoring=h.current.restore();await h.settle();f.type('New words while recovery is loading');held.resolve([{id,text:'Old completed words',state:'added',files:[],result:{outcome:'added'}}]);await restoring;await h.settle();assert.equal(h.current.form.text,'New words while recovery is loading');}
+ finally{h.close();}
+});
+
+test('Composer restore of a previous queued item never clears words typed during its held reply',async()=>{
+ const held=deferred(),f=composerFixture({initial:{id,text:'Original words',edits:{}},api:{get:()=>held.promise}}),{h}=f;
+ try{await h.settle();const restoring=h.current.restore();await h.settle();f.type('Newer words');held.resolve({id,text:'Original words',state:'added',files:[],result:{outcome:'added'}});await restoring;await h.settle();assert.equal(h.current.form.text,'Newer words');assert.equal(f.saved.text,'Newer words');}
+ finally{h.close();}
+});
+
+test('Completed recovery cannot switch to another server draft after newer typing, including during the fallback list',async()=>{
+ for(const editDuring of ['get','list']){
+  const held=deferred(),other='b'.repeat(32);let saved={id,text:'Original words',edits:{}};
+  const f=composerFixture({initial:saved,api:{get:async value=>value===other?{id:other,text:'Other server words',state:'editing',files:[],client_updated_at:9999999999999}:editDuring==='get'?held.promise:{id,state:'added',files:[]},list:async()=>editDuring==='list'?held.promise:[{id:other}]},dependencies:{'./persistence':{readStored:()=>saved,writeStored:(_key,next)=>{saved=next;return true;},findRecoveryDraft:()=>({id:other}),restorePieceEdits:()=>({})}}}),{h}=f;
+  try{await h.settle();const restoring=h.current.restore();await h.settle();f.type('Newer words');held.resolve(editDuring==='get'?{id,state:'added',files:[]}:[{id:other}]);await restoring;await h.settle();assert.equal(h.current.form.text,'Newer words',editDuring);assert.equal(h.current.form.id,null);assert.equal(saved.text,'Newer words');}
+  finally{h.close();}
+ }
+});
+
+test('A usual-payment retry keeps its original words and a shelf completion preserves the next draft',async()=>{
+ const held=deferred(),posted=[],edits=[];let fail=true,created=0;
+ const f=composerFixture({transport:{request:async(path,options)=>{posted.push({path,body:options.body});if(fail)return held.promise;return {id,text:'Original usual payment',state:'added',result:{entry_id:'saved'}};}}}),{h}=f;
+ f.api.create=async text=>{f.record={...f.record,id:++created===1?id:'b'.repeat(32),text};return {...f.record};};
+ f.api.edit=async(draftId,text)=>{edits.push({draftId,text});f.record={...f.record,text};return {...f.record};};
+ try{
+  await h.settle();f.type('Original usual payment');await h.advance(350);const saving=h.current.save({rule_id:'rule',date:'2026-11-09'});await h.settle();
+  f.type('Next expense typed during the save');assert.equal(h.current.form.id,null);held.reject(Error('Fictional lost response'));assert.equal(await saving,false);await h.settle();await h.advance(350);
+  const next=h.current.form.id;assert.equal(next,'b'.repeat(32));assert.equal(h.current.directPath,null,'New item feedback cannot show the earlier payment’s job');assert.equal(edits.filter(item=>item.draftId===id).at(-1).text,'Original usual payment','Newer autosave must never change the original audit words');
+  h.events.dispatchEvent(new CustomEvent('direct-write-saved',{detail:{path:`drafts/${id}/usual`,result:{id,state:'added',text:'Original usual payment',result:{entry_id:'saved'}}}}));await h.settle();
+  assert.equal(h.current.form.text,'Next expense typed during the save');assert.equal(h.current.form.id,next);assert.equal(h.current.error,'');assert.equal(h.current.lastSavedId,id);
+ }finally{h.close();}
+});
+for(const state of ['editing','added'])test(`Held ${state} restoration keeps displayed attachments and submit identity together`,async()=>{
+ const held=deferred(),f=composerFixture({api:{get:()=>held.promise}}),{h}=f;
+ try{await h.settle();const restoring=h.current.restore(id);await h.settle();f.type('Newer words');held.resolve({...f.record,state,files:[file],result:state==='added'?{entry_id:'saved'}:null});await restoring;await h.settle();
+  assert.equal(h.current.form.text,'Newer words');
+  if(state==='editing'){assert.equal(h.current.form.id,id);assert.equal(h.current.draft.id,id);assert.equal(h.current.draft.files[0].id,file.id);await h.advance(350);assert.equal(f.calls.at(-1),'Newer words');}
+  else{assert.equal(h.current.form.id,null);assert.equal(h.current.draft,null);}
+ }finally{h.close();}
+});
+test('New Add words during a pending removal use a new identity and survive the old commit',async()=>{
+ let removing=false;const f=composerFixture({transport:{isRemovalPending:value=>removing&&value===id}}),{h}=f,newId='b'.repeat(32);
+ try{await h.settle();f.type('Old words');await h.advance(350);assert.equal(h.current.form.id,id);removing=true;f.api.create=async text=>({...f.record,id:newId,text});f.type('Newer words during removal');assert.equal(h.current.form.id,null);assert.equal(h.current.draft,null);await h.advance(350);assert.equal(h.current.form.id,newId);h.current.forgetDiscarded(id);h.render();assert.equal(h.current.form.text,'Newer words during removal');}finally{h.close();}
 });
