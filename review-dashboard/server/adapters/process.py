@@ -31,7 +31,7 @@ def communicate(process, task, *, data=None, legacy=None):
     watcher.start()
     try:
         if legacy:
-            output = legacy(process, task.remaining())
+            output = legacy(process, task.remaining(), data)
         else:
             output = process.communicate(input=data, timeout=task.remaining())
         task.remaining()

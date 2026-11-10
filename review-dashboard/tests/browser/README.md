@@ -495,3 +495,24 @@ The focused `BROWSER_DIRECT_RECEIPT_ONLY=1 BROWSER_DIRECT_REMAINING=1` probe sel
 Fourth-round targeted runs use `BROWSER_FOCUS=review-round` in every engine/persona at both sizes, plus one complete Chromium persona. Hand begins with a claimed queued draft and forces a failed-before-server POST before Retry. Statement Cancel forwards the actual POST then loses its response; a second locked statement in the same mounted view retains usable controls, newer password, focus and 2px geometry while the first job ends. Unit regressions additionally force reload replay, operation-specific markers, transient reads/404, known committed purged import results, late success/refusal/mapping ownership and one cancellation announcement.
 
 The final cancellation probe holds the server-confirmed Cancel response while Apply finishes with another session selected, returns to the original session, then loses the reply. It requires the original Discard to remain busy until that reply ends, then become enabled without a false alert. Cancellation confirmation is tested independently of whether an announcement was shown.
+
+
+`BROWSER_FOCUS=attachments` runs the attachment-only regressions (also included
+in `BROWSER_FOCUS=add` and the default full case). It chooses thirteen fictional
+files, holds the first three native upload responses in the fixture server, cancels the thirteenth while it
+waits, checks the remaining row's document position and newer typing/focus, then
+requires twelve completed uploads. It fills the same item to fifty through the
+real upload endpoint and checks the next file's own refusal and Retry row.
+Controlled fake timeout events produce a real Failed Queue item with the
+configured duration; its actual Retry must reset the count. Captures are
+`attachments-held`, `attachments-limit` and `attachments-timeout-failed`.
+
+The upload hold stays in the disposable server rather than `route.fetch`: the
+pinned WebKit interceptor replays multipart requests without their file bodies.
+This keeps real browser uploads intact and forces the same held-response race in
+every engine.
+
+The attachment focus also checks affected Queue controls: real one-second local
+deadlines, a held Retry after its first timeout (queued/count 1), receipt Dismiss and
+saved-payment totals, and resolved ledger-fix notices/Discard. Provider error text is
+never used to simulate a local deadline.

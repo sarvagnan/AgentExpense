@@ -161,6 +161,7 @@ const json = (method: string, body?: unknown): RequestInit => ({ method, ...(bod
 export const api = {
   correctionForm:(id:string)=>request<Draft>(`entries/${id}/correction-form`,json('POST')),
   correct:(id:string,op:string,body:object,options:WriteOptions={})=>request<CorrectionResult>(`entries/${id}/corrections/${op}`,{...json('POST',body),...options},120000),
+  receiptDismiss:(id:string)=>request<Draft>(`drafts/${id}/receipt-dismiss`,json('POST',{})),
   receiptChoice:(id:string,choice:'use'|'keep',options:WriteOptions={})=>request<Draft>(`drafts/${id}/receipt-choice`,{...json('POST',{choice}),...options},120000),
   health: (signal?: AbortSignal) => request<{ok: boolean;data?:import('../data').DataStatus}>('health', {signal, keepalive:true}, 5000),
   list: async(signal?:AbortSignal)=>keepPendingItems('drafts',await request<Draft[]>('drafts?include_added=true',{signal})),

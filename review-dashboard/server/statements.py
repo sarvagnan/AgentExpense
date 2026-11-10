@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 from pypdf import PdfReader, PdfWriter
+import agent_timeouts
 from agent import now
 from draft_time import client_context, ensure_context
 from settings import APPLICATION
@@ -133,7 +134,7 @@ class Statements:
             for s in self.all():
                 completed = s['state'] in ('applied','already_filed') and datetime.fromisoformat(s.get('updated_at',s['created_at'])) <= datetime.now(timezone.utc)-timedelta(hours=RECOVERY_HOURS)
                 discarded = s.get('discarded_until') and datetime.fromisoformat(s['discarded_until']) <= datetime.now(timezone.utc)
-                if s.get('trashed_at'): continue
+                if s.get('trashed_at') or s.get('audit_pending'): continue
                 if s['id'] not in self.in_flight and (completed or discarded):
                     shutil.rmtree(self.folder(s['id']))
 
@@ -391,16 +392,35 @@ class Statements:
         else:
             if getattr(self, 'agent_pause', None) and self.agent_pause.blocked():
                 session.update(state='agent_waiting');self.put(session);return
+            session['reading_run'] = dict(start=now(),end=None,model=self.settings.model,effort=self.settings.effort,outcome=None,question=None,doubts=[],error=None,duration=None,usage={},lookups=[])
+            self.put(session)
             try:
                 answer, record = agent.run(self.settings, task, self.folder(session['id']), cancel=cancel)
             except agent.AgentFailure as exc:
+                session.pop('reading_run', None)
                 session['runs'].append(exc.record)
+                if cancel is not None and cancel.is_set():
+                    agent_timeouts.reset(session)
+                    session['runs'][-1].update(outcome='interrupted', error='Server stopped during agent run')
+                    session.update(state='reading');self.put(session);return
+                if exc.kind == 'timeout':
+                    if agent_timeouts.failed(session, exc.kind):
+                        session.update(state='couldnt_read', error=agent_timeouts.reason(self.settings.timeout, statement=True), failure_reason='timeout')
+                        from outcomes import draft_event
+                        snapshot = dict(session, text='', saved_at=session['created_at'], questions=[], check_errors=[],
+                                        files=[dict(original_name=session['original_name'])])
+                        session.setdefault('audit_pending', []).append(draft_event(snapshot, 'failed'))
+                    else: session.update(state='reading')
+                    self.put(session);return
+                agent_timeouts.reset(session)
                 if exc.kind != 'bad_answer' and getattr(self, 'agent_pause', None):
                     self.agent_pause.fail(exc.kind, exc.reset_at)
                     session.update(state='agent_waiting');self.put(session);return
                 self.put(session)
                 raise ValueError('The agent could not verify this statement. ' + str(exc)) from None
+            session.pop('reading_run', None)
             if not self.current_generation(session): return
+            agent_timeouts.reset(session)
             if getattr(self, 'agent_pause', None): self.agent_pause.success()
             session['runs'].append(record)
         statement = verify(answer, task['_statement_source'], meta, locale, currency_check=False)
@@ -685,6 +705,12 @@ class Statements:
 
     def recover_work(self):
         for s in self.all():
+            if s['state'] == 'reading' and s.get('reading_run'):
+                run=s.pop('reading_run')
+                run.update(end=now(),outcome='interrupted',error='Server restarted during statement reading')
+                s['runs'].append(run)
+                agent_timeouts.reset(s)
+                self.put(s)
             if s['state'] == 'applying':
                 s['waiting'] = None
                 s['apply_started'] = bool(s.get('apply_started') or s.get('committed_result') or (self.folder(s['id'])/'transaction.json').exists())

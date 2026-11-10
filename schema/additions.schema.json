@@ -196,6 +196,7 @@
               "usage_limit",
               "auth",
               "transient",
+              "timeout",
               "bad_answer"
             ]
           },

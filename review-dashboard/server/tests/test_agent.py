@@ -29,15 +29,16 @@ def pdf_bytes(pages=1):
 
 
 class AgentInputTests(Fixture):
-    def test_pdf_pages_text_limit_and_upload(self):
+    def test_every_pdf_page_text_and_upload(self):
         source = self.base / 'receipt.pdf'
-        source.write_bytes(pdf_bytes(14))
+        source.write_bytes(pdf_bytes(30))
         work = self.base / 'work'
         work.mkdir()
         images, text = prepare(source, work, 1)
-        self.assertEqual(len(images), 12)
+        self.assertEqual(len(images), 30)
         self.assertIn('Receipt page 12', text)
-        self.assertNotIn('Receipt page 13', text)
+        self.assertIn('Receipt page 30', text)
+        self.assertEqual(text.count('--- page '), 30)
         with Image.open(images[0]) as image:
             self.assertEqual(image.size, (200, 200))
         with self.client(worker=False) as client:
@@ -94,9 +95,9 @@ class AgentInputTests(Fixture):
             self.assertEqual(len(calls), 1)
             call = calls[0]
             args = call['argv']
-            self.assertIn('Pocket money',args[-1])
-            self.assertIn('pocket',args[-1])
-            self.assertIn('Payment accounts',args[-1])
+            self.assertIn('Pocket money',call['stdin'])
+            self.assertIn('pocket',call['stdin'])
+            self.assertIn('Payment accounts',call['stdin'])
             self.assertTrue(call['stdin_closed'])
             self.assertEqual(args[:10], ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only',
                                           '--disable', 'shell_tool', '--disable', 'unified_exec', '--json'])
@@ -112,8 +113,9 @@ class AgentInputTests(Fixture):
             self.assertEqual(args[args.index('--output-schema') + 1], 'schema.json')
             self.assertEqual(args[args.index('-o') + 1], 'answer.json')
             self.assertIn('-i', args)
-            self.assertEqual(args[-2], '--')
-            prompt = args[-1]
+            self.assertEqual(args[-1], '--')
+            prompt = call['stdin']
+            self.assertNotIn(prompt, args)
             for text in ('Runtime policy marker', 'General policy marker', '## Before adding', '## Fuel log',
                          '# Personal rules for this ledger', 'Which account?',
                          'Cash', 'Fix the balance', draft['client_zone'], 'category', 'lunch'):

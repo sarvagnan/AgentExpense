@@ -26,7 +26,7 @@ class FailureProtocols(unittest.TestCase):
 
     def test_every_cli_keeps_error_events_even_on_successful_exit(self):
         for name in ('codex','claude','pi','opencode'):
-            for kind,message in [('usage_limit','Usage limit reached'),('auth','Authentication expired'),('transient','Network connection failed'),('bad_answer','Unsupported response')]:
+            for kind,message in [('usage_limit','Usage limit reached'),('auth','Authentication expired'),('transient','Network connection failed'),('transient','Deadline exceeded'),('transient','504 Gateway Timeout'),('transient','Request timed out'),('transient','idle timeout'),('transient','Connection timed out'),('bad_answer','Unsupported response')]:
                 with self.subTest(adapter=name,kind=kind):
                     step={'kind':'provider_error','error':{'message':message,'reset_at':'2026-12-01T10:00:00+00:00'}}
                     if name=='codex':
@@ -64,6 +64,7 @@ class FailureProtocols(unittest.TestCase):
         async def probe(name,status):
             adapter=self.api_adapter(name,'http://127.0.0.1/v1',retries=0)
             def respond(request):
+                if status=='transport_timeout': raise httpx.ReadTimeout('Provider idle timeout',request=request)
                 if status=='transport': raise httpx.ConnectError('offline',request=request)
                 return httpx.Response(status,json={'error':{'message':'Fictional provider diagnostic'}},headers={'retry-after':'30'})
             async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
@@ -72,9 +73,9 @@ class FailureProtocols(unittest.TestCase):
             error=raised.exception
             self.assertEqual(error.kind,'auth' if status in (401,403) else 'usage_limit' if status==429 else 'transient')
             if status==429:self.assertIsNotNone(error.reset_at)
-            if status!='transport':self.assertIn('Fictional provider diagnostic',str(error.errors))
+            if status not in ('transport','transport_timeout'):self.assertIn('Fictional provider diagnostic',str(error.errors))
         for name in ('openai','anthropic'):
-            for status in (401,403,429,500,503,'transport'):
+            for status in (401,403,429,500,503,'transport','transport_timeout'):
                 with self.subTest(adapter=name,status=status):asyncio.run(probe(name,status))
 
 
@@ -181,20 +182,34 @@ class FinishTests(Fixture):
             self.assertTrue(draft['runs'][0]['normalisations'])
             self.assertIsNone(json.loads((self.ledger/'data/expenses/2026.json').read_text())[0]['original-amount'])
 
-    def test_timeout_is_queued_once_without_repair_or_failure_audit(self):
-        import subprocess
-        self.set_answers({'kind':'timeout'})
-        def timeout_after_start(process, timeout):
-            while True:
-                line=process.stdout.readline()
-                if line.strip()=='FAKE_TIMEOUT_READY':raise subprocess.TimeoutExpired(process.args,timeout)
-                if not line:self.fail('Fake exited before timeout boundary')
-        with patch('agent.communicate',side_effect=timeout_after_start),self.client(timeout=20) as client:
+    def test_three_fake_timeouts_fail_keep_files_and_advance_then_retry_resets(self):
+        self.set_answers({'kind':'timeout'}, {'kind':'timeout'}, {'kind':'timeout'}, ready())
+        with self.client(timeout=1) as client:
             identity=self.create(client);self.save(client,identity)
-            draft=self.wait_condition(client,identity,lambda d:d['state']=='queued' and len(d['runs'])==1)
-            self.assertEqual(draft['runs'][0]['failure_kind'],'transient');self.assertEqual(draft['check_errors'],[])
-            self.assertFalse(draft.get('audit_pending'));self.assertEqual(len(self.calls()),1)
-            self.assertEqual(client.get('/api/health').json()['agent_pause']['attempt'],1)
+            next_id=self.create(client, text='Next fictional expense');self.save(client,next_id)
+            draft=self.wait(client,identity,'failed')
+            self.assertEqual(len(draft['runs']),3)
+            self.assertEqual(draft['consecutive_timeouts'],3)
+            self.assertTrue(all(r['failure_kind']=='timeout' and r['duration']>=1 for r in draft['runs']))
+            self.assertIn('three tries of 1 second',draft['error'])
+            self.assertEqual(draft['check_errors'],[])
+            self.assertTrue((client.app.state.drafts.folder(identity)/'files'/draft['files'][0]['name']).exists())
+            self.assertIsNone(client.get('/api/health').json()['agent_pause'])
+            self.wait(client,next_id,'added')
+            self.wait_condition(client,identity,lambda d:not d.get('audit_pending'))
+            failures=[r for r in records(self.ledger) if r['outcome']=='failed']
+            self.assertEqual(len(failures),1);self.assertEqual(failures[0]['error'],draft['error'])
+            self.set_answers({'kind':'timeout'}, ready())
+            worker=client.app.state.worker
+            blocked=worker.pause.blocked
+            # Hold the worker before the next pickup after one retry timeout.
+            # This would remain Failed/count 4 if queue() forgot the reset.
+            with patch.object(worker.pause,'blocked',side_effect=lambda: blocked() or client.app.state.drafts.get(identity).get('consecutive_timeouts')==1):
+                response=client.post(f'/api/drafts/{identity}/retry');self.assertEqual(response.status_code,200)
+                self.assertEqual(response.json()['consecutive_timeouts'],0)
+                retried=self.wait_condition(client,identity,lambda d:d['state'] in ('queued','failed') and len(d['runs'])==4)
+                self.assertEqual(retried['state'],'queued');self.assertEqual(retried['consecutive_timeouts'],1)
+            worker.wake.set();self.wait(client,identity,'added')
 
     def test_account_failure_becomes_question_without_repair(self):
         form=ready();form['entry']['postings'][0]['account']='Unknown:Merchant';form['new-accounts']=['Unknown:Merchant'];self.set_answers(form)

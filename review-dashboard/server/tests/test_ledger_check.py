@@ -551,6 +551,35 @@ class LedgerCheckTests(Fixture):
     # Ask the agent to fix it, offline: the fake agent proposes, the person approves.
 
     @needs_hledger
+    def test_three_fix_timeouts_fail_without_changing_entry_and_retry_resets(self):
+        from test_attachment_timeouts import timeout
+        from audit import records
+        self.commit([lunch('1'*16)])
+        broken=lunch('2'*16,account='Expenses:Drinks')
+        self.commit([lunch('1'*16),broken], 'Fictional broken account')
+        with self.client(ledger_check=True) as client:
+            check=client.app.state.ledger_check;self.assertTrue(check.wait_idle(120))
+            before=self.bytes()
+            with patch('agent.run',side_effect=timeout()):
+                created=client.post('/api/ledger-check/fix');self.assertEqual(created.status_code,201,created.text)
+                draft=self.wait(client,created.json()['id'],'failed')
+            self.assertEqual(len(draft['runs']),3);self.assertEqual(draft['consecutive_timeouts'],3)
+            self.assertIn('propose a fix',draft['error']);self.assertEqual(self.bytes(),before)
+            self.assertIsNone(client.get('/api/health').json()['agent_pause'])
+            # A broken ledger cannot verify even an audit-only commit yet. Keep the
+            # usual failed record pending until the person corrects that ledger.
+            self.assertEqual(len(draft['audit_pending']),1)
+            self.assertEqual(draft['audit_pending'][0]['outcome'],'failed')
+            worker=client.app.state.worker;blocked=worker.pause.blocked
+            with patch.object(worker.pause,'blocked',side_effect=lambda:blocked() or client.app.state.drafts.get(draft['id']).get('consecutive_timeouts')==1),patch('agent.run',side_effect=timeout()):
+                response=client.post('/api/drafts/'+draft['id']+'/retry');self.assertEqual(response.status_code,200,response.text)
+                result=self.wait_condition(client,draft['id'],lambda d:len(d['runs'])==4 and d['state'] in ('queued','failed'))
+                self.assertEqual(result['state'],'queued');self.assertEqual(result['consecutive_timeouts'],1)
+            self.set_answers(fix_answer(broken));worker.wake.set()
+            result=self.wait(client,draft['id'],'question');self.assertEqual(result['consecutive_timeouts'],0)
+            self.assertEqual(result['ledger_fix']['state'],'ready')
+
+    @needs_hledger
     def test_the_fake_agent_proposes_the_fix_the_person_saves_it_and_the_item_closes(self):
         self.commit([lunch('1' * 16)])
         broken = lunch('2' * 16, day='2026-10-30', account='Expenses:Drinks', amount='40.00')
@@ -571,7 +600,7 @@ class LedgerCheckTests(Fixture):
             self.assertEqual(self.bytes(), before, 'The proposal changed nothing in the ledger')
             self.assertEqual(client.post('/api/ledger-check/fix').json()['id'], identity, 'Asking again opens the same proposal')
             self.assertEqual(client.get('/api/ledger-check').json()['item']['fix'], dict(draft_id=identity, state='ready', question=None, message='Use the declared food account.'))
-            prompt = self.calls()[-1]['argv'][-1]
+            prompt = self.calls()[-1]['stdin']
             self.assertIn('An account isn’t declared', prompt)
             self.assertIn('Expenses:Drinks', prompt)
             # The person opens Edit entry with the proposal, checks it and saves it.

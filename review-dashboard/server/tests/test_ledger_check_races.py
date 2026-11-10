@@ -100,7 +100,7 @@ class LedgerCheckRaces(Fixture):
         self.assertEqual(get(draft['id'])['ledger_fix']['state'], 'resolved')
 
     def test_question_failure_and_retry_preserve_a_pass_while_the_agent_works(self):
-        for outcome in ('question', 'transient', 'bad_answer'):
+        for outcome in ('question', 'transient', 'bad_answer', 'timeout'):
             with self.subTest(outcome=outcome):
                 check, worker = self.proposal()
                 draft = check.fix(self.drafts, worker)
@@ -111,6 +111,32 @@ class LedgerCheckRaces(Fixture):
                 with patch('agent.run', run): ledger_check.propose(worker, draft)
                 self.assertEqual(self.drafts.get(draft['id'])['ledger_fix']['state'], 'resolved')
                 self.assertEqual(self.drafts.get(draft['id'])['state'], 'question')
+
+    def test_timeout_preserves_a_concurrent_discard_request(self):
+        check, worker = self.proposal()
+        draft=check.fix(self.drafts,worker)
+        def run(*args,**kwargs):
+            latest=self.drafts.get(draft['id']);latest['discard_requested']=True;self.drafts.put(latest)
+            raise agent.AgentFailure('Local deadline',dict(failure_kind='timeout'))
+        with patch('agent.run',run):ledger_check.propose(worker,draft)
+        current=self.drafts.get(draft['id']);self.assertTrue(current['discard_requested']);self.assertEqual(current['state'],'question')
+
+    def test_pass_after_three_timeouts_refuses_retry_and_allows_discard(self):
+        check, worker = self.proposal()
+        draft = check.fix(self.drafts, worker)
+        draft.update(state='failed',error='Old timeout',consecutive_timeouts=3)
+        draft['ledger_fix'].update(state='failed',message='Retry the old timeout')
+        self.drafts.put(draft);check.resolve_fixes()
+        current=self.drafts.get(draft['id'])
+        self.assertEqual(current['state'],'question');self.assertIsNone(current['error'])
+        self.assertNotIn('message',current['ledger_fix'])
+        with self.client(worker=False) as client:
+            response=client.post('/api/drafts/'+draft['id']+'/retry')
+            self.assertEqual(response.status_code,409);self.assertIn('now passes',response.text)
+            with patch('retention_service.Retention.operate',return_value={}) as discard:
+                response=client.delete('/api/drafts/'+draft['id'])
+                self.assertEqual(response.status_code,204,response.text)
+                self.assertEqual(discard.call_count,1)
 
     def test_a_pass_before_queueing_never_starts_the_agent(self):
         check, worker = self.proposal()

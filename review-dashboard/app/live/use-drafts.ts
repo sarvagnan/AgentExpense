@@ -5,7 +5,7 @@ import type { AgentStatus } from './agent-status';
 import { statementsApi, type StatementSession } from './statements-api';
 import type { LedgerCheckStatus } from './ledger-check';
 export const statementNeedsAttention = (s: StatementSession) => ['account_needed', 'currency_mismatch', 'locked', 'wrong_file', 'couldnt_read', 'found', 'review', 'failed'].includes(s.state) && !s.discarded_until && !s.duplicate_of;
-export const needsAttention = (d: Draft) => d.receipt_reading?.state==='question' || d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
+export const needsAttention = (d: Draft) => ['question','failed'].includes(d.receipt_reading?.state||'') || d.state === 'question' || d.state === 'failed' || (d.state === 'added' && !!d.statement_file && !d.handover_session);
 export const isRunning = (d: Draft) => ['queued','reading','ready'].includes(d.receipt_reading?.state||'') || d.state === 'queued' || d.state === 'working';
 export const newestFirst = (drafts: Draft[]) => [...drafts].sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 /** The background ledger check counts as running work: its result shows within three seconds. */

@@ -183,7 +183,7 @@ class CurrencyTests(Fixture):
         with self.client(timeout=30) as client:
             identity=self.create(client,upload=False);self.save(client,identity)
             draft=self.wait(client,identity,'question');self.assertEqual(draft['currency_request']['currency'],'USD')
-            self.assertIn('unknown amount marker',self.calls()[0]['argv'][-1])
+            self.assertIn('unknown amount marker',self.calls()[0]['stdin'])
             for value in ('','0','-1','NaN','Infinity','abc','1e4'):
                 response=client.post(f'/api/drafts/{identity}/currency',json={'rate':value})
                 self.assertEqual(response.status_code,422,response.text)

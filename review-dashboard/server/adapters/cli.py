@@ -175,8 +175,8 @@ class CLI:
             env['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
             model = self.settings.model + ('#'+self.settings.effort if self.settings.effort else '')
             command = [self.binary,'run','--standalone','--format','json','--agent','expense','--model',model,
-                       *(arg for path in task.images for arg in ('--file',str(path))), '--',task.prompt+schema_instruction]
-            data = None
+                       *(arg for path in task.images for arg in ('--file',str(path))), '--']
+            data = task.prompt+schema_instruction
         return command,env,data
 
     def fingerprint(self):
@@ -298,7 +298,7 @@ class CLI:
             validate(result.answer,task.schema)
             return result
         except subprocess.TimeoutExpired as exc:
-            raise AdapterError('Agent deadline exceeded',kind='transient',stderr_tail=diagnostic(exc.stderr or '')) from None
+            raise AdapterError('Agent deadline exceeded',kind='timeout',stderr_tail=diagnostic(exc.stderr or '')) from None
         except AdapterError as exc:
             exc.stderr_tail = diagnostic(locals().get('err', getattr(self, '_stderr', '')))
             raise
@@ -321,8 +321,26 @@ class CLI:
         threads=[threading.Thread(target=read,args=(process.stdout,True),daemon=True),
                  threading.Thread(target=read,args=(process.stderr,False),daemon=True)]
         for thread in threads: thread.start()
-        process.stdin.write(data);process.stdin.flush()
+        # Raw nonblocking writes avoid a text-buffer flush hanging outside the
+        # task budget when the peer stops reading a large prompt.
+        fd=process.stdin.fileno()
+        os.set_blocking(fd,False)
+        def write(data, *, abort=False):
+            import select
+            pending=memoryview(data.encode())
+            until=time.monotonic()+.25
+            while pending:
+                if abort:
+                    if time.monotonic()>=until: raise TimeoutError('Abort write deadline')
+                else: task.remaining()
+                try: sent=os.write(fd,pending[:65536])
+                except BlockingIOError:
+                    if abort: raise TimeoutError('Abort pipe is full') from None
+                    select.select([], [fd], [], min(.05,task.remaining()))
+                    continue
+                pending=pending[sent:]
         try:
+            write(data)
             while True:
                 task.remaining()
                 try: line=records.get(timeout=min(.05,task.remaining()))
@@ -338,7 +356,7 @@ class CLI:
             process.wait(timeout=task.remaining())
         except BaseException:
             try:
-                process.stdin.write('{"id":"cancel","type":"abort"}\n');process.stdin.flush()
+                write('{"id":"cancel","type":"abort"}\n',abort=True)
                 # Give the RPC peer a bounded acknowledgement window; a provider
                 # that ignores abort still gets process-group termination.
                 until=time.monotonic()+.25

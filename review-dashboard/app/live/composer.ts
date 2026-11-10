@@ -93,17 +93,28 @@ export function useComposer(active:boolean){
     finally{if(run===generation.current)setRecovering(false);}
   }
   async function refreshFiles(id:string){const ticket=++fileRequest.current;const d=await api.get(id);if(current.current.id===id && ticket===fileRequest.current)setDraft(d);draftsChanged();}
-  async function sendFile(item:Pending){
+  // Three requests keep uploads moving without starting the two-minute XHR clock
+  // for every waiting file. The server serializes staging under the draft mutex.
+  const uploadQueue=useRef<{item:Pending;target:Promise<Draft>}[]>([]),activeUploads=useRef(0);
+  function pumpUploads(){
+    while(activeUploads.current<3 && uploadQueue.current.length){
+      const {item,target}=uploadQueue.current.shift()!;
+      if(item.controller?.signal.aborted)continue;
+      activeUploads.current++;
+      void sendFile(item,target).finally(()=>{activeUploads.current--;pumpUploads();});
+    }
+  }
+  async function sendFile(item:Pending,target:Promise<Draft>){
     changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:true,error:''}:p));
     try{
-      const d=await ensureDraft();if(d.state!=='editing')throw Error('This item has already been saved. Open Queue.');
+      const d=await target;if(d.state!=='editing')throw Error('This item has already been saved. Open Queue.');
       if(item.controller?.signal.aborted)return;
       await upload(d.id,item.file!,progress=>changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,progress}:p)),item.controller?.signal,item.key);
       if(item.controller?.signal.aborted)await api.cancelUpload(d.id,item.key);
       await refreshFiles(d.id);changeUploads(xs=>xs.filter(p=>p.key!==item.key));
     }catch(e){if(!item.controller?.signal.aborted)changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:false,error:(e as Error).message}:p));}
   }
-  function pick(files:File[]){if(savingRef.current||recovering)return;const items=files.map(file=>({key:crypto.randomUUID().replaceAll('-',''),name:file.name,file,progress:0,error:'',busy:true,controller:new AbortController()}));changeUploads(xs=>[...xs,...items]);for(const item of items)void sendFile(item);}
+  function pick(files:File[]){if(savingRef.current||recovering)return;const items=files.map(file=>({key:crypto.randomUUID().replaceAll('-',''),name:file.name,file,progress:0,error:'',busy:true,controller:new AbortController()}));changeUploads(xs=>[...xs,...items]);if(items.length){const target=ensureDraft();uploadQueue.current.push(...items.map(item=>({item,target})));pumpUploads();}}
   async function cancel(item:Pending){item.cancelled=true;item.controller?.abort();changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:true,cancelled:true}:p));try{const d=await ensureDraft();await api.cancelUpload(d.id,item.key);await refreshFiles(d.id);changeUploads(xs=>xs.filter(p=>p.key!==item.key));}catch(e){changeUploads(xs=>xs.map(p=>p.key===item.key?{...p,busy:false,error:`Could not confirm cancellation. ${(e as Error).message}`}:p));}}
   function retry(item:Pending){if(item.cancelled){void cancel(item);return;}if(!item.file)return;changeUploads(xs=>xs.filter(p=>p.key!==item.key));pick([item.file]);}
   async function remove(file:Attachment){const id=current.current.id!;await api.remove(id,file.id);await refreshFiles(id);}
@@ -142,7 +153,7 @@ export function useComposer(active:boolean){
   }
   const serverSaved=!!form.id&&fingerprint(form)===synced;
   useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if((!localOK&&!serverSaved&&!!form.text)||pending.some(p=>p.busy)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[localOK,serverSaved,form.text,pending]);
-  function forgetDiscarded(id:string){if(current.current.id!==id)return;generation.current++;fileRequest.current++;setRecovering(false);update(blank());setDraft(null);setPasswords({});setError('');setSyncError('');setSynced('');}
+  function forgetDiscarded(id:string){if(current.current.id!==id)return;for(const item of uploads.current)item.controller?.abort();uploadQueue.current=[];changeUploads(()=>[]);generation.current++;fileRequest.current++;setRecovering(false);update(blank());setDraft(null);setPasswords({});setError('');setSyncError('');setSynced('');}
   function retryStorage(){persist();void sync();}
   async function retrySave(){const attempt=usualRetry.current;if(!attempt||completedUsual.current.has(attempt.id))return save(lastSave.current);if(savingRef.current)return;savingRef.current=true;setSaving(true);setError('');try{await saveUsual(attempt.id,attempt.body);finishUsual(attempt.id,!!attempt.body.bill_only,attempt.submitted);return true;}catch(e){setError(`Could not save. ${(e as Error).message}`);return false;}finally{savingRef.current=false;setSaving(false);}}
   return {retrySave,directPath,usualCard,setUsualCard,ruleDecisionNeeded,form,draft,interpretation,passwords,setPasswords,patterns:{...patterns,extensions:dashboard.meta.ledger.extensions,payments:paymentAccounts(dashboard.meta.accounts)},pending,patternError,error,saving,success,forgetDiscarded,lastSavedId,recovering,built,localOK,serverSaved,syncError,update,pick,cancel,retry,remove,save,restore,retryStorage,forgetUpload:(key:string)=>changeUploads(xs=>xs.filter(p=>p.key!==key))};

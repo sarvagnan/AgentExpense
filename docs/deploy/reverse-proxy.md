@@ -33,7 +33,7 @@ server {
         proxy_set_header Host $host;
         # The signed-in name. This replaces any value the browser sent.
         proxy_set_header Tailscale-User-Login $remote_user;
-        client_max_body_size 260m;                         # up to 10 files of 25 MiB
+        client_max_body_size 260m;                         # per request: 10 × 25 MiB; an item may hold 50 files
         proxy_read_timeout 120s;
     }
 }

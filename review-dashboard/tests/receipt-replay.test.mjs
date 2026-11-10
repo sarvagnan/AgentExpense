@@ -43,3 +43,11 @@ for(const recovered of [false,true])test(`Receipt completion follows the real ${
   await direct.exports.retryWrite(original.id);await receipt.settle();assert.equal(actions,1);assert.equal(nodes(receipt.current).some(node=>node.props?.role==='alert'),false);assert.deepEqual(requests,[original.body,original.body]);assert.equal(direct.exports.writeSnapshot()[0].state,'saved');
  }finally{receipt?.close();direct.close();}
 });
+
+test('Dismiss ends a failed receipt reading while the saved payment remains',async()=>{
+ const jsx=(type,props)=>({type,props}),id='d'.repeat(32);let dismissed=0,actions=0;
+ const draft={id,state:'added',receipt_reading:{state:'failed',message:'Your payment is saved.'}};
+ const h=hookHarness('../app/live/receipt-reading.tsx',{'../ui':{},'../data':{dashboard:{meta:{accounts:{}}}},'./balance-refusal':{},'./api':{api:{receiptDismiss:async identity=>{assert.equal(identity,id);dismissed++;return {...draft,receipt_reading:{state:'dismissed'}};}},ApiError:class extends Error{}},'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'}});
+ const nodes=n=>!n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];
+ try{h.render(m=>m.default({draft,onAction:async()=>{actions++;}}));const dismiss=nodes(h.current).find(n=>n.type==='button'&&n.props.children==='Dismiss');assert.ok(dismiss);dismiss.props.onClick();await h.settle();assert.equal(dismissed,1);assert.equal(actions,1);assert.equal(draft.state,'added');}finally{h.close();}
+});

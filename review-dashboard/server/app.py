@@ -36,7 +36,8 @@ def error_detail(exc):
 
 
 MAX_BYTES = 25 * 1024 * 1024
-MAX_FILES = 10
+MAX_FILES = 50
+MAX_FILES_PER_REQUEST = 10
 FORMATS = {'JPEG': ('.jpg', 'image/jpeg'), 'PNG': ('.png', 'image/png'), 'WEBP': ('.webp', 'image/webp')}
 
 
@@ -284,7 +285,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     def queue(draft, proposal=None):
         draft.pop('refusal', None)
-        draft.update(state='queued', queued_at=(draft.get('queued_at') or now()) if draft.get('usual_payment') or draft.get('bill_request') else now(), error=None, waiting=None, proposal=proposal, answer_failures=0)
+        draft.update(state='queued', queued_at=(draft.get('queued_at') or now()) if draft.get('usual_payment') or draft.get('bill_request') else now(), error=None, waiting=None, proposal=proposal, answer_failures=0, consecutive_timeouts=0)
         drafts.put(draft)
         worker.wake.set()
         return public(draft)
@@ -623,7 +624,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.get('/api/drafts')
     def list_drafts(include_added: bool = False):
         drafts.purge()
-        return sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added' or d.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question')), key=lambda d: d['created_at'])
+        return sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added' or d.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question','failed')), key=lambda d: d['created_at'])
 
     @app.get('/api/drafts/{identity}')
     def read(identity: str):
@@ -666,8 +667,10 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                     return public(draft)
                 if any(f['id'] == upload_id for f in draft['files']):
                     return public(draft)
+            if len(files) > MAX_FILES_PER_REQUEST:
+                raise HTTPException(413, f'At most {MAX_FILES_PER_REQUEST} files per upload request')
             if len(files) + len(draft['files']) > MAX_FILES:
-                raise HTTPException(413, 'At most 10 files per draft')
+                raise HTTPException(413, f'At most {MAX_FILES} files per item')
             staged = []
             for file in files:
                 data = file.file.read(MAX_BYTES + 1)
@@ -1016,10 +1019,33 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def retry(identity: str):
         with drafts.mutex:
             draft = get(identity)
+            if draft.get('receipt_reading', {}).get('state') == 'failed':
+                draft['receipt_reading'].update(state='queued', queued_at=now(), consecutive_timeouts=0, message=None, attempt_runs=[])
+                drafts.put(draft);worker.wake.set()
+                return public(draft)
+            if draft.get('ledger_fix', {}).get('state') == 'resolved':
+                raise HTTPException(409, 'The ledger check now passes. Discard this proposal instead.')
             require(draft, 'failed')
             if draft.get('refusal'): raise HTTPException(409, 'Change the account or date, or answer the agent before sending this item again')
             draft['check_errors'] = []
             return queue(draft, draft.get('proposal') if draft.get('usual_payment') else draft.get('hand_form') if draft.get('finished_by') else None)
+
+    @app.post('/api/drafts/{identity}/receipt-dismiss')
+    def dismiss_receipt(identity: str):
+        with drafts.mutex:
+            draft = get(identity)
+            reading = draft.get('receipt_reading', {})
+            if reading.get('state') == 'dismissed': return public(draft)
+            if reading.get('state') != 'failed':
+                raise HTTPException(409, 'This receipt reading is not waiting to be dismissed')
+            from outcomes import queue_outcome
+            snapshot = {**draft, 'runs': reading.get('attempt_runs', []), 'result': {'sources': reading['sources']}, 'error': None}
+            queue_outcome(snapshot, 'discarded')
+            draft['audit_pending'] = snapshot['audit_pending']
+            reading.update(state='dismissed', message='The payment and its filed receipt are kept as they are.')
+            drafts.put(draft)
+        worker.wake.set()
+        return public(draft)
 
     @app.get('/api/entries/{entry_id}/retention')
     def entry_retention(entry_id: str):
@@ -1184,8 +1210,10 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             session=statement_get(identity)
             if session['state'] not in ('wrong_file','couldnt_read','saved'):
                 raise HTTPException(409,'This statement is not waiting for another reading')
-            session.update(state='reading',queued_at=now(),error=None,waiting=None,cancelled=False,generation=session.get('generation',0)+1)
-            statements.put(session)
+            session.pop('failure_reason', None)
+            session.pop('reading_run', None)
+            session.update(state='reading',queued_at=now(),error=None,waiting=None,cancelled=False,consecutive_timeouts=0,generation=session.get('generation',0)+1)
+            statements.put(session, force=True)
         worker.wake.set()
         return session
 

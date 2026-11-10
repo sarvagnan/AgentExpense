@@ -12,6 +12,9 @@ from agent import now
 from draft_time import client_context, ensure_context
 
 
+MAX_RUNS = 50
+
+
 class Drafts:
     def __init__(self, root, clock=None):
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -42,6 +45,10 @@ class Drafts:
 
     def put(self, draft):
         with self.mutex:
+            # Keep recent diagnostics for both Add and saved receipt readings.
+            for item in (draft, draft.get('receipt_reading', {})):
+                for key in ('runs', 'attempt_runs'):
+                    if key in item: item[key] = item[key][-MAX_RUNS:]
             folder = self.folder(draft['id'])
             folder.mkdir(exist_ok=True)
             path = folder / 'draft.json'
@@ -98,7 +105,7 @@ class Drafts:
                             shutil.rmtree(self.folder(draft['id']))
                     continue
                 if draft['state'] == 'added':
-                    if draft.get('statement_file') or draft.get('audit_pending') or draft.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question'):
+                    if draft.get('statement_file') or draft.get('audit_pending') or draft.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question','failed'):
                         continue
                     if datetime.fromisoformat(draft['completed_at']) <= at - timedelta(hours=24):
                         shutil.rmtree(self.folder(draft['id']))

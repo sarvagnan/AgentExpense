@@ -42,7 +42,7 @@ class AnswerTests(Fixture):
         journal = (self.ledger / 'expense_ledger.ledger').read_text()
         for line in ('; learning-course: Fictional pottery class', '; learning-hours: 2.50', '; learning-level: beginner'):
             self.assertIn(line, journal)
-        self.assertIn('entry.extensions.learning.course', self.calls()[0]['argv'][-1])
+        self.assertIn('entry.extensions.learning.course', self.calls()[0]['stdin'])
 
     def test_answer_shape_failures(self):
         self.use_learning()
@@ -84,8 +84,8 @@ class AnswerTests(Fixture):
             self.wait(client, identity, 'added')
         calls = self.calls()
         self.assertEqual(len(calls), 2)
-        self.assertIn('Server check failures to correct', calls[1]['argv'][-1])
-        self.assertIn('postings.0.amount', calls[1]['argv'][-1])
+        self.assertIn('Server check failures to correct', calls[1]['stdin'])
+        self.assertIn('postings.0.amount', calls[1]['stdin'])
         self.assertEqual(read_json(self.ledger / 'data/expenses/2026.json')[0]['postings'][0]['amount'], '100.00')
 
     def test_a_second_malformed_answer_fails_visibly_after_one_retry(self):
@@ -103,7 +103,7 @@ class AnswerTests(Fixture):
         # One retry with the first errors, then the second failure is shown, never repaired or retried again.
         calls = self.calls()
         self.assertEqual(len(calls), 2)
-        self.assertIn('postings.0.amount', calls[1]['argv'][-1])
+        self.assertIn('postings.0.amount', calls[1]['stdin'])
         self.assertIn('extensions.learning.level', draft['error'])
         self.assertEqual([run['outcome'] for run in draft['runs']], ['check_failed', 'check_failed'])
         self.assertEqual(len(draft['check_errors']), 2)
@@ -170,7 +170,7 @@ class PersonAmountTests(Fixture):
             self.wait(client, identity, 'added')
         calls = self.calls()
         self.assertEqual(len(calls), 2)
-        self.assertIn('postings.0.amount', calls[1]['argv'][-1])
+        self.assertIn('postings.0.amount', calls[1]['stdin'])
 
 
 class PlainRefusalTests(Fixture):
@@ -198,7 +198,7 @@ class PlainRefusalTests(Fixture):
             identity = self.create(client, 'Fictional lunch')
             self.save(client, identity)
             self.wait(client, identity, 'added')
-        prompt = self.calls()[1]['argv'][-1]
+        prompt = self.calls()[1]['stdin']
         self.assertIn(self.COST, prompt)
         self.assertNotIn('String should match pattern', prompt)
         self.assertEqual(len(self.calls()), 2)

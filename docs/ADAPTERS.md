@@ -72,7 +72,9 @@ schema. No regex extraction or fenced-JSON fallback is used.
 
 OpenCode v2 uses plural `permissions`, action `shell`, and `mcp.servers` configuration;
 v1's `permission`/`bash`/top-level MCP forms are incorrect for this pin. MCP tools are
-`ledger_<name>`. Images use repeated `--file`; events are `tool_use`, `text` and
+`ledger_<name>`. Prompts use stdin (the pinned 2.2.5 run command reads non-terminal stdin and
+combines it with optional message arguments); no message argument is supplied.
+Codex likewise reads stdin with no positional prompt. Images use repeated `--file`; events are `tool_use`, `text` and
 `step_finish`. There is no output-schema flag. A probe may observe an explicitly
 denied shell call; a successful non-lookup call fails the gate.
 
@@ -228,7 +230,18 @@ homes must remain under `/tmp`; no test may run a real model or sign in.
 
 ### Failure contract
 
-`AdapterError` carries `kind` (`usage_limit`, `auth`, `transient`, `bad_answer`),
+Only the application’s own deadline uses `timeout`. Provider/gateway timeout text
+(including 504, request/idle timeouts and provider deadline errors) is `transient`. They never
+pause other tasks: two immediate retries per item, then Failed on the third
+consecutive timeout, with its files/words retained and the configured duration in
+the reason. Retry and any non-timeout result reset the count. Server cancellation
+is an interruption. This applies to Add, receipt and statement readings and ledger
+fix proposals; connections/authentication/usage limits keep the shared pause.
+Every PDF page prepared for an adapter carries an image and its text; there is no
+12-page truncation. Statement extraction retains its own 100-page bound.
+
+
+`AdapterError` carries `kind` (`usage_limit`, `auth`, `transient`, `timeout`, `bad_answer`),
 optional ISO `reset_at`, bounded provider `errors`, `stderr_tail`, usage and lookup
 metadata. CLI error events fail a run even with exit status zero. Adapters classify
 provider events and HTTP statuses; the worker never classifies diagnostic text.
@@ -247,3 +260,16 @@ API 429, authentication, server and transport failures now return immediately to
 the shared pause; adapters do not perform rapid local outage retries. The legacy
 `agent.api.retries` option remains accepted for configuration compatibility. Turn,
 tool, token, output and deadline bounds remain enforced.
+
+Preparation shares the task deadline with adapter execution. Cancellation and deadline
+checks run between attachments and PDF pages (statement extraction keeps 100 pages).
+Pi uses nonblocking writes for both the initial prompt and bounded abort, so a child
+that stops reading stdin cannot trap shutdown or deadline handling.
+
+An interrupted receipt or statement reading resets its timeout streak on restart;
+statement sessions persist an explicit in-flight run to distinguish queued work.
+Resolved ledger fixes show “The ledger check now passes”, refuse Retry and can be
+discarded. Failed receipt Dismiss keeps the payment and filed evidence and records
+only an audit outcome; saved payments do not count towards Needs you totals. Receipt
+Retry takes a fresh FIFO timestamp. Add and receipt diagnostics retain the latest 50
+runs; a failed receipt audit includes only its current retry attempt’s runs.

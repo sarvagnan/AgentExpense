@@ -113,8 +113,9 @@ When only the charged or received amount is missing, the paying account (or both
 The general bookkeeping policy and this ledger's personal rules follow."""
 
 
-def prepare(src: Path, work: Path, index: int):
+def prepare(src: Path, work: Path, index: int, *, check=lambda: None):
     """Return (image paths, text) for one attachment."""
+    check()
     if src.suffix.lower() != '.pdf':
         target = work / f'a{index}{src.suffix.lower()}'
         target.write_bytes(src.read_bytes())
@@ -122,7 +123,8 @@ def prepare(src: Path, work: Path, index: int):
     attachment_index = index
     images, text = [], []
     with pdfium.PdfDocument(str(src)) as pdf:
-        for index in range(min(12, len(pdf))):
+        for index in range(len(pdf)):
+            check()
             page = pdf[index]
             try:
                 path = work / f'a{attachment_index}-p{index + 1}.png'
@@ -139,6 +141,7 @@ def prepare(src: Path, work: Path, index: int):
                     textpage.close()
             finally:
                 page.close()
+    check()
     return images, '\n'.join(text)
 
 
@@ -156,12 +159,13 @@ def now():
     return datetime.now().astimezone().isoformat()
 
 
-def prompt_for(settings, draft, folder, work):
+def prompt_for(settings, draft, folder, work, *, check=lambda: None):
+    check()
     if draft.get('statement_reading'):
         from statement_reading import extract, prompt, safe_source
         task = draft['statement_reading']
         source = extract(safe_source(settings.ledger, Path(task['path'])), work,
-                         (task['account'].get('statement') or {}).get('options'))
+                         (task['account'].get('statement') or {}).get('options'), check=check)
         draft['_statement_source'] = source
         return prompt(source, task['account'], task['locale']), source['images']
     if draft.get('ledger_fix_task'):
@@ -174,7 +178,7 @@ def prompt_for(settings, draft, folder, work):
             from replacements import safe_evidence
             src=safe_evidence(settings.ledger,file['source'])
         else: src=folder / 'files' / file['name']
-        imgs, text = prepare(src, work, index)
+        imgs, text = prepare(src, work, index, check=check)
         first = len(images) + 1
         images.extend(imgs)
         lines.append(f"{index}. {file['original_name']} — images {first}-{len(images)}")
@@ -271,7 +275,7 @@ def command_for(settings, prompt, images):
             '-c', 'mcp_servers.ledger.startup_timeout_sec=20',
             '-c', 'mcp_servers.ledger.default_tools_approval_mode="approve"',
             '--output-schema', 'schema.json', '-o', 'answer.json',
-            *(arg for image in images for arg in ('-i', image.name)), '--', prompt]
+            *(arg for image in images for arg in ('-i', image.name)), '--']
 
 
 def parse_events(log):
@@ -291,9 +295,9 @@ def parse_events(log):
     return usage, calls
 
 
-def communicate(process, timeout):
+def communicate(process, timeout, data=None):
     """Production deadline boundary; offline tests may synchronize before expiring it."""
-    return process.communicate(timeout=timeout)
+    return process.communicate(input=data, timeout=timeout)
 
 
 def run(settings, draft, folder, *, cancel=None):
@@ -310,14 +314,17 @@ def run(settings, draft, folder, *, cancel=None):
         gate_passed = True
         with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-agent-') as tmp:
             work = Path(tmp)
-            prompt, images = prompt_for(settings, draft, folder, work)
             from statement_reading import SCHEMA as CITED_STATEMENT_SCHEMA
             schema = CITED_STATEMENT_SCHEMA if draft.get('statement_reading') else RECEIPT_SCHEMA if draft.get('receipt_task') else STATEMENT_SCHEMA if draft.get('statement_task') else schema_for(settings)
             from adapters import get_adapter
             from adapters.base import Task, LookupTools
             import threading
-            task = Task(prompt, tuple(images), LookupTools.for_settings(settings), schema,
+            task = Task('', (), LookupTools.for_settings(settings), schema,
                         time.monotonic() + settings.timeout, cancel or threading.Event(), work)
+            prompt, images = prompt_for(settings, draft, folder, work, check=task.remaining)
+            from dataclasses import replace
+            task = replace(task, prompt=prompt, images=tuple(images))
+            task.remaining()
             result = get_adapter(settings).run(task)
             answer = result.answer
             record.update(usage=result.usage, lookups=result.lookups, errors=result.errors, stderr_tail=getattr(result,'stderr_tail',''))

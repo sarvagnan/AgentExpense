@@ -8,6 +8,7 @@ import time
 from starlette.exceptions import HTTPException
 
 import agent
+import agent_timeouts
 from daily_refresh import DailyRefresh
 from outcomes import queue_outcome, OutcomeTransaction
 from agent import now
@@ -89,12 +90,21 @@ class Worker:
         for draft in self.drafts.all():
             if draft.pop('discard_requested',None):self.drafts.put(draft)
             if draft.get('receipt_reading',{}).get('state')=='reading':
-                draft['receipt_reading']['state']='queued';self.drafts.put(draft)
+                reading=draft['receipt_reading']
+                reading.update(state='queued',consecutive_timeouts=0)
+                if reading.get('run',{}).get('end') is None and reading.get('run'):
+                    reading['run'].update(end=now(),outcome='interrupted',error='Server restarted during receipt reading')
+                    reading.setdefault('runs',[]).append(reading['run'])
+                self.drafts.put(draft)
+            if draft['state'] != 'added' and draft.get('ledger_fix',{}).get('state') == 'resolved':
+                draft.update(state='question', error=None)
+                self.drafts.put(draft)
             if draft['state'] == 'working':
                 draft['state'] = 'queued'
                 for run in draft['runs']:
                     if run['end'] is None:
                         run.update(end=now(), outcome='interrupted', error='Server restarted during agent run')
+                        agent_timeouts.reset(draft)
                 self.drafts.put(draft)
         self.thread = threading.Thread(target=self.loop, name='expense-drafts', daemon=True)
         self.thread.start()
@@ -248,60 +258,82 @@ class Worker:
                 with save_timing.operation(kind,queued_at=draft.get('queued_at')):
                     self.process(draft)
             except Exception as exc:
-                if self.stop_event.is_set() and isinstance(exc, agent.AgentFailure):
-                    # Cancellation during shutdown is interrupted work, not an
-                    # expense failure. Resume this FIFO position after restart.
-                    draft.update(state='queued', error=None, waiting=None)
-                    if draft['runs']:
-                        draft['runs'][-1].update(outcome='interrupted', error='Server stopped during agent run')
+                with self.drafts.mutex:
+                    if draft.get('ledger_fix'):
+                        # The proposer merges a fresh draft while the checker can resolve it.
+                        draft = self.drafts.get(draft['id'], include_discarded=True)
+                        if draft['ledger_fix'].get('state') == 'resolved' or draft.get('discard_requested') or draft.get('trashed_at'): continue
+                    if self.stop_event.is_set() and isinstance(exc, agent.AgentFailure):
+                        # Cancellation during shutdown is interrupted work, not an
+                        # expense failure. Resume this FIFO position after restart.
+                        draft.update(state='queued', error=None, waiting=None)
+                        agent_timeouts.reset(draft)
+                        if draft['runs']:
+                            draft['runs'][-1].update(outcome='interrupted', error='Server stopped during agent run')
+                        self.drafts.put(draft)
+                        continue
+                    if isinstance(exc, agent.AgentFailure) and exc.kind == 'timeout':
+                        exhausted = agent_timeouts.failed(draft, exc.kind)
+                        if not exhausted:
+                            draft.update(state='queued', error=None, waiting=None)
+                            self.drafts.put(draft)
+                            continue
+                        exc = ValueError(agent_timeouts.reason(self.settings.timeout, fix=bool(draft.get('ledger_fix')), attachments=bool(draft.get('files'))))
+                        if draft.get('ledger_fix'):
+                            draft['ledger_fix'].update(state='failed', message=str(exc))
+                    elif isinstance(exc, agent.AgentFailure):
+                        agent_timeouts.reset(draft)
+                    if isinstance(exc, agent.AgentFailure) and exc.kind != 'bad_answer':
+                        self.pause.fail(exc.kind, exc.reset_at)
+                        draft.update(state='queued', error=None, waiting=None)
+                        self.drafts.put(draft)
+                        continue
+                    if isinstance(exc, BalanceRefusal):
+                        draft['refusal'] = exc.refusal
+                    draft.update(state='failed', error=str(exc), waiting=None)
+                    queue_outcome(draft, 'failed')
                     self.drafts.put(draft)
-                    continue
-                if isinstance(exc, agent.AgentFailure) and exc.kind != 'bad_answer':
-                    self.pause.fail(exc.kind, exc.reset_at)
-                    draft.update(state='queued', error=None, waiting=None)
-                    self.drafts.put(draft)
-                    continue
-                if isinstance(exc, BalanceRefusal):
-                    draft['refusal'] = exc.refusal
-                draft.update(state='failed', error=str(exc), waiting=None)
-                queue_outcome(draft, 'failed')
-                self.drafts.put(draft)
 
     def flush_audits(self):
-        for draft in self.drafts.all(include_discarded=True):
+        self.flush_store_audits(self.drafts, self.drafts.all(include_discarded=True))
+        if statements := getattr(self, 'statements', None):
+            self.flush_store_audits(statements, statements.all())
+
+    def flush_store_audits(self, store, items):
+        for draft in items:
             if not draft.get('audit_pending'):
                 continue
             try:
                 with ledger_lock(self.settings.ledger) as fd:
                     for record in draft['audit_pending']:
-                        OutcomeTransaction(self.settings, self.drafts, draft, record).recover_record()
+                        OutcomeTransaction(self.settings, store, draft, record).recover_record()
                     if not clean(self.settings.ledger):
                         continue
                     while True:
-                        with self.drafts.mutex:
-                            current = self.drafts.get(draft['id'], include_discarded=True)
+                        with store.mutex:
+                            current = store.get(draft['id'], include_discarded=True)
                             if not current.get('audit_pending'):
                                 break
                             record = current['audit_pending'][0]
                         # Ledger verification/commit holds the ledger lock, but
                         # must not block autosave, answers or handover requests.
                         with save_timing.operation('audit-record'):
-                            OutcomeTransaction(self.settings, self.drafts, current, record).apply_record(fd)
-                        with self.drafts.mutex:
-                            latest = self.drafts.get(draft['id'], include_discarded=True)
+                            OutcomeTransaction(self.settings, store, current, record).apply_record(fd)
+                        with store.mutex:
+                            latest = store.get(draft['id'], include_discarded=True)
                             latest['audit_pending'] = [r for r in latest.get('audit_pending', []) if r['id'] != record['id']]
                             latest.pop('audit_error', None)
-                            self.drafts.put(latest)
+                            store.put(latest)
             except FileNotFoundError:
                 continue
             except Exception as exc:
-                with self.drafts.mutex:
+                with store.mutex:
                     try:
-                        latest = self.drafts.get(draft['id'], include_discarded=True)
+                        latest = store.get(draft['id'], include_discarded=True)
                     except FileNotFoundError:
                         continue
                     latest['audit_error'] = str(exc)
-                    self.drafts.put(latest)
+                    store.put(latest)
 
     def process(self, draft):
         if draft.get('ledger_fix'):
@@ -361,11 +393,13 @@ class Worker:
                             answer, record = agent.run(self.settings, draft, self.drafts.folder(draft['id']), cancel=self.stop_event)
                     except agent.AgentFailure as exc:
                         draft['runs'][-1] = exc.record
+                        if exc.kind != 'timeout' and not self.stop_event.is_set(): agent_timeouts.reset(draft)
                         if exc.kind=='bad_answer' and not self.stop_event.is_set(): draft['answer_failures']=draft.get('answer_failures',0)+1
                         self.drafts.put(draft)
                         if exc.kind != 'bad_answer' or self.stop_event.is_set() or draft.get('answer_failures',0)>=2 or not exc.retryable:
                             raise
                     else:
+                        agent_timeouts.reset(draft)
                         self.pause.success()
                         draft['answer_failures']=0
                         draft['runs'][-1] = record

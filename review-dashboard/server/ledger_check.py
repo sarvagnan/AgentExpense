@@ -255,10 +255,10 @@ class LedgerCheck:
         with self.drafts.mutex:
             for draft in self.drafts.all():
                 task = draft.get('ledger_fix')
-                if task and draft['state'] != 'added' and task.get('state') != 'resolved':
+                if task and draft['state'] != 'added':
                     task['state'] = 'resolved'
-                    if draft['state'] in ('queued', 'working'):
-                        draft['state'] = 'question'
+                    draft.update(state='question', error=None)
+                    task.pop('message', None)
                     self.drafts.put(draft)
 
     def write(self, record):
@@ -437,8 +437,10 @@ def propose(worker, draft):
         # latest draft under one lock; resolution is terminal for this proposal.
         with drafts.mutex:
             latest = drafts.get(draft['id'], include_discarded=True)
-            latest.update(runs=draft['runs'], check_errors=draft['check_errors'], waiting=None)
-            resolved = latest['ledger_fix'].get('state') == 'resolved'
+            latest.update(runs=draft['runs'], check_errors=draft['check_errors'], waiting=None, consecutive_timeouts=draft.get('consecutive_timeouts', 0))
+            resolved = latest['ledger_fix'].get('state') == 'resolved' or bool(latest.get('discard_requested') or latest.get('trashed_at'))
+            if resolved and not latest.get('trashed_at'):
+                latest.update(state='question', error=None)
             if not resolved:
                 latest['ledger_fix'].update(updates)
                 latest['state'] = draft_state
@@ -448,7 +450,14 @@ def propose(worker, draft):
     while not worker.stop_event.is_set():
         with drafts.mutex:
             draft = drafts.get(draft['id'], include_discarded=True)
-            if draft['ledger_fix'].get('state') == 'resolved' or draft.get('trashed_at') or draft.get('discard_requested'):
+            if draft['ledger_fix'].get('state') == 'resolved':
+                draft.update(state='question', error=None)
+                drafts.put(draft)
+                return
+            if draft.get('trashed_at') or draft.get('discard_requested'):
+                if not draft.get('trashed_at'):
+                    draft['state']='question'
+                    drafts.put(draft)
                 return
             task = draft['ledger_fix']
             task.update(state='working', form=wire_entry(settings, draft['correction']['before']))
@@ -459,6 +468,16 @@ def propose(worker, draft):
             answer, run = agent.run(settings, {**draft, 'ledger_fix_task': task}, drafts.folder(draft['id']), cancel=worker.stop_event)
         except agent.AgentFailure as exc:
             draft['runs'][-1] = exc.record
+            if worker.stop_event.is_set():
+                from agent_timeouts import reset
+                reset(draft)
+                draft['runs'][-1].update(outcome='interrupted', error='Server stopped during agent run')
+            if exc.kind == 'timeout' and not worker.stop_event.is_set():
+                if save('working', state='working'): return
+                raise
+            if not worker.stop_event.is_set():
+                from agent_timeouts import reset
+                reset(draft)
             if exc.kind != 'bad_answer' or worker.stop_event.is_set():
                 if not worker.stop_event.is_set():
                     worker.pause.fail(exc.kind, exc.reset_at)
@@ -467,6 +486,8 @@ def propose(worker, draft):
             answer = None
             error = str(exc)
         else:
+            from agent_timeouts import reset
+            reset(draft)
             worker.pause.success()
             draft['runs'][-1] = run
             error = None

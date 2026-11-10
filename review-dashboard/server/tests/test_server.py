@@ -79,7 +79,7 @@ class LifecycleTests(Fixture):
             draft = self.wait(client, identity, 'added')
             self.assertEqual(len(draft['runs']), 2)
             self.assertEqual(draft['questions'][0]['answer'], 'Cash')
-            prompt = self.calls()[1]['argv'][-1]
+            prompt = self.calls()[1]['stdin']
             self.assertIn('Which account paid?', prompt)
             self.assertIn('Cash', prompt)
             self.assertIn('Asked: "Which account paid?" Answered: "Cash"',
@@ -111,9 +111,10 @@ class LifecycleTests(Fixture):
                 # Gate/login/probe use the ordinary generous fixture deadline.
                 # The agent timeout itself is triggered only after the fake process
                 # has recorded its invocation and reached its explicit sync point.
-                def synchronized_communicate(process, timeout):
+                def synchronized_communicate(process, timeout, data=None):
                     if kind != 'timeout' or json.loads(self.config.read_text())['steps'][0].get('kind') != 'timeout':
-                        return process.communicate()
+                        return process.communicate(input=data)
+                    process.stdin.write(data);process.stdin.close();process.stdin=None
                     while True:
                         line = process.stdout.readline()
                         if line.strip() == 'FAKE_TIMEOUT_READY':
@@ -158,7 +159,7 @@ class LifecycleTests(Fixture):
                     draft = self.wait(client, identity, 'failed')
                     self.assertEqual(len(draft['check_errors']), 2)
                     self.assertEqual(len(draft['runs']), 2)
-                    self.assertIn(json.dumps(draft['check_errors'][0], ensure_ascii=False), self.calls()[1]['argv'][-1])
+                    self.assertIn(json.dumps(draft['check_errors'][0], ensure_ascii=False), self.calls()[1]['stdin'])
                     self.wait_condition(client, identity, lambda d: not d.get('audit_pending'))
                     self.assertFalse(client.app.state.drafts.get(identity).get('audit_pending'))
                     after=self.bytes()
@@ -385,13 +386,17 @@ class ApiTests(Fixture):
             self.assertEqual(response.status_code, 415)
             response = client.post(f'/api/drafts/{identity}/files', files={'files': ('large.png', b'x' * (25 * 1024 * 1024 + 1))})
             self.assertEqual(response.status_code, 413)
-            response = client.post(f'/api/drafts/{identity}/files', files=[('files', ('f.png', png()))] * 9)
+            response = client.post(f'/api/drafts/{identity}/files', files=[('files', ('f.png', png()))] * 11)
             self.assertEqual(response.status_code, 413)
+            self.assertIn('10 files per upload request',response.json()['detail'])
             self.assertEqual(len(client.get(f'/api/drafts/{identity}').json()['files']), 2)
-            response = client.post(f'/api/drafts/{identity}/files', files=[('files', ('f.png', png()))] * 8)
-            self.assertEqual(response.status_code, 201)
-            self.assertEqual(len(response.json()['files']), 10)
-            self.assertEqual(client.post(f'/api/drafts/{identity}/files', files={'files': ('f.png', png())}).status_code, 413)
+            for count in (10,10,10,10,8):
+                response=client.post(f'/api/drafts/{identity}/files',files=[('files',('f.png',png()))]*count)
+                self.assertEqual(response.status_code,201,response.text)
+            self.assertEqual(len(response.json()['files']),50)
+            response=client.post(f'/api/drafts/{identity}/files',files={'files':('f.png',png())})
+            self.assertEqual(response.status_code,413)
+            self.assertEqual(response.json()['detail'],'At most 50 files per item')
 
     def test_access_identity_origin_and_host(self):
         with self.client(worker=False, dev=False, allowed_logins=('allowed@example.com',), allowed_hosts=('tail.test',)) as client:

@@ -90,11 +90,11 @@ def fixture(work):
     return ledger, old, account
 
 
-def invoke(command, work, timeout, *, environment, stop=None):
+def invoke(command, work, timeout, *, environment, stop=None, data=None):
     # Match production stdin and process-group handling, including MCP children.
     if stop is not None and stop.is_set():
         raise CheckCancelled()
-    process = subprocess.Popen(command, cwd=work, env=environment, stdin=subprocess.DEVNULL,
+    process = subprocess.Popen(command, cwd=work, env=environment, stdin=subprocess.PIPE if data is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, start_new_session=True)
     deadline = time.monotonic() + timeout
@@ -106,9 +106,10 @@ def invoke(command, work, timeout, *, environment, stop=None):
             if remaining <= 0:
                 raise DiagnosticUnavailable('Codex diagnostic timed out')
             try:
-                out, _ = process.communicate(timeout=min(remaining, .1) if stop is not None else remaining)
+                out, _ = process.communicate(input=data, timeout=min(remaining, .1) if stop is not None else remaining)
                 break
             except subprocess.TimeoutExpired:
+                data = None  # communicate retains unsent input across bounded waits.
                 continue
         if stop is not None and stop.is_set():
             raise CheckCancelled()
@@ -132,7 +133,7 @@ def debug_command(command):
     while index < len(command):
         arg = command[index]
         if arg == '--':
-            result.extend(command[index:])
+            result.extend(['--', OFFLINE_PROMPT])
             break
         if arg in ('--ephemeral', '--skip-git-repo-check', '--json',
                    '--ignore-user-config', '--ignore-rules'):
@@ -326,7 +327,7 @@ def check_live(settings, work, account, *, stop=None):
     (work / 'schema.json').write_text(json.dumps(PROBE_SCHEMA))
     # Production model/effort/timeout are unchanged. Only this probe uses low.
     command = command_for(replace(settings, effort='low'), PROBE_PROMPT, [])
-    log = invoke(command, work, settings.timeout, environment=codex_environment(settings), stop=stop)
+    log = invoke(command, work, settings.timeout, environment=codex_environment(settings), stop=stop, data=PROBE_PROMPT)
     calls = inspect_events(log, lookup_names(settings))
     answer = json.loads((work / 'answer.json').read_text())
     validate(answer, PROBE_SCHEMA)

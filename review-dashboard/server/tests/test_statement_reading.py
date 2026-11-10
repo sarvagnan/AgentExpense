@@ -154,10 +154,50 @@ class StatementReading(Fixture):
         self.set_answers(answer(self.currency));sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'found')
         sessions,s=self.session();self.set_answers(dict(kind='timeout'))
         sessions.settings=replace(self.settings,timeout=.2);sessions.agent_pause=AgentPause(self.ledger)
-        sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'agent_waiting')
-        sessions.agent_pause.success();self.set_answers({**answer(self.currency), 'read_ok':False})
+        sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'reading')
+        self.assertFalse(sessions.agent_pause.blocked())
+        self.set_answers({**answer(self.currency), 'read_ok':False})
         sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'couldnt_read')
         self.assertIn('certainty',sessions.get(s['id'])['error'])
+
+    def test_three_timeouts_fail_statement_with_audit_retry_and_next_task(self):
+        from test_attachment_timeouts import timeout
+        from worker import Worker
+        from drafts import Drafts
+        sessions,s=self.session();sessions.agent_pause=AgentPause(self.ledger)
+        before={p:p.read_bytes() for p in (self.ledger/'data').rglob('*') if p.is_file()}
+        with patch('agent.run',side_effect=timeout()):
+            for i in range(3):
+                self.assertTrue(sessions.work(threading.Event()))
+                current=sessions.get(s['id'])
+                self.assertEqual(current['state'],'reading' if i<2 else 'couldnt_read')
+                self.assertFalse(sessions.agent_pause.blocked())
+        _,following=self.session()
+        self.set_answers(answer(self.currency));self.assertTrue(sessions.work(threading.Event()))
+        self.assertEqual(sessions.get(following['id'])['state'],'found')
+        self.assertIn('three tries of 2 seconds',current['error'])
+        self.assertEqual(len(current['audit_pending']),1)
+        self.assertEqual(before,{p:p.read_bytes() for p in (self.ledger/'data').rglob('*') if p.is_file()})
+        worker=Worker(self.settings,Drafts(self.ledger));worker.statements=sessions;worker.flush_audits()
+        self.assertFalse(sessions.get(s['id']).get('audit_pending'))
+        self.assertEqual(records(self.ledger)[-1]['outcome'],'failed')
+        with self.client(worker=False) as client:
+            response=client.post('/api/statements/'+s['id']+'/retry')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.json()['consecutive_timeouts'],0)
+            self.assertNotIn('failure_reason',response.json())
+            with patch('agent.run',side_effect=timeout()):sessions.work(threading.Event())
+            retried=sessions.get(s['id']);self.assertEqual(retried['state'],'reading');self.assertEqual(retried['consecutive_timeouts'],1)
+            self.set_answers(answer(self.currency));sessions.work(threading.Event())
+            self.assertEqual(sessions.get(s['id'])['state'],'found',sessions.get(s['id']).get('error'))
+
+    def test_restart_only_resets_an_inflight_statement(self):
+        sessions,s=self.session();s.update(consecutive_timeouts=2,reading_run=dict(start=agent.now(),end=None))
+        sessions.put(s);_,queued=self.session();queued.update(consecutive_timeouts=2);sessions.put(queued)
+        sessions.recover_work()
+        current=sessions.get(s['id']);self.assertEqual(current['consecutive_timeouts'],0)
+        self.assertEqual(current['runs'][-1]['outcome'],'interrupted');self.assertNotIn('reading_run',current)
+        self.assertEqual(sessions.get(queued['id'])['consecutive_timeouts'],2)
 
     def test_pdf_and_workbooks_use_fake_adapter_then_real_apply_without_learning(self):
         for extension in ('pdf','xlsx','xls'):

@@ -29,7 +29,8 @@ def run(settings,config):
         message=json.loads(sys.stdin.readline());prompt=message['message'];schema={}
         lookup=json.loads(Path(os.environ['EXPENSES_PI_LOOKUP']).read_text())['command']
     else:
-        assert sys.stdin.read()=='';message=None;prompt=args[-1];schema={}
+        prompt=sys.stdin.read();message=prompt;schema={}
+        assert args[-1]=='--' and prompt
         lookup=json.loads(os.environ['OPENCODE_CONFIG_CONTENT'])['mcp']['servers']['ledger']['command']
     probe='Isolation test using a fictional ledger.' in prompt
     ledger=Path(lookup[lookup.index('--ledger')+1]);account=next(iter(json.loads((ledger/'data/accounts.json').read_text())['accounts']))

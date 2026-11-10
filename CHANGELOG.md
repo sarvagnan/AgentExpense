@@ -12,6 +12,23 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Resolved fix notices open without claiming the correction form. Discard acts
+  directly; Edit entry opens the form on request, avoiding a late-claim race.
+
+- Provider timeout messages pause as transient outages; only the local task deadline
+  counts towards three tries. Preparation and Pi stdin writes respect cancellation
+  and deadlines. Interrupted readings reset their streak after restart. A later pass
+  resolves failed fix proposals and refuses Retry. Failed receipt readings offer
+  Dismiss, keep payments/evidence and no longer inflate Needs you totals. Receipt
+  Retry gets a fresh queue time; its failure audit contains only that attempt’s runs.
+  Add and receipt diagnostic histories retain the latest 50 runs.
+
+- Add accepts 50 files per item (10 per request), uploading three at a time. Every
+  PDF page reaches the agent as an image and text. Codex/OpenCode prompts travel
+  over stdin. Three consecutive task timeouts become Failed with a duration and
+  Retry, retaining words/files and letting the next item run; provider outages
+  still pause the agent.
+
 - Hand Retry sends a claimed queued draft again; worker recovery checks acceptance for each operation. Statement Apply keeps other sessions usable, survives a lost Cancel response (including a return after off-screen confirmation) and announces cancellation once. Missing result records end polling with an honest unknown-outcome notice; temporary read failures keep retrying. Statements filed elsewhere point to their stored reconciliation.
 
 - Page completion clears the local error belonging to a committed Retry, including receipt choices, Queue details, retention and first-run forms. Receipt completion refreshes once and retains newer composer words. Browser action coverage rejects Saved beside its own stale alert.
@@ -53,6 +70,18 @@ that fails and keep its output.
   claims resume at their deadlines; refresh failures remain retryable.
 
 ### Upgrade notes
+
+- Restart the server to load deadline/cancellation and recovery fixes. No data-format
+  migration is needed. Existing failed receipt readings can now be dismissed;
+  payments and their evidence remain saved. Recent diagnostic histories are capped
+  at 50 runs when next written; audit records remain intact.
+
+- Restart the server and rebuild the dashboard together for the new attachment
+  limits and bounded upload scheduling. Allow temporary disk space for every PDF
+  page. Prompt transport changes the agent fingerprint: run `make agent-check`
+  and the operator's deliberate readiness probe before agent work resumes. No
+  ledger migration or proxy body-limit increase is needed. Custom adapters should
+  report deadline expiry as `AdapterError(kind="timeout")`.
 
 Rebuild the dashboard and restart the server. No ledger-format migration is
 required. Generated data is repaired at startup when its durable marker is stale.

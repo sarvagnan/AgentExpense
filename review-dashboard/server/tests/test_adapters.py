@@ -77,6 +77,25 @@ class AdapterTests(unittest.TestCase):
                 adapter=self.adapter(name,extra_tool=True)
                 with self.assertRaisesRegex(ValueError,'extra tools|outside the lookup'):adapter.run(self.task(adapter))
 
+    def test_large_prompts_reach_each_cli_intact_only_over_stdin(self):
+        from adapters.codex import Codex
+        prompt='Fictional prompt '+('page text λ\n'*110000)
+        self.assertGreater(len(prompt.encode()),1024*1024)
+        for name in ('codex','claude','pi','opencode'):
+            with self.subTest(adapter=name):
+                if name=='codex':
+                    self.config.write_text(json.dumps({'steps':[{'answer':{'value':'ok'}}]}))
+                    adapter=Codex(replace(self.settings,codex=str(self.fake)))
+                else: adapter=self.adapter(name)
+                task=replace(self.task(adapter),prompt=prompt)
+                self.assertEqual(adapter.run(task).answer,{'value':'ok'})
+                call=json.loads(self.config.with_suffix('.calls').read_text().splitlines()[-1])
+                self.assertNotIn(prompt,call['argv'])
+                actual=call['stdin'] if name=='codex' else call['input']['message']['content'][0]['text'] if name=='claude' else call['input']['message'] if name=='pi' else call['input']
+                self.assertTrue(actual.startswith(prompt));self.assertEqual(actual[:len(prompt)],prompt)
+                if name in ('codex','opencode'):self.assertEqual(call['argv'][-1],'--')
+                self.config.with_suffix('.count').unlink(missing_ok=True)
+
     def test_cli_deadline_and_cancellation_cleanup_and_pi_abort(self):
         from adapters.process import kill
         child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],cwd=self.work,start_new_session=True)
@@ -342,6 +361,15 @@ class AdapterTests(unittest.TestCase):
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:yield 'http://127.0.0.1:'+str(server.server_port)+'/v1',received,started,release
         finally:release.set();server.shutdown();server.server_close();thread.join()
+
+    def test_large_prompt_reaches_each_direct_api_intact(self):
+        prompt='Fictional page text λ\n'*60000
+        self.assertGreater(len(prompt.encode()),1024*1024)
+        for name in ('openai','anthropic'):
+            with self.subTest(adapter=name),self.http_server(name) as (url,received,_,_):
+                adapter=self.api_adapter(name,url,maxTokens=1000000)
+                self.assertEqual(adapter.run(replace(self.task(adapter),prompt=prompt)).answer,{'value':'ok'})
+                self.assertIn(prompt,json.dumps(received[0][1],ensure_ascii=False).replace('\\n','\n'))
 
     def test_direct_api_tool_loops_schemas_images_usage_retry_and_secret_redaction(self):
         for name in ('openai','anthropic'):

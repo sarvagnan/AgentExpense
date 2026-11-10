@@ -74,14 +74,20 @@ def payment_rows(entry, accounts):
     return [p for p in entry['postings'] if accounts.get(p['account'],{}).get('kind') in ('bank','card','cash','wallet') and Decimal(p['amount'])<0]
 
 
-def resume_cancelled(worker, identity):
+def resume_cancelled(worker, identity, run=None):
     with worker.drafts.mutex:
         latest=worker.drafts.get(identity,include_discarded=True)
         if latest.get('receipt_reading',{}).get('state')=='reading':
-            latest['receipt_reading']['state']='queued';worker.drafts.put(latest)
+            reading=latest['receipt_reading']
+            reading.update(state='queued', consecutive_timeouts=0)
+            if run:
+                run.update(outcome='interrupted', error='Receipt reading interrupted')
+                reading['run']=run
+            worker.drafts.put(latest)
 
 
 def read(worker, draft):
+    import agent_timeouts
     settings=worker.settings
     with worker.drafts.mutex:
         try: draft=worker.drafts.get(draft['id'])
@@ -90,7 +96,8 @@ def read(worker, draft):
         ready=reading['state']=='ready'
         if not ready:
             if reading['state']!='queued': return
-            reading['state']='reading';worker.drafts.put(draft)
+            reading.update(state='reading',run=dict(start=agent.now(),end=None,model=settings.model,effort=settings.effort,outcome=None,question=None,doubts=[],error=None,duration=None,usage={},lookups=[]))
+            worker.drafts.put(draft)
     if ready:
         choose(settings,worker.drafts,draft,'agree');return
     for source in reading['sources']: safe_evidence(settings.ledger,source)
@@ -103,12 +110,26 @@ def read(worker, draft):
     except agent.AgentFailure as exc:
         worker.receipt_cancellations.pop(reading['entry_id'],None)
         if cancel.is_set():
-            resume_cancelled(worker,draft['id'])
+            resume_cancelled(worker,draft['id'],exc.record)
             return
         reading['run']=exc.record
-        if exc.kind!='bad_answer':
+        reading.setdefault('runs', []).append(exc.record)
+        reading.setdefault('attempt_runs', []).append(exc.record)
+        if exc.kind == 'timeout':
+            if agent_timeouts.failed(reading, exc.kind):
+                message = agent_timeouts.reason(settings.timeout, receipt=True)
+                reading.update(state='failed', message=message)
+                from outcomes import queue_outcome
+                snapshot = {**draft, 'runs': reading['attempt_runs'], 'error': message, 'result': {'sources': reading['sources']}}
+                queue_outcome(snapshot, 'failed')
+                draft['audit_pending'] = snapshot['audit_pending']
+            else: reading['state']='queued'
+        elif exc.kind!='bad_answer':
+            agent_timeouts.reset(reading)
             worker.pause.fail(exc.kind,exc.reset_at);reading['state']='queued'
-        else: reading.update(state='unreadable',message='The receipt could not be read. Use Edit entry to add its details.')
+        else:
+            agent_timeouts.reset(reading)
+            reading.update(state='unreadable',message='The receipt could not be read. Use Edit entry to add its details.')
         worker.drafts.put(draft);return
     worker.receipt_cancellations.pop(reading['entry_id'],None)
     if cancel.is_set():
@@ -117,7 +138,10 @@ def read(worker, draft):
     with worker.drafts.mutex:
         latest=worker.drafts.get(draft['id'],include_discarded=True)
         if latest.get('receipt_reading',{}).get('state') == 'cancelled': return
+    agent_timeouts.reset(reading)
     validate_reading(answer, draft.get('client_locale'))
+    reading.setdefault('runs', []).append(run)
+    reading.setdefault('attempt_runs', []).append(run)
     worker.pause.success();reading.update(answer=answer,run=run)
     if not answer['read_ok']:
         reading.update(state='unreadable',message='The receipt could not be read. Use Edit entry to add its details.');worker.drafts.put(draft);return

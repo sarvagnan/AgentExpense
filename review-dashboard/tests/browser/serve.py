@@ -29,6 +29,37 @@ app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=tim
 from fastapi.responses import Response
 
 
+# Hold native upload responses in the fixture host. WebKit's intercepted
+# route.fetch multipart replay omits file bodies, so it cannot model this race.
+upload_hold = None
+
+
+@app.middleware('http')
+async def hold_upload_responses(request, call_next):
+    response = await call_next(request)
+    held = upload_hold
+    if held and request.method == 'POST' and '/api/drafts/' in request.url.path and request.url.path.endswith('/files'):
+        with held['mutex']:
+            selected = held['seen'] < held['count']
+            if selected: held['seen'] += 1
+        if selected:
+            import asyncio
+            await asyncio.to_thread(held['release'].wait)
+    return response
+
+
+@app.post('/__test/hold-uploads')
+def hold_uploads(body: dict):
+    import threading
+    global upload_hold
+    if body.get('action') == 'hold':
+        assert upload_hold is None or upload_hold['release'].is_set()
+        upload_hold = dict(count=body.get('count', 3), seen=0, mutex=threading.Lock(), release=threading.Event())
+    elif body.get('action') == 'release' and upload_hold:
+        upload_hold['release'].set()
+    return dict(held=upload_hold['seen'] if upload_hold else 0)
+
+
 def update_settings(*args, **kwargs):
     """Fixture seeding finishes its data before the browser begins the scenario."""
     result = save_fixture_settings(*args, **kwargs)
@@ -217,6 +248,72 @@ def blank_pdf():
     import io
     writer=PdfWriter();writer.add_blank_page(width=200,height=200);output=io.BytesIO();writer.write(output)
     return Response(output.getvalue(),media_type='application/pdf')
+
+
+attachment_retry_hold = None
+
+
+@app.post('/__test/attachment-timeouts')
+def attachment_timeouts(body: dict):
+    from dataclasses import replace
+    import threading
+    global attachment_retry_hold
+    worker=app.state.worker
+    if body.get('action'):
+        if body['action']=='arm': attachment_retry_hold['armed']=True
+        if body['action']=='release':
+            attachment_retry_hold['release'].set()
+            worker.clock=attachment_retry_hold['clock']
+            worker.settings=settings
+        return dict(held=attachment_retry_hold['held'].is_set())
+    # Each fake child really waits until our one-second deadline kills it.
+    worker.settings=replace(settings,timeout=1)
+    config.write_text(json.dumps({'steps': [dict(kind='timeout')]*4 +
+                                [dict(answer={'status':'not_expense','question':None,'entry':None,'new-accounts':[],
+                                              'doubts':[],'attachment-names':[],'explanation':'Fictional offline note'})]}))
+    config.with_suffix('.count').unlink(missing_ok=True)
+    drafts=app.state.drafts
+    draft=drafts.create('Fictional document timed out')
+    draft.update(state='queued',saved_at=now(),queued_at=now())
+    hold=dict(armed=False,held=threading.Event(),release=threading.Event(),clock=worker.clock)
+    attachment_retry_hold=hold
+    def clock():
+        current=drafts.get(draft['id'])
+        if hold['armed'] and current['state']=='queued' and current.get('consecutive_timeouts')==1:
+            hold['held'].set()
+            assert hold['release'].wait(60), 'Browser did not release the held retry'
+        return hold['clock']()
+    worker.clock=clock
+    drafts.put(draft);worker.wake.set()
+    return dict(id=draft['id'])
+
+
+@app.post('/__test/attachment-receipt-failed')
+def attachment_receipt_failed():
+    from PIL import Image
+    from replacements import entry_hash
+    from corrections import wire_entry
+    from copy import deepcopy
+    docs=read_json(settings.ledger/'data/accounts.json');accounts=docs['accounts']
+    currency=read_json(settings.ledger/'ledger.json')['defaultCurrency']
+    pay=next(a for a,m in accounts.items() if m.get('kind') in ('bank','cash','wallet') and m.get('currency')==currency)
+    code=accounts[pay]['currency'];expense=next(a for a in accounts if a.startswith('Expenses:'))
+    entry=store_entry(id=secrets.token_hex(8),date='2026-10-30',status='confirmed',description='Fictional saved receipt payment',postings=[posting(expense,'100.00',code),posting(pay,'-100.00',code)])
+    name='Bills/Fictional-review-receipt.png';entry['evidence']=[name]
+    path=settings.ledger/'data/expenses/2026.json';rows=read_json(path);rows.append(entry);rows.sort(key=lambda e:e['date'])
+    def install():
+        (settings.ledger/name).parent.mkdir(parents=True,exist_ok=True)
+        Image.new('RGB',(32,32),'white').save(settings.ledger/name)
+        return {path:rows}
+    update_settings(settings,install,dict(receipt=True),'Fictional saved receipt payment')
+    drafts=app.state.drafts
+    d=drafts.create('Fictional saved receipt payment',pieces=dict(fields=dict(amount=dict(source='typed',value='100'),currency=dict(source='typed',value=code))))
+    d.update(state='added',saved_at=now(),completed_at=now(),result=dict(entry_id=entry['id'],sources=[name]),receipt_reading=dict(state='failed',entry_id=entry['id'],sources=[name],consecutive_timeouts=3,queued_at=now(),message='Your payment is saved; no receipt details were changed.'))
+    drafts.put(d)
+    fix=drafts.create('Fictional resolved proposal')
+    fix.update(state='failed',error='Old timeout',ledger_fix=dict(state='resolved',title='Fictional finding',summary='The check passed'),correction=dict(entry_id=entry['id'],version=entry_hash(entry),before=deepcopy(entry),sources=[name],locked=False),hand_form=wire_entry(settings,entry))
+    drafts.put(fix)
+    return dict(id=d['id'],fix=fix['id'],entry_id=entry['id'],entry=entry,evidence=name)
 
 
 @app.post('/__test/add-result')

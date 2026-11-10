@@ -63,8 +63,9 @@ def cell_address(sheet, row, column):
     return f'{sheet}!{column_name(column)}{row}'
 
 
-def extract(path, work, options=None, *, render_images=True):
+def extract(path, work, options=None, *, render_images=True, check=lambda: None):
     """Extract the complete bounded source; never silently truncate a statement."""
+    check()
     options = options or {}
     units, images, tables = {}, [], {}
     extracted_cells = 0
@@ -72,6 +73,7 @@ def extract(path, work, options=None, *, render_images=True):
         nonlocal extracted_cells
         result = []
         for row in rows:
+            check()
             extracted_cells += len(row)
             if len(result) >= 20000 or extracted_cells > 100000:
                 raise ValueError('Statement exceeds the addressed-source reading limit')
@@ -82,6 +84,7 @@ def extract(path, work, options=None, *, render_images=True):
             if len(pdf) > 100:
                 raise ValueError('Statement exceeds the 100-page reading limit')
             for number in range(len(pdf)):
+                check()
                 page = pdf[number]
                 try:
                     text = page.get_textpage()
@@ -100,6 +103,7 @@ def extract(path, work, options=None, *, render_images=True):
                         images.append(target)
                 finally:
                     page.close()
+        check()
     elif path.suffix.lower() == '.csv':
         delimiter = options.get('delimiter', ',')
         with path.open(encoding=options.get('encoding', 'utf-8-sig'), newline='') as stream:

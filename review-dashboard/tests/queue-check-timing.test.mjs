@@ -48,3 +48,36 @@ test('Ledger check arrival respects a held Queue snapshot and leaves its default
   assert.equal(detail().props.draft.state,'question','An explicitly opened fix follows its live draft while rows remain held');
  }finally{h.close();}
 });
+
+test('A failed receipt reading returns its saved payment to Needs you without pretending the payment failed',()=>{
+ const source=readFileSync(new URL('../app/live/drafts.tsx',import.meta.url),'utf8'),dependencies={};
+ for(const match of source.matchAll(/from ['"]([^'"]+)['"]/g))if(match[1]!=='react')dependencies[match[1]]={};
+ dependencies['react/jsx-runtime']={jsx:()=>null,jsxs:()=>null,Fragment:'fragment'};
+ const h=hookHarness('../app/live/drafts.tsx',dependencies);
+ const saved={id:'a'.repeat(32),state:'added',text:'Fictional saved payment',created_at:'2026-11-01',files:[],receipt_reading:{state:'failed',message:'No receipt details changed.'}};
+ try{
+  let groups;h.render(module=>{groups=module.queueGroups([saved]);return null;});
+  assert.deepEqual(JSON.parse(JSON.stringify(groups.map(group=>[group.name,group.items.map(item=>item.id)]))),[['Needs you',[saved.id]],['In progress',[]],['Saved for later',[]]]);
+  assert.equal(groups[0].items[0].state,'added');
+  h.render(module=>{groups=module.queueGroups([{...saved,receipt_reading:{state:'done'}}]);return null;});
+  assert.equal(groups.flatMap(group=>group.items).length,0);
+ }finally{h.close();}
+});
+
+test('Needs you total excludes an already saved payment with a failed receipt',()=>{
+ const element=(type,props)=>({type,props}),nodes=n=>!n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];
+ const source=readFileSync(new URL('../app/live/drafts.tsx',import.meta.url),'utf8'),dependencies={};
+ for(const match of source.matchAll(/from ['"]([^'"]+)['"]/g))if(match[1]!=='react')dependencies[match[1]]={};
+ Object.assign(dependencies,{'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},'../ui':{useQueryState:(_n,initial)=>[initial,()=>{}],Icon:'icon',PageHeader:'header',plural:()=>'',money:(v,c)=>`${v} ${c}`},'../data':{dashboard:{meta:{ledger:{defaultCurrency:'USD'},accounts:{}}}},'./api':{isRemoved:()=>false},'./agent-status':{agentBlocked:()=>false},'./interaction':{useInteractionSnapshot:v=>[v,{},()=>{}]},'./ledger-check':{LedgerCheckDetail:'ledger-check-detail'},'./use-drafts':{isRunning:()=>false},'../date-time':{formatTimestamp:x=>x}});
+ const h=hookHarness('../app/live/drafts.tsx',dependencies),base={created_at:'2026-11-01',files:[],questions:[],pieces:{fields:{amount:{source:'typed',value:'100'},currency:{source:'typed',value:'USD'}}}};
+ const live={drafts:[{...base,id:'a'.repeat(32),state:'added',text:'Saved payment',receipt_reading:{state:'failed'}},{...base,id:'b'.repeat(32),state:'failed',text:'Unfinished addition'}],statements:[],ledgerCheck:null,online:true,agent:{state:'ready'},attention:2,refresh:async()=>{}};
+ try{h.render(m=>m.default({live}));const heading=nodes(h.current).find(n=>n.type==='h2'&&n.props.className==='queue-heading');assert.match(JSON.stringify(heading),/100 USD/);assert.doesNotMatch(JSON.stringify(heading),/200 USD/);}finally{h.close();}
+});
+
+test('A resolved fix has a Resolved Queue label even in an older failed snapshot',()=>{
+ const source=readFileSync(new URL('../app/live/drafts.tsx',import.meta.url),'utf8'),dependencies={};
+ for(const match of source.matchAll(/from ['"]([^'"]+)['"]/g))if(match[1]!=='react')dependencies[match[1]]={};
+ dependencies['react/jsx-runtime']={jsx:()=>null,jsxs:()=>null,Fragment:'fragment'};
+ const h=hookHarness('../app/live/drafts.tsx',dependencies);
+ try{for(const state of ['failed','question','working','queued'])assert.equal(h.exports.draftStatus({state,ledger_fix:{state:'resolved'}}),'Resolved');}finally{h.close();}
+});

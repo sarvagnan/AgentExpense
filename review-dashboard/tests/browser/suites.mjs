@@ -18,6 +18,7 @@ import {runConfirmedBalances} from './confirmed-balances.mjs';
 import {runLedgerCheck} from './ledger-check.mjs';
 import {runLightSave} from './light-save.mjs';
 import {runAdd} from './add.mjs';
+import {runAttachments} from './attachments.mjs';
 import {runAddPolish} from './add-polish.mjs';
 import {runCorrections} from './corrections.mjs';
 import {runRules} from './rules.mjs';
@@ -189,7 +190,13 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await runAddPolish({page,persona,expect,control,go,snap,record,quiesce,resetDrafts});
         assert.deepEqual(errors,[]);await context.tracing.stop();await context.close();await checkpoint();continue;
       }
+      if(['attachments','attachments-queue','attachments-deadlines'].includes(process.env.BROWSER_FOCUS)) {
+        await runAttachments({page,base,persona,expect,control,go,record,quiesce,resetDrafts,snap,queueOnly:process.env.BROWSER_FOCUS==='attachments-queue',timeoutOnly:process.env.BROWSER_FOCUS==='attachments-deadlines'});
+        await directObserver.close();assert.deepEqual(errors,[]);
+        await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
       if(process.env.BROWSER_FOCUS==='add') {
+        await runAttachments({page,base,persona,expect,control,go,record,quiesce,resetDrafts,snap});
         await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         await directObserver.close();
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
@@ -692,7 +699,8 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runReaderWorkflows',()=>runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce}));
       await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
-      await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await runAttachments({page,base,persona,expect,control,go,record,quiesce,resetDrafts,snap});
+        await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));

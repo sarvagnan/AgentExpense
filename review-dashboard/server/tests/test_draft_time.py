@@ -131,7 +131,7 @@ class DraftTimeTests(Fixture):
             self.assertEqual(client.post(f'/api/drafts/{identity}/retry').status_code, 200)
             added = self.wait(client, identity, 'added')
             self.assertEqual(added['client_time'], loaded['client_time'])
-            self.assertIn('Saved: 1999-12-31 19:00 -06:00 America/Chicago', self.calls()[0]['argv'][-1])
+            self.assertIn('Saved: 1999-12-31 19:00 -06:00 America/Chicago', self.calls()[0]['stdin'])
             self.assertIn('Saved: 1999-12-31 19:00 -06:00 America/Chicago',
                           self.jj('log', '-r', '@-', '--no-graph', '-T', 'description'))
             from audit import records

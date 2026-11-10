@@ -4,7 +4,7 @@ from email.utils import parsedate_to_datetime
 import json
 import re
 
-KINDS = ('usage_limit', 'auth', 'transient', 'bad_answer')
+KINDS = ('usage_limit', 'auth', 'transient', 'timeout', 'bad_answer')
 
 
 def diagnostic(value):
@@ -21,7 +21,7 @@ def classify(value):
         return 'usage_limit'
     if re.search(r'\b(?:401|403)\b',text) or any(word in text for word in ('unauthorized', 'authentication', 'not authenticated', 'sign in', 'auth_error', 'autherror', 'token_expired', 'invalid_api_key')):
         return 'auth'
-    if re.search(r'\b5[0-9]{2}\b',text) or any(word in text for word in ('timeout', 'timed out', 'network', 'connection', 'overloaded', 'server_error', 'server error', 'serviceunavailable', 'temporarily unavailable')):
+    if re.search(r'\b5[0-9]{2}\b',text) or any(word in text for word in ('network', 'connection', 'timeout', 'timed out', 'deadline exceeded', 'overloaded', 'server_error', 'server error', 'serviceunavailable', 'temporarily unavailable')):
         return 'transient'
     return 'bad_answer'
 

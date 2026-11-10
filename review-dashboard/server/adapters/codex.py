@@ -34,7 +34,7 @@ class Codex:
         from agent import command_for, lookup_names
         import agent_check as check
         command = command_for(self.settings, check.OFFLINE_PROMPT, [])
-        return {'isolation flags': command[2:command.index('-m')],
+        return {'prompt transport': 'stdin', 'isolation flags': command[2:command.index('-m')],
                 'allow-lists': {'sections': sorted(check.DEVELOPER_SECTIONS), 'nested': sorted(check.NESTED_TOOLS),
                                'lookups': sorted(lookup_names(self.settings))}}
 
@@ -44,13 +44,13 @@ class Codex:
         task.remaining()
         (task.work / 'schema.json').write_text(json.dumps(task.schema))
         process = subprocess.Popen(agent.command_for(self.settings, task.prompt, task.images), cwd=task.work,
-                                   env=self.environment(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   env=self.environment(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, start_new_session=True)
         log = ''
         try:
             # Keep the injectable deadline boundary used by the offline retry tests.
             from .process import communicate
-            out, err = communicate(process, task, legacy=agent.communicate)
+            out, err = communicate(process, task, data=task.prompt, legacy=agent.communicate)
             log = out + '\n' + err
             usage, calls = agent.parse_events(log)
             events = []
@@ -66,7 +66,7 @@ class Codex:
             return Result(json.loads((task.work / 'answer.json').read_text()), usage, calls,
                           duration=time.monotonic() - started, stderr_tail=diagnostic(err))
         except subprocess.TimeoutExpired as exc:
-            raise AdapterError(f'Agent timed out after {self.settings.timeout}s', kind='transient',stderr_tail=diagnostic(exc.stderr or '')) from None
+            raise AdapterError(f'Agent timed out after {self.settings.timeout}s', kind='timeout',stderr_tail=diagnostic(exc.stderr or '')) from None
         except AdapterError as exc:
             exc.stderr_tail = diagnostic(locals().get('err', ''))
             raise

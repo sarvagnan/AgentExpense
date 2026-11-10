@@ -55,7 +55,7 @@ class Task:
             raise AdapterError('Agent cancelled')
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            raise AdapterError('Agent deadline exceeded', kind='transient')
+            raise AdapterError('Agent deadline exceeded', kind='timeout')
         return remaining
 
 

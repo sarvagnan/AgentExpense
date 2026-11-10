@@ -18,7 +18,10 @@ if settings.get('adapter') in ('claude','pi','opencode'):
     module.run(settings,config)
     sys.exit(0)
 # A real caller must close stdin; deliberately block otherwise.
-assert sys.stdin.read() == ''
+prompt = sys.stdin.read()
+if sys.argv[1] == 'exec':
+    assert sys.argv[-1] == '--'
+    assert prompt
 # The startup gate uses this same executable, never a real Codex/model. Keep
 # diagnostics/probes separate from the existing production-call assertions.
 def diagnostic():
@@ -112,7 +115,7 @@ count_file = config.with_suffix('.count')
 count = int(count_file.read_text()) if count_file.exists() else 0
 count_file.write_text(str(count + 1))
 with config.with_suffix('.calls').open('a') as handle:
-    handle.write(json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'stdin_closed': True,
+    handle.write(json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'stdin_closed': True, 'stdin': prompt,
                              'images': [p.name for p in Path.cwd().glob('a*')],
                              'schema': json.loads(Path('schema.json').read_text())}) + '\n')
 step = settings['steps'][min(count, len(settings['steps']) - 1)]

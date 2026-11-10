@@ -66,7 +66,8 @@ ledger locations are refused.
 | POST `api/drafts/{id}/restore` | Restore from Trash as Saved for later |
 | POST `api/drafts/{id}/save` | JSON `{client_time, client_zone}`; save time and FIFO queue |
 | POST `api/drafts/{id}/answer` | `{answer: "…"}` from question state; queue again |
-| POST `api/drafts/{id}/retry` | Failed draft; reset check-repair allowance and queue |
+| POST `api/drafts/{id}/retry` | Failed draft or receipt reading; reset timeout/check-repair counts and requeue; resolved fixes refuse Retry |
+| POST `api/drafts/{id}/receipt-dismiss` | End a failed receipt reading; keep its saved payment/evidence and queue a record-only dismissal audit |
 | DELETE `api/drafts/{id}` | Move an unfinished item to Trash (204) |
 
 Add's create, edit and Save requests and statement uploads carry `client_time` (ISO local time with
@@ -99,7 +100,9 @@ request with the same token cannot recreate the file. Retrying a cancelled uploa
 needs a new token; other uploads are unaffected.
 
 Files are recognised from contents, saved with generated names, and limited to
-10 per draft and 25 MiB each. Supported: JPEG, PNG, WebP, PDF. Original names stay
+50 per item and 25 MiB each, with at most 10 files per upload request.
+Add sends at most three file requests at a time: waiting files do not start their
+two-minute request timeout until a slot is free. Supported: JPEG, PNG, WebP, PDF. Original names stay
 in metadata. Multi-file requests validate the whole batch before writing files.
 State conflicts return 409, missing resources 404, upload limits 413, unsupported
 contents 415. Typed text and answers are limited to 100,000 characters; pieces is
@@ -127,7 +130,7 @@ crash repair, lock order and publication.
 `result.outcome=not_expense`) with an explanation and a record-only audit commit. All
 completed results leave the active list immediately; records last 24 hours and
 uploads are deleted. Other states persist until discarded. Retry retains earlier
-runs/questions and resets only the proposal/error/check-repair allowance.
+runs/questions and resets the proposal/error/check-repair allowance and consecutive timeout count.
 
 ## Adapter isolation and readiness
 
@@ -142,10 +145,37 @@ installation is absent or an installed package version differs from the lockfile
 Adapters run in an empty disposable workspace and their own dedicated home under
 `EXPENSES_STATE_DIR`; other agent authentication/configuration is never copied or
 linked, and no existing state directory is migrated. The server validates every answer and owns every write. Only the enabled
-read-only ledger lookups are offered; old history is optional. PDFs provide up to
-12 PNG pages plus extracted text, and images reach each adapter's image protocol.
+read-only ledger lookups are offered; old history is optional. Every PDF page provides
+a PNG at twice its point dimensions plus its extracted text, and images reach each adapter's image protocol.
 Runtime policy, browser save context, earlier answers and check errors stay in the
 shared production prompt. Execution/schema errors retain the existing bounded retry.
+
+Codex and OpenCode receive prompts on stdin, as Claude and Pi already do; image
+filenames remain CLI arguments where needed. Preparation renders one PDF page at
+a time, closing its bitmap/text/page handles before the next. Peak rendering memory
+scales with the largest page (roughly 4 bytes per rendered pixel, plus encoder/PDF
+buffers); all extracted text and image paths remain in memory. Disk holds every
+compressed page PNG until the adapter finishes. Claude/Pi/API image encoding also
+holds base64 images in memory. Long PDFs therefore need disk proportional to all
+pages and can exceed a provider's context limit. The disposable work directory is
+removed on success, preparation/adapter failure, timeout and ordinary cancellation;
+an uncatchable process/host termination can leave it behind. Statement extraction
+keeps its separate 100-page limit.
+
+Only the application’s own deadline is a timeout. Provider/gateway timeout messages
+are transient outages and use the shared pause. A timeout is a per-task failure: the first two consecutive
+timeouts retry immediately in the same FIFO position; the third stops that task
+and lets the next item run. The reason names three tries and the configured timeout.
+Retry and every non-timeout result reset the count; stopping the server remains an
+interruption. Add and ledger-fix drafts become Failed under Needs you, retain words
+and files, and offer Retry (a fix still needs the person's approval). Statement
+readings show Failed with Retry reading and retain their file. Receipt readings
+show Failed under Needs you and beside the saved entry, with Retry and Dismiss; their reason
+says the payment is already saved and no receipt details changed. Only the failed
+audit record is committed; if the ledger itself is invalid, that ordinary record
+stays pending until a correction lets verification pass. Connection, authentication and usage-limit failures
+retain the shared provider pause.
+
 
 The gate runs offline checks, then one fictional live probe for a new fingerprint
 (adapter/interface/pin/version, flags, model, effort, allow-lists and policy source).
@@ -884,3 +914,19 @@ rollback-time account/manifest read errors and returns an empty expense hint.
 
 Unsupported ledger formats retain their normal rejection, including typing hints.
 Only transient document-read/JSON-parse failures take the blank-hint path.
+
+Preparation shares the task deadline with adapter execution. Cancellation and deadline
+checks run between attachments and PDF pages (statement extraction keeps 100 pages).
+Pi uses nonblocking writes for both the initial prompt and bounded abort, so a child
+that stops reading stdin cannot trap shutdown or deadline handling.
+
+An interrupted receipt or statement reading resets its timeout streak on restart;
+statement sessions persist an explicit in-flight run to distinguish queued work.
+Resolved ledger fixes show “The ledger check now passes”, refuse Retry and can be
+discarded. Failed receipt Dismiss keeps the payment and filed evidence and records
+only an audit outcome; saved payments do not count towards Needs you totals. Receipt
+Retry takes a fresh FIFO timestamp. Add and receipt diagnostics retain the latest 50
+runs; a failed receipt audit includes only its current retry attempt’s runs.
+
+Resolved fix notices open without claiming the correction form. Discard acts directly;
+Edit entry explicitly opens the claimed form, avoiding a late-claim/Discard race.
