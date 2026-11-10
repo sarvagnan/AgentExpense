@@ -444,7 +444,11 @@ def propose(worker, draft):
             if not resolved:
                 latest['ledger_fix'].update(updates)
                 latest['state'] = draft_state
-                if form is not None: latest['hand_form'] = form
+                if form is not None:
+                    from copy import deepcopy
+                    latest['hand_form'] = form
+                    latest['agent_proposal']=dict(form=deepcopy(form),sources=deepcopy(latest['correction']['before']['evidence']),reason='Ledger check: '+latest['ledger_fix']['title'],files=deepcopy((latest.get('agent_proposal') or {}).get('files',[])))
+                    latest.pop('cancel_snapshot',None)
             drafts.put(latest)
             return resolved
     while not worker.stop_event.is_set():

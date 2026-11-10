@@ -63,7 +63,7 @@ ledger locations are refused.
 | DELETE `api/drafts/{id}/files/{file_id}` | Remove while editing |
 | DELETE `api/drafts/{id}/uploads/{upload_id}` | Cancel one upload, including a late arrival |
 | PATCH `api/drafts/{id}/unsent-answer` | `{question_index, answer, updated_at}`; keep an answer without sending |
-| POST `api/drafts/{id}/restore` | Restore from Trash as Saved for later |
+| POST `api/drafts/{id}/restore` | Restore from Trash (edits/fixes in Needs you; words in Saved for later) |
 | POST `api/drafts/{id}/save` | JSON `{client_time, client_zone}`; save time and FIFO queue |
 | POST `api/drafts/{id}/answer` | `{answer: "…"}` from question state; queue again |
 | POST `api/drafts/{id}/retry` | Failed draft or receipt reading; reset timeout/check-repair counts and requeue; resolved fixes refuse Retry |
@@ -91,8 +91,8 @@ copy. The question index must identify the current unanswered question.
 
 A removed item disappears from active lists and the worker queue immediately.
 A late GET returns its Trash tombstone, so in-flight reads never turn Discard
-into a 404. Late writes still refuse it. Restore returns it to Saved for later
-and never automatically queues an agent. Added entries leave the Queue.
+into a 404. Late writes still refuse it. Restore returns ordinary words to Saved for later and corrections/fix proposals
+to Needs you with their exact form and correction identity. It never queues an agent. Added entries leave the Queue.
 
 An individual file upload may include an `upload_id` multipart field (32 hex
 characters). Cancellation records that token before removing its file. A late
@@ -930,3 +930,37 @@ runs; a failed receipt audit includes only its current retry attempt’s runs.
 
 Resolved fix notices open without claiming the correction form. Discard acts directly;
 Edit entry explicitly opens the claimed form, avoiding a late-claim/Discard race.
+
+### Cancelling an unsaved correction
+
+`POST /api/drafts/{id}/cancel-edit` accepts `claim_token`. Ordinary temporary edit
+folders are removed under the draft mutex, without invoking a ledger transaction,
+Trash or audit. Fix items retain their latest agent proposal and attachments, and
+release their claim. The browser serializes Cancel after any pending autosave and
+clears recovery only after acknowledgement. The private cancellation snapshot is
+never exposed in public draft responses. `GET /api/drafts/{id}/edit-status` compares
+the stored correction version with the current entry under the ledger lock; the
+browser opens the current entry when an old recovered/restored edit is stale.
+
+New claims accept a browser-generated 64-hex token, stored on the device before
+the request, so a reload can recover an unread claim reply. Existing claims still
+require their exact token. Release is idempotent for already released, removed or
+trashed items and never overwrites newer form data without an active claim.
+
+
+Edit cancellation follows ledger lock → drafts mutex. Accepted correction saves
+mark the draft before waiting for the FIFO and complete it before unlocking the
+ledger, so Cancel refuses an unresolved/committed Save. Claims rotate per mounted
+editor using the prior token for recovery; obsolete tokens cannot release or
+write a successor's form. Fix drafts keep `agent_proposal` independently from
+owner `hand_form`; Restore preserves both, and Cancel restores the current agent
+baseline. Queue list serialization uses cached correction baselines.
+
+
+Second-round edit intent: `GET api/drafts/{id}/retry-check` returns whether Retry
+would replace kept edits and a fingerprint. POST retry accepts that fingerprint
+as `replace_edits`; a changed proposal must be reviewed again. DELETE drafts may
+carry the current `claim_token`, so the server records its discard marker before
+releasing the claim. Both discard endpoints reject `correction_save` before FIFO
+submission. Startup recovers accepted-save markers after obtaining the worker
+lease; Cancel can reclaim an expired unowned edit rather than silently succeed.

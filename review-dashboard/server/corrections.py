@@ -1,6 +1,7 @@
 """Human entry corrections: one idempotent, locked replacement transaction."""
 from copy import deepcopy
 import json
+import logging
 import re
 
 from transactions import Transaction, LedgerBusy, clean, refresh, evidence_paths
@@ -19,6 +20,56 @@ class CorrectionRecords(SettingsRecords):
         self.root=root/'drafts/corrections'
         if self.root.is_symlink(): raise ValueError('Correction records must stay inside drafts')
         self.root.mkdir(parents=True,exist_ok=True)
+
+
+def recover_pending(settings, drafts):
+    """Settle accepted saves independently; an unsafe journal keeps its item blocked."""
+    if not any(d.get('correction_save') for d in drafts.all(include_discarded=True)):
+        return
+    log=logging.getLogger(__name__)
+    def unresolved(identity, error):
+        log.warning('Could not recover correction save %s: %s. Preserve its journal and reconcile it manually; Cancel and Discard remain unavailable for that item.',identity,error)
+    with ledger_lock(settings.ledger):
+        try:
+            store=CorrectionRecords(settings.ledger)
+            folders=list(store.root.iterdir())
+        except Exception as exc:
+            unresolved('pending items',exc)
+            return
+        unsettled=set()
+        for folder in folders:
+            if (folder/'transaction.json').exists():
+                try:
+                    record=json.loads((folder/'record.json').read_text())
+                    Transaction(settings,store,record).recover()
+                except Exception as exc:
+                    unsettled.add(folder.name)
+                    unresolved(folder.name,exc)
+        try:
+            committed={r['operation_id']:r for r in records(settings.ledger) if r['kind']=='correction'}
+        except Exception as exc:
+            unresolved('pending items',exc)
+            return
+        with drafts.mutex:
+            for original in drafts.all(include_discarded=True):
+                operation=original.get('correction_save')
+                if not operation: continue
+                try:
+                    # An unrelated commit may contain the interrupted audit line.
+                    # A refused journal must be settled before that line is trusted.
+                    if operation in unsettled: continue
+                    draft=deepcopy(original)
+                    draft.pop('correction_save')
+                    if line:=committed.get(operation):
+                        path=store.folder(operation)/'record.json'
+                        saved=json.loads(path.read_text()).get('committed_result') if path.exists() else None
+                        for key in ('trashed_at','discarded_until','trash_reason'): draft.pop(key,None)
+                        drafts.release_claim(draft)
+                        drafts.completed(draft,{**(saved or line['result']),'outcome':'ready','audit_id':line['id']})
+                    else:
+                        drafts.put(draft)
+                except Exception as exc:
+                    unresolved(original['id'],exc)
 
 
 def wire_entry(settings, entry):
@@ -45,6 +96,7 @@ def open_form(settings, drafts, entry_id):
         card_member=bool((entry['statement'] or {}).get('end') or any(documents[settings.ledger/'data/accounts.json']['accounts'].get(s['account'],{}).get('kind')=='card' and (s.get('assertion-id')==entry_id or any(m.get('entry-id')==entry_id for m in s.get('members',[]))) for s in documents[settings.ledger/'data/card-statements.json']))
         draft=drafts.create('')
         draft.update(state='question',correction=dict(entry_id=entry_id,version=entry_hash(entry),before=deepcopy(entry),sources=entry['evidence'],locked=card_member,balance_locks=locks),hand_form=wire_entry(settings,entry),hand_reason='correction')
+        draft['correction']['original_form']=deepcopy(draft['hand_form'])
         drafts.put(draft)
         return draft
 
@@ -102,7 +154,8 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
         if body.get('draft_id'):
             if drafts is None: raise ValueError('Attachments require the draft service')
             uploaded=drafts.get(body['draft_id'])
-            if uploaded.get('correction',{}).get('entry_id')!=entry_id or uploaded['state']!='question': raise ValueError('This correction draft cannot be used')
+            editable_states=('question','failed') if uploaded.get('ledger_fix') else ('question',)
+            if uploaded.get('correction',{}).get('entry_id')!=entry_id or uploaded['state'] not in editable_states: raise ValueError('This correction draft cannot be used')
             draft['files']=deepcopy(uploaded['files'])
         draft['finished_by']=dict(actor='user',reason='correction')
         tx=Transaction(settings,store,draft)
@@ -129,6 +182,8 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
         store.put(draft)
         copies=[(drafts.folder(body['draft_id'])/'files'/file['name'],target) for file,target in zip(draft['files'],targets)]
         result=tx.publish(docs,record,result,fd,message,copies=copies,moves=moves)
+        if body.get('draft_id') and drafts:
+            uploaded=drafts.get(body['draft_id']);drafts.completed(uploaded,dict(outcome='ready',**result))
     if drafts:
         from transactions import payment
         with drafts.mutex:
@@ -136,6 +191,4 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
                 if (saved.get('result') or {}).get('entry_id')==entry_id:
                     saved['result'].update(description=after['description'],sources=after['evidence'],**payment(after,docs[root/'data/accounts.json']['accounts']))
                     drafts.put(saved)
-    if body.get('draft_id') and drafts:
-        uploaded=drafts.get(body['draft_id']);drafts.completed(uploaded,dict(outcome='ready',**result))
     return refresh(settings,result)

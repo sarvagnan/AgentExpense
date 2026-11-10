@@ -40,6 +40,309 @@ class CorrectionTests(Fixture):
     def save(self,e,body=None,op=None):
         return apply(self.settings,e['id'],op or secrets.token_hex(16),body or self.body(e))
 
+    def test_reload_can_reclaim_with_the_token_kept_before_a_lost_claim_reply(self):
+        e=self.seed()
+        with self.client(worker=False) as client:
+            draft=client.post('/api/entries/'+e['id']+'/correction-form').json()
+            token='f'*64
+            first=client.post('/api/drafts/'+draft['id']+'/claim',json={'claim_token':token})
+            self.assertEqual(first.status_code,200,first.text)
+            self.assertEqual(first.json()['claim_token'],token)
+            second=client.post('/api/drafts/'+draft['id']+'/claim',json={'claim_token':token})
+            self.assertEqual(second.status_code,200,second.text)
+            self.assertEqual(second.json()['claim_token'],token)
+
+    def test_new_editor_rotates_claim_and_obsolete_or_foreign_writes_are_refused(self):
+        e=self.seed()
+        with self.client(worker=False) as client:
+            draft=client.post('/api/entries/'+e['id']+'/correction-form').json();url='/api/drafts/'+draft['id']
+            first=client.post(url+'/claim',json={'claim_token':'a'*64}).json()
+            second=client.post(url+'/claim',json={'claim_token':'b'*64,'previous_token':first['claim_token']})
+            self.assertEqual(second.status_code,200,second.text)
+            for token in [first['claim_token'],'c'*64,'bad','🍃',None,1,{'malformed':True}]:
+                response=client.post(url+'/release',json={'claim_token':token,'proposal':first['form']})
+                self.assertEqual(response.status_code,409,response.text)
+            duplicate=client.post(url+'/claim',json={'claim_token':'d'*64,'previous_token':first['claim_token']})
+            self.assertEqual(duplicate.status_code,409,duplicate.text)
+            kept=Drafts(self.ledger).get(draft['id'])
+            self.assertEqual(kept['claim']['token'],'b'*64)
+            # Reordered reopen: D arrives before its predecessor C can transfer B.
+            self.assertEqual(client.post(url+'/claim',json={'claim_token':'d'*64,'previous_token':'c'*64}).status_code,409)
+            self.assertEqual(client.post(url+'/claim',json={'claim_token':'c'*64,'previous_token':'b'*64}).status_code,200)
+            self.assertEqual(client.post(url+'/release',json={'claim_token':'c'*64}).status_code,200)
+            self.assertEqual(client.post(url+'/claim',json={'claim_token':'e'*64,'previous_token':'d'*64}).status_code,200)
+
+    def test_cancel_refuses_a_save_already_accepted_by_the_fifo(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        e=self.seed()
+        with self.client(worker=False) as client:
+            d=client.post('/api/entries/'+e['id']+'/correction-form').json();url='/api/drafts/'+d['id']
+            claim=client.post(url+'/claim',json={}).json();body={**self.body(e),'draft_id':d['id']}
+            body['proposal']['entry']['description']='Save held in FIFO'
+            started=threading.Event();release=threading.Event()
+            def held(*args,**kwargs):
+                started.set();self.assertTrue(release.wait(10));raise ValueError('Known refusal')
+            with patch.object(client.app.state.worker,'call',side_effect=held),ThreadPoolExecutor() as pool:
+                saving=pool.submit(client.post,'/api/entries/'+e['id']+'/corrections/'+secrets.token_hex(16),json=body)
+                try:
+                    self.assertTrue(started.wait(5))
+                    cancel=client.post(url+'/cancel-edit',json={'claim_token':claim['claim_token']})
+                    self.assertEqual(cancel.status_code,409,cancel.text)
+                    self.assertTrue((self.ledger/'drafts'/d['id']).exists())
+                finally:release.set()
+                self.assertEqual(saving.result().status_code,409)
+
+    def test_cancel_waits_for_an_applying_save_then_refuses_its_committed_draft(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError
+        e=self.seed();drafts=Drafts(self.ledger);d=open_form(self.settings,drafts,e['id'])
+        body={**self.body(e),'draft_id':d['id']};body['proposal']['entry']['description']='Committed held edit'
+        publishing=threading.Event();release=threading.Event();original=Transaction.publish
+        def held(tx,*args,**kwargs):
+            publishing.set();self.assertTrue(release.wait(30));return original(tx,*args,**kwargs)
+        with self.client(worker=False) as client:
+            claim=client.post('/api/drafts/'+d['id']+'/claim',json={}).json()
+            with patch.object(Transaction,'publish',held),ThreadPoolExecutor() as pool:
+                saving=pool.submit(apply,self.settings,e['id'],secrets.token_hex(16),body,drafts=drafts)
+                self.assertTrue(publishing.wait(10))
+                cancelling=pool.submit(client.post,'/api/drafts/'+d['id']+'/cancel-edit',json={'claim_token':claim['claim_token']})
+                try:
+                    with self.assertRaises(TimeoutError):cancelling.result(timeout=.1)
+                finally:release.set()
+                self.assertEqual(saving.result(timeout=120)['entry_id'],e['id'])
+                self.assertEqual(cancelling.result(timeout=120).status_code,409)
+                self.assertEqual(drafts.get(d['id'])['state'],'added')
+
+    def test_correction_after_cancel_reports_a_plain_conflict(self):
+        e=self.seed()
+        with self.client(worker=False) as client:
+            d=client.post('/api/entries/'+e['id']+'/correction-form').json();url='/api/drafts/'+d['id']
+            claim=client.post(url+'/claim',json={}).json()
+            self.assertEqual(client.post(url+'/cancel-edit',json={'claim_token':claim['claim_token']}).status_code,200)
+            body={**self.body(e),'draft_id':d['id']};body['proposal']['entry']['description']='Cancelled words'
+            response=client.post('/api/entries/'+e['id']+'/corrections/'+secrets.token_hex(16),json=body)
+            self.assertEqual(response.status_code,409,response.text)
+            self.assertIn('cancelled',response.text)
+
+    def test_fix_discard_restore_keeps_agent_proposal_separate_from_owner_edits(self):
+        e=self.seed();drafts=Drafts(self.ledger);d=open_form(self.settings,drafts,e['id'])
+        d['ledger_fix']=dict(state='ready',title='Fictional check',summary='Proposed correction')
+        d['hand_form']['entry']['description']='Agent baseline';drafts.put(d)
+        with self.client(worker=False) as client:
+            url='/api/drafts/'+d['id'];claim=client.post(url+'/claim',json={}).json()
+            changed=deepcopy(claim['form']);changed['entry']['description']='Owner discarded edits'
+            client.post(url+'/hand-form',json={'claim_token':claim['claim_token'],'proposal':changed,'sources':[],'reason':'Owner reason'})
+            client.post(url+'/release',json={'claim_token':claim['claim_token']})
+            self.assertEqual(client.delete(url).status_code,204)
+            self.assertEqual(client.post(url+'/restore').status_code,200)
+            restored=Drafts(self.ledger).get(d['id'])
+            self.assertEqual(restored['hand_form']['entry']['description'],'Owner discarded edits')
+            self.assertEqual(restored['correction']['reason'],'Owner reason')
+            again=client.post(url+'/claim',json={}).json()
+            self.assertEqual(again['original_form']['entry']['description'],'Agent baseline')
+            self.assertEqual(client.post(url+'/cancel-edit',json={'claim_token':again['claim_token']}).status_code,200)
+            kept=Drafts(self.ledger).get(d['id'])
+            self.assertEqual(kept['hand_form']['entry']['description'],'Agent baseline')
+            self.assertEqual(kept['correction']['sources'],e['evidence'])
+
+    def test_queue_poll_never_rebuilds_forms_and_an_old_malformed_edit_cannot_fail_the_list(self):
+        e=self.seed();drafts=Drafts(self.ledger);d=open_form(self.settings,drafts,e['id'])
+        old=open_form(self.settings,drafts,e['id']);old['correction']['before']={'description':'Older entry'};drafts.put(old)
+        with self.client(worker=False) as client,patch('corrections.wire_entry',side_effect=AssertionError('List rebuilt a form')):
+            for _ in range(2):
+                response=client.get('/api/drafts')
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertTrue({d['id'],old['id']} <= {r['id'] for r in response.json()})
+
+    def test_cancel_reclaims_an_expired_edit_and_actually_discards_its_changes(self):
+        e=self.seed();drafts=Drafts(self.ledger)
+        with self.client(worker=False) as client:
+            for fix in (True,False):
+                with self.subTest(fix=fix):
+                    d=open_form(self.settings,drafts,e['id'])
+                    if fix:d['ledger_fix']=dict(state='ready',title='Fictional fix');drafts.put(d)
+                    url='/api/drafts/'+d['id'];claim=client.post(url+'/claim',json={}).json()
+                    typed=deepcopy(claim['form']);typed['entry']['description']='Owner edit to discard'
+                    client.post(url+'/hand-form',json={'claim_token':claim['claim_token'],'proposal':typed})
+                    old=drafts.get(d['id']);old['claim']['expires_at']='2000-01-01T00:00:00+00:00';drafts.put(old)
+                    response=client.post(url+'/cancel-edit',json={'claim_token':claim['claim_token']})
+                    self.assertEqual(response.status_code,200,response.text)
+                    if fix:
+                        kept=drafts.get(d['id']);self.assertEqual(kept['hand_form'],claim['form']);self.assertNotIn('claim',kept)
+                    else:self.assertFalse(drafts.folder(d['id']).exists())
+
+    def test_cancel_refuses_another_live_editor_without_touching_its_form(self):
+        e=self.seed()
+        with self.client(worker=False) as client:
+            d=client.post('/api/entries/'+e['id']+'/correction-form').json();url='/api/drafts/'+d['id']
+            first=client.post(url+'/claim',json={'claim_token':'a'*64}).json()
+            client.post(url+'/claim',json={'claim_token':'b'*64,'previous_token':first['claim_token']})
+            response=client.post(url+'/cancel-edit',json={'claim_token':first['claim_token']})
+            self.assertEqual(response.status_code,409,response.text);self.assertIn('Another editor',response.text)
+            self.assertEqual(Drafts(self.ledger).get(d['id'])['claim']['token'],'b'*64)
+
+    def test_startup_clears_uncommitted_save_marker_and_completes_a_committed_one(self):
+        e=self.seed();drafts=Drafts(self.ledger)
+        pending=open_form(self.settings,drafts,e['id']);pending['correction_save']=secrets.token_hex(16);drafts.put(pending)
+        saved=open_form(self.settings,drafts,e['id']);op=secrets.token_hex(16);saved['correction_save']=op;drafts.put(saved)
+        body={**self.body(e),'draft_id':saved['id']};body['proposal']['entry']['description']='Committed before restart'
+        with patch.object(drafts,'completed',side_effect=RuntimeError('Simulated crash after commit')):
+            with self.assertRaisesRegex(RuntimeError,'Simulated crash'):apply(self.settings,e['id'],op,body,drafts=drafts)
+        commit=self.jj('log','-r','@-','--no-graph','-T','commit_id');audit=records(self.ledger)
+        with self.client(worker=False) as client:
+            current=drafts.get(pending['id']);self.assertNotIn('correction_save',current)
+            completed=drafts.get(saved['id']);self.assertEqual(completed['state'],'added');self.assertNotIn('correction_save',completed)
+            self.assertEqual(completed['result']['entry_id'],e['id'])
+            token=client.post('/api/drafts/'+pending['id']+'/claim',json={}).json()['claim_token']
+            self.assertEqual(client.post('/api/drafts/'+pending['id']+'/cancel-edit',json={'claim_token':token}).status_code,200)
+            self.assertEqual(records(self.ledger),audit);self.assertEqual(self.jj('log','-r','@-','--no-graph','-T','commit_id'),commit)
+
+    def test_startup_keeps_an_unsettled_correction_marker_without_blocking_other_requests(self):
+        class Crash(BaseException):pass
+        e=self.seed();drafts=Drafts(self.ledger);blocked=open_form(self.settings,drafts,e['id']);op=secrets.token_hex(16)
+        blocked['correction_save']=op;drafts.put(blocked)
+        body={**self.body(e),'draft_id':blocked['id']};body['proposal']['entry']['description']='Interrupted fictional correction'
+        with patch.object(Transaction,'verified_commit',side_effect=Crash('Stopped during Save')),patch.object(Transaction,'rollback',side_effect=Crash('Process stopped before rollback')):
+            with self.assertRaises(Crash):apply(self.settings,e['id'],op,body,drafts=drafts)
+        journal=self.ledger/'drafts/corrections'/op/'transaction.json';self.assertTrue(journal.exists())
+        (self.ledger/'fictional-later-note.txt').write_text('An unrelated fictional change after the crash')
+        self.jj('commit','-m','Fictional unrelated change after interrupted Save')
+        healthy=open_form(self.settings,drafts,e['id']);healthy['correction_save']=secrets.token_hex(16);drafts.put(healthy)
+        before=self.jj('log','-r','@-','--no-graph','-T','commit_id');audit=records(self.ledger);saved_journal=journal.read_bytes()
+        with self.assertLogs('corrections',level='WARNING') as logs:
+            with self.client() as client:
+                self.assertEqual(client.get('/api/health').status_code,200)
+                self.assertEqual(client.get('/api/drafts').status_code,200)
+                self.assertEqual(drafts.get(blocked['id'])['correction_save'],op)
+                self.assertNotIn('correction_save',drafts.get(healthy['id']))
+                url='/api/drafts/'+blocked['id']
+                for response in (client.post(url+'/cancel-edit',json={'claim_token':'a'*64}),client.delete(url)):
+                    self.assertEqual(response.status_code,409,response.text);self.assertIn('Save',response.text)
+                claim=client.post('/api/drafts/'+healthy['id']+'/claim',json={}).json()
+                response=client.post('/api/drafts/'+healthy['id']+'/cancel-edit',json={'claim_token':claim['claim_token']})
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertEqual(journal.read_bytes(),saved_journal);self.assertEqual(records(self.ledger),audit)
+                self.assertEqual(self.jj('log','-r','@-','--no-graph','-T','commit_id'),before)
+        self.assertTrue(any(op in message and 'later human changes' in message for message in logs.output),logs.output)
+
+    def test_startup_leaves_an_unreadable_recovery_record_isolated(self):
+        e=self.seed();drafts=Drafts(self.ledger);blocked=open_form(self.settings,drafts,e['id']);op=secrets.token_hex(16)
+        blocked['correction_save']=op;drafts.put(blocked)
+        folder=self.ledger/'drafts/corrections'/op;folder.mkdir(parents=True)
+        (folder/'record.json').write_text('{');(folder/'transaction.json').write_text('{}')
+        healthy=open_form(self.settings,drafts,e['id']);healthy['correction_save']=secrets.token_hex(16);drafts.put(healthy)
+        with self.assertLogs('corrections',level='WARNING') as logs:
+            with self.client() as client:
+                self.assertEqual(client.get('/api/health').status_code,200)
+                self.assertEqual(drafts.get(blocked['id'])['correction_save'],op)
+                self.assertNotIn('correction_save',drafts.get(healthy['id']))
+        self.assertTrue(any(op in message for message in logs.output),logs.output)
+
+    def test_a_timed_out_fix_can_be_checked_saved_once_and_replayed(self):
+        e=self.seed();drafts=Drafts(self.ledger);draft=open_form(self.settings,drafts,e['id'])
+        draft.update(state='failed',ledger_fix=dict(state='failed',entry_id=e['id'],title='Fictional fix',message='The agent timed out'))
+        drafts.put(draft)
+        with self.client(worker=False) as client:
+            url='/api/drafts/'+draft['id'];claim=client.post(url+'/claim',json={'claim_token':'a'*64})
+            self.assertEqual(claim.status_code,200,claim.text)
+            proposal=deepcopy(claim.json()['form']);proposal['entry']['description']='Owner finished the timed-out fix'
+            checked=client.post(url+'/hand-form',json=dict(claim_token=claim.json()['claim_token'],proposal=proposal,sources=e['evidence'],reason='Checked by the owner'))
+            self.assertEqual(checked.status_code,200,checked.text);self.assertTrue(checked.json()['ok'])
+            before=len(records(self.ledger));op=secrets.token_hex(16)
+            body=dict(version=draft['correction']['version'],proposal=proposal,sources=e['evidence'],approved_accounts=[],reason='Checked by the owner',draft_id=draft['id'])
+            saved=client.post('/api/entries/'+e['id']+'/corrections/'+op,json=body)
+            self.assertEqual(saved.status_code,200,saved.text)
+            self.assertEqual(drafts.get(draft['id'])['state'],'added');self.assertNotIn('correction_save',drafts.get(draft['id']))
+            self.assertEqual(next(row for row in entries(load(self.ledger)) if row['id']==e['id'])['description'],'Owner finished the timed-out fix')
+            committed=self.jj('log','-r','@-','--no-graph','-T','commit_id')
+            replay=client.post('/api/entries/'+e['id']+'/corrections/'+op,json=body)
+            self.assertEqual(replay.status_code,200,replay.text);self.assertTrue(replay.json()['replayed'])
+            self.assertEqual(len(records(self.ledger)),before+1);self.assertEqual(self.jj('log','-r','@-','--no-graph','-T','commit_id'),committed)
+            current=next(row for row in entries(load(self.ledger)) if row['id']==e['id'])
+            ordinary=open_form(self.settings,drafts,e['id']);ordinary['state']='failed';drafts.put(ordinary)
+            forbidden={**self.body(current),'draft_id':ordinary['id']};forbidden['proposal']['entry']['description']='Ordinary failed correction'
+            refused=client.post('/api/entries/'+e['id']+'/corrections/'+secrets.token_hex(16),json=forbidden)
+            self.assertEqual(refused.status_code,409,refused.text);self.assertIn('This correction draft cannot be used',refused.text)
+
+    def test_retry_requires_confirmation_before_replacing_kept_fix_edits(self):
+        e=self.seed();drafts=Drafts(self.ledger);d=open_form(self.settings,drafts,e['id'])
+        d.update(state='failed',ledger_fix=dict(state='failed',title='Fictional fix'));drafts.put(d)
+        with self.client(worker=False) as client:
+            url='/api/drafts/'+d['id'];claim=client.post(url+'/claim',json={}).json()
+            typed=deepcopy(claim['form']);typed['entry']['description']='Kept owner edits'
+            client.post(url+'/hand-form',json={'claim_token':claim['claim_token'],'proposal':typed,'sources':[],'reason':'Kept owner reason'})
+            client.post(url+'/release',json={'claim_token':claim['claim_token']})
+            refused=client.post(url+'/retry');self.assertEqual(refused.status_code,409,refused.text)
+            kept=drafts.get(d['id']);self.assertEqual(kept['hand_form'],typed);self.assertEqual(kept['state'],'failed')
+            check=client.get(url+'/retry-check');self.assertEqual(check.status_code,200,check.text);self.assertTrue(check.json()['replace_edits'])
+            newer=drafts.get(d['id']);newer['correction']['reason']='Newer kept reason';drafts.put(newer)
+            self.assertEqual(client.post(url+'/retry',json={'replace_edits':check.json()['version']}).status_code,409)
+            self.assertEqual(drafts.get(d['id'])['correction']['reason'],'Newer kept reason')
+            check=client.get(url+'/retry-check')
+            accepted=client.post(url+'/retry',json={'replace_edits':check.json()['version']});self.assertEqual(accepted.status_code,200,accepted.text)
+            queued=drafts.get(d['id']);self.assertEqual(queued['state'],'queued');self.assertEqual(queued['hand_form'],claim['form'])
+            self.assertEqual(queued['correction']['sources'],e['evidence']);self.assertEqual(queued['correction']['reason'],'')
+
+    def test_queue_discard_and_claim_refuse_a_save_in_progress(self):
+        e=self.seed();drafts=Drafts(self.ledger)
+        with self.client(worker=False) as client:
+            d=open_form(self.settings,drafts,e['id']);d['correction_save']=secrets.token_hex(16);drafts.put(d)
+            url='/api/drafts/'+d['id']
+            with patch.object(client.app.state.worker,'call',side_effect=AssertionError('Discard entered FIFO during Save')):
+                for method,path,body in [('DELETE',url,None),('POST','/api/retention/operations/'+secrets.token_hex(16),dict(action='queue-discard',item_id=d['id']))]:
+                    with self.subTest(method=method):
+                        refused=client.request(method,path,json=body);self.assertEqual(refused.status_code,409,refused.text);self.assertIn('Save',refused.text)
+            claim=client.post(url+'/claim',json={});self.assertEqual(claim.status_code,409,claim.text);self.assertIn('Save',claim.text)
+
+    def test_discard_keeps_queued_fix_claim_until_its_skip_marker_is_recorded(self):
+        e=self.seed();drafts=Drafts(self.ledger);d=open_form(self.settings,drafts,e['id'])
+        d.update(state='queued',queued_at=datetime.now(timezone.utc).isoformat(),ledger_fix=dict(state='queued',title='Fictional fix'));drafts.put(d)
+        with self.client(worker=False) as client:
+            token=client.post('/api/drafts/'+d['id']+'/claim',json={}).json()['claim_token']
+            worker=client.app.state.worker;original=worker.call;observed=[]
+            def check_flag(operation,**kwargs):
+                current=drafts.get(d['id']);observed.append(current.get('discard_requested'))
+                self.assertTrue(current.get('discard_requested'));self.assertNotIn('claim',current)
+                self.assertGreater(worker.idle_delay(worker.clock()+10),0,'The worker skips the marked queued item')
+                return original(operation,**kwargs)
+            with patch.object(worker,'call',side_effect=check_flag):
+                response=client.request('DELETE','/api/drafts/'+d['id'],json={'claim_token':token})
+            self.assertEqual(response.status_code,204,response.text);self.assertEqual(observed,[True])
+            self.assertTrue(drafts.get(d['id'],include_discarded=True)['trashed_at'])
+
+    def test_cancel_removes_temporary_edit_without_commit_trash_or_audit(self):
+        e=self.seed()
+        with self.client(worker=False) as client:
+            draft=client.post('/api/entries/'+e['id']+'/correction-form').json()
+            claim=client.post('/api/drafts/'+draft['id']+'/claim',json={}).json()
+            before=self.jj('log','-r','@-','--no-graph','-T','commit_id')
+            audit=records(self.ledger)
+            response=client.post('/api/drafts/'+draft['id']+'/cancel-edit',json={'claim_token':claim['claim_token']})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertFalse((self.ledger/'drafts'/draft['id']).exists())
+            self.assertEqual(client.post('/api/drafts/'+draft['id']+'/cancel-edit',json={'claim_token':claim['claim_token']}).status_code,200)
+            self.assertEqual(client.get('/api/trash').json()['items'],[])
+            self.assertEqual(records(self.ledger),audit)
+            self.assertEqual(self.jj('log','-r','@-','--no-graph','-T','commit_id'),before)
+
+    def test_cancel_fix_preserves_proposal_and_releases_claim(self):
+        e=self.seed();draft=open_form(self.settings,Drafts(self.ledger),e['id'])
+        draft['ledger_fix']=dict(state='ready',title='Fictional check',summary='Proposed correction')
+        draft['hand_form']['entry']['description']='Agent proposal'
+        Drafts(self.ledger).put(draft)
+        with self.client(worker=False) as client:
+            claim=client.post('/api/drafts/'+draft['id']+'/claim',json={}).json()
+            changed=deepcopy(claim['form']);changed['entry']['description']='Unsaved owner edit'
+            client.post('/api/drafts/'+draft['id']+'/hand-form',json={'claim_token':claim['claim_token'],'proposal':changed})
+            response=client.post('/api/drafts/'+draft['id']+'/cancel-edit',json={'claim_token':claim['claim_token']})
+            self.assertEqual(response.status_code,200,response.text)
+            kept=Drafts(self.ledger).get(draft['id'])
+            self.assertNotIn('claim',kept)
+            self.assertEqual(kept['hand_form'],draft['hand_form'])
+            self.assertEqual(kept['ledger_fix'],draft['ledger_fix'])
+            self.assertEqual(client.post('/api/drafts/'+draft['id']+'/cancel-edit',json={'claim_token':claim['claim_token']}).status_code,200)
+
     def test_identity_year_metadata_evidence_commit_and_audit_replay(self):
         before=self.seed(rule=True);body=self.body(before);body['proposal']['entry'].update(date='2027-01-02',description='Willow corrected')
         op=secrets.token_hex(16);result=self.save(before,body,op)

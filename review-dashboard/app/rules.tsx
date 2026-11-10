@@ -1,10 +1,11 @@
+import {sortRules} from '../scripts/rule-sort.mjs';
 import {retryWrite,writeSnapshot,type DirectWrite} from './live/direct-writes';
 import {useActionGuard,useInteractionSnapshot} from './live/interaction';
 import {ActionFeedback} from './live/pending-actions';
 import {useEffect,useState} from 'react';
 import {dashboard} from './data';
 import {localDate} from './date-time';
-import {dayLabel,Icon,money,PageHeader} from './ui';
+import {dayLabel,Icon,money,PageHeader,useQueryState} from './ui';
 import {mainPostings,originReason,payer,ruleAmounts,ruleStatus,statusLabel} from '../scripts/recurring-ui.mjs';
 import {RuleEditor} from './rule-editor';
 import {accountFieldLabel} from './account-labels';
@@ -18,6 +19,8 @@ export const scheduleLabel=(rule:Rule)=>`${(rule.schedule.interval||1)===1?(rule
 export default function Rules({online}:{online:boolean|null}) {
   const {data:liveData,error,ready,refresh}=useRules(online),[editing,setEditing]=useState<Rule|true|null>(null),[dismissed,setDismissed]=useState<string[]>([]);
   const [data,interaction,release]=useInteractionSnapshot(liveData,ready),guard=useActionGuard();
+  const [sort,setSort]=useQueryState('sort','due'),[direction,setDirection]=useQueryState('direction','asc');
+  const ordered=sortRules(data.rules,sort,direction,dashboard.meta.accounts) as Rule[];
   const op=useRuleOperation(refresh),readonly=online!==true||!ready;
   const operate=async(body:object)=>{const ticket=guard.begin(),ok=await op.operate(body);if(ok&&guard.unchanged(ticket))release();return ok;};
   const retry=async(item:DirectWrite)=>{const ticket=guard.begin();await retryWrite(item.id);if(guard.unchanged(ticket)&&writeSnapshot().find(value=>value.id===item.id)?.state==='saved')release();};
@@ -26,9 +29,9 @@ export default function Rules({online}:{online:boolean|null}) {
   const suggestions=data.suggestions.filter(s=>!dismissed.includes(s.rule.origin?.['entry-ids']?.join()||s.rule.id));
   return <section className="page rules-page" {...interaction}><PageHeader title="Rules" subtitle="Regular payments, on your terms."/>
     {readonly&&<p className="live-notice" role="status">Rules are read-only here. {online===false?'Reconnect to the live server to make changes.':error||'Waiting for the live server.'}</p>}
-    <div className="rules-toolbar"><button className="button primary" disabled={readonly} onClick={()=>setEditing(true)}><Icon name="plus"/>New rule</button><button className="button" disabled={online!==true} onClick={()=>{release();void refresh();}}>Refresh rules</button></div>
+    <div className="rules-toolbar"><button className="button primary" disabled={readonly} onClick={()=>setEditing(true)}><Icon name="plus"/>New rule</button><button className="button" disabled={online!==true} onClick={()=>{release();void refresh();}}>Refresh rules</button><label className="rules-sort">Sort rules<select className="field" value={['due','name','amount','account'].includes(sort)?sort:'due'} onChange={e=>setSort(e.target.value,'replace')}><option value="due">Next due</option><option value="name">Name</option><option value="amount">Amount</option><option value="account">Paying account</option></select></label><label className="rules-sort">Order<select className="field" value={direction==='desc'?'desc':'asc'} onChange={e=>setDirection(e.target.value,'replace')}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></div>
     <div className="action-error-slot">{op.error&&<p className="live-error" role="alert">{op.error}</p>}</div>
-    <div className="rules-list">{data.rules.length===0?<div className="panel empty-state"><h2>No rules yet</h2><p>Add a regular payment, or make your first rule here.</p></div>:data.rules.map(rule=><RuleRow key={rule.id} rule={rule} readonly={readonly} busy={false} onEdit={setEditing} operate={operate} retry={retry} owner={op.owner}/>)}</div>
+    <div className="rules-list">{data.rules.length===0?<div className="panel empty-state"><h2>No rules yet</h2><p>Add a regular payment, or make your first rule here.</p></div>:ordered.map(rule=><RuleRow key={rule.id} rule={rule} readonly={readonly} busy={false} onEdit={setEditing} operate={operate} retry={retry} owner={op.owner}/>)}</div>
     <section className="rules-suggestions" aria-label="Suggested rules"><h2>Suggested rules</h2><p className="live-hint">These patterns need your say before becoming rules.</p>{suggestions.length?suggestions.map(s=>{const key=s.rule.origin?.['entry-ids']?.join()||s.rule.id;return <article className="panel rule-row" key={key}><h3>{s.rule.description}</h3><div className="rule-summary"><RuleSummary rule={s.rule}/></div><p>{s.reason}</p><div className="rule-actions"><button className="button" disabled={readonly} onClick={()=>{void operate({action:'made',rule:{...s.rule,origin:{...s.rule.origin,kind:'owner'}}});}}>Confirm rule</button><button className="button" disabled={readonly} onClick={()=>{void operate({action:'removed',rule:s.rule}).then(ok=>{if(ok)setDismissed(xs=>[...xs,key]);});}}>Dismiss</button></div><ActionFeedback owner={op.owner} scope="rules" resource={s.rule.id} onRetry={retry}/></article>;}):<p>No suggestions waiting.</p>}</section>
  <ActionFeedback owner={op.owner} scope="rules" onRetry={retry}/>
     {editing&&<RuleEditor rule={editing===true?undefined:editing} onClose={()=>{setEditing(null);release();}} onSaved={async unchanged=>{await refresh();if(unchanged?.())release();}}/>}
@@ -37,7 +40,7 @@ export default function Rules({online}:{online:boolean|null}) {
 
 export function RuleRow({rule,readonly,busy,onEdit,operate,retry,owner}:{owner?:import('./live/direct-writes').WriteOwner;rule:Rule;readonly:boolean;busy:boolean;onEdit:(rule:Rule)=>void;operate:(body:object)=>Promise<boolean>;retry?:(item:DirectWrite)=>void}) {
   const life=rule.lifecycle||'active',status=life==='active'&&!rule.bill&&rule.rule_status==='stale'?'stale':ruleStatus(rule,localDate());
-  return <article className="panel rule-row" id={`rule-${rule.id}`} aria-label={rule.description}>
+  return <article className="panel rule-row" id={`rule-${rule.id}`} tabIndex={-1} aria-label={rule.description}>
       <header><h2>{rule.description}</h2><span className={`rule-status ${status}`}>{statusLabel(status)}</span></header><div className="rule-summary"><RuleSummary rule={rule}/></div>
       <dl className="rule-dates"><div><dt>Schedule</dt><dd>{scheduleLabel(rule)}</dd></div><div><dt>Next due</dt><dd>{dayLabel(rule.next_due||rule.date)}</dd></div><div><dt>Last paid</dt><dd>{rule.last_payment?<a href={entryHref(rule.last_payment.id)}>{dayLabel(rule.last_payment.date)}</a>:'No payment recorded'}</dd></div></dl>
       {rule.origin&&rule.origin.kind!=='owner'&&<div className="rule-origin"><strong>Made automatically</strong><p>{originReason(rule.origin)}{rule.origin['came-back']?' Returned after two new payments.':''}</p><span>{rule.review_state==='owner-kept'?'Kept by you':rule.review_state==='owner-removed'?'Removed by you':rule.review?.rule_verdict==='confirm'?'Confirmed in weekly review':rule.review?.rule_verdict==='propose-removal'?'Removal proposed':'Waiting for weekly review'}</span></div>}

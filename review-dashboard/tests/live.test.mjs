@@ -102,12 +102,22 @@ test('each draft state renders its content and permitted actions',async()=>{
  const {DraftDetail,draftStatus}=await server.ssrLoadModule('/app/live/drafts.tsx');const {needsAttention,pollDelay,newestFirst}=await server.ssrLoadModule('/app/live/use-drafts.ts');
  const base={id:'a',state:'working',text:'petrol 100',created_at:'2026-10-30T10:00:00Z',queued_at:'2026-10-30T10:00:00Z',files:[],runs:[{start:'2026-10-30T10:00:00Z',doubts:['No reference supplied']}],questions:[],result:null};
  const render=d=>renderToStaticMarkup(createElement(DraftDetail,{draft:{...base,...d},onAction:async()=>{}}));
+ const info={entry_id:'e'.repeat(16),version:'v',before:{description:'Fictional entry',postings:[]},sources:[]};
+ const timedOut=render({state:'failed',correction:info,ledger_fix:{state:'failed',title:'Fictional fix',message:'Timed out'}});
+ assert.match(timedOut,/>Retry<\/button>/,'Timed-out fixes can retry from their summary');
+ assert.match(timedOut,/Ledger check proposal/);assert.doesNotMatch(timedOut,/Unsaved entry changes/);
+ const proposal=render({state:'question',correction:info,ledger_fix:{state:'ready',title:'Fictional fix'}});
+ assert.equal((proposal.match(/>Discard proposal<\/button>/g)||[]).length,1);
+ assert.equal((proposal.match(/>Continue editing<\/button>/g)||[]).length,1);
+ assert.doesNotMatch(proposal,/>Edit entry<\/button>|>Discard<\/button>/);
+
  assert.match(render({}),/The agent is reading it/);assert.doesNotMatch(render({}),/Discard/);assert.match(render({state:'queued'}),/In the queue/);assert.match(render({waiting:'Waiting for a clean ledger'}),/Waiting for a clean ledger/);
  assert.match(render({state:'question',questions:[{question:'Which bank?',answer:null}]}),/Which bank\?/);assert.match(render({state:'question'}),/Send answer/);
  assert.match(render({state:'question',questions:[{question:'Which account did you pay from?',answer:null}]}),/<select/);
  const consent=render({state:'question',account_question:{proposal_hash:'a'.repeat(64),accounts:['Shared:Accounts Receivable:Finch'],postings:[{account:'Shared:Accounts Receivable:Finch',amount:'46.80',commodity:'EUR',cost:{amount:'51.48',commodity:'USD'}}]}});assert.match(consent,/total cost/);assert.match(consent,/51.48/);
  const categoryQuestion=render({state:'question',questions:[{question:'Which expense account should I use for this payment?',answer:null}]});assert.match(categoryQuestion,/<textarea/);assert.doesNotMatch(categoryQuestion,/<select/);
  assert.match(render({state:'failed',error:'Upload unreadable'}),/Upload unreadable/);assert.match(render({state:'failed'}),/Retry/);assert.match(render({state:'failed'}),/Discard/);
+ const legacyFix=render({state:'question',ledger_fix:{state:'resolved',entry_id:'abc',title:'Fictional check',summary:''}});assert.match(legacyFix,/Open current entry/);assert.match(legacyFix,/kept edit details are no longer available/);assert.doesNotMatch(legacyFix,/Finish it yourself|>Edit entry<|>Save and add</);
  assert.equal(needsAttention({...base,state:'failed'}),true);assert.equal(needsAttention({...base,state:'question'}),true);assert.equal(needsAttention(base),false);assert.equal(pollDelay([base]),3000);assert.equal(pollDelay([]),30000);
  assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt'}}]),30000);
  assert.equal(pollDelay([{...base,state:'added',result:{audit_id:'receipt',can_undo:false,undo_until:null}}]),30000);

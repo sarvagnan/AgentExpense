@@ -625,3 +625,10 @@ html:has(.add-page){overflow-anchor:none}
 @media(max-width:760px) { .statement-session-heading.panel-header { grid-template-columns:minmax(0,1fr); } .statement-session-heading > .statement-actions { grid-column:1; grid-row:2; } .statement-session-heading > .action-feedback { grid-row:3; } }
 /* Background publication must not cover an open dialog's fields or actions. */
 body:has(.dialog-layer) .data-refresh-notice { z-index:49; }
+
+/* Reserve Queue's detail column until the person explicitly chooses an item. */
+.queue-choose{min-height:240px}.queue-choose .panel-body{padding:28px;color:var(--text-secondary)}.queue-choose h2{color:var(--text)}
+.rules-toolbar{align-items:end}.rules-sort{display:grid;gap:4px;font-size:12px;color:var(--text-secondary)}.rules-sort .field{min-width:12rem}.rules-sort:last-child .field{min-width:10rem}
+.hand-finish>.panel-header{align-items:start;gap:16px}
+
+.hand-cancel-actions{flex-wrap:wrap}

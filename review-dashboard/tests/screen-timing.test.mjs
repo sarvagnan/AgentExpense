@@ -97,32 +97,87 @@ test('A one-word suggestion has no primary button, reports no card, and opens it
  }finally{g.h.close();}
 });
 
-function handHarness(directWrites={subscribeWrites:()=>()=>{},writeSnapshot:()=>[]},correction=false){
- const calls=[],holds={},stored=new Map();
+function handHarness(directWrites={subscribeWrites:()=>()=>{},writeSnapshot:()=>[]},correction=false,options={}){
+ const calls=[],holds={},stored=options.stored||new Map();
  const hold=name=>{const d=deferred();(holds[name]??=[]).push(d);return d.promise;};
  class ApiError extends Error{constructor(status,message,body){super(message);this.status=status;this.refusal=body?.detail;}}
- const api={claim:(id,token)=>{calls.push(['claim',id,token]);return hold('claim');},release:(id,token,form)=>{calls.push(['release',id,token,form?.entry?.date]);return hold('release');},
-  handForm:(id,token,form)=>{calls.push(['form',id,token,form.entry.date]);return hold('form');},discard:id=>{calls.push(['discard',id]);return hold('discard');}};
+ const api={cancelEdit:(id,token)=>{calls.push(['cancel',id,token]);return hold('cancel');},claim:(id,token)=>{calls.push(['claim',id,token]);return hold('claim');},release:(id,token,form)=>{calls.push(['release',id,token,form?.entry?.date]);return hold('release');},
+  handForm:(id,token,form,sources,reason)=>{calls.push(['form',id,token,form.entry.date,sources,reason]);return hold('form');},discard:(id,token)=>{calls.push(['discard',id,token]);return hold('discard');}};
  const element=(type,props)=>({type,props});
  const h=hookHarness('../app/live/hand-finish.tsx',{
-  './direct-writes':directWrites,
-  './balance-refusal':{BalanceNotice:'notice',balanceSource:()=>''},'../date-time':{formatCalendarDate:x=>x},'../ui':{Icon:'icon',plural:(n,one)=>`${n} ${n===1?one:one+'s'}`},'../data':{dashboard:{meta:{ledger:{id:'fixture',defaultCurrency:'USD'},accounts:{}},transactions:[]}},'../account-labels':{accountFieldLabel:account=>account},'../extensions':{ExtensionFields:'extension-fields'},
+  './direct-writes':directWrites,'./retained-state':'actual',
+  './balance-refusal':{BalanceNotice:'notice',balanceSource:()=>''},'../date-time':{formatCalendarDate:x=>x},'../ui':{Dialog:'dialog',Icon:'icon',plural:(n,one)=>`${n} ${n===1?one:one+'s'}`},'../data':{dashboard:{meta:{ledger:{id:'fixture',defaultCurrency:'USD'},accounts:{}},transactions:[]}},'../account-labels':{accountFieldLabel:account=>account},'../extensions':{ExtensionFields:'extension-fields'},
   './api':{api,ApiError,apiUrl:path=>'/expenses/api/'+path,fileUrl:()=>'',upload:async()=>{}},'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
  },{sessionStorage:{getItem:key=>stored.get(key)??null,setItem:(key,value)=>stored.set(key,value),removeItem:key=>stored.delete(key)},fetch:async()=>({ok:true})});
- let done=0;const draft={id:'d'.repeat(32),files:[],state:'failed',...(correction?{correction:{entry_id:'entry',version:'original',sources:[],before:{description:'Saved entry',postings:[]}}}:{})};
+ let done=0;const draft={id:'d'.repeat(32),files:[],state:'failed',...(correction?{correction:{entry_id:'entry',version:'original',sources:[],before:{description:'Saved entry',postings:[],evidence:[]}}}:{})};
  const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
+ Object.assign(draft,options.draft||{});
  h.render(m=>m.default({draft,onDone:async()=>{done++;}}));
  const form={entry:{date:'2026-11-02',description:'Fictional lunch',postings:[],notes:[]},'new-accounts':[],'attachment-names':[]};
- return {h,api,calls,holds,stored,form,get done(){return done;},nodes:()=>nodes(h.current),button:text=>nodes(h.current).find(n=>n.type==='button'&&n.props.children===text)};
+ return {h,api,ApiError,calls,holds,stored,form,draft,get done(){return done;},nodes:()=>nodes(h.current),button:text=>nodes(h.current).find(n=>n.type==='button'&&n.props.children===text)};
 }
+
+test('Cancel waits for a held autosave, removes the draft once and clears recovery without releasing it again',async()=>{
+ const g=handHarness(undefined,true);
+ try{
+  g.holds.claim[0].resolve({claim_token:'token',form:g.form,original_form:g.form});await g.h.settle();
+  const description=g.nodes().find(n=>n.type==='input'&&n.props.value==='Fictional lunch');
+  description.props.onChange({target:{value:'Changed lunch'}});await g.h.settle();
+  await g.h.advance(500);
+  g.button('Cancel').props.onClick();await g.h.settle();
+  assert.ok(g.nodes().some(n=>n.type==='dialog'),'Changed edits require one question');
+  g.button('Keep editing').props.onClick();await g.h.settle();assert.ok(!g.nodes().some(n=>n.type==='dialog'));
+  g.button('Cancel').props.onClick();await g.h.settle();g.button('Discard changes').props.onClick();await g.h.settle();
+  assert.equal(g.calls.filter(c=>c[0]==='cancel').length,0,'No cancellation races the held autosave');
+  g.holds.form[0].resolve({ok:true,checks:[],new_accounts:[],proposal_hash:'checked'});await g.h.settle();
+  assert.equal(g.calls.filter(c=>c[0]==='cancel').length,1);
+  g.holds.cancel[0].resolve({cancelled:true});await g.h.settle();
+  assert.equal(g.done,1);assert.equal(g.stored.size,0);
+  g.h.close();await g.h.settle();assert.equal(g.calls.filter(c=>c[0]==='release').length,0);
+ }finally{g.holds.form?.forEach(hold=>hold.resolve({}));g.h.close();}
+});
+
+test('A Cancel response after leaving cannot navigate the newer page',async()=>{
+ const g=handHarness(undefined,true);
+ try{
+  g.holds.claim[0].resolve({claim_token:'token',form:g.form,original_form:g.form});await g.h.settle();
+  g.button('Cancel').props.onClick();await g.h.settle();
+  g.h.close();g.holds.cancel[0].resolve({cancelled:true});await g.h.settle();
+  assert.equal(g.done,0,'A late cancellation cannot replace a newer navigation');
+  assert.equal(g.calls.filter(call=>call[0]==='release').length,0,'Departure cannot race cancellation with a claim release');
+ }finally{g.h.close();}
+});
+
+test('Confirmed Cancel holds its question and locks the discarded form until acknowledgement',async()=>{
+ const g=handHarness(undefined,true);
+ try{
+  g.holds.claim[0].resolve({claim_token:'token',form:g.form,original_form:g.form});await g.h.settle();
+  g.nodes().find(n=>n.type==='input'&&n.props.value==='Fictional lunch').props.onChange({target:{value:'Changed lunch'}});await g.h.settle();
+  g.button('Cancel').props.onClick();await g.h.settle();g.button('Discard changes').props.onClick();await g.h.settle();
+  assert.equal(g.nodes().find(n=>n.type==='fieldset'&&n.props.className==='hand-fields').props.disabled,true);
+  g.nodes().find(n=>n.type==='dialog').props.onClose();await g.h.settle();assert.ok(g.nodes().some(n=>n.type==='dialog'));
+  g.holds.cancel[0].resolve({cancelled:true});await g.h.settle();assert.equal(g.done,1);
+ }finally{g.h.close();}
+});
+
+test('Cancel with no changes leaves without a question',async()=>{
+ const g=handHarness(undefined,true);
+ try{
+  g.holds.claim[0].resolve({claim_token:'token',form:g.form,original_form:g.form});await g.h.settle();
+  g.button('Cancel').props.onClick();await g.h.settle();
+  assert.ok(!g.nodes().some(n=>n.type==='dialog'));assert.equal(g.calls.filter(c=>c[0]==='cancel').length,1);
+  g.holds.cancel[0].resolve({cancelled:true});await g.h.settle();assert.equal(g.done,1);
+ }finally{g.h.close();}
+});
 
 test('Leaving the hand form before its claim arrives gives the late claim back',async()=>{
  const g=handHarness();try{
   assert.deepEqual(g.calls.map(c=>c[0]),['claim']);
   g.button('Back to Queue').props.onClick();await g.h.settle();assert.equal(g.done,1);g.h.close();
   g.holds.claim[0].resolve({claim_token:'t'.repeat(64),form:g.form});await g.h.settle();
-  assert.deepEqual(g.calls.at(-1),['release','d'.repeat(32),'t'.repeat(64),'2026-11-02'],'The claim is released, not held for 30 minutes');
-  assert.equal(g.stored.size,0,'No claim token is kept for a form that was left');
+  assert.deepEqual(g.calls.at(-1),['release','d'.repeat(32),'t'.repeat(64),undefined],'The claim is released, not held for 30 minutes');
+  g.holds.release[0].resolve({});await g.h.settle();
+  assert.equal(g.stored.size,0,'The claim token clears only after release is acknowledged');
  }finally{g.h.close();}
 });
 
@@ -137,7 +192,7 @@ test('The hand form autosaves 500ms after a change and serializes a held save be
  }finally{g.holds.form?.forEach(d=>d.resolve({}));g.h.close();}
 });
 
-test('Discard in the hand form’s refusal acts once while its release is held',async()=>{
+test('Discard in the hand form’s refusal keeps its claim until the atomic discard is acknowledged',async()=>{
  const g=handHarness();try{
   g.holds.claim[0].resolve({claim_token:'t'.repeat(64),form:g.form});await g.h.settle();
   const submit=g.nodes().find(n=>n.type==='form');submit.props.onSubmit({preventDefault(){}});await g.h.settle();
@@ -146,8 +201,8 @@ test('Discard in the hand form’s refusal acts once while its release is held',
   discard().props.onClick();await g.h.settle();
   assert.equal(discard().props.disabled,true,'Discard is busy while it runs');assert.equal(g.button('Keep in Queue').props.disabled,true);
   discard().props.onClick();await g.h.settle();
-  g.holds.release[0].resolve({});await g.h.settle();g.holds.discard?.[0]?.resolve();await g.h.settle();
-  assert.equal(g.calls.filter(c=>c[0]==='release').length,1);assert.equal(g.calls.filter(c=>c[0]==='discard').length,1);assert.equal(g.done,1);
+  g.holds.claim[1].resolve({claim_token:'t'.repeat(64),form:g.form});await g.h.settle();g.holds.form.at(-1).resolve({});await g.h.settle();g.holds.discard?.[0]?.resolve();await g.h.settle();
+  assert.equal(g.calls.filter(c=>c[0]==='release').length,0);assert.equal(g.calls.filter(c=>c[0]==='discard').length,1);assert.equal(g.done,1);
  }finally{g.h.close();}
 });
 
@@ -218,11 +273,11 @@ test('Queue polls every 3 seconds while a statement is read, waits for the agent
 });
 
 test('A held correction form that arrives after Back is not shown',async()=>{
- const held=deferred();let opened=0;const element=(type,props)=>({type,props});
- const h=hookHarness('../app/live/correction.tsx',{'../data':{reloadData:async()=>{}},'../ui':{dayLabel:x=>x},'./api':{api:{correctionForm:()=>{opened++;return held.promise;}}},'./hand-finish':{default:'hand-finish'},'./use-drafts':{draftsChanged(){}},'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'}});
+ const held=deferred(),marked={};let opened=0;const element=(type,props)=>({type,props});
+ const h=hookHarness('../app/live/correction.tsx',{'../data':{reloadData:async()=>{}},'../ui':{dayLabel:x=>x},'./api':{api:{correctionForm:()=>{opened++;return held.promise;}}},'./hand-finish':{default:'hand-finish'},'./use-drafts':{draftsChanged(){}},'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'}},{history:{state:{},replaceState:state=>Object.assign(marked,state)},location:{href:'http://fixture.invalid/expenses/queue/?correct=entry'}});
  let back=0;h.render(m=>m.default({entryId:'e'.repeat(16),onBack:()=>{back++;}}));
  try{
-  assert.equal(opened,1);const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
+  assert.equal(marked.agentExpenseEditing,true);assert.equal(opened,1);const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
   nodes(h.current).find(n=>n.type==='button').props.onClick();assert.equal(back,1);h.close();
   held.resolve({id:'c'.repeat(32),files:[],state:'question'});await h.settle();
   assert.equal(nodes(h.current).some(n=>n.type==='hand-finish'),false,'No form opens after leaving');
@@ -369,7 +424,7 @@ test('An uncertain Hand transport failure never reclaims an accepted worker draf
  }finally{g.holds.form?.forEach(hold=>hold.resolve({}));g.h.close();}
 });
 
-test('Newer edits after an uncertain correction get plain recovery words and no impossible Retry',async()=>{const g=handHarness(undefined,true);try{g.holds.claim[0].resolve({claim_token:'token',form:g.form});await g.h.settle();g.nodes().find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await g.h.settle();g.holds.form[0].resolve({ok:true,checks:[],new_accounts:[],proposal_hash:'checked'});await g.h.settle();g.api.correct=async()=>{throw Error('Reply lost');};g.button('Save correction').props.onClick();await g.h.settle();const description=g.nodes().find(n=>n.type==='input'&&n.props.value==='Fictional lunch');description.props.onChange({target:{value:'Newer description'}});g.h.render();g.nodes().find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await g.h.settle();g.holds.form.at(-1).resolve({ok:true,checks:[],new_accounts:[],proposal_hash:'new'});await g.h.settle();assert.ok(JSON.stringify(g.h.current).includes('earlier correction may already be saved'));assert.equal(g.button('Save correction').props.disabled,true);}finally{g.holds.form?.forEach(hold=>hold.resolve({}));g.h.close();}});
+test('Newer edits after an uncertain correction get plain recovery words and no impossible Retry',async()=>{const g=handHarness(undefined,true);try{g.holds.claim[0].resolve({claim_token:'token',form:g.form});await g.h.settle();g.nodes().find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await g.h.settle();g.holds.form[0].resolve({ok:true,checks:[],new_accounts:[],proposal_hash:'checked'});await g.h.settle();g.api.correct=async()=>{throw Error('Reply lost');};g.button('Save').props.onClick();await g.h.settle();const description=g.nodes().find(n=>n.type==='input'&&n.props.value==='Fictional lunch');description.props.onChange({target:{value:'Newer description'}});g.h.render();g.nodes().find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await g.h.settle();g.holds.form.at(-1).resolve({ok:true,checks:[],new_accounts:[],proposal_hash:'new'});await g.h.settle();assert.ok(JSON.stringify(g.h.current).includes('earlier correction may already be saved'));assert.equal(g.button('Save').props.disabled,true);}finally{g.holds.form?.forEach(hold=>hold.resolve({}));g.h.close();}});
 
 
 test('A committed statement discard replay clears its old refusal and shows its Trash destination',async()=>{
@@ -391,5 +446,129 @@ test('Statement discard completion keeps focus on a connected outside control',a
   g.document.activeElement=chosen;
   g.h.events.dispatchEvent(new CustomEvent('direct-write-saved',{detail:{path:'statements/'+ 's'.repeat(32),body:'',result:undefined}}));await g.h.settle();while(g.frames.length)g.frames.shift()();
   assert.equal(g.document.activeElement,chosen,'A connected control chosen during the save keeps focus');
+ }finally{g.h.close();}
+});
+
+
+test('An obsolete first claim cannot release or clear a reopened editor ownership generation',async()=>{
+ const stored=new Map(),old=handHarness(undefined,true,{stored});old.h.close();
+ const current=handHarness(undefined,true,{stored});
+ try{
+  const token=current.calls[0][2];current.holds.claim[0].resolve({claim_token:token,form:current.form,original_form:current.form});await current.h.settle();
+  current.nodes().find(n=>n.type==='input'&&n.props.value==='Fictional lunch').props.onChange({target:{value:'New owner words'}});await current.h.settle();
+  old.holds.claim[0].resolve({claim_token:old.calls[0][2],form:old.form});await old.h.settle();
+  assert.equal(old.calls.filter(c=>c[0]==='release').length,1,'An obsolete successful claim is relinquished');
+  assert.equal(old.calls.find(c=>c[0]==='release')[3],undefined,'Release never carries the old opening form');
+  assert.equal(stored.get('hand-claim-fixture-'+'d'.repeat(32)),token,'The newer token survives');
+  assert.notEqual(old.calls[0][2],token,'Every mounted editor has a new ownership generation');
+ }finally{old.h.close();current.h.close();}
+});
+
+
+test('Cancel stays disabled after a Save reply is lost and explains the unknown outcome',async()=>{
+ const g=handHarness(undefined,true);
+ try{
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  g.nodes().find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await g.h.settle();
+  g.holds.form[0].resolve({ok:true,checks:[],new_accounts:[],proposal_hash:'checked'});await g.h.settle();
+  g.api.correct=async()=>{throw Error('Reply lost');};g.button('Save').props.onClick();await g.h.settle();
+  assert.equal(g.button('Cancel').props.disabled,true);assert.match(JSON.stringify(g.h.current),/result is unknown/);
+ }finally{g.h.close();}
+});
+
+test('Confirmed Cancel clears all four actual recovery keys and removes the draft retry shelf entry',async()=>{
+ let items=[{id:'failed',path:'entries/entry/corrections/'+'d'.repeat(32),state:'failed',outcomeUnknown:false}];const removed=[];
+ const g=handHarness({subscribeWrites:()=>()=>{},writeSnapshot:()=>items,dismissWrite:id=>{removed.push(id);items=[];}},true);
+ try{
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  for(const [field,value] of Object.entries({form:g.form,sources:[],reason:'',version:'original'}))g.stored.set('ledger-form-fixture-hand-'+g.draft.id+'-'+field,JSON.stringify(value));
+  assert.equal([...g.stored.keys()].filter(k=>k.startsWith('ledger-form')).length,4);
+  g.button('Cancel').props.onClick();await g.h.settle();assert.deepEqual(removed,['failed'],'Retry disappears before the Cancel reply can be held');g.holds.cancel[0].resolve({cancelled:true});await g.h.settle();
+  assert.equal([...g.stored.keys()].filter(k=>k.startsWith('ledger-form')).length,0);assert.deepEqual(removed,['failed']);
+ }finally{g.h.close();}
+});
+
+
+test('Cancel asks about kept source-only, attachment-only and fix edits from an earlier visit',async()=>{
+ for(const kind of ['sources','files','fix']){
+  const correction={entry_id:'entry',version:'original',sources:[],before:{description:'Saved entry',postings:[],evidence:kind==='sources'?['Bills/saved.png']:[]}};
+  const g=handHarness(undefined,true,{draft:{correction,files:kind==='files'?[{id:'file',original_name:'Kept.png',name:'kept.png'}]:[],...(kind==='fix'?{ledger_fix:{state:'ready',title:'Fictional fix'}}:{})}});
+  try{
+   const baseline=structuredClone(g.form);if(kind==='fix')baseline.entry.description='Agent proposal';
+   g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:baseline,baseline:{form:baseline,sources:correction.before.evidence,reason:'',files:[]}});await g.h.settle();
+   g.button('Cancel').props.onClick();await g.h.settle();assert.ok(g.nodes().some(n=>n.type==='dialog'),kind+' cannot disappear without asking');
+  }finally{g.h.close();}
+ }
+});
+
+test('A lost Cancel reply is confirmed by replay before clearing this draft recovery',async()=>{
+ const g=handHarness(undefined,true);let attempts=0;
+ try{
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  for(const [field,value] of Object.entries({form:g.form,sources:[],reason:'',version:'original'}))g.stored.set('ledger-form-fixture-hand-'+g.draft.id+'-'+field,JSON.stringify(value));
+  g.api.cancelEdit=async()=>{if(++attempts===1)throw Error('Lost acknowledgement');return {cancelled:true};};
+  g.button('Cancel').props.onClick();await g.h.settle();assert.equal(attempts,2);assert.equal(g.done,1);assert.equal(g.stored.size,0);
+ }finally{g.h.close();}
+});
+
+
+test('Discard proposal flushes immediate reason and source edits and holds its claim until Trash',async()=>{
+ const g=handHarness(undefined,true,{draft:{ledger_fix:{state:'ready',title:'Fictional check'},correction:{entry_id:'entry',version:'original',sources:['Bills/saved.png'],before:{description:'Saved entry',postings:[],evidence:['Bills/saved.png']}}}});
+ try{
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  g.nodes().find(n=>n.type==='label'&&Array.isArray(n.props.children)&&n.props.children[0]==='Reason (optional)').props.children[1].props.onChange({target:{value:'Immediate reason'}});await g.h.settle();
+  g.nodes().find(n=>n.type==='input'&&n.props.type==='checkbox'&&n.props.checked===true).props.onChange({target:{checked:false}});await g.h.settle();
+  g.nodes().find(n=>n.type?.name==='LedgerFixNotice').props.onDiscard();await g.h.settle();
+  g.holds.claim[1].resolve({claim_token:g.calls[0][2],form:g.form});await g.h.settle();
+  assert.equal(g.calls.at(-1)[0],'form','The complete current form is written before atomic Discard');
+  assert.deepEqual(JSON.parse(JSON.stringify(g.calls.at(-1).slice(4))),[[],'Immediate reason']);
+  g.holds.form.at(-1).resolve({});await g.h.settle();assert.equal(g.calls.at(-1)[0],'discard');
+  assert.equal(g.calls.at(-1)[2],g.calls[0][2]);assert.equal(g.calls.filter(c=>c[0]==='release').length,0);
+  g.holds.discard.at(-1).resolve({});await g.h.settle();assert.equal(g.done,1);
+ }finally{g.h.close();}
+});
+
+test('A late Cancel confirmation cannot clear a newer owner with identical recovery bytes',async()=>{
+ const g=handHarness(undefined,true);
+ try{
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  for(const [field,value] of Object.entries({form:g.form,sources:[],reason:'',version:'original'}))g.stored.set('ledger-form-fixture-hand-'+g.draft.id+'-'+field,JSON.stringify(value));
+  g.button('Cancel').props.onClick();await g.h.settle();g.h.close();
+  g.stored.set('hand-claim-fixture-'+g.draft.id,'new-owner-token');
+  g.holds.cancel[0].resolve({cancelled:true});await g.h.settle();
+  assert.equal([...g.stored.keys()].filter(k=>k.startsWith('ledger-form')).length,4);assert.equal(g.stored.get('hand-claim-fixture-'+g.draft.id),'new-owner-token');
+ }finally{g.h.close();}
+});
+
+
+test('A gateway timeout after Cancel is replayed to confirm the discarded recovery',async()=>{
+ const g=handHarness(undefined,true);let attempts=0;
+ try{
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  for(const [field,value] of Object.entries({form:g.form,sources:[],reason:'',version:'original'}))g.stored.set('ledger-form-fixture-hand-'+g.draft.id+'-'+field,JSON.stringify(value));
+  g.api.cancelEdit=async()=>{if(++attempts===1)throw new g.ApiError(504,'Gateway reply lost');return {cancelled:true};};
+  g.button('Cancel').props.onClick();await g.h.settle();assert.equal(attempts,2);assert.equal(g.done,1);assert.equal(g.stored.size,0);
+ }finally{g.h.close();}
+});
+
+
+test('A reordered obsolete claim is released without deleting the refused successor recovery token',async()=>{
+ const stored=new Map([['hand-claim-fixture-'+'d'.repeat(32),'a'.repeat(64)]]);
+ const old=handHarness(undefined,true,{stored});old.h.close();const next=handHarness(undefined,true,{stored});
+ try{
+  const refused=next.calls[0][2];next.holds.claim[0].reject(Error('Another page is finishing this item'));await next.h.settle();
+  old.holds.claim[0].resolve({claim_token:old.calls[0][2],form:old.form});await old.h.settle();
+  const release=old.calls.find(c=>c[0]==='release');assert.ok(release,'The reordered successful owner cannot strand the claim');assert.equal(release[3],undefined);
+  assert.equal(stored.get('hand-claim-fixture-'+'d'.repeat(32)),refused);
+  old.holds.release[0].resolve({});await old.h.settle();
+ }finally{old.h.close();next.h.close();}
+});
+
+test('An unmounted successful claim keeps its recovery token until release is acknowledged',async()=>{
+ const g=handHarness(undefined,true);g.h.close();
+ try{
+  const token=g.calls[0][2];g.holds.claim[0].resolve({claim_token:token,form:g.form});await g.h.settle();
+  assert.equal(g.stored.get('hand-claim-fixture-'+'d'.repeat(32)),token);
+  g.holds.release[0].reject(Error('Release reply lost'));await g.h.settle();assert.equal(g.stored.get('hand-claim-fixture-'+'d'.repeat(32)),token);
  }finally{g.h.close();}
 });

@@ -113,7 +113,7 @@ export async function runLedgerCheck({page,base,persona,engine,theme,width,expec
     const holdSave=async route=>{const response=await route.fetch({timeout:180000});await gate;await route.fulfill({response});};
     await page.route('**/api/entries/*/corrections/*',holdSave);
     try {
-      await form.getByRole('button',{name:'Save correction'}).click();
+      await form.getByRole('button',{name:'Save',exact:true}).click();
       await expect.poll(async()=>(await get('drafts/'+fixId)).state,{timeout:180000}).toBe('added');
       // Pointer and focus leave Queue, so its interaction snapshot lets the poll through.
       // (A button disabled while saving loses focus without a blur event, so focus passes through the panel's heading and out.)
@@ -126,6 +126,93 @@ export async function runLedgerCheck({page,base,persona,engine,theme,width,expec
     await expect(banner).toHaveCount(0,{timeout:30000});
     const done=await control('ledger-check',{mode:'status'});assert.equal(done.outcome,'pass');assert.equal(done.item,null);
     record('ledger check fix: fake agent proposal approved in Edit entry, check passes, item closes');
+    await control('ledger-check',{mode:'fail',kind:'account',data:true,once:true,fix:true});
+    await go('queue/?check=ledger');await item.getByRole('button',{name:'Ask the agent to fix it',exact:true}).click();
+    await expect(item.getByRole('link',{name:'Review the fix',exact:true})).toBeVisible({timeout:60000});
+    await item.getByRole('link',{name:'Review the fix',exact:true}).click();await expect(form).toBeVisible();
+    const proposalId=new URL(page.url()).searchParams.get('draft'),proposal=(await get('drafts/'+proposalId)).hand_form;
+    // Cancel returns to Ledger check and never destroys the agent's proposal.
+    await form.getByRole('button',{name:'Cancel',exact:true}).click();await expect(item).toBeVisible();
+    assert.equal(new URL(page.url()).searchParams.get('check'),'ledger');
+    assert.deepEqual((await get('drafts/'+proposalId)).hand_form,proposal);
+    await item.getByRole('link',{name:'Review the fix',exact:true}).click();await expect(form).toBeVisible();
+    await form.getByLabel('Notes',{exact:true}).fill('Unsaved owner change to the proposal');await form.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByRole('alertdialog').getByRole('button',{name:'Discard changes',exact:true}).click();await expect(item).toBeVisible();
+    assert.deepEqual((await get('drafts/'+proposalId)).hand_form,proposal);
+    await item.getByRole('link',{name:'Review the fix',exact:true}).click();await expect(form).toBeVisible();
+    await form.getByLabel('Notes',{exact:true}).fill('Owner edit after the claim expires');
+    await expect.poll(async()=>(await get('drafts/'+proposalId)).hand_form.entry.notes).toEqual(['Owner edit after the claim expires']);
+    await control('edit-intent',{id:proposalId,mode:'expire'});
+    await form.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByRole('alertdialog').getByRole('button',{name:'Discard changes',exact:true}).click();await expect(item).toBeVisible();
+    assert.deepEqual((await get('drafts/'+proposalId)).hand_form,proposal,'Expired Cancel actually restores the latest agent proposal');
+    await item.getByRole('link',{name:'Review the fix',exact:true}).click();
+    await form.getByLabel('Notes',{exact:true}).fill('Owner changes before asking again');
+    await form.getByLabel('Reason (optional)').fill('Kept Retry reason');
+    await form.getByRole('button',{name:'Back to Queue',exact:true}).click();
+    await control('edit-intent',{id:proposalId,mode:'failed'});await go('queue/?draft='+proposalId);
+    await page.getByRole('button',{name:'Retry',exact:true}).click();
+    let replace=page.getByRole('alertdialog',{name:'Replace your edits with a new proposal?',exact:true});await expect(replace).toBeVisible();await snap('intent-retry-question');
+    await replace.getByRole('button',{name:'Keep my changes',exact:true}).click();
+    assert.deepEqual((await get('drafts/'+proposalId)).hand_form.entry.notes,['Owner changes before asking again']);
+    await control('ledger-check',{mode:'fail',kind:'account',data:true,once:true,fix:true});
+    await page.getByRole('button',{name:'Retry',exact:true}).click();await expect(replace).toBeVisible();
+    await replace.getByRole('button',{name:'Ask the agent again',exact:true}).click();
+    await expect.poll(async()=>(await get('drafts/'+proposalId)).ledger_fix.state,{timeout:180000}).toBe('ready');
+    await go('queue/?draft='+proposalId);await page.getByRole('button',{name:'Continue editing',exact:true}).click();
+    await expect(form.getByLabel('Notes',{exact:true})).toHaveValue(/Checked for the ledger check/);
+    await expect(form.getByLabel('Reason (optional)')).not.toHaveValue('Kept Retry reason');
+    await form.getByRole('button',{name:'Back to Queue',exact:true}).click();await go('queue/?check=ledger');
+    await item.getByRole('link',{name:'Review the fix',exact:true}).click();await expect(form).toBeVisible();
+    record('intent expired fix Cancel restores the proposal; Retry asks before replacing kept edits and preserves them on Keep');
+    // Discard is explicit. Restore retains its correction and proposal even
+    // when the next passing check marks the proposal Resolved.
+    await form.getByLabel('Notes',{exact:true}).fill('Owner notes kept through Trash');
+    await form.getByLabel('Reason (optional)').fill('Owner reason immediately before Discard');
+    await form.locator('.ledger-fix-notice').getByRole('button',{name:'Discard proposal',exact:true}).click();await expect(form).toHaveCount(0);
+    await go('trash/?item='+proposalId);await page.locator('.trash-row').filter({hasText:'Fix the ledger check'}).getByRole('button',{name:'Restore',exact:true}).click();
+    await expect.poll(async()=>(await get('drafts/'+proposalId)).state,{timeout:180000}).toBe('question');
+    await control('ledger-check',{mode:'pass'});
+    await go('queue/?draft='+proposalId);await expect(page.locator('.ledger-fix-notice')).toContainText('The ledger check now passes');
+    await page.getByRole('button',{name:'Continue editing',exact:true}).click();await expect(form).toBeVisible();
+    await expect(form.getByLabel('Notes',{exact:true})).toHaveValue('Owner notes kept through Trash');
+    await expect(form.getByLabel('Reason (optional)')).toHaveValue('Owner reason immediately before Discard');
+    await form.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByRole('alertdialog').getByRole('button',{name:'Discard changes',exact:true}).click();
+    await go('queue/?draft='+proposalId);await page.getByRole('button',{name:'Continue editing',exact:true}).click();
+    await expect(form.getByLabel('Notes',{exact:true})).toHaveValue(/Checked for the ledger check/);
+    await expect(page.getByRole('article',{name:'Finish it yourself',exact:true})).toHaveCount(0);
+    await snap('intent-restored-fix');
+    record('intent fix Cancel preserves proposal and Ledger check origin; Trash Restore keeps a resolved fix in Edit entry');
+
+    await form.getByRole('button',{name:'Back to Queue',exact:true}).click();
+
+    for(const origin of ['Continue editing','Open the entry']) {
+      await quiesce();await control('drafts',{persona,empty:true});
+      await control('ledger-check',{mode:'fail',kind:'account',data:true,once:true,fix:true});
+      await go('queue/?check=ledger');await item.getByRole('button',{name:'Ask the agent to fix it',exact:true}).click();
+      await expect(item.getByRole('link',{name:'Review the fix',exact:true})).toBeVisible({timeout:60000});
+      const id=(await get('ledger-check')).item.fix.draft_id;
+      await control('edit-intent',{id,mode:'failed'});
+      if(origin==='Continue editing') {
+        await go('queue/?draft='+id);await page.getByRole('button',{name:origin,exact:true}).click();
+      } else {
+        await go('queue/?check=ledger');await item.getByRole('link',{name:origin,exact:true}).click();
+      }
+      await expect(form.getByLabel('Description',{exact:true})).toBeVisible();
+      assert.equal(new URL(page.url()).searchParams.get('draft'),id,'Both links keep the failed fix identity');
+      const failed=await get('drafts/'+id),description='Fictional fix completed from '+origin;
+      assert.equal(failed.state,'failed');
+      await form.getByLabel('Description',{exact:true}).fill(description);
+      await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
+      const [response]=await Promise.all([page.waitForResponse(r=>r.request().method()==='POST'&&r.url().includes('/corrections/')&&r.request().postDataJSON()?.draft_id===id),form.getByRole('button',{name:'Save',exact:true}).click()]);
+      assert.equal(response.status(),200,await response.text());const saved=await response.json();
+      assert.equal(saved.entry_id,failed.correction.entry_id);assert.equal(saved.description,description);
+      await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});
+      const done=await get('drafts/'+id);assert.equal(done.state,'added');assert.equal(done.result.description,description);assert.ok(!done.correction_save);
+      record('failed fix '+origin+': Check entry and Save keep the entry identity and complete the draft');
+    }
+
   } finally {
     await control('ledger-check',{mode:'release'});await control('ledger-check',{mode:'real',check:false});
   }

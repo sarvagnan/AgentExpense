@@ -7,11 +7,11 @@ export type Attachment = { id: string; original_name: string; media_type: string
 export type Proposal = {'account-metadata'?:Record<string,{kind:string;currency:string}>;status:string;question:string|null;explanation:string|null;entry:{date:string;status:string;description:string;notes:string[];postings:{account:string;amount:string;commodity:string;cost:{amount:string;commodity:string}|null}[];extensions?:import('../data-types').ExtensionGroups;[key:string]:unknown};'new-accounts':string[];doubts:string[];'attachment-names':string[]};
 export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;resumes_at:string;attempt:number};
 export type HandChecks = {refusal?:BalanceRefusal;unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
-export type Draft = {proposal?:Proposal|null;trashed_at?:string|null;refusal?:BalanceRefusal;
+export type Draft = {correction_save?:string;hand_form?:Proposal|null;proposal?:Proposal|null;trashed_at?:string|null;refusal?:BalanceRefusal;
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
-  correction?:{entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings']};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
+  correction?:{original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
-  ledger_fix?:{state:'queued'|'working'|'ready'|'question'|'failed'|'resolved';title:string;summary:string;question?:string|null;message?:string|null;doubts?:string[]};
+  ledger_fix?:{entry_id?:string;state:'queued'|'working'|'ready'|'question'|'failed'|'resolved';title:string;summary:string;question?:string|null;message?:string|null;doubts?:string[]};
   declined_rules?:string[]; id: string; description?:string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
   pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
   currency_request?: {kind:'expense'|'transfer';amount:string;sourceCurrency:string;currency:string;sourceAccount:string;account:string;sourceLabel:string;accountLabel:string};
@@ -177,17 +177,20 @@ export const api = {
   save: (id: string) => request<Draft>(`drafts/${id}/save`, json('POST', clientTime())),
   answer: (id: string, answer: string) => request<Draft>(`drafts/${id}/answer`, json('POST', {answer})),
   currency: (id:string, body:{amount?:string;rate?:string;estimate:boolean}) => request<Draft>(`drafts/${id}/currency`,json('POST',body)),
-  claim: (id:string,claim_token?:string)=>request<{draft:Draft;claim_token:string;form:Proposal}>(`drafts/${id}/claim`,json('POST',{claim_token})),
+  claim: (id:string,claim_token?:string,previous_token?:string)=>request<{draft:Draft;claim_token:string;form:Proposal;original_form?:Proposal;baseline?:{form:Proposal;sources:string[];reason:string;files:Draft['files']}}>(`drafts/${id}/claim`,json('POST',{claim_token,previous_token})),
   handForm:(id:string,claim_token:string,proposal:Proposal,sources?:string[],reason?:string)=>request<HandChecks>(`drafts/${id}/hand-form`,json('POST',{claim_token,proposal,...(sources?{sources}:{}),...(reason!==undefined?{reason}:{})})),
   handAdd:(id:string,claim_token:string,proposal_hash:string,approved_accounts:string[],options:WriteOptions={})=>request<Draft>(`drafts/${id}/hand-add`,{...json('POST',{claim_token,proposal_hash,approved_accounts}),...options}),
+  editStatus:(id:string)=>request<{changed:boolean;entry_id:string;date:string|null}>(`drafts/${id}/edit-status`),
+  cancelEdit:(id:string,claim_token:string)=>request<{cancelled:boolean}>(`drafts/${id}/cancel-edit`,json('POST',{claim_token})),
   release:(id:string,claim_token:string,proposal?:Proposal)=>request<Draft>(`drafts/${id}/release`,json('POST',{claim_token,proposal})),
   approveAccounts:(id:string,proposal_hash:string)=>request<Draft>(`drafts/${id}/approve-accounts`,json('POST',{proposal_hash})),
   resolveRefusal:(id:string,action:'edit'|'answer')=>request<Draft>(`drafts/${id}/resolve-refusal`,json('POST',{action})),
-  retry: (id: string) => request<Draft>(`drafts/${id}/retry`, json('POST')),
+  retryCheck:(id:string)=>request<{replace_edits:boolean;version:string}>(`drafts/${id}/retry-check`),
+  retry: (id: string,replace_edits?:string) => request<Draft>(`drafts/${id}/retry`, json('POST',replace_edits?{replace_edits}:undefined)),
   keepAnswer: (id: string, question_index: number, answer: string, updated_at=0) => request<Draft>(`drafts/${id}/unsent-answer`, json('PATCH', {question_index, answer, updated_at})),
   restore: (id:string)=>request<Draft>(`drafts/${id}/restore`,json('POST')),
   cancelUpload: (id: string, token: string) => request<Draft>(`drafts/${id}/uploads/${token}`, json('DELETE')),
-  discard:(id:string)=>request<void>(`drafts/${id}`,json('DELETE')),
+  discard:(id:string,claim_token?:string)=>request<void>(`drafts/${id}`,json('DELETE',claim_token?{claim_token}:undefined)),
   remove: (id: string, file: string, claimToken?:string) => request<Draft>(`drafts/${id}/files/${file}${claimToken?'?claim_token='+encodeURIComponent(claimToken):''}`, json('DELETE')),
 };
 export const fileUrl = (id: string, file: string) => apiUrl(`drafts/${encodeURIComponent(id)}/files/${encodeURIComponent(file)}`);

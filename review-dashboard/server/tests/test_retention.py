@@ -73,6 +73,61 @@ class RetentionTests(Fixture):
         stamp=(self.now-timedelta(days=2)).isoformat()
         self.assertEqual(history.get(audited['id'],[dict(kind='draft',outcome='added',entry_id=audited['id'],time=stamp)]),stamp)
 
+    def test_restore_edit_and_fix_preserves_the_exact_proposal_even_after_entry_change(self):
+        from corrections import open_form, wire_entry
+        e=self.add()
+        for fix in (False,True):
+            with self.subTest(fix=fix):
+                draft=open_form(self.settings,self.drafts,e['id'])
+                draft['hand_form']['entry']['description']='Kept owner edits'
+                draft['correction']['reason']='Kept reason'
+                if fix: draft['ledger_fix']=dict(state='ready',title='Fictional check',summary='Kept fix')
+                self.drafts.put(draft)
+                self.op('queue-discard',item_id=draft['id'])
+                docs=load(self.ledger);next(row for row in entries(docs) if row['id']==e['id'])['description']='Changed since discard '+str(fix)
+                dump(self.ledger/'data/expenses/2026.json',docs[self.ledger/'data/expenses/2026.json'])
+                self.jj('commit','-m','Fictional intervening edit')
+                self.op('queue-restore',item_id=draft['id'])
+                restored=self.drafts.get(draft['id'])
+                self.assertEqual(restored['state'],'question')
+                self.assertEqual(restored['correction'],draft['correction'])
+                self.assertEqual(restored['hand_form'],draft['hand_form'])
+                self.assertEqual(restored.get('ledger_fix'),draft.get('ledger_fix'))
+                if fix:
+                    from ledger_check import LedgerCheck
+                    check=LedgerCheck(self.settings,hledger=False);check.drafts=self.drafts;check.resolve_fixes()
+                    resolved=self.drafts.get(draft['id'])
+                    self.assertEqual(resolved['ledger_fix']['state'],'resolved')
+                    self.assertEqual(resolved['correction'],draft['correction'])
+                    self.assertEqual(resolved['hand_form'],draft['hand_form'])
+                self.assertNotIn('claim',restored)
+                with self.client(worker=False) as client:
+                    status=client.get('/api/drafts/'+draft['id']+'/edit-status')
+                    self.assertEqual(status.status_code,200,status.text)
+                    self.assertTrue(status.json()['changed'])
+
+    def test_a_fix_discarded_while_queued_restores_with_retry_available(self):
+        from corrections import open_form
+        e=self.add();draft=open_form(self.settings,self.drafts,e['id'])
+        draft.update(state='queued',ledger_fix=dict(state='queued',title='Fictional check',summary='Waiting'))
+        self.drafts.put(draft);self.op('queue-discard',item_id=draft['id']);self.op('queue-restore',item_id=draft['id'])
+        restored=self.drafts.get(draft['id'])
+        self.assertEqual(restored['state'],'failed')
+        self.assertEqual(restored['ledger_fix']['state'],'failed')
+        self.assertIn('Retry',restored['ledger_fix']['message'])
+
+    def test_a_timed_out_fix_restores_failed_with_retry_and_no_stale_save_marker(self):
+        from corrections import open_form
+        e=self.add();draft=open_form(self.settings,self.drafts,e['id'])
+        draft.update(state='failed',ledger_fix=dict(state='failed',title='Fictional fix',summary='Timed out',message='Fictional timeout details'))
+        self.drafts.put(draft);self.op('queue-discard',item_id=draft['id'])
+        old=self.drafts.get(draft['id'],include_discarded=True);old['correction_save']=secrets.token_hex(16);self.drafts.put(old)
+        self.op('queue-restore',item_id=draft['id']);restored=self.drafts.get(draft['id'])
+        self.assertEqual(restored['state'],'failed');self.assertNotIn('correction_save',restored);self.assertEqual(restored['ledger_fix']['message'],'Fictional timeout details')
+        with self.client(worker=False) as client:
+            retry=client.post('/api/drafts/'+draft['id']+'/retry')
+            self.assertEqual(retry.status_code,200,retry.text)
+
     def test_queue_discard_get_race_restore_saved_and_expiry(self):
         with self.client(worker=False) as client:
             identity=self.create(client,upload=False)

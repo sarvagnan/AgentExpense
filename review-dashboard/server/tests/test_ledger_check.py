@@ -575,9 +575,12 @@ class LedgerCheckTests(Fixture):
                 response=client.post('/api/drafts/'+draft['id']+'/retry');self.assertEqual(response.status_code,200,response.text)
                 result=self.wait_condition(client,draft['id'],lambda d:len(d['runs'])==4 and d['state'] in ('queued','failed'))
                 self.assertEqual(result['state'],'queued');self.assertEqual(result['consecutive_timeouts'],1)
+            stale=client.app.state.drafts.get(draft['id']);stale['agent_proposal']=dict(form={'entry':{'description':'Stale agent proposal'}},sources=[],reason='',files=[])
+            client.app.state.drafts.put(stale)
             self.set_answers(fix_answer(broken));worker.wake.set()
             result=self.wait(client,draft['id'],'question');self.assertEqual(result['consecutive_timeouts'],0)
             self.assertEqual(result['ledger_fix']['state'],'ready')
+            self.assertEqual(result['agent_proposal']['form'],result['hand_form'])
 
     @needs_hledger
     def test_the_fake_agent_proposes_the_fix_the_person_saves_it_and_the_item_closes(self):

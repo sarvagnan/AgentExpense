@@ -180,6 +180,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     @asynccontextmanager
     async def lifespan(app):
+        from corrections import recover_pending
+        if not start_worker: recover_pending(settings,drafts)
         drafts.purge()
         saves.start()
         data_refresh.start()
@@ -292,6 +294,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     def public(draft, receipt_lines=None):
         result = dict(draft)
+        result.pop('cancel_snapshot', None)
         if isinstance(result.get('result'), dict) and result['result'].get('commit_id'):
             result['result'] = data_refresh.result(result['result'])
         if result.get('claim'):
@@ -410,8 +413,25 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.post('/api/entries/{entry_id}/corrections/{operation_id}')
     def correct_entry(entry_id: str, operation_id: str, body: dict):
         from corrections import apply
+        from ledger_lock import ledger_lock
+        identity=body.get('draft_id')
+        if identity:
+            with ledger_lock(settings.ledger), drafts.mutex:
+                try: draft=drafts.get(identity)
+                except FileNotFoundError: raise HTTPException(409,'This edit was cancelled; open the saved entry to start again')
+                if draft['state']!='added':
+                    draft['correction_save']=operation_id
+                    drafts.put(draft)
         try: return worker.call(lambda: apply(settings,entry_id,operation_id,body,drafts=drafts), kind='edit')
-        except (ValueError,TypeError,KeyError,ArithmeticError) as exc: raise HTTPException(409,error_detail(exc)) from exc
+        except (ValueError,TypeError,KeyError,ArithmeticError,FileNotFoundError) as exc:
+            if identity:
+                with ledger_lock(settings.ledger), drafts.mutex:
+                    try:
+                        draft=drafts.get(identity)
+                        if draft.get('correction_save')==operation_id and draft['state']!='added':
+                            draft.pop('correction_save',None);drafts.put(draft)
+                    except FileNotFoundError: pass
+            raise HTTPException(409,'This edit was cancelled; open the saved entry to start again' if isinstance(exc,FileNotFoundError) else error_detail(exc)) from exc
 
     @app.post('/api/drafts/{identity}/receipt-choice')
     def receipt_choice(identity: str, body: dict):
@@ -716,7 +736,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 raise HTTPException(404, 'Unknown file')
             draft['files'].remove(file)
             drafts.put(draft)
-            (drafts.folder(identity) / 'files' / file['name']).unlink(missing_ok=True)
+            # A fix's opening attachments survive Cancel even when removed in the form.
+            if not any(f['name']==file['name'] for f in (draft.get('agent_proposal') or draft.get('cancel_snapshot') or {}).get('files',[])):
+                (drafts.folder(identity) / 'files' / file['name']).unlink(missing_ok=True)
             return public(draft)
 
     @app.delete('/api/drafts/{identity}/uploads/{upload_id}')
@@ -929,15 +951,17 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     @app.post('/api/drafts/{identity}/claim')
     def claim_draft(identity: str, body: dict):
-        from hand_finish import prefill
+        from hand_finish import prefill, edit_baseline
         with drafts.mutex:
             draft = get(identity)
             if draft.get('bill_request'): raise HTTPException(409,'This item is saving a bill; retry the bill or discard the item')
-            try: token = drafts.claim(draft, body.get('claim_token'))
+            if draft.get('correction_save'): raise HTTPException(409,'Save is in progress; check its result before editing or discarding this item')
+            try: token = drafts.claim(draft, body.get('claim_token'), body.get('previous_token'))
             except ValueError as exc: raise HTTPException(409,str(exc))
             draft.setdefault('hand_reason', (worker.pause.status() or {}).get('reason') or (draft.get('runs') or [{}])[-1].get('failure_kind') or {'queued':'waiting for the agent','question':'agent question','failed':'agent could not finish'}[draft['state']])
+            baseline=edit_baseline(settings,draft) if draft.get('correction') else None
             drafts.put(draft)
-            return dict(draft=public(draft), claim_token=token, form=prefill(settings,draft))
+            return dict(draft=public(draft), claim_token=token, form=prefill(settings,draft),original_form=baseline['form'] if baseline else None,baseline=baseline)
 
     @app.post('/api/drafts/{identity}/hand-form')
     def save_hand_form(identity: str, body: dict):
@@ -984,10 +1008,52 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             drafts.put(draft);worker.wake.set()
             return public(draft)
 
+    @app.get('/api/drafts/{identity}/edit-status')
+    def edit_status(identity: str):
+        from ledger_lock import ledger_lock
+        from store import load, entries
+        from replacements import entry_hash
+        with ledger_lock(settings.ledger):
+            draft=get(identity)
+            info=draft.get('correction')
+            if not info: raise HTTPException(409,'This item is not an entry edit')
+            current=next((e for e in entries(load(settings.ledger)) if e['id']==info['entry_id']),None)
+            return dict(changed=not current or entry_hash(current)!=info['version'], entry_id=info['entry_id'], date=current['date'] if current else None)
+
+    @app.post('/api/drafts/{identity}/cancel-edit')
+    def cancel_edit(identity: str, body: dict):
+        # Temporary editing state has no bookkeeping outcome: no transaction,
+        # audit or Trash. The claim serializes this with pending form writes.
+        from ledger_lock import ledger_lock
+        with ledger_lock(settings.ledger), drafts.mutex:
+            try: draft=drafts.get(identity)
+            except FileNotFoundError: return dict(cancelled=True)  # lost Cancel acknowledgement
+            if draft.get('correction_save'): raise HTTPException(409,'Save has started; check its result before cancelling')
+            if not draft.get('correction') or draft['state']=='added': raise HTTPException(409,'This item is not an unsaved entry edit')
+            try:
+                if draft.get('claim'):
+                    if draft['claim']['token']!=body.get('claim_token'):
+                        raise ValueError('Another editor is editing this item. Reopen it after that editor finishes.')
+                    drafts.require_claim(draft,body.get('claim_token',''))
+                else:
+                    # Expiry releases ownership, not the obligation to discard.
+                    drafts.claim(draft,body.get('claim_token'))
+            except ValueError as exc: raise HTTPException(409,str(exc))
+            if draft.get('ledger_fix'):
+                from hand_finish import restore_baseline
+                restore_baseline(settings,drafts,draft)
+                drafts.release_claim(draft);drafts.put(draft)
+            else:
+                shutil.rmtree(drafts.folder(identity))
+                drafts.changed.notify_all()
+            return dict(cancelled=True)
+
     @app.post('/api/drafts/{identity}/release')
     def release_draft(identity: str, body: dict):
         with drafts.mutex:
-            draft=get(identity)
+            try: draft=drafts.get(identity,include_discarded=True)
+            except FileNotFoundError: return dict(released=True)
+            if draft.get('trashed_at') or not draft.get('claim'): return public(draft)
             try: drafts.require_claim(draft,body.get('claim_token',''))
             except ValueError as exc: raise HTTPException(409,str(exc))
             if isinstance(body.get('proposal'),dict): draft['hand_form']=body['proposal']
@@ -1015,8 +1081,18 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             drafts.put(draft)
             return public(draft)
 
+    @app.get('/api/drafts/{identity}/retry-check')
+    def check_fix_retry(identity: str):
+        from hand_finish import retry_check
+        with drafts.mutex:
+            draft=get(identity)
+            require(draft,'failed')
+            if not draft.get('ledger_fix') or not draft.get('correction'):raise HTTPException(409,'This item is not a fix proposal')
+            result=retry_check(settings,draft);drafts.put(draft)
+            return result
+
     @app.post('/api/drafts/{identity}/retry')
-    def retry(identity: str):
+    def retry(identity: str, body: dict | None = None):
         with drafts.mutex:
             draft = get(identity)
             if draft.get('receipt_reading', {}).get('state') == 'failed':
@@ -1027,6 +1103,13 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 raise HTTPException(409, 'The ledger check now passes. Discard this proposal instead.')
             require(draft, 'failed')
             if draft.get('refusal'): raise HTTPException(409, 'Change the account or date, or answer the agent before sending this item again')
+            if draft.get('ledger_fix') and draft.get('correction'):
+                from hand_finish import retry_check, restore_baseline
+                check=retry_check(settings,draft)
+                if check['replace_edits'] and (body or {}).get('replace_edits')!=check['version']:
+                    raise HTTPException(409,'Your kept changes would be replaced. Choose Retry again to review and confirm.')
+                restore_baseline(settings,drafts,draft)
+                draft['ledger_fix'].update(state='queued',message=None,question=None)
             draft['check_errors'] = []
             return queue(draft, draft.get('proposal') if draft.get('usual_payment') else draft.get('hand_form') if draft.get('finished_by') else None)
 
@@ -1067,9 +1150,39 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             with ledger_lock(settings.ledger): return retention.preview(body)
         except ValueError as exc: raise HTTPException(422, str(exc))
 
+    def prepare_discard(identity, claim_token=None):
+        with drafts.mutex:
+            draft=get(identity)
+            if draft.get('correction_save'):raise HTTPException(409,'Save is in progress; check its result before discarding this item')
+            if draft['state']=='working':
+                raise HTTPException(409,'The agent is already working on this item. Discard will be available when it finishes.')
+            if draft['state']=='added' and not draft.get('statement_file'):
+                raise HTTPException(409,'Added entries leave the Queue; use the entry inspector')
+            if draft.get('claim'):
+                try:drafts.require_claim(draft,claim_token or '')
+                except ValueError as exc:raise HTTPException(409,'Another editor holds this item; finish or leave that editor before discarding it') from exc
+            # Keep a claimed queued item protected until the skip marker and
+            # release are recorded together. There is no release/wake gap.
+            drafts.release_claim(draft)
+            draft['discard_requested']=True;drafts.put(draft)
+
+    def clear_discard_request(identity):
+        with drafts.mutex:
+            try:
+                latest=drafts.get(identity,include_discarded=True)
+                if latest.pop('discard_requested',None):drafts.put(latest)
+            except FileNotFoundError:pass
+
     @app.post('/api/retention/operations/{operation_id}')
     def retention_operation(operation_id: str, body: dict = Body(...)):
+        prepared=None
         try:
+            if body.get('action')=='queue-discard':
+                with drafts.mutex:
+                    try: current=drafts.get(body.get('item_id',''),include_discarded=True)
+                    except FileNotFoundError: current=None
+                    if current and not current.get('trashed_at'):
+                        prepare_discard(current['id']);prepared=current['id']
             if body.get('action') == 'delete':
                 try: status=retention.eligibility(body.get('entry_id'))
                 except ValueError: status=None  # A committed retry replays below.
@@ -1078,26 +1191,17 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             worker.wake.set()
             return result
         except ValueError as exc: raise HTTPException(409, str(exc))
+        finally:
+            if prepared: clear_discard_request(prepared)
 
     @app.delete('/api/drafts/{identity}', status_code=204)
-    def discard(identity: str):
+    def discard(identity: str, body: dict | None = None):
         # Durable Trash keeps GET safe for an already in-flight poll. All writers
         # still require an active item, so a late autosave cannot resurrect it.
-        with drafts.mutex:
-            draft=get(identity)
-            if draft['state']=='working' or draft.get('claim'):
-                raise HTTPException(409,'Release the form or wait for the reading to finish')
-            if draft['state']=='added' and not draft.get('statement_file'):
-                raise HTTPException(409,'Added entries leave the Queue; use the entry inspector')
-            draft['discard_requested']=True;drafts.put(draft)
+        prepare_discard(identity,(body or {}).get('claim_token'))
         try: worker.call(lambda: retention.operate(secrets.token_hex(16), dict(action='queue-discard', item_id=identity)), kind='retention-queue-discard')
         except ValueError as exc: raise HTTPException(409, str(exc))
-        finally:
-            with drafts.mutex:
-                try:
-                    latest=drafts.get(identity,include_discarded=True)
-                    if latest.pop('discard_requested',None):drafts.put(latest)
-                except FileNotFoundError:pass
+        finally: clear_discard_request(identity)
 
     @app.post('/api/drafts/{identity}/restore')
     def restore(identity: str):

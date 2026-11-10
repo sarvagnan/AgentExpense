@@ -45,3 +45,44 @@ def preview(settings, drafts, draft, form):
     draft['hand_checks'] = result
     drafts.put(draft)
     return result
+
+
+def edit_baseline(settings, draft):
+    """Immutable comparison/cancellation baseline, separate from owner autosaves."""
+    info=draft['correction']
+    if draft.get('ledger_fix'):
+        if not draft.get('agent_proposal'):
+            # Migrate a kept pre-separation proposal without losing its snapshot.
+            old=draft.pop('cancel_snapshot',None)
+            if not old and draft['ledger_fix'].get('state') not in ('ready','resolved'):
+                from corrections import wire_entry
+                reason='Ledger check: '+draft['ledger_fix']['title']
+                old=dict(hand_form=info.get('original_form') or wire_entry(settings,info['before']),
+                         correction=dict(sources=info['before'].get('evidence',[]),reason=reason if info.get('reason')==reason else ''),files=[])
+            old=old or draft
+            draft['agent_proposal']=dict(form=deepcopy(old.get('hand_form') or prefill(settings,draft)),
+                sources=deepcopy((old.get('correction') or info).get('sources',[])),
+                reason=(old.get('correction') or info).get('reason',''),files=deepcopy(old.get('files',[])))
+        baseline=deepcopy(draft['agent_proposal'])
+        baseline['form']=prefill(settings,{**draft,'hand_form':baseline['form']})
+        return baseline
+    from corrections import wire_entry
+    if not info.get('original_form'): info['original_form']=wire_entry(settings,info['before'])
+    return dict(form=deepcopy(info['original_form']),sources=deepcopy(info['before'].get('evidence',[])),reason='',files=[])
+
+
+def retry_check(settings, draft):
+    from rules_service import digest
+    baseline=edit_baseline(settings,draft)
+    current=dict(form=prefill(settings,draft),sources=draft['correction'].get('sources',[]),
+                 reason=draft['correction'].get('reason',''),files=draft['files'])
+    return dict(replace_edits=current!=baseline,version=digest(current))
+
+
+def restore_baseline(settings, drafts, draft):
+    baseline=edit_baseline(settings,draft)
+    kept={f['name'] for f in baseline['files']}
+    for file in draft['files']:
+        if file['name'] not in kept:(drafts.folder(draft['id'])/'files'/file['name']).unlink(missing_ok=True)
+    draft.update(hand_form=baseline['form'],files=baseline['files'])
+    draft['correction'].update(sources=baseline['sources'],reason=baseline['reason'])

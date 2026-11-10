@@ -169,9 +169,10 @@ form/item or Review request ID, so a reopened form never adopts an old Saved not
 Long reasons are keyboard-scrollable, with a visible scroll cue on phones. Settings, rule edits and first-run fields have ledger-specific
 session recovery; hand forms also keep their existing server claim/recovery path,
 and Review keeps its existing browser outbox. Leaving a hand form during a
-queued or retried hand save keeps its claim for that write. Kept correction forms retain their
-original entry version: reopening after a different version was saved shows the
-kept edits for copying, and refuses to silently rebase them. Discard kept edits
+queued or retried hand save keeps its claim for that write. Kept correction forms
+retain their original entry version. An outdated server draft opens the current
+entry and retains the old edits in Queue. A browser recovery copy from an older
+version remains available for copying, with saving refused. Discard kept edits
 explicitly starts from the current saved entry. A late Add restore or save cannot
 clear newer words. An ordinary Add save returns focus to the input only while
 its initiating interaction is still current; a newer chosen focus stays put.
@@ -304,3 +305,113 @@ A later failed job with the same words keeps its own error. Read and validation
 errors remain separate. Coalesced declarations retain every participating owner.
 Receipt choices use the shared committed callback to clear their local refusal and
 refresh the real reading once, while newer composer words and focus remain intact.
+
+## Edit entry intent and Queue recovery
+
+Edit entry has a top Back action and footer Cancel, Check entry and Save actions.
+Back keeps typed edits in Queue and returns to the entry, Queue overview or Ledger
+check that opened it. Cancel asks Discard changes / Keep editing when there are
+changes; unchanged forms leave immediately. `POST /api/drafts/{id}/cancel-edit`
+requires the form claim, waits behind pending form writes and removes an ordinary
+temporary correction without a commit, audit event or Trash record. It clears the
+browser recovery too. For a ledger-fix item it restores the latest agent proposal and
+releases the claim, retaining the agent's work. Discard proposal and balance
+refusal Discard remain explicit Trash actions. Hand finishing Add keeps Back to Queue.
+
+Other departures retain the existing recovery. Queue never chooses a draft,
+statement or Ledger check automatically: explicit links select details; otherwise
+desktop shows Choose an item and phones show the list. Kept edits open a summary
+with Continue editing and Discard. Reloading a direct Edit entry returns to Queue.
+Restoring a discarded correction/fix retains its form, sources, reason and proposal
+in Needs you. Before continuing, the server compares the entry version; a changed
+entry opens the current entry with an explanation, retaining old edits for comparison.
+
+Each mounted editor stores a new random ownership token before claiming. It supplies
+the previous token only to transfer a held claim atomically. This preserves a lost
+claim reply across reload while rejecting writes/releases from an obsolete editor
+or a duplicated tab's old generation. Late callbacks clear only their own token
+and recovery snapshot. Duplicate release is harmless. Queue Discard
+flushes this browser's recovered form, sources and reason before releasing its
+claim and moving the item to Trash, preserving the exact edits for Restore.
+The open editor also marks its browser history entry before loading the form.
+Reload returns to Queue even when navigation timing metadata is unavailable;
+fresh explicit editor links and explicit statement/check links retain their intent.
+
+Older fix records whose correction payload was already erased offer the current
+entry for a fresh correction. Erased temporary details cannot be reconstructed.
+
+While Cancel is in flight, its discarded form is locked and its confirmation
+stays open. A late acknowledgement clears only the unchanged recovery snapshot
+and cannot navigate a newer page or release a claim during cancellation.
+Add captures native textarea words before input bubbles, so a pending controlled
+render cannot replace new typing with the previous form value. The input event
+then retains those captured words through the normal composer/recovery path.
+
+
+Cancel is disabled while Save is pending or its outcome is unknown, with a plain
+explanation. The server records an accepted correction before FIFO execution;
+Cancel takes the ledger lock then `drafts.mutex`, refuses a started/committed save,
+and cannot remove a draft being applied. Completion marks the draft added before
+releasing the ledger lock. A confirmed Cancel removes that draft's failed retry
+shelf entries; a lost Cancel reply is confirmed by an idempotent replay.
+
+A fix's `agent_proposal` retains the latest agent form, source selection, reason
+and files separately from `hand_form`, which holds the owner's edits. Every new
+agent proposal replaces that baseline. Trash/Restore preserve both versions;
+Cancel restores the agent baseline, including after Back or Restore. Ordinary
+edits compare against the saved entry, its original evidence and no uploads or
+reason. The whole form, sources, reason and attachments determine whether Cancel
+asks. Both proposal-discard controls flush the full current edit before release
+and Trash through the same path. Browser recovery is keyed by draft, so two kept
+edits of one entry cannot supply each other's values.
+
+A fix restored after its queued/working run was stopped becomes failed with Retry
+and Discard available. Fix summaries have one set of actions; failed proposals
+retain Retry. A page restored from the back-forward cache reloads the Queue
+overview instead of reusing a released claim. List serialization never rebuilds
+all kept forms: newly opened corrections cache their display baseline once.
+
+### Expired claims, Retry and interrupted edit saves
+
+Cancel reclaims an expired or released claim when no live editor owns the draft.
+It then removes the ordinary temporary edit or restores a fix's latest agent
+baseline. A different live editor gets a plain refusal; an unclaimed fix is never
+silently acknowledged while leaving owner edits behind. An obsolete successful
+claim response releases only its own token and sends no form, allowing a later
+reopen after reordered requests without disturbing a successor.
+
+Startup resolves `correction_save` markers under the ledger lock, after acquiring
+the real worker lease: recover any interrupted correction transaction, complete
+the draft from an existing correction audit/commit, or clear an uncommitted mark.
+Normal completion removes the mark too. Queue Trash/Restore runtime changes clear
+legacy marks, and a timed-out fix restores as failed with its failure details and
+Retry intact. A failed ledger fix can also be completed by hand: Continue editing
+and Ledger check's Open the entry use the same checked correction Save, retaining
+the entry ID. It stays failed until the commit completes, so leaving without Save
+keeps Retry. Ordinary failed correction drafts do not gain this permission.
+
+A correction journal that cannot safely recover (including later human changes
+or an unreadable record) is logged and left intact. Its matching Save marker is
+not cleared or completed from an audit line in a later unrelated commit. Cancel
+and Discard keep refusing that item, while startup and recovery of other items
+continue normally. Reconcile the preserved journal manually before removing its
+protection.
+
+Fix Retry first flushes this draft's browser recovery before checking the whole
+form, sources, reason and files against its agent baseline (or the saved entry
+before any proposal). Kept changes require “Ask the agent again” / “Keep my
+changes”. Confirmation includes a fingerprint of the reviewed fields; newer
+server or browser edits require a fresh confirmation. Accepted replacement
+restores the baseline before queuing, so the next proposal cannot mix new agent
+fields with discarded owner sources or reason. Matching browser recovery is
+cleared only after Retry is acknowledged. An unchanged baseline retries directly.
+
+Queue Discard is disabled, with a reason, while this item's Save is active,
+unknown or already acknowledged. The API also refuses an accepted Save before
+queuing any Trash work. A claimed discard flushes its complete form and keeps the
+claim until DELETE records `discard_requested` and releases ownership in the same
+drafts-mutex critical section. The worker skips that marker. An unclaimed queued
+fix without local recovery goes directly to Discard. A resolved notice without
+local recovery or a retained claim also discards directly, without opening an
+edit claim. Kept edits still flush before Trash. If the worker has already
+started, Discard returns plain words and becomes available again when it finishes.

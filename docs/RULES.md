@@ -259,3 +259,12 @@ Both call `recurring.recompute_estimate` on the final actual entries, excluding
 entries in Trash. Historical reversal audit records remain valid and continue to
 exclude their original/reversing entries from payment history. There is no current
 reversal operation or reversing-entry command.
+
+Rules can be sorted by Next due (default), Name, Amount or Paying account, in
+ascending or descending order. `sort=due|name|amount|account` and
+`direction=asc|desc` preserve the choice in the URL. Changing either select
+replaces the current history entry, so keyboard selection does not add Back steps. Amount orders currency groups
+first, then native amounts within each group; saved bills use their exact amount
+and varying rules use the stored median. Multi-currency rules compare their sorted
+currency lists before their respective amounts. Suggested rules retain their own
+order. A `#rule-<id>` link scrolls to and focuses the rule independently of sorting.

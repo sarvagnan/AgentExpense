@@ -1,3 +1,4 @@
+import {runUiIntent} from './ui-intent.mjs';
 import {assertActionCoverage} from './action-coverage.mjs';
 import {runDataDeparture} from './data-departure.mjs';
 import {consumeInjected422} from './expected-errors.mjs';
@@ -104,6 +105,10 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     const openSettings=async()=>{await identity().click();await expect(page.getByRole('dialog',{name:'Settings',exact:true})).toBeVisible();await expect(page.getByLabel('Name',{exact:true})).toBeFocused();};
     const closeDialog=async()=>{await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);};
     try {
+      if(process.env.BROWSER_FOCUS==='ui-intent') {
+        await runUiIntent({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
+        await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
       if(process.env.BROWSER_FOCUS==='route-targets') {
         for(const route of routes){await go(route+'/');await overflow(route);await emptyTargets();await page.setViewportSize({width:320,height});await overflow(route+' at 320');await emptyTargets();await page.setViewportSize(size);await emptyTargets();await snap('route-targets-'+route);record('route targets: '+route+' fits target/320px and its rendered phone primary targets are at least 44px');}
         await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
@@ -683,7 +688,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       }
       // BROWSER_FOCUS=shell stops here: navigation, Settings, notices, empty views and account dialogs.
       // BROWSER_FOCUS=area-c adds the looking-back views and the suites that open them.
-      if(process.env.BROWSER_FOCUS==='area-c') {
+      if(['area-c','clear-intent'].includes(process.env.BROWSER_FOCUS)) {
       await timed('runViewCaptures',()=>runViewCaptures({page,persona,width,height,expect,go,snap,overflow,record}));
       await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
@@ -692,6 +697,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runRetention',()=>runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runAccountGroups',()=>runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money}));
       await timed('runVarying',()=>runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      if(process.env.BROWSER_FOCUS==='clear-intent') {
+        await timed('runUiIntent',()=>runUiIntent({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+        await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));
+        await timed('runAttachmentsQueue',()=>runAttachments({page,base,persona,expect,control,go,record,quiesce,resetDrafts,snap,queueOnly:true}));
+      }
       } else if(process.env.BROWSER_FOCUS!=='shell') {
       await timed('runViewCaptures',()=>runViewCaptures({page,persona,width,height,expect,go,snap,overflow,record}));
       await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
@@ -701,6 +711,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       await timed('runRules',()=>runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await runAttachments({page,base,persona,expect,control,go,record,quiesce,resetDrafts,snap});
         await timed('runAdd',()=>runAdd({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+      await runUiIntent({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
       await timed('runCorrections',()=>runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runConfirmedBalances',()=>runConfirmedBalances({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runLedgerCheck',()=>runLedgerCheck({page,base,persona,engine,theme,width,expect,control,go,refresh,overflow,snap,record,quiesce}));

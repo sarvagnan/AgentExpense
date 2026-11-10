@@ -32,7 +32,7 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   for(const [i,posting] of postings.entries()){assert.match(posting.value,/:/,'The value is the ledger path');assert.doesNotMatch(posting.shown,/^(Expenses|Assets|Liabilities|Income|Equity):/,`Posting ${i+1} shows a name, not a path: ${posting.shown}`);assert.equal(posting.remove,`Remove posting ${i+1}`);assert.equal(posting.removeText,'','Remove is an icon button');}
   const addPosting=await form.getByRole('button',{name:'Add posting',exact:true}).boundingBox(),formBox=await form.boundingBox();assert.ok(addPosting.width<formBox.width/2,'Add posting is not a full-width bar');
   await page.mouse.move(1,1);await snap('correction-from-drafts');await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
-  await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});await snap('correction-saved');await page.getByRole('button',{name:'Back to Queue',exact:true}).click();
+  await form.getByRole('button',{name:'Save',exact:true}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});await snap('correction-saved');await page.getByRole('button',{name:'Back to Queue',exact:true}).click();
   const entryId=added.result.entry_id,month=yesterday.slice(0,7);
   let savedName='Birch rent corrected';
   for(const view of ['explorer','journal']) {
@@ -46,7 +46,7 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
     await snap('correction-from-'+view);
     savedName+=' · '+view;await form.getByLabel('Description',{exact:true}).fill(savedName);
     await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
-    await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});
+    await form.getByRole('button',{name:'Save',exact:true}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});
     await refresh();await page.waitForLoadState('networkidle');await expect(page.getByText('Correction saved',{exact:true})).toBeVisible();
     await overflow('correction '+view);await snap('correction-'+view+'-saved');
     await page.getByRole('button',{name:'Back',exact:true}).click();await expect(details.getByRole('button',{name:'Edit'})).toBeVisible();assert.ok(page.url().includes(view+'/'));await expect(details).toContainText(savedName);
@@ -75,7 +75,7 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
     await group.getByLabel(/^Sessions/).fill('4');await group.getByLabel(/^Next session/).fill('2026-11-20');await group.getByLabel(/^Certificate/).selectOption('yes');
     await overflow('Edit entry with a custom extension');await snap('correction-extension');
     await form.getByRole('button',{name:'Check entry',exact:true}).click();await expect(form).toContainText('Checks passed');
-    await form.getByRole('button',{name:'Save correction'}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});
+    await form.getByRole('button',{name:'Save',exact:true}).click();await expect(page.getByText('Correction saved',{exact:true})).toBeVisible({timeout:180000});
     await refresh();await page.waitForLoadState('networkidle');await go('explorer/?month=2026-09&entry=0000000000000104');
     details=page.getByRole('dialog');learning=details.getByRole('region',{name:'Learning',exact:true});
     await expect(fact(learning,'Sessions')).toHaveText('4');await expect(fact(learning,'Certificate')).toHaveText('Yes');await expect(fact(learning,'Next session')).not.toHaveText('');

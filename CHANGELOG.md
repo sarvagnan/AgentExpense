@@ -12,8 +12,33 @@ that fails and keep its output.
 
 ## [Unreleased]
 
-- Resolved fix notices open without claiming the correction form. Discard acts
-  directly; Edit entry opens the form on request, avoiding a late-claim race.
+- Timed-out ledger fixes can be checked and saved through Continue editing or
+  Ledger check's Open the entry. Unsettled correction journals keep their item
+  protected and log the reason while allowing the server to start.
+- Add retains words typed while a pending render restores the textarea's old
+  value, including after leaving an Edit entry cancellation in flight.
+
+- Resolved fix notices discard without opening an edit claim when there is no
+  local work to preserve; browser-kept edits still go to Trash.
+
+- Expired edit claims can be cancelled without leaving discarded changes behind.
+  Reordered claim responses relinquish their own lease. Startup recovers unfinished
+  edit-save markers; timed-out fixes keep Retry after Restore. Retry asks before
+  replacing kept edits. Queue Discard explains pending/unknown Saves and hands a
+  queued item's claim to Trash atomically, preventing a worker race.
+- Edit entry now offers Save and Cancel, with a discard question for changed
+  forms. Cancel removes temporary edits without ledger history; ledger-fix
+  proposals remain available. Restore retains discarded edits and fix proposals.
+- Queue opens details only on explicit selection, and kept edits show a summary.
+- Rules sort by next due, name, native amount or paying account, kept in the URL.
+- Calendar-day averages use spending through the device's local today for the
+  current month, full past months, and no average for future months.
+
+- Fix summaries keep a single set of actions and Retry after timeouts. Each editor
+  has its own claim generation, and Cancel waits for a known Save outcome. Restore
+  keeps the latest agent proposal separately from the owner’s discarded edits.
+  Proposal Discard saves the complete on-screen edit before Trash; Queue recovery
+  is isolated by draft. Back-forward-cache returns recheck the editor.
 
 - Provider timeout messages pause as transient outages; only the local task deadline
   counts towards three tries. Preparation and Pi stdin writes respect cancellation
@@ -71,6 +96,15 @@ that fails and keep its output.
 
 ### Upgrade notes
 
+- Rebuild the dashboard for the Add input fix and restart the server for
+  failed-fix Save and isolated correction recovery. No
+  ledger format migration is needed; an unsettled journal still needs manual
+  reconciliation and is preserved for that work.
+
+- Rebuild the dashboard with `make dashboard` and restart the server for explicit
+  Edit entry intent, Queue selection, Rules sorting and daily averages. No ledger
+  format migration is needed. Existing kept edits and proposals remain in Queue.
+
 - Restart the server to load deadline/cancellation and recovery fixes. No data-format
   migration is needed. Existing failed receipt readings can now be dismissed;
   payments and their evidence remain saved. Recent diagnostic histories are capped
@@ -85,6 +119,11 @@ that fails and keep its output.
 
 Rebuild the dashboard and restart the server. No ledger-format migration is
 required. Generated data is repaired at startup when its durable marker is stale.
+
+Kept edit recovery now belongs to its draft rather than just the entry. Server-kept
+forms remain in Queue; legacy browser-only entry-keyed copies are not guessed into
+a different draft. Fixes with an older cancellation snapshot adopt that stored
+proposal on their next claim. No financial store migration is required.
 
 ## [0.1.0] - Unreleased
 

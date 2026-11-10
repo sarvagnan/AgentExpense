@@ -1,3 +1,5 @@
+import {showEntryChangedNotice} from '../scripts/edit-navigation.mjs';
+import {calendarDayAverage} from '../scripts/daily-average.mjs';
 import {lockModalPage,setPageNotice} from './ui';
 import {api as liveApi} from './live/api';
 import { SettingsDialog } from './settings-dialog';
@@ -380,7 +382,8 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   const expenses = monthTransactions.filter((item) => item.kind === 'Expense');
   const largestRows = currencyOrder(expenses.map(item => item.currency)).map(currency => expenses.filter(item => item.currency === currency).sort((a, b) => b.amount - a.amount)[0]);
   const largest = largestRows[0];
-  const days = daysInMonth(month);
+  const averagePeriod = calendarDayAverage(month,[]);
+  const averages = Object.fromEntries(currents.map(item => [item.currency, calendarDayAverage(month,item.daily).average ?? 0]));
   const filtersActive = !!(category || day || needle);
   const matchingExpenses = sumCurrencies(filtered, (item: Transaction) => item.signedExpense);
   const showAll = () => { setQuery(''); setCategory(''); setDay(null); requestAnimationFrame(() => document.getElementById('explorer-search')?.focus({ preventScroll: true })); };
@@ -404,13 +407,14 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   return <div className="split">
     {textTooltip.element}
     <section className="page explorer">
+      {typeof location!=='undefined'&&showEntryChangedNotice(location.search,month)&&<p className="live-notice" role="status">The saved entry changed since these edits were kept. This is the current entry. Your old edits and proposal remain in Queue for comparison.</p>}
       <PageHeader title="Explorer" subtitle={`${monthLong(month)} · ${inProgress ? `recorded through ${dayShort(data.meta.today)}` : 'complete month'}`}>
         <MonthStepper months={monthKeys()} value={month} onChange={changeMonth}/>
         <SearchField id="explorer-search" value={query} onChange={setQuery} label="Search this month's entries" placeholder="Search entries" scope={monthShort(month)}/>
       </PageHeader>
       <section className="metrics" data-expanded={summaryExpanded} aria-label={filtersActive ? 'Whole month summary' : 'Month summary'}>
         <div className="metric"><p className="metric-label">{filtersActive ? 'Spent · whole month' : 'Spent'}</p><p className="metric-value">{moneyTotal(totals)}</p><p className="metric-note">{currents.map(item => <span className="currency-comparison" key={item.currency}>{currents.length > 1 && `${item.currency}: `}{item.comparison ? <Delta value={item.total} base={item.comparison.total} suffix={`vs ${monthName(item.comparison.month)}${inProgress ? ' ' : ' · '}${comparisonPeriod}`}/> : 'No previous month in this currency'}</span>)}</p></div>
-        <div className="metric" id="explorer-summary-average"><p className="metric-label">Average per calendar day</p><p className="metric-value">{moneyTotal(Object.fromEntries(currents.map(item => [item.currency, item.total / days])))}</p><p className="metric-note">Total ÷ {plural(days, 'day')}</p></div>
+        <div className="metric" id="explorer-summary-average"><p className="metric-label">Average per calendar day</p><p className="metric-value">{averagePeriod.days ? moneyTotal(averages) : '—'}</p><p className="metric-note">{averagePeriod.days ? `${averagePeriod.toDate ? 'Total to date' : 'Total'} ÷ ${plural(averagePeriod.days, 'day')}` : 'No average for a future month'}</p></div>
         <div className="metric" id="explorer-summary-count"><p className="metric-label">Expenses</p><p className="metric-value">{count}</p><p className="metric-note">{pending ? <a href={`${import.meta.env.BASE_URL}review/`}>{pending} unclassified</a> : 'All classified'} · {plural(monthTransactions.length, 'ledger entry', 'ledger entries')}</p></div>
         <div className="metric" id="explorer-summary-largest"><p className="metric-label">Largest expense{currents.length > 1 ? ' · per currency' : ''}</p><p className="metric-value">{largest ? moneyTotal(Object.fromEntries(largestRows.map(item => [item.currency, item.amount]))) : '—'}</p><p className="metric-note" title={largest?.description}>{largestRows.map(item => item.description).join(' + ') || 'No expenses'}</p></div>
         <button type="button" className="button plain summary-toggle" aria-expanded={summaryExpanded} aria-controls="explorer-summary-average explorer-summary-count explorer-summary-largest" onClick={() => setSummaryExpanded(value => !value)}>{summaryExpanded ? 'Fewer month figures' : 'More month figures'}<Icon name="chevron-up-down"/></button>
@@ -514,7 +518,8 @@ function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; c
   const maxDay = Math.max(1, ...daily);
   const minDay = Math.min(0, ...daily);
   const barStyle = (amount: number, low: number, high: number, minimum: number) => ({ height: `${amount ? Math.max(minimum, Math.abs(amount) / (high - low) * 100) : 0}%`, bottom: `${(Math.min(0, amount) - low) / (high - low) * 100}%` });
-  const average = current.total / days;
+  const averagePeriod = calendarDayAverage(month,current.daily);
+  const average = averagePeriod.average;
   const monthEntries = data.transactions.filter((item) => item.month === month && item.currency === currency);
   const topDays = daily.map((amount, index) => ({ day: index + 1, amount })).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount).slice(0, 5).map((item) => {
     const key = `${month}-${String(item.day).padStart(2, '0')}`;
@@ -551,14 +556,14 @@ function CurrencyAtlas({ month, setMonth, currency, mixed }: { mixed: boolean; c
       </button>;
     })}</div>
     <section className="panel atlas-detail">
-      <PanelHeader title={monthLong(month)} meta={`${plural(current.count, 'expense')} · ${plural(days, 'day')} · ${money(average)} per calendar day (total ÷ ${days})`}><span className="atlas-total">{money(current.total)}</span></PanelHeader>
+      <PanelHeader title={monthLong(month)} meta={`${plural(current.count, 'expense')} · ${plural(days, 'day')} · ${average === null ? 'No average for a future month' : `${money(average)} per calendar day (${averagePeriod.toDate ? 'total to date' : 'total'} ÷ ${averagePeriod.days})`}`}><span className="atlas-total">{money(current.total)}</span></PanelHeader>
       <div className="atlas-detail-grid">
         <section><h3>Daily spending</h3>
-          <div className="day-chart" role="img" aria-label={`Daily spending in ${monthLong(month)}; highest ${money(maxDay)}, average ${money(average)}${minDay < 0 ? `; net refunds below zero, lowest ${money(minDay)}` : ''}`}>
+          <div className="day-chart" role="img" aria-label={`Daily spending in ${monthLong(month)}; highest ${money(maxDay)}${average === null ? '' : `, average ${money(average)}`}${minDay < 0 ? `; net refunds below zero, lowest ${money(minDay)}` : ''}`}>
             <span className="day-chart-max">{compactMoney(maxDay)}</span>
             <div className="day-chart-bars">{daily.map((amount, index) => <i key={index} className={amount < 0 ? 'net-refund' : undefined} title={`${index + 1} ${monthName(month)}: ${money(amount)}${amount < 0 ? ' net refund' : ''}`} style={barStyle(amount, minDay, maxDay, 2)}/>)}
               {minDay < 0 && <b className="net-zero" style={{ bottom: `${-minDay / (maxDay - minDay) * 100}%` }}><span>0</span></b>}
-              <b className="day-chart-average" style={{ bottom: `${(average - minDay) / (maxDay - minDay) * 100}%` }}><span>Average</span></b></div>
+              {average !== null && <b className="day-chart-average" style={{ bottom: `${(average - minDay) / (maxDay - minDay) * 100}%` }}><span>Average</span></b>}</div>
             <div className="day-chart-axis"><span>1</span><span>8</span><span>15</span><span>22</span><span>{days}</span></div>
           </div>
         </section>

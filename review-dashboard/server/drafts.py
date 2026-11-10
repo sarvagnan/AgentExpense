@@ -114,6 +114,7 @@ class Drafts:
 
     def completed(self, draft, result):
         with self.mutex:
+            draft.pop('correction_save',None)
             draft.update(state='added', result=result, completed_at=now(), waiting=None, error=None)
             if result.get('outcome') == 'not_expense':
                 from outcomes import queue_outcome
@@ -129,19 +130,21 @@ class Drafts:
         draft.pop('account_consent', None)
         draft.pop('hand_checks', None)
 
-    def claim(self, draft, token=None):
+    def claim(self, draft, token=None, previous_token=None):
         with self.mutex:
             if draft['state'] not in ('queued','failed','question'):
                 raise ValueError('Only queued, failed or question items can be finished by hand')
             previous = draft.get('claim')
-            if previous and previous['token'] != token:
+            if previous and previous['token'] != token and previous['token'] != previous_token:
                 raise ValueError('Another page is finishing this item')
-            draft['claim'] = dict(token=previous['token'] if previous else secrets.token_hex(32),
+            if token is not None and (not isinstance(token,str) or not re.fullmatch('[0-9a-f]{64}',token)):
+                raise ValueError('Invalid form claim token')
+            draft['claim'] = dict(token=token or secrets.token_hex(32),
                                   expires_at=(self.clock()+timedelta(minutes=30)).isoformat())
             self.put(draft)
             return draft['claim']['token']
 
     def require_claim(self, draft, token):
-        if not draft.get('claim') or not secrets.compare_digest(draft['claim']['token'], token):
+        if not isinstance(token,str) or not token.isascii() or not draft.get('claim') or not secrets.compare_digest(draft['claim']['token'], token):
             raise ValueError('This page no longer owns the item; reopen Finish it yourself')
         self.claim(draft, token)

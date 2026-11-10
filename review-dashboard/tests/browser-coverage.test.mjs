@@ -7,6 +7,15 @@ test('Injected console exclusions require the exact held URL and exact 422 text'
  const page={},message=(url,text='Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)')=>({text:()=>text,location:()=>({url})});expectInjected422(page,'http://fixture/api/settings/name');
  assert.equal(consumeInjected422(page,message('http://fixture/api/settings/default-currency')),false);assert.equal(consumeInjected422(page,message('http://fixture/api/settings/name','Unrelated 422')),false);assert.equal(consumeInjected422(page,message('http://fixture/api/settings/name')),true);assert.equal(consumeInjected422(page,message('http://fixture/api/settings/name')),false);
 });
+test('An expected obsolete-claim refusal allows one exact 409 console response',()=>{
+ const page={},url='http://fixture/api/drafts/obsolete/release';
+ const message=(source,text='Failed to load resource: the server responded with a status of 409 (Conflict)')=>({text:()=>text,location:()=>({url:source})});
+ expectInjectedHttp(page,url,409);
+ assert.equal(consumeInjected422(page,message('http://fixture/api/drafts/current/release')),false);
+ assert.equal(consumeInjected422(page,message(url,'Unrelated 409')),false);
+ assert.equal(consumeInjected422(page,message(url)),true);
+ assert.equal(consumeInjected422(page,message(url)),false,'The expected response is consumed only once');
+});
 test('The direct observer includes Queue DELETE and draft/statement Restore',async()=>{
  for(const [method,path] of [['DELETE','drafts/id'],['DELETE','statements/id'],['POST','drafts/id/restore'],['POST','statements/id/restore']]){
   let handler,forwarded=false,observed=0;

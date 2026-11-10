@@ -1,3 +1,4 @@
+import {editOverviewOnLoad,watchEditRestores} from '../scripts/edit-navigation.mjs';
 import {PendingActions} from './live/pending-actions';
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -31,6 +32,9 @@ function routeFor(pathname: string): View {
 function App() {
   // Loading and recovery use the same remembered appearance as the dashboard.
   useAppearance();
+  // A reload keeps the form's recovery but returns to the Queue overview.
+  useState(()=>{if(editOverviewOnLoad(location.search,history.state,(performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming|undefined)?.type))window.history.replaceState({},'',`${basePath}/queue/`);return null;});
+  useEffect(()=>watchEditRestores(window,location,history,`${basePath}/queue/`),[]);
   if(window.location.pathname.replace(/\/$/,'')===`${basePath}/statements`)window.history.replaceState({},'',`${basePath}/add/`);
   if(window.location.pathname.replace(/\/$/,'')===`${basePath}/drafts`)window.history.replaceState({},'',`${basePath}/queue/${window.location.search}`);
   const [view, setView] = useState(() => routeFor(window.location.pathname));
@@ -99,7 +103,7 @@ function App() {
 
       event.preventDefault();
       sessionWrite(`ledger-view:${routeFor(window.location.pathname)}`, window.location.search);
-      if (target.closest('nav[aria-label="Views"]')) {
+      if (routes[path]!=='queue'&&target.closest('nav[aria-label="Views"]')) {
         const remembered = sessionRead(`ledger-view:${routes[path]}`);
         if (remembered !== null) url.search = remembered;
       }

@@ -115,7 +115,7 @@ class Retention:
         root=self.settings.ledger; settings=limits(read_manifest(root))
         docs=load(root)
         rows=[dict(id=item['id'],kind='entry',description=item['entry']['description'],removed_at=item['removed-at'],reason=item['reason'],owned_files=[f['original'] for f in item['files']],kept_files=[f['path'] for f in item['kept']],files=[f['original'] for f in item['files']]+[f['path'] for f in item['kept']],entry_id=item['entry']['id']) for item in docs.get(root/'data/trash.json', [])]
-        rows += [dict(id=d['id'],kind='queue',description=d['text'] or (d['files'][0]['original_name'] if d['files'] else 'Files only'),removed_at=d['trashed_at'],reason=d.get('trash_reason','Discarded'),files=[f['original_name'] for f in d['files']]) for d in self.drafts.all(include_discarded=True) if d.get('trashed_at')]
+        rows += [dict(id=d['id'],kind='queue',description=d['text'] or (d.get('correction') or {}).get('before',{}).get('description') or (d['files'][0]['original_name'] if d['files'] else 'Files only'),removed_at=d['trashed_at'],reason=d.get('trash_reason','Discarded'),files=[f['original_name'] for f in d['files']]) for d in self.drafts.all(include_discarded=True) if d.get('trashed_at')]
         if self.statements:
             rows += [dict(id=s['id'],kind='statement',description=s['original_name'],removed_at=s['trashed_at'],reason=s.get('trash_reason','Discarded'),files=[s['original_name']]) for s in self.statements.all() if s.get('trashed_at')]
         for row in rows: row['expires_at']=(datetime.fromisoformat(row['removed_at'])+timedelta(days=settings['trash_days'])).isoformat()
@@ -261,18 +261,30 @@ class Retention:
                         except FileNotFoundError: raise ValueError('This Queue item is no longer available') from None
                     if d['state'] in ('applied','already_filed') or d['state']=='added' and not d.get('statement_file') or d.get('intake_complete'): raise ValueError('Added entries leave the Queue; use the entry inspector')
                     if kind=='statement' and (d.get('apply_started') or d['state']=='applying'): raise ValueError('The checked apply has started; wait for it to finish')
+                    if kind=='queue' and action=='queue-discard' and d.get('correction_save'):raise ValueError('Save is in progress; check its result before discarding this item')
                     if kind=='queue' and (d['state']=='working' or d.get('claim')): raise ValueError('Release the form or wait for the reading to finish')
                     restore=action=='queue-restore'
                     if restore != bool(d.get('trashed_at')): raise ValueError('The item is not in the expected location')
                     values=dict(state='editing',updated_at=now.isoformat(),trashed_at=None,discarded_until=None,trash_reason=None,claim=None,proposal=None,usual_payment=None,bill_request=None,hand_form=None,correction=None,refusal=None,waiting=None,error=None,result=None) if restore else dict(trashed_at=now.isoformat(),discarded_until=(now+timedelta(days=limits(read_manifest(root))['trash_days'])).isoformat(),trash_reason=reason or 'Discarded')
+                    if restore and kind=='queue' and d.get('correction'):
+                        # Restore is the exact unsaved edit/proposal, never unsent Add words.
+                        values=dict(state='question',updated_at=now.isoformat(),trashed_at=None,discarded_until=None,trash_reason=None,claim=None,error=None,waiting=None)
+                    if restore and kind=='queue' and d.get('ledger_fix',{}).get('state') in ('queued','working','failed'):
+                        values.update(state='failed')
+                        if d['ledger_fix']['state'] in ('queued','working'):
+                            values['ledger_fix']={**d['ledger_fix'],'state':'failed','message':'This proposal was stopped. Retry to ask the agent again, or discard it.'}
                     if kind=='statement':
                         values.update(state='saved' if restore else d['state'],cancelled=True,generation=d.get('generation',0)+1)
                     runtime=[dict(id=d['id'],kind=kind,values=values)]
-                    if restore and kind=='queue':
+                    if kind=='queue': runtime[0]['remove_keys']=['correction_save']
+                    if restore and kind=='queue' and not d.get('correction'):
                         # A restored item is unsent words, not a replay of its
                         # former checked/hand-finished payment or correction.
-                        runtime[0]['remove_keys']=['usual_payment','usual_rule_hash','usual_request','bill_request','finished_by','account_consent','intake_result','hand_reason','correction','refusal']
+                        runtime[0]['remove_keys']+=['usual_payment','usual_rule_hash','usual_request','bill_request','finished_by','account_consent','intake_result','hand_reason','correction','refusal']
                         for key in runtime[0]['remove_keys']: values.pop(key,None)
+                    if restore and kind=='queue' and d.get('correction'):
+                        runtime[0]['remove_keys']+=['claim','hand_checks','account_consent']
+                        values.pop('claim',None)
                     selected=[d['id']];details=dict(text=d.get('text',''),files=[f['original_name'] for f in d['files']] if kind=='queue' else [d['original_name']],reason=reason);event_action='queue-restored' if restore else 'queue-trashed';title=('Restore' if restore else 'Discard')+' Queue item via dashboard';result=dict(item_id=d['id'])
             elif action=='remove':
                 selected=body.get('items')

@@ -516,3 +516,53 @@ The attachment focus also checks affected Queue controls: real one-second local
 deadlines, a held Retry after its first timeout (queued/count 1), receipt Dismiss and
 saved-payment totals, and resolved ledger-fix notices/Discard. Provider error text is
 never used to simulate a local deadline.
+
+`BROWSER_FOCUS=ui-intent` exercises explicit Queue selection, the desktop empty
+detail prompt, Edit entry Back/Cancel, the discard question, a held autosave during
+Cancel, reload recovery, edit Trash Restore, URL-persisted Rules sorting and hash
+focus, and the calendar-day average with a fixed local date and future spending.
+The default suite includes it. Captures prefixed `intent-` cover each new state.
+The held autosave is released explicitly; tests never depend on browser speed.
+The reload regression holds the first claim response after the server claims the
+edit, reloads before delivering that response, then reclaims and cancels the edit.
+This forces the lost-claim-reply condition in every browser engine.
+`UI_INTENT_NO_NAVIGATION_TIMING=1 BROWSER_FOCUS=ui-intent` also forces navigation
+timing metadata to be absent across reload. The editor's history marker must
+recover Queue without using a browser speed or timing-API assumption.
+
+The Cancel-acknowledgement regression holds the completed server response, leaves
+with browser Back, types newer Add words, then releases the response and checks
+that the new page and words remain. `intent-cancelling` captures the locked form.
+
+
+The clear-intent review regressions also use controlled hook/API holds for
+same-document editor reopening, Cancel versus an accepted/applying Save, complete
+proposal Discard, per-draft recovery isolation, and back-forward-cache return.
+Cancel browser assertions read the draft directly (404 even for Trash reads),
+not just the ordinary list that omits trashed items. Fix summary actions use
+Continue editing and one Discard proposal control.
+
+
+Second-round regressions cover expired-claim Cancel, reversed claim arrival,
+Retry confirmation including browser-kept edits, crash recovery after/before an
+edit commit, timed-out fix Restore, Save-aware Queue Discard and the atomic
+claimed-discard/worker handoff. The controlled hook/API tests run offline before
+the browser matrix; the second-round load gate applies to browser and benchmark
+execution.
+
+
+Third-round clear-intent validation uses `BROWSER_FOCUS=clear-intent`: the full
+shell/Queue/Explorer section and the complete views, hand-finish, Rules,
+corrections, confirmed-balance refusals, retention, account-group and varying-rule
+suites, followed by UI intent, Ledger check and attachment Queue coverage. It
+reuses each suite's assertions and console/error checks. Run it in Light across
+all four personas, three engines and both sizes; check the load gate before each
+job. Failed-fix coverage checks Save through both Continue editing and Ledger
+check's Open the entry, retaining the same draft and entry IDs.
+The deliberately reordered claim test verifies the obsolete token's real 409
+refusal before allowing its one exact release-URL console message. Other console
+errors, including other conflicts, still fail the case.
+The held-Cancel test also restores the textarea's previous controlled value
+between input capture and bubbling, then checks the new words in both the field
+and recovery before releasing Cancel. This reproduces the observed WebKit input
+writeback deterministically in every engine.

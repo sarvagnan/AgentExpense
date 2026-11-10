@@ -84,6 +84,11 @@ class Worker:
         except OSError:
             self.lease.close()
             raise RuntimeError('Another expense worker already owns this ledger')
+        from corrections import recover_pending
+        try: recover_pending(self.settings,self.drafts)
+        except BaseException:
+            self.lease.close()
+            raise
         self.drafts.purge()
         if getattr(self, "statements", None):
             self.statements.recover_work()

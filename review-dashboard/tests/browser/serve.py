@@ -316,6 +316,22 @@ def attachment_receipt_failed():
     return dict(id=d['id'],fix=fix['id'],entry_id=entry['id'],entry=entry,evidence=name)
 
 
+@app.post('/__test/edit-intent')
+def edit_intent(body: dict):
+    with app.state.drafts.mutex:
+        draft=app.state.drafts.get(body['id'])
+        assert draft.get('correction')
+        if body['mode']=='expire':
+            assert draft.get('claim')
+            draft['claim']['expires_at']='2000-01-01T00:00:00+00:00'
+        else:
+            assert body['mode']=='failed' and draft.get('ledger_fix')
+            draft.update(state='failed',error='Fictional proposal timed out')
+            draft['ledger_fix'].update(state='failed',message='Fictional proposal timed out')
+        app.state.drafts.put(draft)
+        return dict(id=draft['id'])
+
+
 @app.post('/__test/add-result')
 def add_result(body: dict):
     drafts=app.state.drafts
