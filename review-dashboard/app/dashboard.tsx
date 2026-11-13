@@ -1,3 +1,4 @@
+import {useInteractionSnapshot} from './live/interaction';
 import {showEntryChangedNotice} from '../scripts/edit-navigation.mjs';
 import {calendarDayAverage} from '../scripts/daily-average.mjs';
 import {lockModalPage,setPageNotice} from './ui';
@@ -142,9 +143,10 @@ function DataBuilt() {
 }
 
 function Identity({onSettings}: {onSettings:()=>void}) {
-  const name=data.meta.ledger.name;
+  // Hold the pointer target through activation, not through restored keyboard focus.
+  const [name,{onPointerEnter,onPointerLeave},release]=useInteractionSnapshot(data.meta.ledger.name);
   const initials=name.trim().split(/\s+/).slice(0,2).map(part=>Array.from(part)[0]).join('').toUpperCase();
-  return <button type="button" className="identity" aria-label={`${name}, Settings`} onClick={e=>{e.currentTarget.focus();onSettings();}}><span className="avatar" aria-hidden="true">{initials}</span><span className="identity-text"><span className="identity-name" title={name}>{name}</span><small>Settings</small></span><Icon name="chevron-up-down"/></button>;
+  return <button type="button" className="identity" onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} onPointerDown={onPointerEnter} onPointerCancel={release} aria-label={`${name}, Settings`} onClick={e=>{release();e.currentTarget.focus();onSettings();}}><span className="avatar" aria-hidden="true">{initials}</span><span className="identity-text"><span className="identity-name" title={name}>{name}</span><small>Settings</small></span><Icon name="chevron-up-down"/></button>;
 }
 export function EmptyView({title,expenses=false}: {title:string;expenses?:boolean}) {
   return <section className="page"><PageHeader title={title}/><div className="panel empty viewing-empty"><strong>{expenses?'No expenses yet.':'No entries yet.'}</strong><p>Your {title.toLowerCase()} will appear as you add expenses.</p><a className="button primary" href={`${import.meta.env.BASE_URL}add/`}>Add your first expense</a></div></section>;

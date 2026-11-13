@@ -173,8 +173,8 @@ async function readExpenseStore(root) {
   for (const rule of rawRules) {
     if (rule.lifecycle === 'removed' && rule.removal === null) throw new Error('A removed rule needs removal');
     if(rule.amount==='varies') {
-      const main=mainPostings(rule)[0],pay=payer(rule,declarations.accounts);
-      if(complexRule(rule)||!pay||rule.postings.some(p=>p.assert)||main.commodity!==pay.commodity||decimalNumber(main.amount)!==-decimalNumber(pay.amount))throw new Error('Only simple two-posting payments in one currency can vary');
+      const main=mainPostings(rule,declarations.accounts)[0],pay=payer(rule,declarations.accounts);
+      if(complexRule(rule,declarations.accounts)||!pay||rule.postings.some(p=>p.assert)||main.commodity!==pay.commodity||decimalNumber(main.amount)!==-decimalNumber(pay.amount))throw new Error('Only simple two-posting payments in one currency can vary');
     }
     if(rule.bill&&(rule.amount!=='varies'||decimalNumber(rule.bill.amount)<=0||rule.bill.occurrence!==rule.date||periodFor(rule,rule.bill.occurrence)!==rule.bill.occurrence))throw new Error('Bill must name the current occurrence of a varying rule');
   }

@@ -41,7 +41,7 @@ for(const persona of ['asha','jordan','sam','empty'])test(`${persona}: first and
       assert.equal(forecast.asOf,latest || '');
       assert.equal(forecast.daysPassed,latest?.startsWith(current)?Number(latest.slice(8,10)):0);
       assert.equal(forecast.variableAfterDay,Number(date.slice(8,10))-(actual.some(row=>row.date===date)?0:1));
-      assert.equal(forecast.start,latest?.startsWith(current)?new Date(Date.parse(latest)+86400000).toISOString().slice(0,10):current+'-01');
+      assert.equal(forecast.start,current+'-01','Unrelated actuals never hide a rule occurrence');
       const expected=[...new Set(actual.map(row=>row.month))].filter(month=>month>=forecast.firstFullMonth && month<current).sort();
       assert.deepEqual(forecast.variable.months,expected,'An absent currency/month never contributes a zero observation');
       assert.ok(forecast.months.some(row=>row.month===current),'Current month exists without rule occurrences');
@@ -63,7 +63,7 @@ for(const persona of ['asha','jordan','sam','empty'])test(`${persona}: first and
     await writeFile(file,JSON.stringify(entries));
     const mid=await build('2026-11-15');
     const forecast=mid.forecasts.find(row=>row.currency===currency);
-    assert.equal(forecast.asOf,'2026-11-05');assert.equal(forecast.daysPassed,5);assert.equal(forecast.start,'2026-11-06');
+    assert.equal(forecast.asOf,'2026-11-05');assert.equal(forecast.daysPassed,5);assert.equal(forecast.start,'2026-11-01');
     assert.deepEqual(forecast.variable,first.forecasts.find(row=>row.currency===currency).variable,'A partially recorded current month is excluded from averages');
     assert.ok(mid.months.some(row=>row.month==='2026-11' && row.currency===currency && row.total===10));
   }

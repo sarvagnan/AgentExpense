@@ -50,7 +50,7 @@ test('Rule slot Retry replays the failed job and keeps a separate newer descript
  const h=component('../app/rule-editor.tsx','RuleEditor',{
   './data':{dashboard:{meta:{ledger:{defaultCurrency:'EUR'},accounts:{'Assets:Bank:Willow':{kind:'bank',currency:'EUR'},'Expenses:Classes':{}}},transactions:[]}},
   './ui':{Dialog:'dialog',useDocumentScrollLock(){},money:()=>'',dayLabel:x=>x,monthLong:x=>x},'./date-time':{localDate:()=>'2026-11-01'},'./account-labels':{accountFieldLabel:x=>x},
-  '../scripts/recurring-ui.mjs':{complexRule:()=>false,mainPostings:()=>[{amount:'20.00',account:'Expenses:Classes'}],payer:()=>({account:'Assets:Bank:Willow'}),varyingDetails:()=>({history:[]})},
+  '../scripts/recurring-ui.mjs':{complexRule:()=>false,mainPostings:()=>[{amount:'20.00',account:'Expenses:Classes'}],payer:()=>({account:'Assets:Bank:Willow'}),varyingDetails:()=>({history:[]}),ruleDestinations:accounts=>Object.keys(accounts).filter(a=>a.startsWith('Expenses:'))},
   './live/rules-api':{useRuleOperation:()=>({owner:{id:'owner'},busy:false,error:'Failed',operate:async()=>{rebuilt++;return true;}})},
   './live/direct-writes':{writeSnapshot:()=>[job],retryWrite:async id=>{assert.equal(id,job.id);retried++;job.state='saved';return {}; }},
  });
@@ -209,7 +209,7 @@ test('Kept rule edits retain their original version, refuse a newer saved rule a
   './live/retained-state':{useRetainedState:(name,initial)=>{const [value,set]=h.react.useState(name.endsWith('-version')?'old':name.endsWith('-description')?'Kept description':initial);return [value,set,set];},clearRetained:names=>cleared.push(...names),retainedSnapshot:()=>({}),hasRetained:()=>true},
   './data':{dashboard:{meta:{ledger:{defaultCurrency:'USD'},accounts:{'Assets:Bank:Willow':{kind:'bank',currency:'USD'},'Expenses:Classes':{}}},transactions:[]}},
   './date-time':{localDate:()=>'2026-11-01'},'./ui':{...ui,useDocumentScrollLock(){},money:()=>'',dayLabel:x=>x,monthLong:x=>x},
-  '../scripts/recurring-ui.mjs':{complexRule:()=>false,mainPostings:r=>[r.postings[0]],payer:r=>r.postings[1],varyingDetails:()=>null},'./account-labels':{accountFieldLabel:x=>x},
+  '../scripts/recurring-ui.mjs':{complexRule:()=>false,mainPostings:r=>[r.postings[0]],payer:r=>r.postings[1],varyingDetails:()=>null,ruleDestinations:accounts=>Object.keys(accounts).filter(a=>a.startsWith('Expenses:'))},'./account-labels':{accountFieldLabel:x=>x},
   './live/rules-api':{useRuleOperation:()=>({busy:false,error:'',operate:async()=>{throw Error('A stale form must not send');}})},
  });
  try{h.render({rule,onClose:()=>closed++,onSaved(){}});await h.settle();assert.ok(walkText(h.all()).includes('The saved rule changed'));assert.equal(button(h,'Save rule').props.disabled,true);assert.ok(button(h,'Discard kept edits'));button(h,'Cancel').props.onClick();await h.settle();assert.equal(closed,1);assert.ok(cleared.includes('rule-r-version'));}finally{h.unmount();}

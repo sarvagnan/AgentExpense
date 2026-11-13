@@ -5,9 +5,18 @@ const ancillary = new Set(['fee','fees','tax','taxes','discount','discounts','ro
 // Words that name a kind of account (and its group) never identify one usual payment.
 const kindWords = new Set(['bank','banks','card','cards','credit','cash','wallet','wallets','prepaid','loan','loans','investment','investments','person','people','account','accounts']);
 export const tokens = text => new Set((text.toLowerCase().match(/[^\P{L}\d_]+/gu) || []));
-export const mainPostings = rule => rule.postings.filter(p=>p.account.startsWith('Expenses:') && Number(p.amount)>0 && ![...tokens(p.account.split(':').slice(1).join(':'))].some(w=>ancillary.has(w)));
+export const mainPostings = (rule,accounts={}) => rule.postings.filter(p=>Number(p.amount)>0 && (accounts[p.account]?.kind==='investment' || p.account.startsWith('Expenses:') && ![...tokens(p.account.split(':').slice(1).join(':'))].some(w=>ancillary.has(w))));
+export const ruleDestinations = accounts => Object.keys(accounts).filter(a=>a.startsWith('Expenses:') || accounts[a]?.kind==='investment');
 export const payer = (rule,accounts) => {const ps=rule.postings.filter(p=>['bank','card','cash','wallet'].includes(accounts[p.account]?.kind) && Number(p.amount)<0);return ps.length===1?ps[0]:null;};
-export function ruleAmounts(rule) {const totals=/** @type {Record<string,number>} */ ({});for(const p of mainPostings(rule))totals[p.commodity]=(totals[p.commodity]||0)+Number(p.amount);return totals;}
+export function ruleAmounts(rule,accounts={}) {
+ const totals=/** @type {Record<string,number>} */ ({});
+ for(const p of mainPostings(rule,accounts)) {
+  const cost=accounts[p.account]?.kind==='investment'?p.cost:null;
+  const commodity=cost?cost.commodity:p.commodity,amount=cost?Number(cost.amount)*(cost.per==='unit'?Number(p.amount):1):Number(p.amount);
+  totals[commodity]=(totals[commodity]||0)+amount;
+ }
+ return totals;
+}
 const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 export function textAmounts(text,locale='en',calendar) {
   calendar ||= calendars[locale.split('-')[0]] || calendars.en;
@@ -21,7 +30,7 @@ export function textAmounts(text,locale='en',calendar) {
   return (text.match(/(?<![\p{L}\p{N}_./-])\d+(?:,\d{2,3})*(?:\.\d+)?(?![\p{L}\p{N}_./-])/gu)||[]).map(n=>Number(n.replaceAll(',','')));
 }
 /** The words that name a rule: its description and its category's own (last) name. */
-const ruleNames = rule => new Set([...tokens(rule.description),...mainPostings(rule).flatMap(p=>[...tokens(p.account.split(':').at(-1))])].filter(w=>!generic.has(w)));
+const ruleNames = (rule,accounts) => new Set([...tokens(rule.description),...mainPostings(rule,accounts).flatMap(p=>[...tokens(p.account.split(':').at(-1))])].filter(w=>!generic.has(w)));
 /** Words of category groups: every Expenses segment that has accounts under it. */
 const categoryWords = (rules,accounts) => new Set([...new Set([...Object.keys(accounts),...rules.flatMap(r=>r.postings.map(p=>p.account))])].filter(path=>path.split(':')[0]==='Expenses').flatMap(path=>path.split(':').slice(1,-1).flatMap(segment=>[...tokens(segment)])));
 export function matchRules(rules,text,accounts,today,currency,locale='en',calendar) {
@@ -30,18 +39,18 @@ export function matchRules(rules,text,accounts,today,currency,locale='en',calend
   const paymentWords=new Set(Object.values(accounts).filter(m=>['bank','card','cash','wallet'].includes(m.kind)).flatMap(m=>[m.kind,m.label||'',...(m.aliases||[])].flatMap(x=>[...tokens(x)])));
   const current=rules.filter(r=>(r.lifecycle||'active')==='active');
   // A word is distinctive when at most two rules' names use it and it names no category group, account kind or paying account; shared words only rank.
-  const named=new Map();for(const r of current)for(const w of ruleNames(r))named.set(w,(named.get(w)||0)+1);
+  const named=new Map();for(const r of current)for(const w of ruleNames(r,accounts))named.set(w,(named.get(w)||0)+1);
   const common=new Set([...categoryWords(current,accounts),...kindWords,...Object.values(accounts).map(m=>m.kind||''),...paymentWords]);
   const matches=[],suggestions=[];
   for(const r of current) {
-    const names=[...ruleNames(r)].filter(w=>!paymentWords.has(w));let distinctive=names.filter(w=>named.get(w)<=2&&!common.has(w));
+    const names=[...ruleNames(r,accounts)].filter(w=>!paymentWords.has(w));let distinctive=names.filter(w=>named.get(w)<=2&&!common.has(w));
     // A rule named only by shared words (two or more) is found by its whole name, which counts as one word.
     const whole=!distinctive.length&&names.length>1&&names.every(w=>words.has(w));if(whole)distinctive=names;
     const matched_words=distinctive.filter(w=>words.has(w)).sort();if(!matched_words.length)continue;
     let score=4*matched_words.length+names.filter(w=>!distinctive.includes(w)&&words.has(w)).length;const pay=payer(r,accounts),meta=pay?accounts[pay.account]:null;
     const matched_alias=meta?[meta.label||'',...(meta.aliases||[])].find(a=>a&&[...tokens(a)].every(w=>words.has(w)))||null:null;
     if(matched_alias)score+=3;
-    const compared=ruleAmounts(r);if(pay && compared[pay.commodity]===undefined)compared[pay.commodity]=Math.abs(Number(pay.amount));
+    const compared=ruleAmounts(r,accounts);if(pay && compared[pay.commodity]===undefined)compared[pay.commodity]=Math.abs(Number(pay.amount));
     const matched_amounts=[];
     for(const [code,value] of Object.entries(compared))if(explicit.size?explicit.has(code):code===currency){const amount=quantities.find(q=>Math.abs(q-value)<=Math.abs(value)*.1+1e-9);if(amount!==undefined){score+=2;matched_amounts.push({amount:String(amount),currency:code});}}
     score+=Math.max(0,1-Math.abs(Date.parse(r.date)-Date.parse(today))/86400000/40);
@@ -57,18 +66,18 @@ export function periodFor(rule,day) {
   const date=new Date(Date.UTC(startYear,startMonth-1+offset,1));const end=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();date.setUTCDate(Math.min(rule.schedule['anchor-day']||startDay,end));return date.toISOString().slice(0,10);
 }
 export const paymentInPeriod = (rule,day) => !/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day))?undefined:(rule.payments||[rule.last_payment].filter(Boolean)).find(p=>p.rule?.id===rule.id?p.rule.occurrence===periodFor(rule,day):periodFor(rule,p.date)===periodFor(rule,day));
-export const complexRule = rule => rule.postings.length!==2 || rule.postings.some(p=>p.cost) || mainPostings(rule).length!==1;
+export const complexRule = (rule,accounts={}) => rule.postings.length!==2 || rule.postings.some(p=>p.cost) || mainPostings(rule,accounts).length!==1;
 export function varyingPayments(rule,actual,accounts) {
-  const main=mainPostings(rule)[0],pay=payer(rule,accounts),code=main.commodity||main.currency;
+  const main=mainPostings(rule,accounts)[0],pay=payer(rule,accounts),code=main.commodity||main.currency;
   return [...actual].reverse().filter(e=>{
-    const m=mainPostings(e),p=payer(e,accounts);
+    const m=mainPostings(e,accounts),p=payer(e,accounts);
     return (e.status==='confirmed'||e.rule?.id===rule.id)&&e.postings.length===2&&m.length===1&&p&&!e.postings.some(p=>p.cost||p.costCurrency||p.assert)
       &&(m[0].commodity||m[0].currency)===code&&(p.commodity||p.currency)===code&&Number(m[0].amount)===-Number(p.amount)
       &&(e.rule?e.rule.id===rule.id:m[0].account===main.account&&p.account===pay?.account&&[...tokens(e.description)].some(w=>!generic.has(w)&&tokens(rule.description).has(w)));
   }).sort((a,b)=>b.date.localeCompare(a.date));
 }
 export function varyingDetails(rule,actual,accounts) {
-  const history=varyingPayments(rule,actual,accounts).slice(0,12).map(e=>({id:e.id,date:e.date,amount:String(mainPostings(e)[0].amount)})),last=history.slice(0,3).map(e=>Number(e.amount));
+  const history=varyingPayments(rule,actual,accounts).slice(0,12).map(e=>({id:e.id,date:e.date,amount:String(mainPostings(e,accounts)[0].amount)})),last=history.slice(0,3).map(e=>Number(e.amount));
   return {history,min:last.length?String(Math.min(...last)):null,max:last.length?String(Math.max(...last)):null};
 }
 export function varyingAmountCheck(rule,value) {

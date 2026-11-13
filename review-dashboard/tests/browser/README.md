@@ -14,6 +14,71 @@ account dialogs and all step 4B Add/Queue and group-5 Review states. `CAPTURE=0 
 WebKit trace screenshots are always disabled.
 `ENGINES` and `PERSONA` accept comma-separated subsets.
 
+`BROWSER_FOCUS=account-create` isolates inline account creation. It holds the
+subsequent statement-assignment request until the account’s visible `Saved.`
+acknowledgement is checked, then releases the real assignment and checks its
+destination, currency and the still-usable Discard target. Viewport geometry stays
+fixed while assignment is held; after the explicit destination change, Discard
+remains enabled and keeps focus. The new statement header and a shorter phone
+document can reflow and clamp scroll as that destination appears. This prevents the
+assignment from removing the status between the harness’s visibility probe and
+text assertion. The focused run records a trace; `KEEP_ARTIFACTS=1` retains it
+and the server log. `BROWSER_FOCUS=post-ledger-check` resumes at account creation
+and includes all remaining suites and the final action-coverage audit.
+Investment captures await published data and live Rules controls; Forecast checks
+the additional contribution changes money set aside from 5,000 to 5,600 while
+recorded spending, commitments and variable estimates stay unchanged.
+The same fictional Forecast includes a withdrawal: it has no set-aside class or
+Money set aside label and adds nothing to those cash facts. Contributions require
+the positive `set-aside` class and an unstruck title, rather than checking an old
+class that no longer exists.
+
+Correction states check the empty polite live region after the footer, inserted
+unknown-result text, the hidden sizing copy and unchanged wrapped height/field
+positions through held Save, refusal and Retry. Their full-page companions retain
+the footer evidence when the focused field is above it.
+
+`BROWSER_FOCUS=identity-publication` holds a real dashboard generation with a
+shorter ledger name between native pointerdown and click on Settings. The other
+layout's hidden identity proves publication reached React; the held button keeps
+its text, geometry and focus and opens Settings with the new value. A second
+publication stays held until Cancel returns focus to the opener, then the name
+and accessible label must update with focus still there. Newer Add words remain
+intact. `view-timing` also requires the renamed identity with returned focus after
+saving Settings through a held older data read. Run both timing coverage and a
+complete case when changing this shared shell interaction.
+
+`BROWSER_FOCUS=capture-interference` tests the capture harness with a small native
+fixture document and fixed phone controls. It holds a screenshot reply across
+pointerdown, then holds any full-page screenshot. Upload must stay within 2px and
+the date click, editing and newer words must survive. Background observer captures
+are viewport-only: they never add the full-page companion's layout styles or
+restore an earlier scroll. Explicit awaited captures retain their full-page
+companions. The native capture regression runs in the full suite when captures
+are enabled.
+
+The reader suite holds Queue list replies through a committed Apply and newer
+detail focus. The applied row must disappear before release and stay gone after
+the late replies, with focus and link geometry retained. First-run Import holds
+its native transition scroll and checks that the old controls have unmounted
+before the scroll was requested; its original geometry and focus assertions stay
+in force. Add hook tests hold autosave edits around bill Retry completion and
+reject the obsolete queued-draft alert. Existing assertions, timeouts and console
+filters remain unchanged.
+
+`BROWSER_FOCUS=fixture-isolation` holds a real committed worker-result reply.
+Fixture cleanup must retain recovery until the page's direct save has completed,
+then clear it before deleting ignored records. The next Add document must never
+fetch the deleted result ID. `writesSettled` skips the network-idle wait for
+deliberately blocked health checks; it never skips the pending-save barrier.
+
+Receipt-choice checks follow the accepted usual-payment request's draft ID. The
+shared retry driver deliberately keeps newer typing, so draft text is not an
+identity. Correction reopening first observes Back's native Queue navigation;
+otherwise the pending Back navigation can overtake the test's next `goto`.
+Existing console, geometry, focus and acknowledgement assertions and timeouts
+remain in force.
+
 Use the installed Playwright **1.64.1** at `~/.cache/expense-playwright`. Chromium
 uses its explicit headless-shell executable; Firefox and WebKit also launch
 headless. Install that exact package and its three engine binaries before running.
@@ -40,8 +105,8 @@ agent home is used. Requests outside the fixture's loopback server are blocked.
 
 Profiles, downloads, build logs, server logs, traces, failure images, fake CLI and
 agent state all stay under `/tmp`. Each server uses a free loopback port and is
-terminated in `finally`; browsers and contexts are also closed on failure. Passing runs remove their staging folder; failed runs keep only failing-case
-trace ZIPs. `BROWSER_RESULTS` in stdout retains the assertion matrix.
+terminated in `finally`; browsers and contexts are also closed on failure. Passing runs remove their staging folder; failed runs keep failing-case
+trace ZIPs and the server logs. `BROWSER_RESULTS` in stdout retains the assertion matrix.
 `KEEP_ARTIFACTS=1` keeps the full folder, including the atomically checkpointed
 `results.json` matrix and capture metadata after each complete case, which can
 help diagnose interruptions. The final gallery is produced during normal cleanup.
@@ -559,6 +624,15 @@ reuses each suite's assertions and console/error checks. Run it in Light across
 all four personas, three engines and both sizes; check the load gate before each
 job. Failed-fix coverage checks Save through both Continue editing and Ledger
 check's Open the entry, retaining the same draft and entry IDs.
+The reordered claim regression also holds the reopened editor's second reply,
+types Notes through an injected controlled native-input writeback, then releases
+that reply. The injected writeback proves the capture path; it is not a
+reproduction of the single box failure, whose exact trigger is unknown.
+The typed Notes must remain visible, focused and within 2px geometry and reach
+the real hand-form autosave before the obsolete first reply is released. Its
+original 5-second saved-Notes assertion is unchanged. Component/API regressions
+also cover hand additions, corrections, the existing 500 ms autosave and clearing
+Notes without reusing captured words.
 The deliberately reordered claim test verifies the obsolete token's real 409
 refusal before allowing its one exact release-URL console message. Other console
 errors, including other conflicts, still fail the case.
@@ -566,3 +640,13 @@ The held-Cancel test also restores the textarea's previous controlled value
 between input capture and bubbling, then checks the new words in both the field
 and recovery before releasing Cancel. This reproduces the observed WebKit input
 writeback deterministically in every engine.
+
+
+### Forecast chart sizing
+
+`BROWSER_FOCUS=chart-sizing` changes the real observed Forecast container through
+hidden, zero, 1, 32 and 70 pixel widths, then restores 71, 320 and 520 pixels.
+A container without plotting space must omit its SVG and tooltip. Positive plots
+recover with finite nonnegative dimensions, working Home/End/Escape inspection
+and unchanged financial table values. The same regression runs in the full pass;
+the normal console/page-error assertions remain in place.

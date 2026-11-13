@@ -125,16 +125,17 @@ async function cleanupArtifacts(passed) {
     // A failed server request is otherwise only a status code: print each server's tail
     // (fictional fixture data only) into this run's own output before the root is removed.
     // The last traceback is printed whole, even when later lines would push it out of the tail.
-    for(const persona of personas){const log=await readFile(join(artifacts,persona,'server.log'),'utf8').catch(()=>null);if(!log)continue;
+    const serverLogs=[];
+    for(const persona of personas){const log=await readFile(join(artifacts,persona,'server.log'),'utf8').catch(()=>null);if(!log)continue;serverLogs.push([`failure-${persona}-server.log`,log]);
       const lines=log.split('\n'),tail=lines.slice(-120),start=lines.findLastIndex(line=>line.startsWith('Traceback ')||line.startsWith('ERROR:'));
       const traceback=start>=0&&start<lines.length-120?lines.slice(start,start+200):[];
       console.log(`SERVER_LOG_TAIL ${persona}\n${traceback.length?traceback.join('\n')+'\n[…]\n':''}${tail.join('\n')}\nEND_SERVER_LOG_TAIL ${persona}`);}
     const failures=[];
     async function retain(folder){for(const name of await readdir(folder)){const path=join(folder,name);if((await lstat(path)).isDirectory())await retain(path);else if(name.startsWith('failure-')&&name.endsWith('.zip'))failures.push(path);}}
     await retain(artifacts);
-    const saved=[];for(const [i,path] of failures.entries()){const bytes=await readFile(path);saved.push([`failure-${i}-${path.split('/').at(-1)}`,bytes]);}
+    const saved=[...serverLogs];for(const [i,path] of failures.entries()){const bytes=await readFile(path);saved.push([`failure-${i}-${path.split('/').at(-1)}`,bytes]);}
     await rm(artifacts,{recursive:true,force:true});
-    if(saved.length){await mkdir(artifacts);for(const [name,bytes] of saved)await writeFile(join(artifacts,name),bytes);console.log('Failing case traces retained for run cleanup.');}
+    if(saved.length){await mkdir(artifacts);for(const [name,bytes] of saved)await writeFile(join(artifacts,name),bytes);console.log('Failing case traces and server logs retained for run cleanup.');}
   }
 }
 for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.once(signal,async()=>{try{if(stage?.activeContext)await stage.activeContext.tracing.stop({path:join(stage.root,`failure-${stage.activeCase}-interrupted.zip`)});}catch{}await activeBrowser?.close();await stop(activeServer);await cleanupArtifacts(false);process.exit(130);});

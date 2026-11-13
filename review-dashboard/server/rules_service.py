@@ -11,7 +11,7 @@ import shutil
 from transactions import BalanceRefusal, LedgerBusy, Transaction, clean, jj, refresh
 from currency_settings import SettingsRecords
 from store import load, entries, dump, validate, store_paths, new_id
-from recurring import (active, advance, candidate, detect, identity, main_postings,
+from recurring import (active, advance, amounts, candidate, detect, identity, main_postings,
                        match_text, paying, payee_match, period_for, same_payment, stale_rules,
                        simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt, new_rule)
 import format1
@@ -78,13 +78,65 @@ def complete_rule(value, day):
     return rule
 
 
-def addition_effects(root, entry_id, draft, *, documents=None, lines=None):
-    """Called inside Transaction.apply before its single audit/verified commit."""
+class StatementPayments:
+    """One locked batch's ordered actuals, signatures and linked history.
+
+    Postings do not change while linking. Only the linked-rule buckets and the
+    current rule objects need updating as each chronological payment is consumed.
+    """
+    def __init__(self, actual, rules, accounts):
+        self.actual=actual
+        self.by_id={entry['id']:entry for entry in actual}
+        self.order={entry['id']:index for index,entry in enumerate(actual)}
+        self.signatures={}
+        self.by_payment,self.by_destination,self.by_rule={},{},{}
+        self.rule_by_id={rule['id']:rule for rule in rules}
+        self.positions={rule['id']:index for index,rule in enumerate(rules)}
+        self.rules_by_payment,self.unassigned={},{}
+        for entry in actual:
+            signature=identity(entry,accounts);self.signatures[entry['id']]=signature
+            if signature:
+                self.by_payment.setdefault(signature,[]).append(entry)
+                self.by_destination.setdefault(signature[0],[]).append(entry)
+            if entry['rule']:self.by_rule.setdefault(entry['rule']['id'],{})[entry['id']]=entry
+        for rule in rules:
+            signature=identity(rule,accounts)
+            if signature:self.rules_by_payment.setdefault(signature,[]).append(rule['id'])
+            elif main_postings(rule,accounts):
+                destinations=tuple(sorted({p['account'] for p in main_postings(rule,accounts)}))
+                self.unassigned.setdefault(destinations,[]).append(rule['id'])
+
+    def matching_rules(self, entry):
+        signature=self.signatures[entry['id']]
+        if not signature:return []
+        ids=[*self.rules_by_payment.get(signature,[]),*self.unassigned.get(signature[0],[])]
+        return [self.rule_by_id[identity] for identity in ids]
+
+    def history(self, rule, accounts):
+        signature=identity(rule,accounts)
+        if signature:compatible=self.by_payment.get(signature,[])
+        else:
+            destinations=tuple(sorted({p['account'] for p in main_postings(rule,accounts)}))
+            compatible=self.by_destination.get(destinations,[])
+        result={e['id']:e for e in compatible}
+        result.update(self.by_rule.get(rule['id'],{}))
+        return sorted(result.values(),key=lambda entry:self.order[entry['id']])
+
+    def linked(self, entry, rule):
+        self.by_rule.setdefault(rule['id'],{})[entry['id']]=entry
+        self.rule_by_id[rule['id']]=rule
+
+
+def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persist=True, statement=False, batch=None):
+    """Checked addition effects; statement batches validate and persist once at the end."""
     documents=load(root) if documents is None else documents
-    rules=documents[root/'data/forecast.json']; before=deepcopy(rules)
-    lines=records(root) if lines is None else lines; ignored=ignored_entries(lines)
-    actual=[e for e in entries(documents) if e['id'] not in ignored]
-    entry=next(e for e in actual if e['id']==entry_id)
+    rules=documents[root/'data/forecast.json']; before=deepcopy(rules) if batch is None else []
+    lines=records(root) if lines is None else lines
+    ignored=ignored_entries(lines) if batch is None else set()
+    actual=batch.actual if batch is not None else [e for e in entries(documents) if e['id'] not in ignored]
+    entry=batch.by_id.get(entry_id) if batch is not None else next((e for e in actual if e['id']==entry_id),None)
+    if entry is None:
+        raise ValueError('This payment is missing or was undone and cannot be linked to a recurring rule')
     entry_before=deepcopy(entry)
     accounts=documents[root/'data/accounts.json']['accounts']
     link=None; resumed=[]; paid_bill=None; usual=draft.get('usual_payment')
@@ -115,41 +167,108 @@ def addition_effects(root, entry_id, draft, *, documents=None, lines=None):
             if placeholder['commodity']!=selected['commodity']: raise ValueError('The saved paying account needs a conversion; edit the rule postings first')
             placeholder['account']=selected['account']
     else:
-        matches=[r for r in rules if r['id'] not in declined and active(r) and same_payment(entry,r,accounts)
+        possible=batch.matching_rules(entry) if batch is not None else rules
+        matches=[r for r in possible if r['id'] not in declined and active(r) and (batch is not None or same_payment(entry,r,accounts))
                  and (r.get('amount') != 'varies' or simple_payment(entry,accounts) and payee_match(entry,r)
-                      and main_postings(entry)[0]['commodity']==main_postings(r)[0]['commodity'])]
+                      and main_postings(entry, accounts)[0]['commodity']==main_postings(r, accounts)[0]['commodity'])]
         if len(matches)==1: link=matches[0]
+    # A statement identifies a saved bill by its exact money amount and payee,
+    # rather than guessing its occurrence from an early or late payment date.
+    billed_occurrence=None
+    if statement and link and link['bill']:
+        bill=link['bill']
+        if (simple_payment(entry,accounts) and simple_payment(link,accounts) and payee_match(entry,link)
+                and main_postings(entry,accounts)[0]['commodity']==main_postings(link,accounts)[0]['commodity']
+                and Decimal(main_postings(entry,accounts)[0]['amount'])==Decimal(bill['amount'])):
+            billed_occurrence=bill['occurrence']
+        else:
+            link=None
     if link:
-        occurrence=usual['occurrence'] if usual else period_for(link,entry['date'])
+        if batch is not None:before=[deepcopy(link)]
+        occurrence=usual['occurrence'] if usual else billed_occurrence or period_for(link,entry['date'])
         entry['rule']=dict(id=link['id'],occurrence=occurrence)
         if (link['bill'] or {}).get('occurrence') == occurrence:
             paid_bill=deepcopy(link['bill']);link['bill']=None
             entry['evidence']=list(dict.fromkeys([*entry['evidence'],*paid_bill['evidence']]))
         # The explicitly paid occurrence is consumed even when paid a little early.
-        latest=max((e['date'] for e in actual if e['id']!=entry_id and ((e['rule'] or {}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
+        history=batch.history(link,accounts) if batch is not None else actual
+        latest=max((e['date'] for e in history if e['id']!=entry_id and ((e['rule'] or {}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
         if paid_bill:
             # A saved bill identifies exactly one occurrence, even if its
             # payment is backdated or arrives after the following due date.
-            index=rules.index(link);rules[index]=link=advance(link,occurrence)
+            index=batch.positions[link['id']] if batch is not None else rules.index(link);rules[index]=link=advance(link,occurrence)
         elif entry['date']>=latest and max(entry['date'],occurrence)>=link['date']:
-            index=rules.index(link);rules[index]=link=advance(link,max(entry['date'],occurrence))
-        recompute_estimate(link,actual,accounts)
-    else:
+            index=batch.positions[link['id']] if batch is not None else rules.index(link);rules[index]=link=advance(link,max(entry['date'],occurrence))
+        if batch is not None:batch.linked(entry,link)
+        recompute_estimate(link,batch.history(link,accounts) if batch is not None else actual,accounts)
+    elif not statement:
         resumed=[dict(id=r['id'],description=r['description']) for r in rules if r['id'] not in declined and r.get('lifecycle')=='paused' and same_payment(entry,r,accounts)]
-    settings=documents.get(root/'data/recurring-settings.json',{'never-automatic':[]})
-    covered=any(r['id'] in declined and same_payment(entry,r,accounts) for r in rules)
-    found=candidate(entry,actual,rules,accounts,settings,draft['client_time'][:10],draft['text']) if not link and not covered else None
+    found=None
+    if not statement:
+        settings=documents.get(root/'data/recurring-settings.json',{'never-automatic':[]})
+        covered=any(r['id'] in declined and same_payment(entry,r,accounts) for r in rules)
+        if not link and not covered:found=candidate(entry,actual,rules,accounts,settings,draft['client_time'][:10],draft['text'])
     made=[]
     if found and found['automatic']:
         made=[found['rule']]; rules.extend(made)
         entry['rule']=dict(id=made[0]['id'],occurrence=entry['date'])
-    validate(documents,root)
-    if entry != entry_before:
-        path=root/'data/expenses'/f"{entry['date'][:4]}.json";dump(path,documents[path])
-    if rules != before:dump(root/'data/forecast.json',rules)
-    return dict(rule_changes=rule_changes(before,rules), made_rules=[r['id'] for r in made],
+    if persist:
+        validate(documents,root)
+        if entry != entry_before:
+            path=root/'data/expenses'/f"{entry['date'][:4]}.json";dump(path,documents[path])
+        if rules != before:dump(root/'data/forecast.json',rules)
+    after=rules if batch is None else [link] if link else []
+    return dict(rule_changes=rule_changes(before,after), made_rules=[r['id'] for r in made],
                 rule=entry['rule'], next_due=next((r['date'] for r in rules if (entry['rule'] or {}).get('id')==r['id']),None), resume_rules=resumed,
                 **({'paid_bill':paid_bill} if paid_bill else {}))
+
+
+def statement_effects(root, entry_ids, session, *, documents, lines=None):
+    """Link a statement's unlinked payments in its existing checked transaction.
+
+    Reuse the caller's documents and validate/persist the final batch once. The
+    caller holds the lock and snapshots the store and today's audit for rollback.
+    Existing explicit links and the owner's classification remain unchanged.
+    """
+    rules = documents[root/'data/forecast.json']
+    if not rules or not entry_ids:
+        return []
+    before = deepcopy(rules)
+    accounts = documents[root/'data/accounts.json']['accounts']
+    entry_ids = set(entry_ids)
+    lines = records(root) if lines is None else lines
+    ignored = ignored_entries(lines)
+    actual = [e for e in entries(documents) if e['id'] not in ignored]
+    batch = StatementPayments(actual,rules,accounts)
+    payments = [e for e in actual if e['id'] in entry_ids and not e['rule'] and batch.signatures[e['id']]]
+    if not payments:
+        return []
+    saved = session.get('client_time') or session.get('saved_at') or session.get('created_at')
+    context = dict(client_time=saved or current_time().astimezone().isoformat(), text='')
+    changed_years, bills = set(), []
+    for entry in sorted(payments, key=lambda e: e['date']):
+        previous = deepcopy(entry)
+        result = addition_effects(root, entry['id'], context, documents=documents, lines=lines, persist=False, statement=True, batch=batch)
+        if entry != previous:
+            changed_years.add(entry['date'][:4])
+        if result.get('paid_bill'):
+            bills.append((entry['id'], result))
+    changes = rule_changes(before, rules)
+    if changed_years or changes:
+        validate(documents, root)
+        for year in sorted(changed_years):
+            path = root/'data/expenses'/f'{year}.json'
+            dump(path, documents[path])
+        if changes:
+            dump(root/'data/forecast.json', rules)
+    for entry_id, result in bills:
+        append(root, event('rule', rule_action='bill-paid', rule_id=result['rule']['id'],
+            request_id=session['id'], request_hash=digest(dict(statement=session['id'], entry=entry_id, bill=result['paid_bill'])),
+            rule_changes=result['rule_changes'], bill=result['paid_bill'], text='', entry_id=entry_id,
+            files=[dict(original_name=session['original_name'],
+                        filed_path=f"Bills/{session['statement']['periodEnd']}/{session['original_name']}")],
+            doubts=[]), lines=lines)
+    return changes
 
 
 def wire_proposal(rule, day, filenames, root, body):
@@ -172,8 +291,9 @@ def wire_proposal(rule, day, filenames, root, body):
         if not isinstance(value,str) or not re.fullmatch(r'(0|[1-9]\d*)(\.\d+)?',value) or Decimal(value)<=0:
             raise ValueError('Enter a positive decimal amount')
         value=decimal_text(value)
-        original=sum((Decimal(p['amount']) for p in main_postings(rule)),Decimal(0))
-        currencies={p['commodity'] for p in main_postings(rule)}
+        totals=amounts(rule,accounts)
+        original=sum(totals.values(),Decimal(0))
+        currencies=set(totals)
         if not original or len(currencies)!=1: raise ValueError('Edit the postings for this complex rule')
         if rule.get('amount')=='varies':
             if not simple_payment(rule,accounts): raise ValueError('Only simple two-posting payments in one currency can vary')
@@ -372,7 +492,8 @@ def operate(settings, op_id, body, *, clock=None):
             if prior['rule_action']=='bill-saved':
                 after=next(c['after'] for c in prior['rule_changes'] if c['id']==prior['rule_id'])
                 bill=format1.bill(prior['bill'])
-                result.update(outcome='bill',rule_id=prior['rule_id'],description=after['description'],bill=bill,sources=bill['evidence'],total=f"{bill['amount']} {main_postings(after)[0]['commodity']}")
+                accounts=load(root)[root/'data/accounts.json']['accounts']
+                result.update(outcome='bill',rule_id=prior['rule_id'],description=after['description'],bill=bill,sources=bill['evidence'],total=f"{bill['amount']} {main_postings(after, accounts)[0]['commodity']}")
             return result
         receipt_path = store.folder(op_id) / 'record.json'
         receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else {}
@@ -501,7 +622,7 @@ def operate(settings, op_id, body, *, clock=None):
             append(root,record)
             result=dict(audit_id=record['id'],action=action,changes=changes,changed=len(changes))
             if action=='bill-saved':
-                result.update(outcome='bill',rule_id=rule['id'],description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['evidence'],total=f"{bill_record['amount']} {main_postings(rule)[0]['commodity']}")
+                result.update(outcome='bill',rule_id=rule['id'],description=rule['description'],bill=deepcopy(bill_record),sources=bill_record['evidence'],total=f"{bill_record['amount']} {main_postings(rule, accounts)[0]['commodity']}")
             journal['result']=result;tx.save_journal(journal)
             message=f'Rules: {action}\n\n{tx.marker}\nAudit: {record["id"]}\nAdded-by: user (rule operation)'
             if action=='bill-saved':

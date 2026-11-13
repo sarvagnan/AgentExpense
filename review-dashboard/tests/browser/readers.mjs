@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {guard,fetchRoute} from './held.mjs';
 
 export async function runReaderWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,overflow,snap,record,quiesce}) {
  const get=async path=>{const response=await fetch(base+'api/'+path);assert.ok(response.ok,await response.clone().text());return response.json();};
@@ -72,6 +73,13 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
  await expect(queueRow.locator('.draft-status')).toHaveText('Decisions');await expect(queueRow.locator('.draft-status')).toHaveClass(/state-question/);
  await overflow('7B cited agent statement');await snap('draft-agent-statement');
  await page.getByRole('button',{name:'Review apply',exact:true}).click();
+ // Keep the Queue's list refresh behind the explicit Apply result. The old row
+ // must leave Needs you even while focus holds the surrounding workspace.
+ let releaseList;const listGate=new Promise(resolve=>releaseList=resolve),listReads=[];
+ const listPattern=base+'api/statements';
+ const holdList=route=>{if(route.request().method()!=='GET')return route.fallback();const pending=guard(route,async()=>{const response=await fetchRoute(route);await listGate;await route.fulfill({response});});listReads.push(pending);return pending;};
+ await page.route(listPattern,holdList);
+ try{
  await page.getByRole('button',{name:'Apply statement',exact:true}).click();
  await expect.poll(async()=>(await get('statements/'+session.id)).state,{timeout:180000}).toBe('applied');
  await expect(page.getByRole('heading',{name:'Statement applied',exact:true})).toBeVisible();
@@ -85,8 +93,15 @@ export async function runReaderWorkflows({page,base,persona,engine,theme,width,s
  assert.equal(summary['closing-balance'],'92.00');assert.equal(summary.members.length,2);
  assert.ok((await readFile(join(stage.ledger,summary.source))).equals(buffer));
  // Applied, the statement leaves Needs you even while focus stays in its detail.
+ const appliedLink=page.locator('.statement-applied').getByRole('link',{name:'View stored reconciliation',exact:true});
+ await appliedLink.focus();await expect(appliedLink).toBeFocused();const appliedBox=await appliedLink.boundingBox();
  await expect(queueRow).toHaveCount(0);
+ releaseList();const completedLists=await Promise.all(listReads);assert.deepEqual(completedLists.filter(Boolean),[],'Held Queue list responses complete');await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await expect(queueRow).toHaveCount(0);
+ await expect(appliedLink).toBeFocused();const currentBox=await appliedLink.boundingBox();
+ for(const key of ['x','y'])assert.ok(Math.abs(appliedBox[key]-currentBox[key])<=2,'A late Queue list must not move the applied statement link');
+ record('held Queue statement lists: Apply removes its own row while detail focus stays held; late reads keep the result, focus and link geometry');
  await snap('applied-agent-statement');
+ }finally{releaseList();await Promise.all(listReads);await page.unroute(listPattern,holdList);}
  await quiesce();await go('add/');
  await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:'Next-unmapped.csv',mimeType:'text/csv',buffer});
  await expect(page.locator('.file-interpretation')).toContainText('Read by the built-in reader');

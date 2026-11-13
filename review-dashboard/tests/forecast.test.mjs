@@ -14,10 +14,9 @@ const persona = await personaData('asha');
 const data = persona.dashboard;
 const { forecast } = data;
 const ledger = path.join(persona.root, 'expense_ledger.ledger');
-const nextDay = (day) => { const date = new Date(`${day}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); };
 
-assert.equal(forecast.asOf, data.transactions.reduce((latest, row) => row.date > latest ? row.date : latest, ''), 'Forecast starts after the latest actual entry');
-assert.equal(forecast.start, forecast.asOf.slice(0, 7) === forecast.currentMonth ? nextDay(forecast.asOf) : `${forecast.currentMonth}-01`);
+assert.equal(forecast.asOf, data.transactions.reduce((latest, row) => row.date > latest ? row.date : latest, ''), 'Recorded-through date follows actual entries');
+assert.equal(forecast.start, `${forecast.currentMonth}-01`, 'Rule next dates determine unpaid occurrences throughout the current month');
 assert.ok(forecast.items.every((item) => item.date >= forecast.start && item.date < forecast.end), 'Only generated entries inside the forecast period');
 assert.ok(forecast.items.every((item) => item.description), 'Every forecast entry is named from its rule');
 assert.deepEqual(forecast.months.map(row => row.month), [...new Set([forecast.currentMonth, ...forecast.items.map(row => row.month)])].sort(), 'Forecast months follow actual rule occurrences');

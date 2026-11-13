@@ -477,6 +477,27 @@
     ]
   },
   {
+    "id": "e100000000000001",
+    "date": "2026-10-20",
+    "status": "confirmed",
+    "description": "Annual retirement contribution",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Investments:Retirement Reserve", "amount": "600.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-600.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
     "id": "0000000000000011",
     "date": "2026-10-22",
     "status": "confirmed",

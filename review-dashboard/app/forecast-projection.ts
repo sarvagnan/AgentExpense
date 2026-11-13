@@ -45,6 +45,9 @@ export function forecastProjection(forecast: DashboardData['forecast'], months: 
   const expected = cumulative(increments, asOfDay, focusDays, recordedTotal + (increments.get(asOfDay) || 0));
   const committed = items.reduce((sum, item) => sum + item.signedExpense, 0);
   const variable = includeVariable ? variableAfter(forecast, focus, afterDay) : 0;
-  return {isCurrent, asOfDay, focusDays, items, recorded, expected, recordedTotal, committed, variable,
+  const setAside = items.reduce((sum, item) => sum + (item.setAside || 0), 0);
+  // Cash needed for upcoming payments includes contributions; spending stays separate.
+  const cashRequired = committed + variable + setAside;
+  return {setAside, cashRequired, isCurrent, asOfDay, focusDays, items, recorded, expected, recordedTotal, committed, variable,
     total: expected.at(-1)!.value, remainingDays: focusDays - afterDay};
 }

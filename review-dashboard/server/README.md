@@ -299,6 +299,18 @@ ledger and use the same lock and rollback journal. Failed audit commits remain
 pending in the draft, with `audit_error`, for the worker to retry. See
 [WEEKLY-REVIEW.md](WEEKLY-REVIEW.md) for exact reviewer commands.
 
+Statement Apply links only entries it creates to their unique recurring
+rule, including investment contributions, and advances it within the same locked,
+verified transaction. The statement audit retains `rule_changes`; paid saved bills
+also retain their ordinary bill-paid audit event, with the statement file and
+doubts. Existing entries keep both their links and their absence of a link.
+Apply never detects or creates rules. A unique bill needs an exact amount,
+matching currency and payee; its recorded occurrence owns early and late payments.
+Ambiguity leaves the rule unchanged and does not fail Apply. Recurring effects
+reuse one ordered actual/signature/history index and locked audit snapshot,
+updating linked buckets as rows advance rules. Typed validation and strict checks
+remain within the existing rollback journal and checked commit.
+
 Statements uses the same FIFO worker and ledger lock. A version-1 reader registry
 loads built-ins from the application and trusted personal readers from the ledger.
 The [example card PDF layout](../../scripts/statements/README.md) retains PDFium

@@ -48,7 +48,12 @@ export function useComposer(active:boolean){
     if(!current.current.id && !current.current.text.trim())return;
     const run=generation.current;
     syncing.current=(async()=>{try{
-      const d=await ensureDraft();if(d.trashed_at){forgetDiscarded(d.id);return;}if(d.state!=='editing')return;
+      const d=await ensureDraft();
+      // A retry or newer composer may take ownership while the draft read is in flight.
+      // Its words must never be written back to the earlier payment. A failed usual
+      // request also owns its submitted draft until its explicit Retry completes.
+      if(run!==generation.current||savingRef.current||current.current.id!==d.id||usualRetry.current?.id===d.id)return;
+      if(d.trashed_at){forgetDiscarded(d.id);return;}if(d.state!=='editing')return;
       let copy:Recovery;
       do{copy=current.current;const saved=await api.edit(d.id,copy.text,draftPieces(buildSentence(copy.text,{...patterns,extensions:dashboard.meta.ledger.extensions,payments:paymentAccounts(dashboard.meta.accounts)},copy.edits,!!d.files.length),copy.edits),copy.updatedAt||0,copy.declined_rules);if(isRemoved(d.id)||current.current.id!==d.id)return;if(saved.declined_rules?.some(id=>!current.current.declined_rules?.includes(id)))update({...current.current,declined_rules:saved.declined_rules});setSynced(fingerprint(copy));setSyncError('');setDraft(old=>old?.id===saved.id?{...saved,files:old.files}:saved);}while(fingerprint(copy)!==fingerprint(current.current) && !savingRef.current);
     }catch(e){if(run===generation.current&&(e as Error).name!=='AbortError')setSyncError(`Could not save to Queue. ${(e as Error).message}`);}finally{syncing.current=null;}})();

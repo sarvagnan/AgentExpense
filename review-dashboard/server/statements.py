@@ -22,7 +22,7 @@ from transactions import Transaction, jj, clean, refresh
 from ledger_lock import ledger_lock, LOCK_FD_ENV
 from store import commodities, load, entries, dump, empty_entry, new_id, posting as store_posting, store_paths
 from add_entry import add_entry
-from audit import event, append, audit_path
+from audit import event, append, audit_path, records
 sys.path.insert(0, str(APPLICATION / 'scripts/statements'))
 from statement_pdf import extract_text, recognised, card_identifier, printed_currency, account_currency
 from statement_rules import plan, convert
@@ -939,10 +939,10 @@ class StatementTransaction(Transaction):
             for path, document in documents.items():
                 dump(path,document)
             for entry in new_entries:
-                added.append(add_entry(entry,root=self.root))
+                added.append(add_entry(entry,root=self.root,documents=documents))
             if uncertain:
                 from review import link_pair
-                linked_documents = load(self.root)
+                linked_documents = documents
                 linked = {e['id']: e for e in entries(linked_documents)}
                 for proposed, candidates in uncertain:
                     identity = added[new_entries.index(proposed)]
@@ -954,7 +954,11 @@ class StatementTransaction(Transaction):
                         dump(path, document)
             dump(reconciliation,{key:statement[key] for key in ('account','accountLabel','currency','card_last4','periodStart','periodEnd','previousBalance','purchasesCharges','paymentsCredits','totalDue','rows')}|{'source':source})
             record['entry_ids']=changed+added+([opening['id']] if opening else [])
-            append(self.root,record)
+            from rules_service import statement_effects
+            audit_lines=records(self.root)
+            changes=statement_effects(self.root,added,s,documents=documents,lines=audit_lines)
+            if changes:record['rule_changes']=changes
+            append(self.root,record,lines=audit_lines)
             result=dict(entry_ids=record['entry_ids'],changed=len(changed),added=len(added),converted=sum(i['rule']=='foreign_currency' and (not i['decision'] or i['decision']['action']=='conversion') for i in checklist),source=source,end=statement['periodEnd'],audit_id=record['id'])
             journal['result']=result
             self.save_journal(journal)

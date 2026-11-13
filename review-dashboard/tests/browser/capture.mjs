@@ -5,12 +5,14 @@ export const shots = resolve(process.env.BROWSER_SHOTS || join(process.env.AGENT
 assert.ok(shots.startsWith('/tmp/') || shots.startsWith('/private/tmp/'),'Browser captures must stay under /tmp');
 const escape = value => String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 export async function capture(page, manifest, info) {
-  const scroll=await page.evaluate(()=>({x:scrollX,y:scrollY}));
+  // Observer captures run while the next gesture may already be underway.
+  // Only an explicitly awaited capture may restyle or restore the document.
+  const scroll=info.background?null:await page.evaluate(()=>({x:scrollX,y:scrollY}));
   await mkdir(shots,{recursive:true});
   const name=[info.engine,info.persona,info.state,info.theme,info.width].join('-');
   const file=name+'.png';
   await page.screenshot({path:join(shots,file),animations:'disabled'});
-  const tall=await page.evaluate(()=>document.documentElement.scrollHeight>innerHeight+2);
+  const tall=!info.background&&await page.evaluate(()=>document.documentElement.scrollHeight>innerHeight+2);
   let full;
   if(tall) {
     full=name+'-full.png';

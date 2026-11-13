@@ -26,6 +26,8 @@ if sys.argv[1] == 'exec':
 # diagnostics/probes separate from the existing production-call assertions.
 def diagnostic():
     args = sys.argv[1:]
+    if args in (['--version'], ['login', 'status']):
+        time.sleep(settings.get('diagnostic_delay', 0))
     if args[0] == 'exec':
         schema = json.loads(Path('schema.json').read_text())
         if schema.get('required') != ['account', 'shell_unavailable']:

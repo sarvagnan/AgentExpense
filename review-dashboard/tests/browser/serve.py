@@ -645,6 +645,11 @@ def recurring_controls(body: dict):
             r['postings'][0].update(commodity=foreign,cost=dict(amount='12.00',commodity=currency,per='total'))
             r['postings'][-1]['amount']='-12.00'
         rules.append(r)
+    if body.get('investment'):
+        destination='Assets:Rule Reserve'
+        accounts[destination]=meta(destination,kind='investment',currency=currency,label='Retirement Reserve')
+        rules.append(store_rule('2026-11-15','SIP contribution',[posting(destination,'5000.00',currency),posting(pay,'-5000.00',currency)],id='f00000000000b001',origin=origin('owner')))
+        rules.append(store_rule('2026-11-20','Reserve withdrawal',[posting(destination,'-200.00',currency),posting(pay,'200.00',currency)],id='f00000000000b002',origin=origin('owner')))
     path=settings.ledger/'data/expenses/2026.json'
     rows=read_json(path)
     stale=rules[6]

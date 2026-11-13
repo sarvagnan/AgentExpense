@@ -90,6 +90,15 @@
     "Expenses:Learning:Maple Workshop": {"category": null},
     "Expenses:Memberships:Cedar Archive": {"category": null},
     "Expenses:Utilities:Willow Energy": {"category": null},
-    "Income:Utility Allowance": {}
+    "Income:Utility Allowance": {},
+    "Assets:Investments:Retirement Reserve": {
+      "kind": "investment",
+      "currency": "INR",
+      "label": "Retirement Reserve",
+      "aliases": [
+        "retirement reserve"
+      ],
+      "statement": null
+    }
   }
 }

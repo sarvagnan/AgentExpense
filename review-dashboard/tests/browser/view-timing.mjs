@@ -82,7 +82,7 @@ export async function runViewTiming({page,base,persona,expect,control,go,refresh
   await identity.click();await name.fill(original+' Timing');
   const saved=page.waitForResponse(r=>r.url()===base+'api/settings/name'&&r.request().method()==='POST',{timeout:120000});
   await settings.getByRole('button',{name:'Save changes',exact:true}).click();assert.equal((await saved).status(),200);
-  await data.release();await expect(settings).toHaveCount(0,{timeout:120000});await expect(identity).toContainText(original+' Timing');
+  await data.release();await expect(settings).toHaveCount(0,{timeout:120000});await expect(identity).toBeFocused();await expect(identity).toContainText(original+' Timing');await expect(identity).toBeFocused();
  }finally{await data.release();}
  await identity.click();await name.fill(original);await settings.getByRole('button',{name:'Save changes',exact:true}).click();await expect(settings).toHaveCount(0,{timeout:120000});await expect(identity).toContainText(original);
  record('views timing: a Settings save during a held older read ends on the saved name');

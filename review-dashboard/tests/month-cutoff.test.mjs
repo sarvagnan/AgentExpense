@@ -152,7 +152,7 @@ test('a mid-month latest entry leaves later overdue rules expected at today', as
   await writeFile(join(f.root, 'data/forecast.json'), JSON.stringify(rules));
   const current = await f.build('2026-11-15');
   const forecast = current.forecasts.find(row => row.currency === 'USD');
-  assert.equal(forecast.start, '2026-11-06');
+  assert.equal(forecast.start, '2026-11-01');
   assert.ok(forecast.items.some(item => item.date === '2026-11-10'));
   assert.equal(forecast.variableAfterDay, 14);
 });
@@ -176,4 +176,20 @@ test('a zero previous same-day total retains the comparison period without a per
   assert.match(metric, /No comparison/);
   assert.match(metric, /vs October by day 1/);
   assert.doesNotMatch(metric, /%/);
+});
+
+test('contributions change investment forecasts and balances without spending or variable categories',async t=>{
+ const f=await fixture(t,'jordan'),before=await f.build('2026-11-02');
+ const rows=JSON.parse(await readFile(f.file,'utf8')),accountsFile=join(f.root,'data/accounts.json'),declarations=JSON.parse(await readFile(accountsFile,'utf8'));
+ const destination='Assets:Investments:Test Reserve',pay='Assets:Bank:Alder Checking';
+ declarations.accounts[destination]=store.metadata(destination,{kind:'investment',currency:'USD',label:'Test Reserve'});
+ await writeFile(accountsFile,JSON.stringify(declarations));
+ rows.push(store.entry({id:'e200000000000001',date:'2026-10-15',description:'Regular reserve contribution',extensions:blankExtensions(rows),postings:[store.posting(destination,'10000.00','USD'),store.posting(pay,'-10000.00','USD')]}));rows.sort((a,b)=>a.date.localeCompare(b.date));await writeFile(f.file,JSON.stringify(rows));
+ const ruleFile=join(f.root,'data/forecast.json'),rules=JSON.parse(await readFile(ruleFile,'utf8'));
+ rules.push(store.rule({id:'f200000000000001',description:'Regular reserve contribution',date:'2026-11-15',postings:[store.posting(destination,'10000.00','USD'),store.posting(pay,'-10000.00','USD')]}));await writeFile(ruleFile,JSON.stringify(rules));
+ const after=await f.build('2026-11-02');
+ assert.deepEqual(after.months.map(({investments,...row})=>row),before.months.map(({investments,...row})=>row));
+ assert.deepEqual(after.forecast.variable,before.forecast.variable);assert.deepEqual(after.forecast.recurringAccounts,before.forecast.recurringAccounts);
+ const occurrence=after.forecast.items.find(i=>i.description==='Regular reserve contribution');assert.equal(occurrence.kind,'Investment');assert.equal(occurrence.amount,10000);assert.equal(occurrence.signedExpense,0);
+ assert.equal(after.forecast.months[0].committed,before.forecast.months[0].committed);assert.equal(after.forecast.months[0].investments,before.forecast.months[0].investments+10000);
 });

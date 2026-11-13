@@ -75,6 +75,7 @@ await expect(form).toHaveCount(0);await expect(page.getByRole('button',{name:'Co
 
   const kept=(await get('drafts')).find(d=>d.correction?.entry_id===entry);
   await go('queue/?draft='+kept.id);
+  let reopenedClaim;
   let obsoleteToken='',obsoleteReleases=0;const obsoleteFailures=[],releaseUrl=base+'api/drafts/'+kept.id+'/release';
   const firstClaim=await hold(page,base+'api/drafts/'+kept.id+'/claim',{method:'POST',transform:(body,response)=>{assert.equal(response.status(),200);obsoleteToken=JSON.parse(body).claim_token;assert.match(obsoleteToken,/^[a-f0-9]{64}$/);return body;}});
   const refusedRelease=forward(page,async(response,route)=>{
@@ -89,17 +90,27 @@ await expect(form).toHaveCount(0);await expect(page.getByRole('button',{name:'Co
     // Stay in the same document: navigation unmounts the old editor, then reopens it.
     await page.locator('.sidebar a[href$="queue/"],.phone-live-nav a[href$="queue/"]').filter({visible:true}).click();
     await page.locator(`a.draft-row[href$="?draft=${kept.id}"]`).click();
-    await page.getByRole('button',{name:'Continue editing',exact:true}).click();
+    reopenedClaim=await hold(page,base+'api/drafts/'+kept.id+'/claim',{method:'POST',transform:(body,response)=>{assert.equal(response.status(),200);return body;}});
+    await page.getByRole('button',{name:'Continue editing',exact:true}).click();await reopenedClaim.ready;
     await expect(form.getByLabel('Description',{exact:true})).toHaveValue('Willow reload recovery');
-    await form.getByLabel('Notes',{exact:true}).fill('New owner before the old claim reply');
+    const notes=form.getByLabel('Notes',{exact:true});
+    // Replay the controlled-value writeback during native input propagation,
+    // while the reopened claim response is still held (as Add's regression does).
+    await notes.evaluate(input=>input.addEventListener('input',()=>{input.value=input.defaultValue;},{capture:true,once:true}));
+    await notes.fill('New owner before the old claim reply');await expect(notes).toBeFocused();await expect(notes).toBeEnabled();
+    const before=await notes.boundingBox();await snap('intent-reopened-claim-typing');
+    await reopenedClaim.release();
     await expect.poll(async()=>(await get('drafts/'+kept.id)).hand_form.entry.notes).toEqual(['New owner before the old claim reply']);
+    await expect(notes).toHaveValue('New owner before the old claim reply');await expect(notes).toBeFocused();await expect(notes).toBeEnabled();
+    const after=await notes.boundingBox();for(const key of ['x','y','width','height'])assert.ok(Math.abs(before[key]-after[key])<=2,'Claim reply must keep Notes geometry: '+key);
+    await snap('intent-reopened-claim-saved');
     await firstClaim.release();
     await expect.poll(()=>{assert.deepEqual(obsoleteFailures,[]);return obsoleteReleases;}).toBe(1);
     await form.getByLabel('Notes',{exact:true}).fill('New owner after the old claim reply');
     await expect.poll(async()=>(await get('drafts/'+kept.id)).hand_form.entry.notes).toEqual(['New owner after the old claim reply']);
     await expect(form.locator('[role="alert"]')).toHaveCount(0);
     await form.getByRole('button',{name:'Back to Queue',exact:true}).click();
-  }finally{await firstClaim.release();await page.unroute(releaseUrl,obsoleteRelease);}
+  }finally{await reopenedClaim?.release();await firstClaim.release();await page.unroute(releaseUrl,obsoleteRelease);}
   record('intent same-document reopen keeps its newer claim and form after an obsolete first response');
   await go('queue/?item='+kept.id);const [discarded]=await Promise.all([page.waitForResponse(r=>r.url()===base+'api/drafts/'+kept.id&&r.request().method()==='DELETE'),page.getByRole('button',{name:'Discard',exact:true}).click()]);assert.equal(discarded.status(),204);await expect.poll(()=>new URL(page.url()).searchParams.has('item')).toBe(false);
   await go('trash/?item='+kept.id);await page.locator('.trash-row').filter({hasText:'Willow lunch'}).getByRole('button',{name:'Restore',exact:true}).click();

@@ -1,3 +1,4 @@
+import {runInvestmentRules} from './investment-rules.mjs';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -137,10 +138,10 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   for(const term of await editor().locator('.rule-readonly dt').all()){assert.doesNotMatch(await term.textContent(),/^(Expenses|Assets|Liabilities|Income|Equity):/);assert.match(await term.getAttribute('title'),/:/);}
   await snap('rules-complex-readonly');await editor().getByRole('button',{name:'Cancel',exact:true}).click();
   await page.getByRole('button',{name:'New rule',exact:true}).click();const newRule=page.getByRole('dialog',{name:'New rule',exact:true});
-  await newRule.getByLabel('Description',{exact:true}).fill('Kestrel club');await newRule.getByLabel('Amount',{exact:true}).fill('16.25');await newRule.getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await newRule.getByLabel('Category',{exact:true}).selectOption('Expenses:Rule Workflow:Juniper ended');await newRule.getByLabel('Next date',{exact:true}).fill('2026-12-03');
+  await newRule.getByLabel('Description',{exact:true}).fill('Kestrel club');await newRule.getByLabel('Amount',{exact:true}).fill('16.25');await newRule.getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await newRule.getByLabel('Category or investment',{exact:true}).selectOption('Expenses:Rule Workflow:Juniper ended');await newRule.getByLabel('Next date',{exact:true}).fill('2026-12-03');
   // C10: New rule has a plus icon, the Category shows labels while its value stays the path, and Amount is a plain field group.
   assert.equal(await page.locator('.rules-toolbar .button.primary .icon').innerHTML(),await page.evaluate(()=>'<path d="M12 5.5v13M5.5 12h13"></path>'),'New rule uses the plus icon');
-  const category=newRule.getByLabel('Category',{exact:true});await expect(category).toHaveValue('Expenses:Rule Workflow:Juniper ended');
+  const category=newRule.getByLabel('Category or investment',{exact:true});await expect(category).toHaveValue('Expenses:Rule Workflow:Juniper ended');
   assert.equal(await category.evaluate(select=>select.selectedOptions[0].textContent),'Rule Workflow › Juniper ended');
   assert.deepEqual(await category.evaluate(select=>[...select.options].filter(option=>option.value&&/^Expenses:/.test(option.textContent)).length),0,'No category option shows a raw path');
   assert.equal(await newRule.locator('.rule-amount-choice').evaluate(node=>getComputedStyle(node).borderTopStyle),'none','The Amount group has no fieldset box');
@@ -165,4 +166,5 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   assert.ok(unsent.every(d=>!d.result&&!d.audit_pending),'Unsent composer copies have no saved result or pending audit');
   const unsettled=completed.filter(d=>(d.state!=='editing'||submitted.has(d.id))&&(d.state!=='added'||d.audit_pending));assert.deepEqual(unsettled.map(d=>[d.state,d.text,!!d.audit_pending]),[],'Every submitted write settled before fixture reset');
   await quiesce({writesSettled:true});await page.unroute('**/api/health');await control('reset-review',{});await resetDrafts({persona,empty:true});
+  await runInvestmentRules({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});
 }

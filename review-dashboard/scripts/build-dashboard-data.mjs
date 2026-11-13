@@ -24,6 +24,7 @@ const kindOf = account => accountKind(account, accounts);
 
 // Values are normalized to the funding account's currency before aggregation.
 const expenseValues = new WeakMap();
+const investmentValues = new WeakMap();
 // Entries the store leaves out of the estimate (`excluded-from-estimate`), with the stated reason.
 const variableExclusions = new WeakMap();
 
@@ -107,6 +108,7 @@ function toRecord(transaction, sequence) {
     reason: transaction['excluded-from-estimate'].reason.split(',')[0].trim() || 'excluded',
   });
   expenseValues.set(record, allocations);
+  investmentValues.set(record, investmentAmount);
   return record;
 }
 const records = transactions.flatMap(transaction => fundedTransactions(transaction, accounts)).map(toRecord);
@@ -119,8 +121,8 @@ const reimbursementGroups = [...new Set(records.filter(record => record.reimburs
   return { id, currency, label: rows[0].reimbursementLabel, purchases: Number(purchases.toFixed(2)), received: Number(received.toFixed(2)), outstanding: Number((purchases - received).toFixed(2)), paymentDate: rows.filter(row => row.reimbursementAmount < 0).at(-1)?.date || '' };
 });
 
-// Forecast the current month and twelve following months. The latest actual
-// controls scheduled payments; meta.today controls the recording cut-off.
+// Forecast the current month and twelve following months. Each rule's own next
+// date controls its remaining occurrences; unrelated actuals never consume one.
 const isoDay = (date) => date.toISOString().slice(0, 10);
 const forecastStart = `${currentMonth}-01`;
 const forecastEnd = new Date(Date.UTC(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)) + 12, 1));
@@ -168,12 +170,9 @@ const expenseRecords = records.filter(record => record.currency === currency && 
 const currencyRecords = records.filter(record => record.currency === currency);
 const currencyAsOf = currencyRecords.reduce((latest, record) => record.date > latest ? record.date : latest, '');
 const daysPassed = currencyAsOf.slice(0, 7) === currentMonth ? Number(currencyAsOf.slice(8, 10)) : 0;
-const start = new Date(`${currencyAsOf || forecastStart}T00:00:00Z`);
-if (currencyAsOf) start.setUTCDate(start.getUTCDate() + 1);
-if (isoDay(start) < forecastStart) start.setTime(Date.parse(forecastStart + 'T00:00:00Z'));
 // Today's variable estimate remains until an actual in this currency is dated today.
 const variableAfterDay = Number(buildToday.slice(8, 10)) - (currencyRecords.some(record => record.date === buildToday) ? 0 : 1);
-const currencyForecastRecords = forecastRecords.filter(record => record.currency === currency && record.date >= isoDay(start));
+const currencyForecastRecords = forecastRecords.filter(record => record.currency === currency);
 const currencyMonths = [...new Set(currencyRecords.map(record => record.month))].sort();
 const currencyFirstDate = currencyRecords.reduce((earliest, record) => record.date < earliest ? record.date : earliest, currencyAsOf);
 const firstFullMonth = currencyFirstDate.endsWith('-01') ? currencyFirstDate.slice(0, 7) : (currencyMonths[1] || currentMonth);
@@ -222,7 +221,7 @@ const forecast = {
   currentMonth,
   daysPassed,
   variableAfterDay,
-  start: isoDay(start),
+  start: forecastStart,
   end: isoDay(forecastEnd),
   // Months before this one are partial and excluded from comparison averages.
   firstFullMonth,
@@ -234,7 +233,7 @@ const forecast = {
     return {
       month,
       committed: Number(expenses.reduce((sum, record) => sum + record.signedExpense, 0).toFixed(2)),
-      investments: Number(rows.filter((record) => record.kind === 'Investment').reduce((sum, record) => sum + record.amount, 0).toFixed(2)),
+      investments: Number(rows.reduce((sum, record) => sum + Math.max(0, investmentValues.get(record)), 0).toFixed(2)),
     };
   }),
   items: currencyForecastRecords.map((record) => ({
@@ -248,6 +247,9 @@ const forecast = {
     account: record.ledgerAccount,
     amount: record.amount,
     signedExpense: record.signedExpense,
+    // Direction is explicit: an absolute headline cannot turn a withdrawal into
+    // a contribution. An income split contributes only its investment portion.
+    setAside: Number(Math.max(0, investmentValues.get(record)).toFixed(2)),
     paymentLabel: record.paymentLabel,
     sources: record.sources,
     ...(varyingForecast.has(record)?{varying:varyingForecast.get(record)}:{}),

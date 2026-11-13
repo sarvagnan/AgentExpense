@@ -47,11 +47,12 @@ function App() {
     setSetup(false);
     window.history.pushState({}, '', `${basePath}/add/`);
     setView('add');
-    window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
-  // Add has rendered once this runs; its heading takes focus from the removed Finish button.
+  // Add has rendered once this runs; reset scroll only after Import unmounts,
+  // then its heading takes focus from the removed Finish button.
   useEffect(() => {
     if (setup || !focusAfterSetup.current) return;
+    window.scrollTo({ top: 0, behavior: 'instant' });
     const frame = requestAnimationFrame(() => { focusAfterSetup.current = false; document.querySelector<HTMLElement>('.content h1')?.focus({ preventScroll: true }); });
     return () => cancelAnimationFrame(frame);
   }, [setup]);

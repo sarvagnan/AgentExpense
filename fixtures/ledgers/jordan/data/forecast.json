@@ -70,5 +70,36 @@
       {"account": "Expenses:Subscriptions:Lantern Notes", "amount": "10.00", "commodity": "EUR", "cost": {"amount": "11.00", "commodity": "USD", "per": "total"}, "assert": null, "notes": []},
       {"account": "Assets:Bank:Alder Checking", "amount": "-11.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
     ]
+  },
+  {
+    "id": "f100000000000001",
+    "date": "2027-10-20",
+    "status": "confirmed",
+    "description": "Annual retirement contribution",
+    "schedule": {"every": "year", "from": "2027-10-20", "interval": 1, "anchor-day": 20},
+    "amount": "fixed",
+    "lifecycle": "active",
+    "origin": {
+      "kind": "owner",
+      "words": null,
+      "entry-ids": [
+        "e100000000000001"
+      ],
+      "came-back": false
+    },
+    "created": "2026-10-20",
+    "removal": null,
+    "bill": null,
+    "evidence": [],
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Investments:Retirement Reserve", "amount": "600.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Alder Checking", "amount": "-600.00", "commodity": "USD", "cost": null, "assert": null, "notes": []}
+    ]
   }
 ]

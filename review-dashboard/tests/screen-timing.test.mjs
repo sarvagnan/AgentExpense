@@ -117,6 +117,40 @@ function handHarness(directWrites={subscribeWrites:()=>()=>{},writeSnapshot:()=>
  return {h,api,ApiError,calls,holds,stored,form,draft,get done(){return done;},nodes:()=>nodes(h.current),button:text=>nodes(h.current).find(n=>n.type==='button'&&n.props.children===text)};
 }
 
+for(const correction of [false,true])test(`Native Notes survive controlled writeback while a ${correction?'correction':'hand addition'} claim reply is held`,async()=>{
+ const form={entry:{date:'2026-11-02',description:'Fictional lunch',postings:[],notes:[]},'new-accounts':[],'attachment-names':[]};
+ const stored=new Map([['ledger-form-fixture-hand-'+ 'd'.repeat(32)+'-form',JSON.stringify(form)]]),old=handHarness(undefined,correction,{stored});old.h.close();
+ const g=handHarness(undefined,correction,{stored}),saved=[];
+ g.api.handForm=async(_id,_token,proposal)=>{saved.push(JSON.parse(JSON.stringify(proposal.entry.notes)));return {};};
+ const notes=()=>g.nodes().find(n=>n.type==='textarea'&&n.props['aria-label']==='Notes');
+ try{
+  const input={value:'Native Notes before the claim reply'},event={target:input,currentTarget:input};
+  notes().props.onInputCapture?.(event);input.value=''; // A controlled render writes back before bubbling.
+  (notes().props.onInput||notes().props.onChange)(event);await g.h.settle();
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  await g.h.advance(499);assert.equal(saved.length,0,'The existing autosave waits 500 ms');await g.h.advance(1);
+  assert.deepEqual(saved,[['Native Notes before the claim reply']]);assert.equal(notes().props.value,'Native Notes before the claim reply');
+  const cleared={value:''},clearEvent={target:cleared,currentTarget:cleared};notes().props.onInputCapture?.(clearEvent);(notes().props.onInput||notes().props.onChange)(clearEvent);
+  await g.h.settle();await g.h.advance(500);assert.deepEqual(saved.at(-1),[],'Clearing Notes must not reuse an earlier captured value');assert.equal(notes().props.value,'');
+ }finally{g.h.close();old.holds.claim[0].resolve({claim_token:old.calls[0][2],form:old.form});await old.h.settle();}
+});
+
+test('Correction Save notice announces new text in the reserved footer slot without a gap above fields',async()=>{
+ let writes=[];const listeners=new Set(),g=handHarness({writeSnapshot:()=>writes,subscribeWrites:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}},true);
+ const notice=()=>g.nodes().find(n=>n.props?.id==='cancel-save-unknown');
+ try{
+  g.holds.claim[0].resolve({claim_token:'token',form:g.form,original_form:g.form});await g.h.settle();
+  assert.ok(notice(),'An idle correction retains its empty live region');assert.equal(notice().props['aria-live'],'polite');assert.equal(notice().props.children,'');
+  const sizer=g.nodes().find(n=>n.props?.className==='correction-save-sizer');assert.ok(sizer);assert.equal(sizer.props['aria-hidden'],true);const text=sizer.props.children;
+  assert.ok(g.nodes().findIndex(n=>n.type==='footer')<g.nodes().indexOf(notice()),'The notice follows the footer instead of preceding the fields');
+  writes=[{path:'entries/entry/corrections/'+g.draft.id,state:'failed',outcomeUnknown:true}];listeners.forEach(fn=>fn());await g.h.settle();
+  assert.equal(notice().props.role,'status');assert.equal(notice().props['aria-live'],'polite');assert.equal(notice().props.children,text);
+  writes=[{...writes[0],outcomeUnknown:false}];listeners.forEach(fn=>fn());await g.h.settle();
+  assert.equal(notice().props.children,'','A known outcome clears the live text, so another unknown result inserts new text');
+  assert.equal(g.nodes().find(n=>n.props?.className==='correction-save-sizer').props.children,text);
+ }finally{g.h.close();}
+});
+
 test('Cancel waits for a held autosave, removes the draft once and clears recovery without releasing it again',async()=>{
  const g=handHarness(undefined,true);
  try{
@@ -309,14 +343,14 @@ test('Rule editor passes its initiating interaction to the saved snapshot callba
    './live/interaction':{useInteractionSnapshot:value=>[value,{},()=>{}],useActionGuard:()=>({begin:()=>revision,unchanged:ticket=>ticket===revision,interaction:{}})},
    './data':{dashboard:{meta:{accounts:{'Assets:Bank:Willow':{kind:'bank',currency:'USD'},'Expenses:Classes':{}},ledger:{defaultCurrency:'USD'}}}},
    './date-time':{localDate:()=>'2026-11-01'},'./ui':{Dialog:'dialog',money:()=>'',dayLabel:x=>x,monthLong:x=>x,useDocumentScrollLock(){}},
-   '../scripts/recurring-ui.mjs':{complexRule:()=>false,mainPostings:()=>[],payer:()=>null,varyingDetails:()=>null},'./account-labels':{accountFieldLabel:x=>x},
+   '../scripts/recurring-ui.mjs':{complexRule:()=>false,mainPostings:()=>[],payer:()=>null,varyingDetails:()=>null,ruleDestinations:accounts=>Object.keys(accounts).filter(a=>a.startsWith('Expenses:'))},'./account-labels':{accountFieldLabel:x=>x},
    './live/rules-api':{useRuleOperation:onSaved=>({busy:false,error:'',operate:async()=>{await held.promise;await onSaved();return true;}})},
    'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
   });
   try{
    h.render(m=>m.RuleEditor({onClose:()=>closed++,onSaved:unchanged=>{accepted=unchanged?.();}}));
    const change=(test,value)=>{nodes(h.current).find(test).props.onChange({target:{value}});h.render();};
-   change(n=>n.type==='input'&&n.props.id==='rule-description','Fictional rule');change(n=>n.type==='input'&&n.props.inputMode==='decimal','12.50');change(n=>n.type==='select'&&n.props['aria-label']==='Paying account','Assets:Bank:Willow');change(n=>n.type==='select'&&n.props['aria-label']==='Category','Expenses:Classes');
+   change(n=>n.type==='input'&&n.props.id==='rule-description','Fictional rule');change(n=>n.type==='input'&&n.props.inputMode==='decimal','12.50');change(n=>n.type==='select'&&n.props['aria-label']==='Paying account','Assets:Bank:Willow');change(n=>n.type==='select'&&n.props['aria-label']==='Category or investment','Expenses:Classes');
    nodes(h.current).find(n=>n.type==='form').props.onSubmit({preventDefault(){}});await h.settle();if(newer)revision++;held.resolve({});await h.settle();assert.equal(accepted,!newer);assert.equal(closed,newer?0:1);
   }finally{held.resolve({});h.close();}
  }

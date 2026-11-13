@@ -6,10 +6,11 @@ Missing lifecycle means active. `status` still means confirmed/pending and is
 independent of lifecycle. Paused rules have no resume date.
 
 The Python logic is `scripts/ledger/recurring.py`. A whole payment is identified by
-its main expense accounts and one paying account with bank/card/cash/wallet metadata.
-Fees, taxes, discounts and rounding do not supply main expense accounts. Amounts
+its main expense or investment destinations and one paying account with bank/card/cash/wallet metadata.
+Fees, taxes, discounts and rounding do not supply main expense destinations. Amounts
 can vary. Detection additionally requires shared payee words and same-commodity
-amounts within 10% of the earlier payment. Two consecutive calendar months, 25–35
+amounts within 10% of the earlier payment. A costed investment compares its money
+cost (unit price times units, or total cost), not its unit count. Two consecutive calendar months, 25–35
 days apart, with the latest payment within 40 days qualify. Older or irregular
 patterns are suggestions. Subscription/membership/renewal words qualify directly;
 cancellation words do not. Yearly/annual words choose a yearly schedule.
@@ -135,7 +136,7 @@ recovery and operation receipts live under ignored `drafts/`, outside the store.
 Forecast has Overview and Rules views (`forecast/?section=rules`). Rules shows
 native amounts, full payment/category, cadence, next due, last paid, lifecycle and
 weekly-review state. With no live server the built host snapshot is read-only.
-Simple two-posting rules have amount/account/category fields; multi-posting rules
+Simple two-posting rules have amount/account/destination fields; multi-posting rules
 and conversions retain their full balanced postings as read-only facts. The CLI
 can edit those postings. Lifecycle actions and new rules use the same checked
 operation API. Dismissing a suggestion uses `removed` with its proposed `rule`
@@ -143,7 +144,7 @@ and no `rule_id`; the server recomputes the current suggestion and retains a
 removed rule with suppression evidence, so a reload does not bring it back.
 
 Add guesses a rule under the words. A rule's name is its description and its
-category's last name. A word is distinctive when no more than two rules' names use
+destination's last name. A word is distinctive when no more than two rules' names use
 it and it names no category group (an `Expenses` segment with accounts under it),
 account kind or paying account. A guess needs two shared distinctive words, or one
 with the rule's amount (within 10%). The paying account only ranks guesses; most
@@ -177,7 +178,7 @@ settled by its subsequent audited Resume/Keep answer, including after a reload.
 ## Varying recurring rules and saved bills (6f B)
 
 A rule may have `"amount": "varies"`; absence means fixed. Only balanced simple
-two-posting expenses in one currency with one paying account can vary. Costs,
+two-posting payments in one currency with one paying account can vary. Costs,
 split postings and assertions are refused. Automatic detection and matching
 rank/tolerance remain unchanged. Existing rule notes remain untouched.
 
@@ -268,3 +269,64 @@ first, then native amounts within each group; saved bills use their exact amount
 and varying rules use the stored median. Multi-currency rules compare their sorted
 currency lists before their respective amounts. Suggested rules retain their own
 order. A `#rule-<id>` link scrolls to and focuses the rule independently of sorting.
+
+## Regular investment contributions
+
+A rule's destination is its positive main `Expenses:` postings or positive postings
+into accounts declared with `kind: investment`. Expense fees, taxes, discounts and
+rounding remain ancillary; investment account names do not use that exclusion.
+The payer is still exactly one bank, card, cash or wallet account. Transfers
+between those paying accounts are not candidates, even with subscription words.
+Investment account metadata is required: an account's path alone does not make it
+an investment.
+
+Contributions use the same conservative detection, suggestions, suppression,
+removal memory, payment linking and calendar advancement as expenses. Ordinary
+Add, hand finish, statement Apply (card and balance-style), and Add as usual link
+the unique matching investment rule in their checked transaction. Statement Apply
+only links entries it creates. Every existing entry retains its link or absence of
+a link, including a declined guess or a correction that removed a link. Apply
+never creates rules; ordinary additions and explicit history detection still do.
+Statement audit lines retain the rule changes; paying a saved bill also records
+its bill-paid event with the filed statement and doubts.
+
+A statement payment consumes a unique saved bill only when its payee, simple
+payment signature, currency and exact amount fit. The bill's recorded occurrence
+owns the payment, including an early or late payment date. It clears the bill,
+retains its evidence, advances that occurrence and recomputes a varying estimate.
+Ambiguous bills or a payment that does not fit remain unlinked with the rules
+unchanged; they never prevent filing the statement.
+The agent answer and prompt are unchanged: the server owns the rule link.
+
+The Rules editor offers expense categories and investment destinations labelled
+“Invest in”. Simple contributions in the paying currency support fixed amounts,
+Varies, the median estimate and unpaid bills. An investment in units or another
+currency keeps its full balanced postings in the read-only editor; use the rules
+CLI to edit those conversions. Rules displays and sorts costed unit contributions
+by their money cost; Add as usual scales from that same money amount. Incompatible investment currencies are disabled
+when choosing a simple destination.
+
+Rules labels contributions as money set aside. Rules and Forecast keep showing
+contributions when the optional holdings view is disabled: cash still leaves the
+paying account. The setting controls the holdings view, not those commitments.
+Forecast's Money set aside figure is the sum of the
+upcoming contributions in the selected currency and month; Cash still needed
+(or Cash needed for a future month) adds those contributions to upcoming spending
+commitments and the selected variable estimate. This is a payment budget, not a
+bank balance projection. Recorded spending, the spending chart and comparisons,
+category totals and the variable-spending estimate exclude contributions.
+
+Every forecast item publishes its contribution amount explicitly, including zero
+for withdrawals and other non-contributions. A salary split retains its income
+label and full salary headline; only its investment portion counts as set aside.
+A withdrawal adds nothing to set-aside or cash needed. Costed destinations consume
+funding before foreign fees are allocated, so principal is never spending or
+counted twice in cash needed.
+
+Within Forecast's current month and twelve following months, each active rule
+expands from its own stored next date. An unrelated later recorded entry cannot
+hide an unpaid occurrence. Recorded-through dates and remaining variable estimates
+still follow the existing per-currency calendar rules; recorded spending is unchanged.
+
+The format 2 rule shape is unchanged; existing investment rules work without a
+migration or upgrade command.

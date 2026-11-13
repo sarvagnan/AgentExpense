@@ -52,6 +52,22 @@ Add and Review share their loaded documents and audit lines within one locked
 apply instead of rereading them at each helper. The final gate still reads and
 checks the written candidate, including new audit lines; no verification is removed.
 
+Statement Apply reuses its in-process document set when adding rows and applying
+recurring-rule effects. It validates the final batch of rule links, advances,
+estimates and bill changes once, then persists them inside the statement’s
+existing rollback journal and checked commit. Per-entry strict checks remain in place.
+It links only newly created entries and never creates rules. Existing links and
+unlinked entries remain unchanged. Saved bills use their explicit occurrence,
+exact amount, currency and payee; ambiguous payments leave the rule alone without
+failing Apply. Bill-paid events retain the statement file and doubts. Card and
+bank rollback restore the rule, bill and audit alongside all other store changes.
+
+Statement matching builds the ordered actual list and signature/linked-history
+indexes once under the lock, then updates the affected linked buckets and rule
+objects as rows are consumed. Per-row effects copy only their changed rule.
+The same locked audit snapshot is passed through bill and statement appends.
+All typed validation, per-entry strict checks and the final checked commit remain.
+
 ## Dashboard publication
 
 `review-dashboard/server/data_refresh.py` writes `drafts/data-refresh.json` durably
@@ -91,7 +107,7 @@ readiness polling. The normal live health
 poll also discovers data changes from another tab or device.
 
 A fresh page waits for an active rebuild before choosing setup or entry routes.
-An existing page keeps its complete prior views. Stale data cannot reopen
+An existing page keeps its complete prior views. The Settings button retains its displayed name while the pointer uses it, so a name publication cannot shrink its click target mid-gesture. Activation or pointer cancellation releases the held label. Keyboard focus, including focus returned after Settings closes, does not hold an older name; the button adopts the latest publication without requiring a blur. Stale data cannot reopen
 completed setup; the active setup flow retains its acknowledged name/currency
 across Back while its generation is still building.
 
@@ -159,7 +175,7 @@ not a failure and does not authorize another write. A refusal keeps its reason
 and recovery controls; an impossible replay does not offer Retry. A successful
 financial commit with stale views remains saved while data publication catches up.
 
-Statement busy state and late replies belong to their session: another statement stays usable while Apply waits. A cancellation mark survives a lost Cancel response until the Apply job ends; cancellation is announced once. Confirmation remains known when another statement was shown, even if no announcement was made there. An already-filed refusal directs the person to the stored reconciliation in statement history.
+Statement busy state and late replies belong to their session: another statement stays usable while Apply waits. A confirmed Apply removes its own row from the held Queue snapshot immediately; a pending list refresh or newer detail focus cannot keep it in Needs you. Unrelated background rows still wait for interaction to end. A cancellation mark survives a lost Cancel response until the Apply job ends; cancellation is announced once. Confirmation remains known when another statement was shown, even if no announcement was made there. An already-filed refusal directs the person to the stored reconciliation in statement history.
 
 Navigation does not cancel a queued write. Pending saves remain available in the
 page's save shelf. A local pending or failed form slot carries feedback while
@@ -174,7 +190,7 @@ retain their original entry version. An outdated server draft opens the current
 entry and retains the old edits in Queue. A browser recovery copy from an older
 version remains available for copying, with saving refused. Discard kept edits
 explicitly starts from the current saved entry. A late Add restore or save cannot
-clear newer words. An ordinary Add save returns focus to the input only while
+clear newer words. An autosave rechecks draft ownership when a held draft read returns: a usual-payment retry or newer composer prevents that old read from writing next-expense words onto the earlier payment. An ordinary Add save returns focus to the input only while
 its initiating interaction is still current; a newer chosen focus stays put.
 A late Settings or rule save cannot close a form that now holds
 newer typing or a newer pointer/keyboard/focus interaction. Correction acknowledgement
@@ -197,7 +213,7 @@ possibly older published dashboard. Every edited field enters the FIFO together,
 so a later save cannot overtake a field waiting for an earlier response.
 A successful shelf retry also acknowledges
 the active hand form, composer or Review outbox. Newer usual-payment words start
-a separate draft, so autosave cannot change the submitted payment’s audit text.
+a separate draft, so autosave cannot change the submitted payment’s audit text. A failed usual payment or bill keeps ownership of that submitted draft until explicit Retry completes; background autosave does not edit it.
 Ordinary saves, shelf retries and reload recovery share the same API completion
 path for tombstones and notifications. A Queue discard keeps its last visible row
 in a distinct pending-removal slot until the committed response, even when a poll
@@ -241,7 +257,7 @@ storage bytes, including after unmount. Newer edits survive. Kept rule drafts
 retain their base version and expose the same stale/discard recovery as entry
 corrections. Hand worker failures reclaim and recheck the form before Retry; an
 uncertain correction with newer edits asks the person to compare the saved entry.
-First-run completion clears its setup keys. Opening requests carry a durable
+First-run completion clears its setup keys. Its scroll reset runs after the old Import controls unmount, keeping those controls still until the completed Add view replaces them. Opening requests carry a durable
 operation ID; explicit recovery reads the original committed result before
 resubmitting. An accepted/imported set of statement sessions is also recognised.
 Moving focus cannot strand a committed setup step; newer typing exposes Continue
@@ -343,14 +359,23 @@ entry for a fresh correction. Erased temporary details cannot be reconstructed.
 While Cancel is in flight, its discarded form is locked and its confirmation
 stays open. A late acknowledgement clears only the unchanged recovery snapshot
 and cannot navigate a newer page or release a claim during cancellation.
+Hand-form Notes also captures its native input before bubbling and handles it on
+input, as Add does, so a pending controlled render cannot replace the words
+before the handler updates the local form, recovery and existing 500 ms autosave. Empty Notes clears
+the captured value too; ownership and obsolete-claim release checks are unchanged.
+
 Add captures native textarea words before input bubbles, so a pending controlled
 render cannot replace new typing with the previous form value. The input event
 then retains those captured words through the normal composer/recovery path.
 
 
 Cancel is disabled while Save is pending or its outcome is unknown, with a plain
-explanation. The server records an accepted correction before FIFO execution;
-Cancel takes the ledger lock then `drafts.mutex`, refuses a started/committed save,
+explanation. The correction's unknown-result notice lives in the reserved footer status area,
+with a hidden sizing copy and an always-mounted polite live region. Inserting and
+clearing its text announces a new unknown outcome without leaving a gap above the
+fields or moving them; its warning and ordinary error retain separate space.
+The server records an accepted correction before FIFO execution. Cancel takes
+the ledger lock then `drafts.mutex`, refuses a started/committed save,
 and cannot remove a draft being applied. Completion marks the draft added before
 releasing the ledger lock. A confirmed Cancel removes that draft's failed retry
 shelf entries; a lost Cancel reply is confirmed by an idempotent replay.

@@ -64,10 +64,10 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}, foreca
     if(line.kind==='rule'&&['removed','kept'].includes(line.rule_action))for(const id of new Set([line.rule_id,...line.rule_changes.map(c=>c.id)].filter(Boolean))){delete reviews[id];reviewStates[id]=line.rule_action==='kept'?'owner-kept':'owner-removed';}
   }
   const rules = rawRules.map(rule => {
-    const main = [...new Set(mainPostings(rule).map(p=>p.account))].sort().join();
+    const main = [...new Set(mainPostings(rule,metadata).map(p=>p.account))].sort().join();
     const payer = rulePayer(rule,metadata);
     const actual=transactions.filter(e=>!ignored.has(e.id));
-    const paid = rule.amount==='varies'?varyingPayments(rule,actual,metadata):actual.filter(e=>(e.rule?.id===rule.id || rulePayer(e,metadata) && [...new Set(mainPostings(e).map(p=>p.account))].sort().join()===main && (!payer || rulePayer(e,metadata).account===payer.account)));
+    const paid = rule.amount==='varies'?varyingPayments(rule,actual,metadata):actual.filter(e=>(e.rule?.id===rule.id || main && rulePayer(e,metadata) && [...new Set(mainPostings(e,metadata).map(p=>p.account))].sort().join()===main && (!payer || rulePayer(e,metadata).account===payer.account)));
     const last_payment = [...paid].sort((a,b)=>b.date.localeCompare(a.date))[0] || null;
     return {...rule, next_due:rule.bill?.['pay-by']||rule.date, last_payment, review:reviews[rule.id]||null, review_state:reviewStates[rule.id]||'waiting', payments:paid.map(e=>({id:e.id,date:e.date,...(e.rule?{rule:e.rule}:{})})),...(rule.amount==='varies'?{varying:varyingDetails(rule,actual,metadata)}:{})};
   });

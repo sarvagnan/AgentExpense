@@ -15,7 +15,7 @@ export async function observeDirectWrites({page,base,snap,record}){
    await page.waitForFunction(path=>Array.from(document.querySelectorAll('[data-action-path]')).some(node=>node.dataset.actionPath===path&&['queued','saving','waiting'].includes(node.dataset.actionState)&&node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'),path);
    const ready=await page.evaluate(()=>({text:document.querySelector('.pending-actions summary')?.textContent,controls:[...document.querySelectorAll('a,button,input,textarea,select')].filter(node=>!node.disabled&&node.getBoundingClientRect().width>0).length}));
    assert.ok(ready.controls>0,'Other controls remain available during a direct save');
-   if(!seen.has(family)){seen.add(family);await snap('immediate-'+family+'-pending');record('held direct request: '+family+' shows pending before a commit and leaves other controls usable');}
+   if(!seen.has(family)){seen.add(family);await snap('immediate-'+family+'-pending',{background:true});record('held direct request: '+family+' shows pending before a commit and leaves other controls usable');}
    await route.continue();
   });
   if(error&&!page.isClosed())failures.push(error);

@@ -344,7 +344,20 @@ export async function runFirstRun({page, base, persona, width, expect, control, 
     // Timing: Finish held in flight; the late answer still saves both files once.
     let imports = 0; const countImports = request => { if (request.url().endsWith('/api/setup/import')) imports++; };
     page.on('request', countImports);
+    // Hold the native transition scroll so its ordering is observable regardless
+    // of how quickly React replaces the old Import controls on this engine.
+    await page.evaluate(()=>{
+      const scroll=window.scrollTo.bind(window),pending=[];window.__setupScrollCalls=[];
+      window.scrollTo=(...args)=>{const options=args[0];if(options&&typeof options==='object'&&options.top===0&&options.behavior==='instant'){window.__setupScrollCalls.push({importConnected:!!document.querySelector('.setup-content[data-setup-step="import"]')});pending.push(()=>scroll(...args));}else scroll(...args);};
+      window.__releaseSetupScroll=()=>{window.scrollTo=scroll;for(const run of pending)run();delete window.__releaseSetupScroll;};
+    });
+    try{
     await directAction({page,base,expect,snap:capture,record})('setup-import',finishImport,'**/api/setup/import',{container:page.locator('.setup-content'),other:page.getByRole('button',{name:'Back',exact:true})});
+      const scrolls=await page.evaluate(()=>window.__setupScrollCalls);assert.ok(scrolls.length,'Completing Import requests the new page at its top');
+      assert.ok(scrolls.every(call=>!call.importConnected),'Import must unmount its old controls before requesting the transition scroll');
+      record('held native setup scroll: Import controls unmount before scrolling the completed Add view');
+    }finally{await page.evaluate(()=>window.__releaseSetupScroll?.());}
+
     await expect(page.locator('.content h1')).toHaveText('Add', {timeout:120000});
     page.off('request', countImports);assert.equal(imports, 2,'One held failure and one committed Retry');
     const importNotice = page.locator('.first-run-done');

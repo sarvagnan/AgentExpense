@@ -40,7 +40,7 @@ export type DashboardData = {
     };
     months: { month: string; committed: number; investments: number }[];
     items: { currency: string; date: string; month: string; description: string; rule: string; kind: string; category: string;
-      account: string; amount: number; signedExpense: number; paymentLabel: string; sources: string[]; varying?:{bill:boolean;min:string|null;max:string|null} }[];
+      account: string; amount: number; signedExpense: number; setAside: number; paymentLabel: string; sources: string[]; varying?:{bill:boolean;min:string|null;max:string|null} }[];
   };
   prices: { commodity: string; currency: string; dates: string[]; navs: number[] }[];
   reimbursementGroups: { id: string; currency: string; label: string; purchases: number; received: number; outstanding: number; paymentDate: string }[];

@@ -12,6 +12,52 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Forecast omits its chart while the measured container has no room inside its
+  axis margins, then redraws it when space returns. Hidden and tiny containers
+  no longer produce a negative SVG width.
+
+- Hand-form Notes now captures native input and handles it on input, as Add
+  does, so typed words reach the visible field, browser recovery and autosave
+  for additions and corrections. A Notes save was once missed on a slower Linux
+  WebKit run while a reopened editor's claim reply arrived; the exact trigger
+  was not reproduced on unchanged code.
+
+- Settings adopts published names after activation and when closing returns focus
+  to its opener. The button still holds its target through a pointer click; a
+  focused opener no longer keeps the previous name indefinitely.
+
+- Fix timing races in Queue, Settings, setup and usual-payment Retry: an applied
+  statement leaves its held Queue row, a published name keeps Settings still under
+  the pointer, Import unmounts before scrolling to Add, and autosave leaves a failed
+  usual request's submitted draft alone. Background browser captures no longer
+  restyle or restore the page while the next gesture runs.
+
+- Add rechecks draft ownership before a late autosave resumes, keeping next-expense
+  words off an earlier usual payment. Browser receipt checks follow the accepted
+  draft ID; fixture cleanup waits for browser-observed completion and correction
+  reopening waits for Back navigation.
+
+- Statement Apply links only the payments it creates, preserves earlier link
+  decisions and never creates recurring rules. Saved bills retain their own
+  occurrence for early and late payments; ambiguous bills stay unpaid without
+  blocking Apply. Matching reuses one batch index and retains all financial checks.
+- Forecast keeps unpaid occurrences after unrelated later entries, publishes
+  contribution direction and separates costed investment principal from foreign
+  fees. Withdrawals add no cash need; salary splits retain their income headline.
+  Unit contributions display, sort and detect by money cost. The holdings setting
+  leaves contribution commitments visible in Rules and Forecast.
+- Edit entry announces an unknown Save result in its reserved footer area, keeping
+  its naturally wrapped notice and ordinary error clear of the fields above.
+
+- Browser account-creation checks verify the Saved acknowledgement before allowing
+  statement assignment to replace its status, preventing a timing-dependent false failure.
+
+- Regular investment contributions can be detected, suggested, edited and linked
+  from Add, hand finish, statements and usual payments, including varying amounts
+  and saved bills. Rules and Forecast show money set aside and upcoming cash needs
+  separately from spending. Correction fields also stay in place when a refused
+  Save hides its uncertain-result notice.
+
 - Timed-out ledger fixes can be checked and saved through Continue editing or
   Ledger check's Open the entry. Unsettled correction journals keep their item
   protected and log the reason while allowing the server to start.
@@ -95,6 +141,30 @@ that fails and keep its output.
   claims resume at their deadlines; refresh failures remain retryable.
 
 ### Upgrade notes
+
+- Rebuild with `make dashboard` and reload for the Forecast chart-width fix.
+  No ledger-format migration is needed.
+
+- Rebuild with `make dashboard` and reload for the hand-form Notes input fix.
+  No ledger-format migration is needed.
+
+- Rebuild with `make dashboard` and reload for the Settings identity-label fix.
+  No ledger-format migration is needed.
+
+- Rebuild with `make dashboard` and reload for the Queue, Settings, setup and
+  usual-payment Retry fixes. No ledger format change or migration is needed.
+
+- Rebuild with `make dashboard` and reload the page for the Add autosave ownership
+  fix. No ledger format change or migration is needed.
+
+- Rebuild with `make dashboard` and restart the server for conservative statement
+  bill linking and the Forecast/correction fixes. Review Forecast's restored
+  unpaid commitments; unrelated later actuals no longer hide them. No ledger
+  format change or migration is needed.
+
+- Run `make dashboard` and restart the server for investment rules and statement
+  payment linking. Existing format 2 rules need no migration. Review suggested
+  contributions or use `make rules-backfill` for qualifying history.
 
 - Rebuild the dashboard for the Add input fix and restart the server for
   failed-fix Save and isolated correction recovery. No

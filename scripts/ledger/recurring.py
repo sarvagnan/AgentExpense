@@ -44,9 +44,18 @@ def words(text):
     return set(re.findall(r'[^\W\d_]+', text.casefold(), re.UNICODE))
 
 
-def main_postings(entry):
-    return [p for p in entry['postings'] if p['account'].split(':')[0] == 'Expenses'
-            and Decimal(p['amount']) > 0 and not words(':'.join(p['account'].split(':')[1:])) & ANCILLARY]
+@lru_cache(maxsize=4096)
+def main_expense_account(account):
+    """Only the immutable account name is cached; investment kinds stay live."""
+    return account.split(':')[0] == 'Expenses' and not words(':'.join(account.split(':')[1:])) & ANCILLARY
+
+
+def main_postings(entry, accounts=None):
+    """Positive destinations: main expenses or explicitly declared investments."""
+    accounts = accounts or {}
+    return [p for p in entry['postings'] if Decimal(p['amount']) > 0 and (
+                accounts.get(p['account'], {}).get('kind') == 'investment' or
+                main_expense_account(p['account']))]
 
 
 def paying(entry, accounts):
@@ -55,7 +64,7 @@ def paying(entry, accounts):
 
 
 def identity(entry, accounts):
-    main, payer = main_postings(entry), paying(entry, accounts)
+    main, payer = main_postings(entry, accounts), paying(entry, accounts)
     if not main or not payer:
         return None
     return tuple(sorted({p['account'] for p in main})), payer['account']
@@ -64,20 +73,23 @@ def identity(entry, accounts):
 def same_payment(entry, rule, accounts):
     one, two = identity(entry, accounts), identity(rule, accounts)
     # A deliberately unassigned rule still has a balanced placeholder posting.
-    if not two and main_postings(rule):
-        return bool(one and one[0] == tuple(sorted({p['account'] for p in main_postings(rule)})))
+    if not two and main_postings(rule, accounts):
+        return bool(one and one[0] == tuple(sorted({p['account'] for p in main_postings(rule, accounts)})))
     return one is not None and one == two
 
 
-def amounts(entry):
+def amounts(entry, accounts=None):
     result = {}
-    for p in main_postings(entry):
-        result[p['commodity']] = result.get(p['commodity'], Decimal(0)) + Decimal(p['amount'])
+    for p in main_postings(entry, accounts):
+        cost=p['cost'] if (accounts or {}).get(p['account'],{}).get('kind')=='investment' else None
+        commodity=cost['commodity'] if cost else p['commodity']
+        amount=Decimal(cost['amount'])*(Decimal(p['amount']) if cost['per']=='unit' else 1) if cost else Decimal(p['amount'])
+        result[commodity] = result.get(commodity, Decimal(0)) + amount
     return result
 
 
-def within_ten(one, two):
-    a, b = amounts(one), amounts(two)
+def within_ten(one, two, accounts=None):
+    a, b = amounts(one, accounts), amounts(two, accounts)
     return bool(a and a.keys() == b.keys() and all(abs(a[c]-b[c]) <= abs(b[c])*Decimal('.1') for c in a))
 
 
@@ -86,8 +98,8 @@ def payee_match(one, two):
 
 
 def simple_payment(rule, accounts):
-    """Varying amounts need exactly one expense and one payer in one currency."""
-    main, payer = main_postings(rule), paying(rule, accounts)
+    """Varying amounts need exactly one destination and one payer in one currency."""
+    main, payer = main_postings(rule, accounts), paying(rule, accounts)
     return (len(rule['postings']) == 2 and len(main) == 1 and payer is not None
             and all(not p['cost'] and not p['assert'] for p in rule['postings'])
             and main[0]['commodity'] == payer['commodity']
@@ -100,11 +112,11 @@ def payment_history(rule, actual, accounts):
     No amount tolerance here: outliers are still payments. Automatic detection
     and the typed-word ranking keep their existing tolerance.
     """
-    currency = main_postings(rule)[0]['commodity']
+    currency = main_postings(rule, accounts)[0]['commodity']
     def matches(entry):
         link = entry['rule']
         return ((entry['status'] == 'confirmed' or link and link['id'] == rule['id']) and simple_payment(entry, accounts)
-                and main_postings(entry)[0]['commodity'] == currency
+                and main_postings(entry, accounts)[0]['commodity'] == currency
                 and (link['id'] == rule['id'] if link else
                      same_payment(entry, rule, accounts) and payee_match(entry, rule)))
     # Stable reverse order also respects ledger ordering for same-day payments.
@@ -122,31 +134,31 @@ def recompute_estimate(rule, actual, accounts):
         raise ValueError('Only simple two-posting payments in one currency can vary')
     history = payment_history(rule, actual, accounts)[:3]
     if not history: return
-    value = median([Decimal(main_postings(e)[0]['amount']) for e in history])
+    value = median([Decimal(main_postings(e, accounts)[0]['amount']) for e in history])
     # A two-payment median can need one additional decimal place; retain it
     # exactly rather than choosing a currency or silently rounding it.
     value = format(value, 'f')
     if '.' not in value: value += '.00'
-    main_postings(rule)[0]['amount'] = value
+    main_postings(rule, accounts)[0]['amount'] = value
     paying(rule, accounts)['amount'] = '-' + value
 
 
 def varying_details(rule, actual, accounts):
     if rule['amount'] != 'varies': return {}
     history = payment_history(rule, actual, accounts)[:12]
-    recent = [Decimal(main_postings(e)[0]['amount']) for e in history[:3]]
-    return dict(varying=dict(history=[dict(id=e['id'], date=e['date'], amount=main_postings(e)[0]['amount']) for e in history],
+    recent = [Decimal(main_postings(e, accounts)[0]['amount']) for e in history[:3]]
+    return dict(varying=dict(history=[dict(id=e['id'], date=e['date'], amount=main_postings(e, accounts)[0]['amount']) for e in history],
                              min=format(min(recent), 'f') if recent else None,
                              max=format(max(recent), 'f') if recent else None))
 
 
 def amount_check(rule, value, actual, accounts):
     if rule['amount'] != 'varies': return None
-    recent = [Decimal(main_postings(e)[0]['amount']) for e in payment_history(rule, actual, accounts)[:6]]
+    recent = [Decimal(main_postings(e, accounts)[0]['amount']) for e in payment_history(rule, actual, accounts)[:6]]
     value = Decimal(value)
     if recent and (value > 2 * max(recent) or value < min(recent) / 2):
         return dict(amount=format(value, 'f'), min=format(min(recent), 'f'), max=format(max(recent), 'f'),
-                    currency=main_postings(rule)[0]['commodity'])
+                    currency=main_postings(rule, accounts)[0]['commodity'])
     return None
 
 
@@ -242,9 +254,9 @@ def text_amounts(text, locale=None):
     return [Decimal(n.replace(',', '')) for n in re.findall(r'(?<![\w./-])\d+(?:,\d{2,3})*(?:\.\d+)?(?![\w./-])', text)]
 
 
-def rule_names(rule):
+def rule_names(rule, accounts=None):
     """The words that name a rule: its description and its category's own (last) name."""
-    return (words(rule['description']) | set().union(*(words(p['account'].split(':')[-1]) for p in main_postings(rule)))) - GENERIC
+    return (words(rule['description']) | set().union(*(words(p['account'].split(':')[-1]) for p in main_postings(rule, accounts)))) - GENERIC
 
 
 def category_words(rules, accounts):
@@ -265,11 +277,11 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
     # group, account kind or paying account; shared words only rank.
     named = {}
     for rule in current:
-        for word in rule_names(rule): named[word] = named.get(word, 0) + 1
+        for word in rule_names(rule, accounts): named[word] = named.get(word, 0) + 1
     common = category_words(current, accounts) | KIND_WORDS | {meta.get('kind', '') for meta in accounts.values()} | payment_words
     ranked, weak = [], []
     for rule in current:
-        names = rule_names(rule) - payment_words
+        names = rule_names(rule, accounts) - payment_words
         distinctive = {w for w in names if named[w] <= 2 and w not in common}
         # A rule named only by shared words (two or more) is found by its whole name, which counts as one word.
         whole = not distinctive and len(names) > 1 and names <= tokens
@@ -283,7 +295,7 @@ def match_text(rules, text, accounts, today, currency=None, locale=None):
             meta = accounts[payer['account']]
             matched_alias = next((alias for alias in [meta.get('label') or '', *(meta.get('aliases') or [])] if alias and words(alias) <= tokens), None)
             if matched_alias: score += 3
-        compared = amounts(rule)
+        compared = amounts(rule, accounts)
         if payer: compared.setdefault(payer['commodity'], abs(Decimal(payer['amount'])))
         for code, value in compared.items():
             if explicit and code in explicit or not explicit and code == currency:
@@ -315,13 +327,13 @@ def candidate(entry, actual, rules, accounts, settings, today, text=''):
     removed_evidence = {identity for rule in rules if rule['lifecycle'] == 'removed'
                         for identity in rule['removal']['entry-ids']}
     if entry['id'] in removed_evidence: return None
-    main_accounts = {p['account'] for p in main_postings(entry)}
-    if any(active(r) and main_accounts & {p['account'] for p in main_postings(r)} for r in rules): return None
+    main_accounts = {p['account'] for p in main_postings(entry, accounts)}
+    if any(active(r) and main_accounts & {p['account'] for p in main_postings(r, accounts)} for r in rules): return None
     if any(r['lifecycle'] in ('paused','ended') and same_payment(entry,r,accounts) and payee_match(entry,r) for r in rules): return None
-    if any(p['account'] == prefix or p['account'].startswith(prefix+':') for prefix in settings.get('never-automatic',[]) for p in main_postings(entry)): return None
+    if any(p['account'] == prefix or p['account'].startswith(prefix+':') for prefix in settings.get('never-automatic',[]) for p in main_postings(entry, accounts)): return None
     removal = suppressed(entry,rules,accounts)
     history = [e for e in actual if e['id'] != entry['id'] and e['id'] not in removed_evidence and e['date'] < entry['date'] and e['status'] == 'confirmed'
-               and same_payment(e,entry,accounts) and payee_match(e,entry) and within_ten(entry,e)]
+               and same_payment(e,entry,accounts) and payee_match(e,entry) and within_ten(entry,e,accounts)]
     if removal:
         if entry['date'] <= removal['removal']['date']: return None
         history = [e for e in history if e['date'] > removal['removal']['date'] and e['id'] not in removal['removal']['entry-ids']]

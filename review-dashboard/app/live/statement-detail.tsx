@@ -110,7 +110,7 @@ function StoredStatement({filed,account}:{filed:string;account:string}){
  useEffect(()=>{const c=new AbortController();setData(null);setError('');void apiS.filed(filed,c.signal,account).then(setData,e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[filed,account]);
  return <section className="panel stored-statement"><div tabIndex={-1} id="filed-heading"><PanelHeader title={`${data ? dashboard.meta.accounts[data.summary.account]?.label || data.summary.account.split(':').at(-1) : 'Filed'} statement · ${when(filed)}`} meta="Stored reconciliation"/></div><div className="panel-body">{error?<p role="alert" className="live-error">{error}</p>:!data?<p role="status">Loading stored reconciliation…</p>:<><p>{plural(data.rows.length,'row')} · {data.summary.kind==='bank'?'closing balance':'total due'} {amount(summaryBalance(data.summary),data.summary.account)}</p><a href={evidenceHref(data.summary.source)||undefined} target="_blank" rel="noopener">Open filed statement</a><ol className="statement-rows">{data.rows.map(r=><li key={r.serial} className="statement-row"><RowHeading row={r} account={data.summary.account}/>{r.disposition&&<p className="live-hint">{r.disposition==='pre-start'?'Covered by opening balances':r.disposition==='already-in-ledger'?'Already in the ledger':r.disposition==='overlap-pending'?'Possible duplicate · waiting in Review':'Recorded'}</p>}{r.entry_id&&<a href={`${import.meta.env.BASE_URL}explorer/?entry=${r.entry_id}&month=${r.date.slice(0,7)}`}>{r.entry_description||'Open ledger entry'}</a>}{r.conversion_notes?.map((note,i)=><p key={i}>{note}</p>)}</li>)}</ol></>}</div></section>;
 }
-export default function StatementDetail({initialId='',onChange}:{initialId?:string;onChange?:()=>void}){
+export default function StatementDetail({initialId='',onChange}:{initialId?:string;onChange?:(statement?:StatementSession)=>void}){
  const live=useContext(LiveDraftsContext);
  const [id,setId]=useQueryState('session',initialId),[filed]=useQueryState('filed',''),[filedAccount]=useQueryState('account','');
  const [data,setData]=useState<StatementList>({sessions:[],filed:[],accounts:[]}),[current,setCurrent]=useState<StatementSession|null>(null),[loaded,setLoaded]=useState(false),[error,setError]=useCommittedError(write=>!!selectedId.current&&(write.path===`statements/${selectedId.current}`||write.path.startsWith(`statements/${selectedId.current}/`))),[connectionError,setConnectionError]=useState(''),[busyFor,setBusyFor]=useState<Record<string,number>>({}),[confirm,setConfirm]=useState(false),[password,setPassword]=useState('');
@@ -120,7 +120,7 @@ export default function StatementDetail({initialId='',onChange}:{initialId?:stri
  const [discarded,setDiscarded]=useState(''),[older,setOlder]=useState(6),[sessionCount,setSessionCount]=useState(6);
  const [pendingRows,setPendingRows]=useState<string[]>([]);
  const onChangeRef=useRef(onChange);onChangeRef.current=onChange;
- const changed=useCallback(()=>{if(onChangeRef.current)onChangeRef.current();else window.dispatchEvent(new Event('drafts-changed'));},[]);
+ const changed=useCallback((statement?:StatementSession)=>{if(onChangeRef.current)onChangeRef.current(statement);else window.dispatchEvent(new Event('drafts-changed'));},[]);
  const onPending=useCallback((identity:string,pending:boolean)=>setPendingRows(xs=>pending?[...new Set([...xs,identity])]:xs.filter(x=>x!==identity)),[]);
  const active=useRef(true),control=useRef<AbortController|null>(null),refreshing=useRef(false),reloaded=useRef(new Set<string>()),selectedId=useRef(id),destination=useRef(''),restoreOnOpen=useRef(!!id&&performance.getEntriesByType('navigation').some(e=>(e as PerformanceNavigationTiming).type==='reload'));selectedId.current=id;
  const refresh=useCallback(async()=>{
@@ -128,7 +128,7 @@ export default function StatementDetail({initialId='',onChange}:{initialId?:stri
   try{const d=await apiS.list(c.signal);const target=selectedId.current;let selected=d.sessions.find(s=>s.id===target)||null;
    if(target&&!selected&&!d.recoverable?.some(s=>s.id===target)){try{selected=await apiS.get(target,c.signal);}catch(e){if(c.signal.aborted||!(e instanceof ApiError)||e.status!==404)throw e;}}
    if(!active.current||c.signal.aborted)return;d.sessions=d.sessions.filter(s=>!s.trashed_at&&!isRemoved(s.id));if(selected?.trashed_at||selected&&isRemoved(selected.id))selected=null;setData(d);if(selectedId.current===target)setCurrent(old=>old?.id===selected?.id&&old?.updated_at&&selected?.updated_at&&old.updated_at>selected.updated_at?old:selected);setLoaded(true);setConnectionError('');
-   if(selected?.state==='applied'&&!reloaded.current.has(selected.id)){await reloadData();reloaded.current.add(selected.id);changed();}
+   if(selected?.state==='applied'&&!reloaded.current.has(selected.id)){await reloadData();reloaded.current.add(selected.id);changed(selected);}
   }catch(e){if(active.current&&!c.signal.aborted)setConnectionError((e as Error).message);}finally{refreshing.current=false;}
  },[]);
  // A shelf, slot or recovered Retry must finish the same local transition as Discard.
@@ -143,7 +143,7 @@ export default function StatementDetail({initialId='',onChange}:{initialId?:stri
  // Remember the reading object, not a pixel offset that changes as rules expand.
  useEffect(()=>{if(!selected)return;const key=`ledger-statement:${selected.id}:context`;const save=(e:FocusEvent)=>{const row=(e.target as HTMLElement).closest<HTMLElement>('[data-serial]');if(row)store(key,row.dataset.serial||'');};let timer:ReturnType<typeof setTimeout>;const scroll=()=>{clearTimeout(timer);timer=setTimeout(()=>{const row=[...document.querySelectorAll<HTMLElement>('.statement-current [data-serial]')].find(e=>{const b=e.getBoundingClientRect();return b.top>=0&&b.top<innerHeight/2;});if(row)store(key,row.dataset.serial||'');},100);};document.addEventListener('focusin',save);window.addEventListener('scroll',scroll,{passive:true});return()=>{clearTimeout(timer);document.removeEventListener('focusin',save);window.removeEventListener('scroll',scroll);};},[selected?.id]);
  // An explicit action's result replaces the Queue list held for the pointer.
- function saved(s:StatementSession){if(!active.current)return;changed();if(selectedId.current===s.id)setCurrent(old=>old?.id===s.id&&old.updated_at&&s.updated_at&&old.updated_at>s.updated_at?old:s);setData(d=>({...d,sessions:[s,...d.sessions.filter(x=>x.id!==s.id)]}));}
+ function saved(s:StatementSession){if(!active.current)return;changed(s);if(selectedId.current===s.id)setCurrent(old=>old?.id===s.id&&old.updated_at&&s.updated_at&&old.updated_at>s.updated_at?old:s);setData(d=>({...d,sessions:[s,...d.sessions.filter(x=>x.id!==s.id)]}));}
  function announceCancelled(target:string){if(active.current&&selectedId.current===target&&!cancelledNotices.current.has(target)){cancelledNotices.current.add(target);announce('Apply cancelled. Your checklist is kept.');}}
  async function act(task:()=>Promise<unknown>,target=selectedId.current,kind?:'cancel'){
   setBusy(true,target);if(selectedId.current===target)setError('');

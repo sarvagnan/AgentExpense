@@ -240,3 +240,37 @@ test('New Add words during a pending removal use a new identity and survive the 
  let removing=false;const f=composerFixture({transport:{isRemovalPending:value=>removing&&value===id}}),{h}=f,newId='b'.repeat(32);
  try{await h.settle();f.type('Old words');await h.advance(350);assert.equal(h.current.form.id,id);removing=true;f.api.create=async text=>({...f.record,id:newId,text});f.type('Newer words during removal');assert.equal(h.current.form.id,null);assert.equal(h.current.draft,null);await h.advance(350);assert.equal(h.current.form.id,newId);h.current.forgetDiscarded(id);h.render();assert.equal(h.current.form.text,'Newer words during removal');}finally{h.close();}
 });
+
+test('An autosave resumed after usual Retry must not put next-expense words on the earlier payment',async()=>{
+ const reply=deferred();let submitted=0;
+ const f=composerFixture({transport:{request:async()=>{if(++submitted===1)throw new ApiError(422,'Fictional refusal before commit');return reply.promise;}}}),{h}=f;
+ let retry;
+ try{
+  await h.settle();f.type('Birch rent today');await h.advance(350);
+  assert.equal(await h.current.save({rule_id:'rent',date:'2026-11-02'}),false);await h.settle();
+  const reading=deferred();let readStarted=false;f.api.get=()=>{readStarted=true;return reading.promise;};
+  await h.advance(350);assert.ok(readStarted,'The earlier draft read is held before Retry');
+  retry=h.current.retrySave();await h.settle();assert.equal(submitted,2);
+  f.type('Birch rent today next expense');assert.equal(h.current.form.id,null,'New words belong to a new composer draft');
+  reading.resolve({...f.record});await h.settle();
+  assert.equal(f.record.text,'Birch rent today','An earlier autosave cannot rewrite the payment with the next expense');
+  assert.equal(h.current.form.text,'Birch rent today next expense');
+ }finally{reply.resolve({...f.record,state:'queued'});await retry;await h.settle();h.close();}
+});
+
+for(const completion of ['before','after'])test(`A usual bill Retry must not autosave its frozen payment or retain a Queue error (${completion} completion)`,async()=>{
+ const edit=deferred();edit.promise.catch(()=>{});let edits=0;
+ const f=composerFixture({transport:{request:async()=>{throw new ApiError(422,'Fictional refusal before commit');}}}),{h}=f;
+ try{
+  await h.settle();f.type('Hearth Energy bill');await h.advance(350);
+  assert.equal(await h.current.save({rule_id:'hearth',date:'2026-11-02',bill_only:true}),false);await h.settle();
+  f.api.edit=()=>{edits++;return edit.promise;};await h.advance(350);
+  const saved=()=>h.events.dispatchEvent(Object.assign(new Event('direct-write-saved'),{detail:{path:'drafts/'+id+'/bill',result:{...f.record,state:'added',result:{outcome:'bill'}}}}));
+  if(completion==='before'){saved();await h.settle();}
+  edit.reject(new ApiError(409,'Item is queued; expected editing'));await h.settle();
+  if(completion==='after'){saved();await h.settle();}
+  assert.equal(h.current.syncError,'','A committed bill must not retain an obsolete autosave alert');
+  assert.equal(edits,0,'The failed usual request owns its submitted draft until explicit Retry finishes');
+  f.type('Next fictional meal');assert.equal(h.current.form.text,'Next fictional meal');
+ }finally{edit.resolve({...f.record});await h.settle();h.close();}
+});

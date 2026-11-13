@@ -33,6 +33,53 @@ def rule(day='2026-10-15', every='month', interval=1, anchor=None):
 
 
 class RecurringTests(unittest.TestCase):
+    def test_unit_contributions_detect_and_compare_the_cost_not_unit_count(self):
+        from recurring import amounts, within_ten
+        accounts={**ACCOUNTS,'Assets:Units':dict(kind='investment',currency='UNITS')}
+        old=payment(day='2026-09-15');latest=payment('0000000000000002')
+        old['postings'][0].update(account='Assets:Units',amount='2.00',commodity='UNITS',cost=dict(amount='10.00',commodity='EUR',per='unit'))
+        latest['postings'][0].update(account='Assets:Units',amount='1.00',commodity='UNITS',cost=dict(amount='20.00',commodity='EUR',per='total'))
+        self.assertEqual(amounts(old,accounts),{'EUR':20})
+        self.assertTrue(within_ten(latest,old,accounts))
+        self.assertTrue(candidate(latest,[old,latest],[],accounts,{},'2026-11-01')['automatic'])
+        latest['postings'][0]['cost']['amount']='23.00';latest['postings'][-1]['amount']='-23.00'
+        self.assertIsNone(candidate(latest,[old,latest],[],accounts,{},'2026-11-01'))
+
+    def test_investment_detection_suggestions_suppression_and_own_transfers(self):
+        accounts={**ACCOUNTS,'Assets:Reserve':dict(kind='investment'), 'Assets:Savings':dict(kind='bank')}
+        old=payment(day='2026-09-15');latest=payment('0000000000000002',amount='22.00')
+        for e in (old,latest):e['postings'][0]['account']='Assets:Reserve'
+        found=candidate(latest,[old,latest],[],accounts,{},'2026-11-01')
+        self.assertIsNotNone(found);self.assertTrue(found['automatic'])
+        self.assertEqual(found['rule']['date'],'2026-11-15')
+        self.assertTrue(same_payment(latest,found['rule'],accounts))
+        self.assertFalse(candidate(latest,[old,latest],[],accounts,{},'2027-01-01')['automatic'])
+        self.assertIsNone(candidate(latest,[old,latest],[],accounts,{'never-automatic':['Assets:Reserve']},'2026-11-01'))
+        annual=candidate(latest,[latest],[],accounts,{},'2026-11-01','annual membership contribution')
+        self.assertEqual(annual['rule']['schedule']['every'],'year')
+        removed={**found['rule'],'lifecycle':'removed','removal':{'date':'2026-09-20','entry-ids':[]}}
+        self.assertIsNone(candidate(latest,[old,latest],[removed],accounts,{},'2026-11-01'))
+        returned=deepcopy(latest);returned.update(id='0000000000000003',date='2026-11-15')
+        self.assertTrue(candidate(returned,[old,latest,returned],[removed],accounts,{},'2026-11-16')['rule']['origin']['came-back'])
+        for kind in ('bank','card','cash','wallet'):
+            accounts['Assets:Savings']['kind']=kind
+            for e in (old,latest):e['postings'][0]['account']='Assets:Savings'
+            self.assertIsNone(candidate(latest,[old,latest],[],accounts,{},'2026-11-01','subscription'))
+
+    def test_investment_varying_history_median_and_destination_name(self):
+        from recurring import recompute_estimate, varying_details, amount_check, simple_payment
+        accounts={**ACCOUNTS,'Assets:Reserve:Retirement':dict(kind='investment')}
+        r=rule();r['description']='Regular contribution';r['postings'][0]['account']='Assets:Reserve:Retirement';r['amount']='varies'
+        history=[]
+        for n,value in enumerate(('20.00','200.00','30.00'),1):
+            e=payment(f'{n:016x}',day=f'2026-0{n+6}-15',amount=value,description=r['description'])
+            e['postings'][0]['account']=r['postings'][0]['account'];history.append(e)
+        self.assertTrue(simple_payment(r,accounts));recompute_estimate(r,history,accounts)
+        self.assertEqual(r['postings'][0]['amount'],'30.00')
+        self.assertEqual(len(varying_details(r,history,accounts)['varying']['history']),3)
+        self.assertEqual(amount_check(r,'500.00',history,accounts)['currency'],'EUR')
+        self.assertEqual(match_text([r],'Retirement 30 EUR',accounts,'2026-11-01','EUR')['rule_id'],r['id'])
+
     def test_identity_uses_main_accounts_and_payer_not_fee_or_amount(self):
         a=payment();b=payment(amount='21.00');b['postings'].insert(1,full_posting('Expenses:Fees','1.00','EUR'))
         self.assertEqual(identity(a,ACCOUNTS),identity(b,ACCOUNTS))

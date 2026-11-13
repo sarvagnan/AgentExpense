@@ -63,6 +63,15 @@
     "Expenses:Subscriptions:Cedar Studio": {"category": null},
     "Expenses:Learning:Maple Workshop": {"category": null},
     "Expenses:Memberships:Cedar Archive": {"category": null},
-    "Expenses:Subscriptions:Lantern Notes": {"category": null}
+    "Expenses:Subscriptions:Lantern Notes": {"category": null},
+    "Assets:Investments:Retirement Reserve": {
+      "kind": "investment",
+      "currency": "USD",
+      "label": "Retirement Reserve",
+      "aliases": [
+        "retirement reserve"
+      ],
+      "statement": null
+    }
   }
 }

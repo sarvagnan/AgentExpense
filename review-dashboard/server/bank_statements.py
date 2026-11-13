@@ -4,7 +4,7 @@ from decimal import Decimal
 import os
 import shutil
 import subprocess
-from audit import event, append, audit_path
+from audit import event, append, audit_path, records
 from store import commodities, commodity_directive, empty_entry, entries, dump, new_id, posting, store_paths, validate
 from statement_readers import check_statement, signed, money_text, card_debt
 from reconcile_statement import reconciliation_path, card_amount
@@ -145,7 +145,11 @@ def apply_bank(transaction, documents, lock_fd):
             dump(path,document)
         dump(reconciliation,{**statement,'source':source})
         record['entry_ids'] = matched + added + ([] if card_debt(statement) else [assertion['id']]) + ([opening['id']] if opening else [])
-        append(root,record)
+        from rules_service import statement_effects
+        audit_lines=records(root)
+        changes=statement_effects(root,added,session,documents=documents,lines=audit_lines)
+        if changes:record['rule_changes']=changes
+        append(root,record,lines=audit_lines)
         result = dict(entry_ids=record['entry_ids'],changed=len(matched),added=len(added),converted=sum(i['rule']=='foreign_currency' and (i['decision'] or {}).get('action')=='conversion' for i in checklist),source=source,end=end,audit_id=record['id'],skipped=sum(m['disposition'] in ('already-in-ledger','pre-start','overlap-pending') for m in members))
         journal['result'] = result
         t.save_journal(journal)

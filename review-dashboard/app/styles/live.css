@@ -596,6 +596,12 @@ html:has(.add-page){overflow-anchor:none}
 /* The shelf keeps unrelated work reachable even while a form has its own status. */
 .button:active:not(:disabled), .icon-button:active:not(:disabled) { filter: brightness(.9); }
 
+/* The footer status reserves its naturally wrapped warning, while the mounted
+   live region receives new text whenever a Save outcome becomes unknown. */
+.action-error-slot.hand-save-status { display: grid; grid-template-rows: 3.5rem auto; block-size: auto; }
+.hand-save-status > p { grid-area: 2 / 1; margin: 0; }
+.correction-save-sizer { visibility: hidden; }
+.hand-save-status > .live-error { grid-area: 1 / 1; max-block-size: 3.5rem; overflow: auto; }
 .action-error-slot { block-size: 3.5rem; overflow: auto; }
 .action-feedback { max-block-size: 4.75rem; overflow: auto; }
 .dialog-footer .button.primary, .detail-footer .button.primary { min-inline-size: 16ch; }

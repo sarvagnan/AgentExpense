@@ -54,9 +54,11 @@ export function chargedExpenses(transaction, currency) {
   const foreign = expenses.filter(posting => posting.currency !== currency);
   const nativeTotal = expenses.filter(posting => posting.currency === currency).reduce((sum, posting) => sum + posting.amount, 0);
   if (!foreign.length) return expenses.map(posting => ({account: posting.account, amount: posting.amount}));
+  // Costed principal and other destinations consume funding before a foreign
+  // expense gets its share. Only the remaining net charge belongs to spending.
   const counterparts = transaction.postings.filter(posting => !posting.account.startsWith('Expenses:')
-    && posting.currency === currency);
-  const charged = -counterparts.reduce((sum, posting) => sum + posting.amount, 0);
+    && (posting.currency === currency || posting.costCurrency === currency));
+  const charged = -counterparts.reduce((sum, posting) => sum + postingValue(posting, currency), 0);
   const remaining = charged - nativeTotal;
   const commodities = new Set(foreign.map(posting => posting.currency));
   // A single original commodity uses exactly the old charged/foreign-total rate.

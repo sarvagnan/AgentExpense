@@ -2,7 +2,7 @@ import {ruleAmounts,payer} from './recurring-ui.mjs';
 /** Sort only the saved rules; currency groups are ordered before native amounts. */
 export function sortRules(rules,key,direction,accounts) {
   const compare=(a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'});
-  const amounts=rule=>Object.entries(ruleAmounts(rule)).sort(([a],[b])=>compare(a,b)).map(([currency,amount])=>[currency,Number(rule.bill?.amount??amount)]);
+  const amounts=rule=>Object.entries(ruleAmounts(rule,accounts)).sort(([a],[b])=>compare(a,b)).map(([currency,amount])=>[currency,Number(rule.bill?.amount??amount)]);
   const account=rule=>{const p=payer(rule,accounts)||rule.postings.find(p=>Number(p.amount)<0);return p?(accounts[p.account]?.label||p.account):'';};
   return [...rules].sort((a,b)=>{
     let order=0;

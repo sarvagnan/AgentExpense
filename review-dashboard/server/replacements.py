@@ -125,7 +125,7 @@ def correction_rules(documents, root, before, after):
         from audit import records
         lines=records(root)
         bill_payments={r.get('entry_id') for r in lines if r['kind']=='rule' and r['rule_action']=='bill-paid'}
-    kept=same_payment(after,rule,accounts) and (simple_payment(after,accounts) and main_postings(after)[0]['commodity']==main_postings(rule)[0]['commodity'] if varying else signature(after)==signature(rule))
+    kept=same_payment(after,rule,accounts) and (simple_payment(after,accounts) and main_postings(after, accounts)[0]['commodity']==main_postings(rule, accounts)[0]['commodity'] if varying else signature(after)==signature(rule))
     if kept: after['rule']=dict(id=rule['id'],occurrence=link['occurrence'] if before['id'] in bill_payments else period_for(rule,after['date']))
     else: after['rule']=None
     actual=[e for e in entries(documents) if (e['rule'] or {}).get('id')==rule['id'] and e['id']!=after['id']]

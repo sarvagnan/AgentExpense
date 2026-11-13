@@ -154,11 +154,16 @@ class StatementReading(Fixture):
         self.set_answers(answer(self.currency));sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'found')
         sessions,s=self.session();self.set_answers(dict(kind='timeout'))
         sessions.settings=replace(self.settings,timeout=.2);sessions.agent_pause=AgentPause(self.ledger)
-        sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'reading')
-        self.assertFalse(sessions.agent_pause.blocked())
-        self.set_answers({**answer(self.currency), 'read_ok':False})
-        sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'couldnt_read')
-        self.assertIn('certainty',sessions.get(s['id'])['error'])
+        config=json.loads(self.config.read_text());config['diagnostic_delay']=.3;self.config.write_text(json.dumps(config))
+        from agent_gate import AgentGate
+        # Diagnostics keep the fixture's own deadline; only reading has 200 ms.
+        gate=AgentGate(self.settings)
+        with patch('agent_gate.get_gate',return_value=gate):
+            sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'reading')
+            self.assertFalse(sessions.agent_pause.blocked())
+            self.set_answers({**answer(self.currency), 'read_ok':False})
+            sessions.work(threading.Event());self.assertEqual(sessions.get(s['id'])['state'],'couldnt_read')
+            self.assertIn('certainty',sessions.get(s['id'])['error'])
 
     def test_three_timeouts_fail_statement_with_audit_retry_and_next_task(self):
         from test_attachment_timeouts import timeout

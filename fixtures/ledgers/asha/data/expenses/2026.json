@@ -655,6 +655,27 @@
     ]
   },
   {
+    "id": "e100000000000001",
+    "date": "2026-08-15",
+    "status": "confirmed",
+    "description": "Retirement contribution",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Investments:Retirement Reserve", "amount": "5000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-5000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
     "id": "0000000000000019",
     "date": "2026-08-18",
     "status": "confirmed",
@@ -975,6 +996,27 @@
     "postings": [
       {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
       {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
+    "id": "e100000000000002",
+    "date": "2026-09-15",
+    "status": "confirmed",
+    "description": "Retirement contribution",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Investments:Retirement Reserve", "amount": "5000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-5000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -1525,6 +1567,27 @@
     "postings": [
       {"account": "Expenses:Subscriptions:Cedar Studio", "amount": "20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
       {"account": "Assets:Cash", "amount": "-20.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
+    "id": "e100000000000003",
+    "date": "2026-10-15",
+    "status": "confirmed",
+    "description": "Retirement contribution",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"fuel": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Investments:Retirement Reserve", "amount": "5000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Bank:Nila Current", "amount": "-5000.00", "commodity": "INR", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
