@@ -34,7 +34,7 @@ LEDGER_PYTHON ?= uv run --locked --project review-dashboard/server python
 ledger:
 	$(LEDGER_PYTHON) scripts/ledger/generate_ledger.py
 
-test-inside: check-version test-ledger test-migrations test-server
+test-inside: check-version test-browser-box-quick test-ledger test-migrations test-server
 
 .PHONY: doctor check-version
 # Offline prerequisites table; exits non-zero only for blocking problems.
@@ -167,6 +167,18 @@ weekly-review:
 	$(LEDGER_PYTHON) scripts/ledger/weekly_review.py
 
 .PHONY: browser-tests browser-capture
+# Maintainer-only remote runner; its unit tests are entirely offline. make test runs the
+# quick packaging, refusal, image-hash and parsing tests; test-browser-box adds the slower
+# ones that start real controller, guest and fake-client processes (several minutes). The
+# slow files skip themselves unless BROWSER_BOX_SLOW_TESTS=1, so scanner discovery skips them too.
+.PHONY: browser-box test-browser-box test-browser-box-quick
+browser-box:
+	@python3 tools/browser-box/browser_box.py $(ARGS)
+test-browser-box-quick:
+	@python3 -B -m unittest discover -s scripts/tests -p 'test_browser_box.py' -v
+test-browser-box:
+	@BROWSER_BOX_SLOW_TESTS=1 python3 -B -m unittest discover -s scripts/tests -p 'test_browser_box*.py' -v
+
 browser-tests-inside:
 	@node --version
 	node review-dashboard/tests/browser/run.mjs

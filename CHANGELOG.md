@@ -58,6 +58,24 @@ that fails and keep its output.
   separately from spending. Correction fields also stay in place when a refused
   Save hides its uncertain-result notice.
 
+- Maintainer tooling: `make browser-box` runs browser cases in disposable,
+  networkless Incus containers on a maintainer's server, from an uncommitted
+  checkout. It packages tracked and untracked files but refuses ledgers, ledger
+  fragments, receipts, statements, credentials and local settings. It builds one
+  image with pinned, checksum-verified tools, keeps at most two containers, and
+  gives a failed test one unchanged rerun. Each case runs detached inside its
+  container with its own time limit, so a dropped connection pauses the
+  controller instead of losing the case: it reconnects, resumes and collects,
+  including DNS failures after a successful remote response and lost exec or
+  transfer operations. Unexplained status errors retry before becoming
+  infrastructure failures.
+  Infrastructure failures are recorded apart from test failures and don't use
+  the rerun, a finished test's outcome is never replaced, and `--stop` cancels
+  running cases within seconds, keeping partial results. Cleanup deletes only
+  exact containers carrying the run's owner tag. `make test` runs the runner's
+  quick tests; `make test-browser-box` adds the slower process tests. No
+  application upgrade steps are needed.
+
 - Timed-out ledger fixes can be checked and saved through Continue editing or
   Ledger check's Open the entry. Unsettled correction journals keep their item
   protected and log the reason while allowing the server to start.

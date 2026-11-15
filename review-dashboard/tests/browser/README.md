@@ -1,5 +1,276 @@
 # Headless browser matrix
 
+## Remote browser containers
+
+`make browser-box` runs the existing harness on an already configured Incus
+remote, with one throwaway container per case. The Mac runs only Python, Git and
+the Incus client; it does not install dependencies or launch browsers. Requires
+Python 3.11+, Incus and an amd64-capable Debian 13 container host. Set the remote
+explicitly; the runner never changes client configuration or the active project.
+
+```sh
+export BROWSER_BOX_REMOTE=<configured-remote>
+# Optional: BROWSER_BOX_PROJECT (default agentexpense-ci), BROWSER_BOX_POOL
+# (existing pool, default default), BROWSER_BOX_BRIDGE (existing bridge, default incusbr0).
+make browser-box ARGS='--build-only'
+make browser-box ARGS='asha:chromium:light:1440 asha:firefox:light:412'
+make browser-box ARGS='--checkout /path/to/checkout --jobs 2 sam:webkit:light:1440'
+make browser-box ARGS='--target browser-capture --focus rules --capture-prefix rules- asha:chromium:dark:1440'
+```
+
+Commands start a **detached controller in its own session** and return after
+launch. Use a new output folder when you need predictable follow-up commands:
+
+```sh
+make browser-box ARGS='--output /tmp/agentexpense-browser-box/comparison asha:chromium:light:1440'
+make browser-box ARGS='--wait /tmp/agentexpense-browser-box/comparison'
+make browser-box ARGS='--status /tmp/agentexpense-browser-box/comparison'
+make browser-box ARGS='--stop /tmp/agentexpense-browser-box/comparison'
+```
+
+`runner.pid`, `runner.json`, `launcher.json`, `launch.json` and `runner.log`
+belong to that output folder. `--wait` follows the log and returns the final job
+exit code; launch success alone does not mean a case passed. Killing a shell or
+follower leaves the controller running. `--stop` sends SIGTERM only after
+verifying the local controller's identity and writing a durable stop request.
+Sending SIGTERM, SIGHUP or SIGINT to the controller cancels active cases, collects
+available partial logs/results/traces and cleans up its exact owned instances.
+Cancellation records `stopped` (exit 130) without a rerun. Repeating `--stop`,
+including during launch or collection, is safe. Evidence collection and cleanup
+share a 45-second stop budget; a disconnected server can prevent cleanup, which
+is recorded for recovery. A guest that finished before cancellation keeps its
+test outcome, including when collection is interrupted. Summaries are
+checkpointed after every attempt. An early `--stop` writes its request even
+before controller state exists. An in-flight launch is allowed to return within
+the stop budget before exact-name cleanup, so delayed creation is included.
+
+Each case is `persona:engine:theme:width`: the four fixture personas, Chromium,
+Firefox or WebKit, Light or Dark, and 1440 or 412. Pass any list of cases; there
+are no implicit matrix expansions. `--jobs 1` runs serially; values above 2 are
+refused. A test failure gets exactly one unchanged rerun using the same bundled
+source and image. Infrastructure replacements do not spend that rerun;
+`--infrastructure-retries` defaults to 2. `--timeout` defaults to 7200 seconds per
+case, shared by its attempts, reconnects and capacity waits; evidence collection
+and cleanup have a separate bounded grace. `--build-timeout` defaults to 3600
+seconds. Project capacity is checked before launch;
+full-project and quota-race responses wait two seconds and retry without using
+up a case attempt. Cancellation interrupts that wait. Other launch errors still
+record an infrastructure failure. Failed cleanup is recorded for the operator.
+
+Inside each container, an idempotent detached supervisor runs the existing
+harness with output in `run.log`, an atomic status file and a persisted exit
+code. The controller polls that status; no browser output depends on an open
+Incus exec stream. A guest watchdog enforces the remaining case budget even
+without the controller, stops the process tree and collects available evidence.
+Watchdog expiry records `infrastructure` (exit 124) and ends the exhausted case.
+
+Transport timeouts, refused/reset/closed connections, lost event listeners,
+`context cancelled`/`context canceled` disconnects,
+unreachable routes, TLS handshake timeouts, unexpected EOF and HTTP 502/503/504
+responses retry with 1/2/4/8-second backoff, capped at 8 seconds. After the first
+successful remote response, DNS failures (`no such host`, temporary name-resolution
+failure, `server misbehaving` and lookup timeouts) also retry. Before that response,
+a DNS failure stops startup promptly with a configuration diagnostic. Lost
+server-side operations (`Operation not found` on exec or file transfer) retry the
+whole operation; a status read with a nonzero exit is repeated even if it printed
+valid JSON. The reconnect window defaults to 120 seconds (`--reconnect-timeout`),
+bounded by the remaining
+case budget. It limits starting another retry after a transport failure; an
+operation admitted within that window can finish after it. Authentication, trust,
+missing-project and missing-instance errors are not transient transport failures.
+An uncertain launch is reconciled by exact name and owner before reissuing it. A surviving guest resumes
+polling and collection; a lost guest records `infrastructure` before replacement.
+After a started guest exhausts a reconnect window, transient status recovery
+continues against that same guest until the case deadline; it is never stopped
+or replaced just because the connection window expired. Collection and cleanup
+of that survivor also retry transient failures until their enclosing case
+deadline, rather than giving up after one reconnect window. Collection uses the
+remaining case budget or a fixed ten-minute grace from completion, whichever is
+longer; recovery shares that same deadline. Its archive stays in the guest until
+collection completes while that budget allows. The existing
+bounded evidence/cleanup grace applies if the case deadline has already elapsed.
+Permanent poll errors (authorisation/trust failures or deleted projects) fail
+promptly as infrastructure, retain the cause and set
+`retryable=false`; they neither poll for the whole case budget nor relaunch the
+same broken configuration. Other unexplained status errors, including invalid
+JSON, allow three consecutive failures within the case budget before recording
+retryable infrastructure; a successful status resets that count. A surviving
+guest found during recovery resumes polling. A recovered terminal status is
+persisted before collection/cleanup decisions. Test exit is already final while
+the guest is `collecting`, including if the supervisor dies during collection.
+Deferred cleanup runs in a separate worker and its errors never fail another
+case. Every run ends with a sweep of its own owner tag. If the server stays unreachable, `cleanupPending` and
+`cleanupError` remain in `runner.json`; the guest watchdog still ends the case,
+and the next same-host controller performs the usual stale-owner sweep.
+
+Each local client has a separate watchdog that enforces its absolute deadline
+and checks its controller's PID/start identity. Client workers register their
+own exact PID/start before exec. A later same-host controller reaps registered
+orphans by those identities, preserving unknown/reused PIDs; process names are
+never used to find or kill clients. The local registry is under
+`/tmp/agentexpense-browser-box/client-registry/`.
+New registries use mode 0700. Creation, use and reaping require the current UID,
+no group/other write permission, a real directory and trusted ancestors (apart
+from the system's sticky temporary root). Registry records must also be regular,
+operator-owned and protected from group/other writes before they can cause a
+signal. Run folders remain trusted operator-owned state; these checks do not
+make a writable shared run tree a multi-user control interface.
+
+Transfers, instance launch/image use, supervisor launch and status/list requests
+use the enclosing case/build budget, without a separate short request timeout.
+This also applies to a healthy transfer after a reconnect: backoff never shrinks
+its transfer deadline. Cancellation still interrupts client waits. Restarted
+pulls use a separate incoming file and retain the largest received prefix until
+the complete file replaces it. The guest archive stays intact during retries.
+
+A finished guest's outcome and exit are persisted before collection. Collection
+and cleanup errors cannot change that test outcome into an infrastructure
+failure or launch another guest. `collectionError` records unavailable evidence;
+collection retries address the same guest/archive. A failed test with such an
+error ends without an unchanged rerun; successfully collected test failures
+retain the usual rerun. The overall job exits nonzero for unresolved collection
+errors even when its test outcome is `passed`. After the bounded collection and
+fallback grace, exact-name cleanup still runs and local partial files remain.
+
+Everything created lives in the selected project (default `agentexpense-ci`),
+with independent profiles/images, aggregate limits of 4 CPUs, 6 GiB and two
+containers. An existing project must already have those settings; the runner
+refuses to alter it. No profile, network, pool, server setting or default project
+is changed. The selected pool and bridge must exist already. Every Incus command
+names its remote and project. Cleanup lists and checks an exact instance's
+invocation token before removing it.
+
+Startup reports the project's instance owners. New instance tags record a
+random owner token, hashed stable host identity, controller PID and process
+birth identity. A same-host owner proven dead (including a reused PID) is stale;
+the runner rechecks its tag and liveness before exact-name removal. SIGKILL or a
+host restart cannot run a controller's cleanup, so the next controller performs
+this sweep. Alive, foreign-host, legacy and uncertain owners, and untagged
+instances, are preserved. Darwin uses libproc start timestamps; Linux combines
+machine, boot and PID-namespace identity, with proc start ticks for processes.
+Old Linux boots/namespaces intentionally remain unknown. Permission failures
+mean unknown, never dead. Concurrent stale sweeps tolerate already removed
+instances. SIGKILL or an unreachable server beyond the stop budget can leave an
+unacknowledged creation/instance for the next same-host sweep; another host
+preserves it as foreign rather than guessing ownership.
+A slow launch on a reachable server can also consume the shared stop budget,
+leaving too little time for cleanup. There is currently no separate cleanup
+reserve for an unacknowledged creation: cutting the client off earlier can lose
+the creation response and itself leave an instance. Such cases remain recorded
+for the next same-host sweep; guaranteeing more requires server-operation
+cancellation/reconciliation, rather than a shorter local request timeout.
+
+Images remain unless pruning is explicitly requested. Only run pruning after
+other controllers have finished:
+
+```sh
+make browser-box ARGS='--prune-images --output /tmp/agentexpense-browser-box/prune-1'
+make browser-box ARGS='--wait /tmp/agentexpense-browser-box/prune-1'
+```
+
+Pruning lists this project's `browser-box-*` aliases, retains the current
+checkout's image hash and removes obsolete images only by exact alias after a
+fresh provenance check. Images with unknown provenance, other aliases or the
+current alias are preserved. A nonempty project refuses pruning. `prune.json`
+records the actions; ordinary runs never prune images.
+
+The networked build container installs Node from `.node-version` through fnm
+1.39.0, uv 0.12.13, Python 3.14.7 with the server's locked dependencies, hledger
+1.52.4, jj 0.47.1, and Playwright 1.64.1 with Chromium's headless shell, Firefox,
+WebKit and their system dependencies. Distribution sources are Debian, the
+tools' official releases, Node's distribution, Playwright's distribution and the
+npm/PyPI registries required by the package locks. Application package lifecycle
+scripts are disabled. These downloads happen only in the builder. The alias
+`browser-box-<hash>` includes `.node-version`, `package-lock.json`, `uv.lock`, the
+installer and tool pins. An unchanged hash reuses the image. The builder is
+deleted after publishing; build failures also clean it up. Node, Python and
+package dependencies remain at stable absolute paths in the image.
+
+fnm, uv and jj archives are checked before extraction against SHA-256 values
+pinned beside the tool versions, as hledger already is. Pin/installer changes
+change the image hash; unchanged inputs still reuse the image.
+
+The builder includes `build-essential` for locked Python packages that need a
+C linker and system `python3` for Make's toolchain resolver. Before publishing,
+the version step requires `python3`, `make`, `cc` and `git`, executes the actual
+`scripts/node_toolchain.py` and checks its selected Node version. Those two
+toolchain source files are also image-hash inputs. Image metadata records these
+capability checks. Debian's `tzdata-legacy` supplies browser-emitted IANA aliases
+such as `Asia/Calcutta`; the version step checks that alias and every persona's
+timezone with the server Python. A partial timezone database can otherwise
+reject a draft before it reaches the fake agent. Assertions and browser locale
+settings remain unchanged.
+
+Run containers have **no profiles and no network device**, with 2 CPUs and 3 GiB
+each. They inherit neither the builder's NIC nor any default-profile NIC. The
+runner checks their expanded devices before sending source. Loopback serves the
+headless harness; package managers run offline with Python sync disabled. The
+system timezone is `Asia/Kolkata`, and locale is `en_US.UTF-8`; the browser
+contexts retain each persona's existing locale/timezone. DejaVu, Liberation and
+Noto fonts cover fixture text and currency symbols. Linux system-font geometry
+can differ from macOS; assertions are unchanged. Trace screenshots are disabled
+for every engine; no video, screencast or visible browser is enabled.
+
+Source comes from `--checkout` (default caller cwd), using
+`git ls-files -co --exclude-standard -z`, including uncommitted and untracked
+non-ignored files and excluding deleted files. Packaging refuses `ledger/`,
+`tmp/`, `local.json`, any `auth.json`, `.codex`, other agent homes, credentials,
+private-key files, symlinks, special files and ledgers outside `fixtures/ledgers/`.
+Ignored files are never enumerated or read. `scripts/ledger/` is application code
+and remains included. The inert `templates/ledger/` skeleton is also required by
+the first-run harness; its manifest must retain the `{{id}}` placeholder. A
+populated template is refused. No user agent environment or credentials are
+forwarded into containers.
+
+Outside `fixtures/ledgers/` (and the validated inert template), packaging also
+refuses any `Bills/` or `drafts/` component, `data/additions/`, `data/expenses/`,
+`data/prices/`, `data/trash-files/`, ledger/journal/price exports, ledger manifests,
+and store basenames at any depth: accounts, card-statements, forecast,
+recurring-settings, fuel-log, trash, bank-statements, balances and prices JSON.
+These can contain filed evidence, uploads, audit words, transactions or values.
+Untracked PDF, raster/vector images and spreadsheets (CSV/TSV included) are
+allowed only in `review-dashboard/public/`, `fixtures/statements/` and fixture
+ledgers. Elsewhere they are refused as possible receipts/statements. Tracked
+application documents remain allowed; Git's tracked/untracked tags make that
+distinction. The hard ledger/credential refusals still apply to tracked files.
+
+Results default to a unique folder under `/tmp/agentexpense-browser-box/`;
+`--output` can select a new folder under that same root. `source.json` identifies
+the source files and archive digest. `image.json`, `versions.json` and `build.log`
+record the image, byte size, tool versions and build wall time. Each case's
+`attempt-N` folders contain `result.json`, the exact guest script,
+Incus log, `results.tar.gz` and extracted `results/` (run/server/build/data logs,
+results matrices, failure traces and capture gallery). Pulling finishes before
+ephemeral stop. The bounded collector prioritises logs and partial traces before
+captures; `collection.json` records any files skipped for time, and a pulled
+archive is retained even if cancellation interrupts unpacking. `summary.json`
+and `CASE_RESULT` log records give case, outcome (`passed`, `failed`,
+`infrastructure` or `stopped`), exit, seconds, container, result folder,
+`testAttempt` and unchanged-rerun status. A retry pass remains visible as a flaky
+first attempt. `--wait` exits nonzero if any final attempt fails. Source and result
+archives are retained locally for review; remove only folders you own.
+
+Normal collection uses the case budget; only a stop introduces the short
+collection cap. Partial/skipped metadata is copied into `result.json`,
+`summary.json` and `CASE_RESULT` as `collection`, with `collected=false` and a
+collection error for incomplete evidence. Guest collector errors also remain
+visible without changing the frozen test result.
+
+`make test-browser-box` covers packaging/refusals, image hash, case parsing,
+two-worker scheduling, retries, detached sessions, caller/controller signals,
+stale ownership, capacity waits, explicit pruning, project scoping and safe
+cleanup. Fault-injecting local Incus doubles exercise dropped exec responses,
+transient list/pull errors, lost containers, deferred cleanup and repeated stop
+during launch or collection. Shell-only guest tests exercise detached output,
+idempotent launch, independent watchdog expiry and partial logs; no local
+browser runs. `make test` runs only the quick packaging, refusal, image-hash and
+parsing tests (`make test-browser-box-quick`); run `make test-browser-box`, which takes
+several minutes, after changing the runner (it sets `BROWSER_BOX_SLOW_TESTS=1`;
+without it the slow files skip themselves, including under scanner discovery). Remote
+image creation and browser validation are separate maintainer operations.
+
+## Local headless runner
+
 Run from the application root:
 
 ```sh
