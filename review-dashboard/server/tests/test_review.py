@@ -39,7 +39,7 @@ class ReviewTests(Fixture):
             declarations['accounts']['Equity:Opening Balances']={};dump(self.ledger/'data/accounts.json',declarations)
             dump(self.ledger/'data/card-statements.json',[dict(kind='card',id='0000000000000005',account='Liabilities:Card',start='2026-10-01',end='2026-10-28',source='Bills/statement.pdf',**{'previous-balance':'0.00','purchases':'12.50','cash-advances':None,'credits':'0.00','total-due':'12.50','rows':1})])
         dump(self.ledger/'data/expenses/2026.json',rows)
-        self.jj('commit','-m','Fictional review baseline')
+        self.checkpoint('Fictional review baseline')
         return rows
 
     def body(self, action, *ids, **extra):
@@ -103,7 +103,7 @@ class ReviewTests(Fixture):
         self.assertEqual(merge_order(rows[0],rows[1],[],self.ledger)[0]['id'],one)
         lines=[dict(kind='draft',outcome='added',entry_id=one,time='2026-10-30T00:00:00Z'),dict(kind='draft',outcome='added',entry_id=two,time='2026-10-29T00:00:00Z')]
         self.assertEqual(merge_order(rows[0],rows[1],lines)[0]['id'],two)
-        link_pair({e['id']:e for e in rows},two,third,'several-candidates');dump(self.ledger/'data/expenses/2026.json',rows);self.jj('commit','-m','Another uncertain pair')
+        link_pair({e['id']:e for e in rows},two,third,'several-candidates');dump(self.ledger/'data/expenses/2026.json',rows);self.checkpoint('Another uncertain pair')
         before=deepcopy(rows[0]['postings']);apply(self.settings,self.body('merge',one,two))
         current=entries(load(self.ledger));self.assertEqual(current[0]['postings'],before)
         self.assertEqual(current[0]['possible-duplicate-of'],[dict(id=third,reason='several-candidates')])
@@ -113,7 +113,7 @@ class ReviewTests(Fixture):
         for entry in rows[:2]:
             old=self.ledger/entry['evidence'][0];target=self.ledger/'Bills'/entry['date']/old.name
             target.parent.mkdir(parents=True,exist_ok=True);old.rename(target);entry['evidence']=[str(target.relative_to(self.ledger))]
-        dump(self.ledger/'data/expenses/2026.json',rows);self.jj('commit','-m','Dated duplicate evidence')
+        dump(self.ledger/'data/expenses/2026.json',rows);self.checkpoint('Dated duplicate evidence')
         expected=deepcopy(rows[1]['evidence']);apply(self.settings,self.body('merge',one,two))
         kept=next(e for e in entries(load(self.ledger)) if e['id']==one)
         self.assertTrue(all(source in kept['evidence'] and (self.ledger/source).is_file() for source in expected))
@@ -126,7 +126,7 @@ class ReviewTests(Fixture):
         for i,offset in enumerate([timedelta(days=7),timedelta(days=7,microseconds=1),timedelta(days=6)]):
             record=event('draft',draft_id=str(i),outcome='added',text='Fictional',saved_at=None,pieces=None,files=[],questions=[],runs=[],proposal=None,doubts=['Unclear category'],check_errors=[],error=None,entry_id=rows[i]['id'])
             record['time']=(AT-offset).isoformat();append(self.ledger,record)
-        self.jj('commit','-m','Fictional doubtful additions')
+        self.checkpoint('Fictional doubtful additions')
         state=snapshot(self.ledger,clock=lambda:AT);self.assertEqual(state['count'],3);self.assertEqual(state['important'],2)
         self.assertEqual([i['kind'] for i in state['items']],['doubt','doubt','pending'])
         audit_file=self.ledger/'data/additions/2026.jsonl';before_audit=audit_file.read_bytes()
@@ -137,7 +137,7 @@ class ReviewTests(Fixture):
         self.assertEqual(import_preview(self.ledger,dict(reviewVersion=2,transactions=[dict(**exported['export_entries'][rows[0]['id']],decision=exported['decisions'][rows[0]['id']])]),clock=lambda:AT)['already'],1)
         portable=dict(reviewVersion=2,transactions=[dict(**exported['export_entries'][rows[0]['id']],decision=exported['decisions'][rows[0]['id']])])
         for path in (self.ledger/'data/additions').glob('*.jsonl'):path.unlink()
-        audit_file.write_bytes(before_audit);self.jj('commit','-m','Fictional original doubt audit for portable import')
+        audit_file.write_bytes(before_audit);self.checkpoint('Fictional original doubt audit for portable import')
         preview=import_preview(self.ledger,portable,clock=lambda:AT);self.assertEqual(preview['valid'],1)
         apply(self.settings,self.body('import',payload=portable,preview_token=preview['token']),clock=lambda:AT)
         self.assertEqual(snapshot(self.ledger,clock=lambda:AT)['important'],1)
@@ -194,7 +194,7 @@ class ReviewTests(Fixture):
         candidate=next(e for e in entries(docs) if e['id']=='0000000000000003')
         candidate['date']='2026-11-02';candidate['postings'][1]['account']=card
         dump(self.ledger/'data/expenses/2026.json',sorted(entries(docs),key=lambda e:e['date']))
-        self.jj('commit','-m','Fictional uncertain statement charge')
+        self.checkpoint('Fictional uncertain statement charge')
         statement=dict(account=card,accountAssigned=True,accountLabel='Mosaic Card',currency='INR',card_last4=None,periodStart='2026-10-29',periodEnd='2026-11-28',previousBalance='12.50',purchasesCharges='12.50',paymentsCredits='0.00',cashAdvances='0.00',totalDue='25.00',rows=[dict(date='2026-11-06',serial='RW-2',description=candidate['description'],amount='12.50',direction='Debit',page=1)])
         planned=plan(load(self.ledger),statement,self.ledger)
         item=planned['items'][0];self.assertTrue(item['needs_user']);self.assertEqual(item['candidates'][0]['dayDistance'],4)
@@ -223,7 +223,7 @@ class ReviewTests(Fixture):
         # A separate device's copy of the original ledger can import the decision.
         for path in (self.ledger/'data/additions').glob('*.jsonl'):path.unlink()
         dump(self.ledger/'data/expenses/2026.json',original)
-        self.jj('commit','-m','Fictional original ledger for portable import')
+        self.checkpoint('Fictional original ledger for portable import')
         self.assertEqual(import_preview(self.ledger,payload)['valid'],1)
 
     def test_simultaneous_identical_requests_and_interrupted_commit_receipt(self):
@@ -276,7 +276,7 @@ class ReviewTests(Fixture):
         rows=self.seed();older=rows[1]
         newer=deepcopy(rows[0]);newer['id']='0000000000000000';newer['date']='2026-10-20';newer['description']='Later imported receipt'
         rows.insert(0,newer);link_pair({e['id']:e for e in rows},newer['id'],older['id'],'amount-date-gap')
-        dump(self.ledger/'data/expenses/2026.json',rows);self.jj('commit','-m','Import a later receipt with an earlier calendar date')
+        dump(self.ledger/'data/expenses/2026.json',rows);self.checkpoint('Import a later receipt with an earlier calendar date')
         result=apply(self.settings,self.body('merge',newer['id'],older['id']))
         self.assertEqual(result['changes'][0]['kept_id'],older['id'])
         self.assertEqual(snapshot(self.ledger)['entries'][older['id']]['postings'],older['postings'])

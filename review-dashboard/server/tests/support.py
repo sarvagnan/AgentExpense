@@ -158,6 +158,12 @@ class Fixture(unittest.TestCase):
         return subprocess.check_output(['jj', '--config', 'snapshot.max-new-file-size=0', '--config', 'user.name="Offline Test"', '--config', 'user.email="test@example.invalid"', *(['-R', str(self.ledger)] if at is None else []), *args],
                                        cwd=at or self.ledger, stderr=subprocess.PIPE, text=True).strip()
 
+    def checkpoint(self, message, *, at=None):
+        """Publish deliberate fixture setup; raw jj remains available for history tests."""
+        result = self.jj('commit', '-m', message, at=at)
+        self.jj('bookmark', 'set', 'main', '-r', '@-', at=at)
+        return result
+
     def set_answers(self, *answers):
         self.config.write_text(json.dumps({'steps': [a if 'kind' in a else {'answer': a} for a in answers]}))
         self.config.with_suffix('.count').unlink(missing_ok=True)

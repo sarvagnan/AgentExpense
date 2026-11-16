@@ -1,5 +1,6 @@
 """Disposable browser-test host. Test controls never enter the production app."""
 from datetime import datetime, timezone, timedelta
+import io
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 from app import create_app
 from settings import Settings
 from agent import now
-from currency_settings import update_settings as save_fixture_settings
+from fixture_seed import save_fixture_settings
 from ledger_lock import ledger_lock
 from store import read_json, empty_entry, posting
 from account_metadata import complete
@@ -301,11 +302,9 @@ def attachment_receipt_failed():
     entry=store_entry(id=secrets.token_hex(8),date='2026-10-30',status='confirmed',description='Fictional saved receipt payment',postings=[posting(expense,'100.00',code),posting(pay,'-100.00',code)])
     name='Bills/Fictional-review-receipt.png';entry['evidence']=[name]
     path=settings.ledger/'data/expenses/2026.json';rows=read_json(path);rows.append(entry);rows.sort(key=lambda e:e['date'])
-    def install():
-        (settings.ledger/name).parent.mkdir(parents=True,exist_ok=True)
-        Image.new('RGB',(32,32),'white').save(settings.ledger/name)
-        return {path:rows}
-    update_settings(settings,install,dict(receipt=True),'Fictional saved receipt payment')
+    image=io.BytesIO();Image.new('RGB',(32,32),'white').save(image,format='PNG')
+    update_settings(settings,lambda:{path:rows},dict(receipt=True),'Fictional saved receipt payment',
+                    files={settings.ledger/name:image.getvalue()})
     drafts=app.state.drafts
     d=drafts.create('Fictional saved receipt payment',pieces=dict(fields=dict(amount=dict(source='typed',value='100'),currency=dict(source='typed',value=code))))
     d.update(state='added',saved_at=now(),completed_at=now(),result=dict(entry_id=entry['id'],sources=[name]),receipt_reading=dict(state='failed',entry_id=entry['id'],sources=[name],consecutive_timeouts=3,queued_at=now(),message='Your payment is saved; no receipt details were changed.'))
@@ -623,7 +622,7 @@ def recurring_controls(body: dict):
     from copy import deepcopy
     from ledger_manifest import module_settings, read_manifest
     from decimal import Decimal
-    from audit import append, event, audit_path
+    from audit import event
     from store import dump
     currency=read_manifest(settings.ledger)['defaultCurrency']
     declarations=read_json(settings.ledger/'data/accounts.json')
@@ -664,19 +663,7 @@ def recurring_controls(body: dict):
     automatic=rules[8];automatic['origin']=origin('subscription-words','annual cover subscription')
     proposal=event('rule-review',rule_id=automatic['id'],rule_verdict='propose-removal',reason='The owner should check whether this cover is still needed.',reviewer='Offline fixture reviewer')
     changes={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/forecast.json':rules,path:rows}
-    audit=audit_path(settings.ledger,proposal)
-    prior=audit.read_text() if audit.exists() else ''
-    # update_settings writes JSON documents. Append this fixture verdict under its
-    # mutation callback so the same verified test-only commit owns all seed data.
-    def install():
-        append(settings.ledger,proposal)
-        return changes
-    try:update_settings(settings,install,dict(rules=True),'Fictional recurring browser rules')
-    except BaseException:
-        with ledger_lock(settings.ledger):
-            if prior:audit.write_text(prior)
-            else:audit.unlink(missing_ok=True)
-        raise
+    update_settings(settings,lambda:changes,dict(rules=True),'Fictional recurring browser rules',events=[proposal])
     # Configure only the existing offline fake, with a complete balanced payment.
     mode=body.get('agent','automatic')
     if mode=='paused':
@@ -719,12 +706,11 @@ def correction_statement(body: dict):
     opening=store_entry(id='000000000000d002',date='2026-11-01',description='Correction card opening',postings=[posting(account,'0.00',currency),posting('Equity:Opening Balances','0.00',currency)])
     rows=read_json(settings.ledger/'data/expenses/2026.json')+[opening,entry];rows.sort(key=lambda e:e['date'])
     summaries=read_json(settings.ledger/'data/card-statements.json')+[card_summary('000000000000d003',account,'2026-11-01','2026-11-01',source,'10.00')]
-    def install():
-        sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
-        from statement_fixtures import statement_pdf
-        path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(statement_pdf('Fictional statement: one workshop payment of 10, zero opening.'))
-        return {settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':rows,settings.ledger/'data/card-statements.json':summaries}
-    update_settings(settings,install,dict(seeded=True),'Fictional statement correction baseline')
+    sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+    from statement_fixtures import statement_pdf
+    documents={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':rows,settings.ledger/'data/card-statements.json':summaries}
+    update_settings(settings,lambda:documents,dict(seeded=True),'Fictional statement correction baseline',
+                    files={path:statement_pdf('Fictional statement: one workshop payment of 10, zero opening.')})
     return dict(entry_id=entry['id'])
 
 
@@ -750,12 +736,8 @@ def confirmed_balances(body: dict):
     rows=read_json(settings.ledger/'data/expenses/2026.json')+[opening,paid,closing];rows.sort(key=lambda e:e['date'])
     rule=store_rule('2026-11-29','Cedar tutoring',deepcopy(paid['postings']),id='f00000000000b001')
     changes={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':rows,settings.ledger/'data/card-statements.json':read_json(settings.ledger/'data/card-statements.json')+[summary],settings.ledger/'data/forecast.json':[rule]}
-    # The normal settings fixture writer owns the lock and verified commit.
-    def install():
-        path=settings.ledger/source;path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_text('Date,Description,Amount\n2026-10-29,Cedar learning payment,-100.00\n')
-        return changes
-    update_settings(settings,install,dict(confirmed=True),'Fictional monthly bank statement')
+    update_settings(settings,lambda:changes,dict(confirmed=True),'Fictional monthly bank statement',
+                    files={settings.ledger/source:b'Date,Description,Amount\n2026-10-29,Cedar learning payment,-100.00\n'})
     from corrections import wire_entry
     proposal=wire_entry(settings,paid);proposal['entry']['date']='2026-10-30';proposal['attachment-names']=[]
     data=json.loads(config.read_text());data['steps']=[dict(answer=proposal)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
@@ -811,7 +793,6 @@ def retention_fixture(body: dict):
     from copy import deepcopy
     from store import load, entries, dump
     from outcomes import draft_event
-    from audit import append
     from ledger_manifest import read_manifest
     root=settings.ledger;docs=load(root);declarations=docs[root/'data/accounts.json'];accounts=declarations['accounts'];code=read_manifest(root)['defaultCurrency']
     pay='Assets:Bank:Willow everyday';bank='Assets:Bank:Willow retention';card='Liabilities:Cards:Willow retention';category='Expenses:Willow retention'
@@ -833,17 +814,14 @@ def retention_fixture(body: dict):
     for row in (plain,shared,old,locked,member):
         d=app.state.drafts.create(row['description']);d.update(state='added',saved_at=now(),completed_at=now(),result=dict(outcome='ready',entry_id=row['id'],description=row['description'],sources=row['evidence'],total='12.34 '+code,payment_account=row['postings'][1]['account']))
         app.state.drafts.put(d);record=draft_event(d,'added');record['time']=(datetime.now(timezone.utc)-timedelta(days=8 if row is old else 0)).isoformat();lines.append(record);added.append(d['id'])
-    def install():
-        for source in {s for e in [plain,shared,old,member] for s in e['evidence']}:
-            target=root/source;target.parent.mkdir(parents=True,exist_ok=True)
-            if target.suffix=='.pdf':
-                from pypdf import PdfWriter
-                writer=PdfWriter();writer.add_blank_page(width=200,height=200)
-                with target.open('wb') as handle:writer.write(handle)
-            else:target.write_text('Fictional retention evidence.\n')
-        for line in lines:append(root,line)
-        return docs
-    result=update_settings(settings,install,dict(seeded=True),'Fictional retention browser cases')
+    files={}
+    for source in {s for e in [plain,shared,old,member] for s in e['evidence']}:
+        if source.endswith('.pdf'):
+            from pypdf import PdfWriter
+            writer=PdfWriter();writer.add_blank_page(width=200,height=200)
+            output=io.BytesIO();writer.write(output);files[root/source]=output.getvalue()
+        else:files[root/source]=b'Fictional retention evidence.\n'
+    result=update_settings(settings,lambda:docs,dict(seeded=True),'Fictional retention browser cases',files=files,events=lines)
     app.state.retention.history.refresh()
     from retention_service import coverage
     unknown=next((e for e in entries(docs) if e['id'] in app.state.retention.history.initial and not any(p['account']=='Equity:Opening Balances' for p in e['postings']) and not coverage(docs,root,e)),None)
@@ -908,11 +886,8 @@ def account_groups(body: dict):
     a bank with a statement-confirmed balance, a second bank (a transfer between them), a card
     with a filed statement, a prepaid wallet and a person. `restore` puts the baseline back."""
     if body.get('restore'):
-        def restore():
-            for name in ACCOUNT_GROUP_FILES:
-                (settings.ledger/name).unlink(missing_ok=True)
-            return original
-        return update_settings(settings,restore,dict(groups=False),'Restore browser account groups baseline')
+        return update_settings(settings,lambda:original,dict(groups=False),'Restore browser account groups baseline',
+                               files={settings.ledger/name:None for name in ACCOUNT_GROUP_FILES})
     from ledger_manifest import read_manifest
     currency=read_manifest(settings.ledger)['defaultCurrency']
     everyday,reserve,card,wallet,person='Assets:Bank:Rowan Everyday','Assets:Bank:Rowan Reserve','Liabilities:Credit Cards:Rowan Card','Assets:Wallets:Rowan Wallet','Assets:Reimbursements:Robin Vale'
@@ -945,14 +920,12 @@ def account_groups(body: dict):
          'debits':'190.00','credits':'30.00','rows':len(members),'members':members,'assertion-id':rows[9]['id'],'reader':'generic-csv'}]
     summaries.sort(key=lambda s:s['end'])
     expenses=read_json(settings.ledger/'data/expenses/2026.json')+rows;expenses.sort(key=lambda r:r['date'])
-    def install():
-        sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
-        from statement_fixtures import statement_pdf
-        (settings.ledger/pdf).parent.mkdir(parents=True,exist_ok=True);(settings.ledger/pdf).write_bytes(statement_pdf('Fictional Rowan Card statement: one supplies purchase of 40, zero opening.'))
-        (settings.ledger/csv).parent.mkdir(parents=True,exist_ok=True)
-        (settings.ledger/csv).write_text('Date,Description,Amount\n'+''.join(f"{m['date']},{m['description']},{'-' if m['direction']=='Debit' else ''}{m['amount']}\n" for m in members))
-        return {settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':expenses,settings.ledger/'data/card-statements.json':summaries}
-    update_settings(settings,install,dict(groups=True),'Fictional accounts for group views')
+    sys.path.insert(0,str(settings.application/'review-dashboard/server/tests'))
+    from statement_fixtures import statement_pdf
+    documents={settings.ledger/'data/accounts.json':declarations,settings.ledger/'data/expenses/2026.json':expenses,settings.ledger/'data/card-statements.json':summaries}
+    files={settings.ledger/pdf:statement_pdf('Fictional Rowan Card statement: one supplies purchase of 40, zero opening.'),
+           settings.ledger/csv:('Date,Description,Amount\n'+''.join(f"{m['date']},{m['description']},{'-' if m['direction']=='Debit' else ''}{m['amount']}\n" for m in members)).encode()}
+    update_settings(settings,lambda:documents,dict(groups=True),'Fictional accounts for group views',files=files)
     return dict(currency=currency,transfer=rows[4]['id'])
 
 

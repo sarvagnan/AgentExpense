@@ -59,7 +59,7 @@ editable in Edit entry.
 Then run, from the application root:
 
 ```sh
-make extension-update NAME=work
+make extension-update NAME=work by=user
 ```
 
 It gives every entry the extension's group (`null`), under the ledger lock, in
@@ -92,7 +92,7 @@ failure.
 
 ## Changing one
 
-Change the definition or `ledger.json`, then run `make extension-update NAME=…`:
+Change the definition or `ledger.json`, then run `make extension-update NAME=… by=user|agent`:
 
 - **an added field** gets `null` in every entry;
 - **a removed or renamed field** is refused while any entry holds a value in it,

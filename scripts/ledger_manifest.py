@@ -21,7 +21,7 @@ def ordered_manifest(value):
         return {key: document[key] for key in keys if key in document} | {
             key: document[key] for key in sorted(document.keys() - set(keys))}
     result = arrange(value, ('format', 'id', 'name', 'defaultCurrency', 'locale',
-                             'startDate', 'modules', 'extensions', 'review'))
+                             'startDate', 'modules', 'extensions', 'review', 'auditStart'))
     if 'modules' in result:
         result['modules'] = arrange(result['modules'], ('investments', 'history', 'weeklyReview'))
     if isinstance(result.get('extensions'), dict):

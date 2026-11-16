@@ -47,7 +47,7 @@ def check_target(target: Path, application: Path = APPLICATION_ROOT) -> Path:
 
 def manifest(name: str, currency: str, locale: str | None) -> dict:
     template = json.loads((TEMPLATE / 'ledger.json').read_text())
-    value = dict(template, format=CURRENT_FORMAT, id=str(uuid.uuid4()), name=name.strip(), defaultCurrency=currency)
+    value = dict(template, format=CURRENT_FORMAT, id=str(uuid.uuid4()), name=name.strip(), defaultCurrency=currency, auditStart={'after': None})
     if locale:
         value['locale'] = locale
     value = ordered_manifest(value)

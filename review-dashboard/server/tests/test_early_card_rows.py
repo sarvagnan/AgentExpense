@@ -79,7 +79,7 @@ class EarlyCardRows(Fixture):
             manifest = json.loads((self.ledger/'ledger.json').read_text())
             manifest['startDate'] = start_date
             dump(self.ledger/'ledger.json', manifest)
-        self.jj('commit', '-m', 'Fictional card account')
+        self.checkpoint('Fictional card account')
         return Statements(self.settings)
 
     def record(self, *rows):
@@ -90,7 +90,7 @@ class EarlyCardRows(Fixture):
         for path, document in docs.items():
             if path.parent.name == 'expenses':
                 dump(path, sorted(document, key=lambda e: e['date']))
-        self.jj('commit', '-m', 'Fictional purchases awaiting their statement')
+        self.checkpoint('Fictional purchases awaiting their statement')
 
     def read(self, sessions, text, name='Statement.pdf', state='found'):
         session = sessions.create(statement_pdf(text), name)
@@ -237,7 +237,7 @@ class EarlyCardRows(Fixture):
         docs[self.ledger/'data/expenses/2025.json'][0]['postings'][0]['amount'] = '-100.00'
         docs[self.ledger/'data/expenses/2025.json'][0]['postings'][1]['amount'] = '100.00'
         dump(self.ledger/'data/expenses/2025.json', docs[self.ledger/'data/expenses/2025.json'])
-        self.jj('commit', '-m', 'Fictional card debt')
+        self.checkpoint('Fictional card debt')
         # Printed debt: 100 owed, a 10.00 purchase two days before the period, a 2.00 refund.
         rows = table('INR')
         rows[2][1], rows[3][1] = '100.00', '108.00'
@@ -297,7 +297,7 @@ class EarlyCardRows(Fixture):
         docs[self.ledger/'data/expenses/2025.json'][0]['postings'][0]['amount'] = '-30.00'
         docs[self.ledger/'data/expenses/2025.json'][0]['postings'][1]['amount'] = '30.00'
         dump(self.ledger/'data/expenses/2025.json', docs[self.ledger/'data/expenses/2025.json'])
-        self.jj('commit', '-m', 'Fictional balance owed on the start date')
+        self.checkpoint('Fictional balance owed on the start date')
         session = self.read(sessions, card_text(*JANUARY, [('2025-12-31', 'EX-001', 'Fable Shop', '120.00', 'Debit'), ('2025-12-29', 'EX-002', 'Fable Books', '30.00', 'Debit')]))
         self.assertEqual([i['rule'] for i in session['plan']['items']], ['needs_you', 'pre_start'])
         docs = self.apply(sessions, session)

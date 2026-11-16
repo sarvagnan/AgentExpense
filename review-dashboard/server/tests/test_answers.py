@@ -22,7 +22,7 @@ class AnswerTests(Fixture):
         manifest = read_json(self.ledger / 'ledger.json')
         manifest['extensions']['learning'] = {'ask': ask}
         dump(self.ledger / 'ledger.json', manifest)
-        self.jj('commit', '-m', 'A fictional custom extension')
+        self.checkpoint('A fictional custom extension')
 
     def answer(self):
         value = ready(new=False)

@@ -150,6 +150,27 @@
           ]
         }
       }
+    },
+    "auditStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "after"
+      ],
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          ]
+        }
+      },
+      "description": "Audit descendants of this committed main ancestor; null means the new ledger baseline."
     }
   }
 }

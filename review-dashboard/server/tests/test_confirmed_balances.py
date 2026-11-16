@@ -41,7 +41,7 @@ class ConfirmedBalanceTests(Fixture):
         close=store_entry('0000000000000003','2026-10-31','Monthly confirmed balance',[p('Assets:Cash','0.00')])
         close['postings'][0]['assert']=dict(amount='900.00',commodity=code)
         dump(self.ledger/'data/expenses/2026.json',[opening,paid,close])
-        self.jj('commit','-m','Fictional monthly bank balance')
+        self.checkpoint('Fictional monthly bank balance')
         proposal=wire_entry(self.settings,paid);proposal['entry']['date']='2026-10-30'
         return paid,close,proposal
 
@@ -82,7 +82,7 @@ class ConfirmedBalanceTests(Fixture):
         self.assertFalse(checks['ok']);self.assertEqual(checks['refusal']['calculated'],'800.00')
         self.assertEqual(drafts.get(d['id'])['text'],'Cedar learning paid again')
         rule=store_rule('f000000000000001','2026-10-30',paid['description'],deepcopy(paid['postings']))
-        dump(self.ledger/'data/forecast.json',[rule]);self.jj('commit','-m','Fictional usual rule')
+        dump(self.ledger/'data/forecast.json',[rule]);self.checkpoint('Fictional usual rule')
         with self.assertRaises(BalanceRefusal):queue_usual(self.settings,drafts,d,dict(rule_id=rule['id'],date='2026-10-30'))
         refused=drafts.get(d['id']);self.assertEqual(refused['state'],'failed');self.assertEqual(refused['audit_pending'][0]['refusal'],refused['refusal'])
         Worker(self.settings,drafts).flush_audits()
@@ -108,7 +108,7 @@ class ConfirmedBalanceTests(Fixture):
     def test_api_usual_reason_and_edit_recovery(self):
         paid,close,proposal=self.seed()
         rule=store_rule('f000000000000001','2026-10-30',paid['description'],deepcopy(paid['postings']))
-        dump(self.ledger/'data/forecast.json',[rule]);self.jj('commit','-m','Fictional usual rule')
+        dump(self.ledger/'data/forecast.json',[rule]);self.checkpoint('Fictional usual rule')
         with self.client(worker=False) as client:
             d=client.post('/api/drafts',json={'text':'Cedar learning paid again'}).json()
             response=client.post('/api/drafts/'+d['id']+'/usual',json=dict(rule_id=rule['id'],date='2026-10-30'))
@@ -140,7 +140,7 @@ class ConfirmedBalanceTests(Fixture):
         paid,close,proposal=self.seed()
         extra=deepcopy(paid);extra.update(id='0000000000000004',date='2026-11-02')
         docs=load(self.ledger);docs[self.ledger/'data/expenses/2026.json'].append(extra)
-        dump(self.ledger/'data/expenses/2026.json',docs[self.ledger/'data/expenses/2026.json']);self.jj('commit','-m','Fictional later payment')
+        dump(self.ledger/'data/expenses/2026.json',docs[self.ledger/'data/expenses/2026.json']);self.checkpoint('Fictional later payment')
         with self.client(worker=False) as client:
             d=client.post('/api/entries/'+extra['id']+'/correction-form').json()
             form=wire_entry(self.settings,extra);form['entry']['date']='2026-10-30'
@@ -164,7 +164,7 @@ class ConfirmedBalanceTests(Fixture):
         extra=store_entry('0000000000000005','2026-10-31','Other currency balance',[posting('Assets:Bank:Other','0.00',other,**{'assert':dict(amount='0.00',commodity=other)})])
         rows.append(extra)
         for path,value in docs.items():dump(path,value)
-        self.jj('commit','-m','Fictional same-day and separate currency balances')
+        self.checkpoint('Fictional same-day and separate currency balances')
         paid=rows[1];form=wire_entry(self.settings,paid);form['entry']['notes']=['Same-day order retained']
         result=apply(self.settings,paid['id'],secrets.token_hex(16),dict(version=__import__('replacements').entry_hash(paid),proposal=form,approved_accounts=[]))
         self.assertEqual(result['entry_id'],paid['id'])

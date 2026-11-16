@@ -13,8 +13,8 @@ extension's fields, or after removing an extension from ledger.json:
   values; with none it is removed from every entry.
 
 The groups follow ledger.json's order. Everything runs under the ledger lock and
-ends in one verified commit with a reviewable message; on any failure every
-file is restored. Trash entries change the same way. docs/EXTENSIONS.md.
+ends in one verified commit with a reviewable message; on failure its unchanged
+writes are restored. Trash entries change the same way. docs/EXTENSIONS.md.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ledger_lock import LOCK_FD_ENV, ledger_lock
+from ledger_lock import ledger_lock
 from ledger_manifest import read_manifest
 from store import ROOT, dump, read_json, store_paths, validate
 import store_models as m
@@ -83,19 +83,30 @@ def plan(root: Path, name: str) -> tuple[dict, dict]:
     return documents, summary
 
 
-def message(name: str, summary: dict) -> str:
+def message(name: str, summary: dict, actor='user') -> str:
     listing = lambda values: ', '.join(sorted(values)) or 'none'
     return '\n'.join([f'Update extension {name} via make extension-update', '',
                       f"Listed: {'yes' if summary['listed'] else 'no (removed from ledger.json)'}",
                       f"Fields added: {listing(summary['added'] - {'(the extension)'})}",
                       f"Fields removed: {listing(summary['removed'] - {'(the extension)'})}",
                       f"Entries changed: {summary['changed']}",
-                      'Added-by: user (extension update)'])
+                      f'Added-by: {actor} (extension update)'])
 
 
-def update(root: Path, name: str, *, commit: bool = True) -> dict:
+def update(root: Path, name: str, *, commit: bool = True, actor=None) -> dict:
     root = root.resolve()
     with ledger_lock(root) as fd:
+        written = {}
+        if commit:
+            from commit import jj
+            from audit_changes import paths as diff_paths, touches, covered, audit_path, audit_restore_hint
+            if actor is not None and actor not in ('user', 'agent'):
+                raise ValueError('Use make extension-update NAME=… by=user or by=agent.')
+            jj(root, 'status')
+            if any(touches(row, covered) or touches(row, audit_path) for row in diff_paths(root, '@')):
+                raise ValueError('Finish covered ledger changes before extension-update; it only commits its own changes.' + audit_restore_hint(root))
+        before = {path: path.read_bytes() for path in store_paths(root)
+                  if path.parent.name == 'expenses' or path.name == 'trash.json'}
         documents, summary = plan(root, name)
         if not summary['changed']:
             # No entry changes, but ledger.json or the definition may have (listing on an empty
@@ -104,26 +115,26 @@ def update(root: Path, name: str, *, commit: bool = True) -> dict:
             if not commit or not jj(root, 'diff', '--summary'):
                 return {**summary, 'commit': None}
         paths = [path for path in documents if path.parent.name == 'expenses' or path.name == 'trash.json']
-        before = {path: path.read_bytes() for path in paths}
+        if commit:
+            if summary['changed'] and actor not in ('user', 'agent'):
+                raise ValueError('Use make extension-update NAME=… by=user or by=agent.')
+        changed = [str(path.relative_to(root)) for path in set(before) | set(paths)
+                   if path not in before or not path.exists() or path.read_bytes() != before[path]]
+        if changed:
+            raise ValueError(', '.join(sorted(changed)) + ' changed while planning extension update; nothing was committed; files were kept')
         try:
             validate(documents, root)
             for path in paths:
                 dump(path, documents[path], root)
+                written[path] = path.read_bytes()
             commit_id = None
             if commit:
                 from commit import commit as verified_commit
-                previous = os.environ.get(LOCK_FD_ENV)
-                os.environ[LOCK_FD_ENV] = str(fd)
-                try:
-                    commit_id = verified_commit(root, message(name, summary))
-                finally:
-                    if previous is None:
-                        os.environ.pop(LOCK_FD_ENV, None)
-                    else:
-                        os.environ[LOCK_FD_ENV] = previous
+                commit_id = verified_commit(root, message(name, summary, actor or 'user'), actor=actor, lock_fd=fd)
         except BaseException:
-            for path, data in before.items():
-                path.write_bytes(data)
+            for path, data in written.items():
+                if path.exists() and path.read_bytes() == data:
+                    path.write_bytes(before[path])
             raise
     return {**summary, 'commit': commit_id}
 
@@ -134,7 +145,7 @@ def main(argv=None) -> None:
     parser.add_argument('--root', type=Path, default=ROOT, help='Ledger repository root')
     args = parser.parse_args(argv)
     try:
-        result = update(args.root, args.name)
+        result = update(args.root, args.name, actor=os.getenv('EXPENSES_COMMIT_ACTOR') or None)
     except ValueError as error:
         parser.exit(1, f'{error}\n')
     if result['commit'] is None:

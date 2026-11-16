@@ -261,21 +261,27 @@ class Transaction:
             while not parent.exists():
                 directories.add(str(parent.relative_to(self.root)))
                 parent = parent.parent
+        identity = json.loads(jj(self.root, 'log', '-r', '@', '--no-graph', '-T',
+                                 'json({"parents" => parents.map(|p| p.commit_id()), "change_id" => change_id})'))
         journal = {'files': files, 'directories': sorted(directories),
                    'operation': jj(self.root, 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id'),
-                   'parent': jj(self.root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id'),
-                   'result': None}
+                   'parent': identity['parents'][0], 'change_id': identity['change_id'], 'result': None}
         from save_service import get
         if service := get(self.root):
             service.rollback_operation = journal['operation']
             service.checkpoint = service.index
         self.save_journal(journal)
+        from audit import reset_appends
+        reset_appends(self.root, journal['operation'])
         return journal
 
     def rollback(self, journal):
-        # Restore repository state too, including a commit/bookmark made just before
-        # an interrupted response. Lock-holding writers cannot interleave here.
-        jj(self.root, 'op', 'restore', journal['operation'])
+        from commit import rollback_commit
+        if not rollback_commit(self.root, journal['operation']):
+            from audit_changes import read_jj
+            previous = read_jj(self.root, '--at-op=' + journal['operation'], 'log', '-r', 'main', '--no-graph', '-T', 'commit_id').strip()
+            jj(self.root, 'bookmark', 'set', 'main', '-r', previous, '--allow-backwards')
+            rollback_commit(self.root, journal['operation'])
         for rel, original in journal['files'].items():
             path = self.root / rel
             if original is None:
@@ -286,7 +292,7 @@ class Transaction:
                 os.utime(path, ns=(original['atime'], original['mtime']))
         for rel in sorted(journal['directories'], key=len, reverse=True):
             path = self.root / rel
-            if path.exists():
+            if path.is_dir() and not any(path.iterdir()):
                 path.rmdir()
         jj(self.root, 'status')
         from save_service import get

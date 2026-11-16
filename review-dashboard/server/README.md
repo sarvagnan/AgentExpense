@@ -976,3 +976,14 @@ carry the current `claim_token`, so the server records its discard marker before
 releasing the claim. Both discard endpoints reject `correction_save` before FIFO
 submission. Startup recovers accepted-save markers after obtaining the worker
 lease; Cancel can reclaim an expired unowned edit rather than silently succeed.
+
+
+### Hand commits and audit declarations
+
+The shared in-process commit declares `carries_audit=True`: covered ledger data
+changes must append an audit line. Settings and first-run changes append `change` records from their own before-images. Ordinary saves pass their validated append receipts and retain their
+operation-specific lines. Terminal changes use `make commit m="…" by=user|agent`;
+see [SAVES](../../docs/SAVES.md) for covered paths and rollback, and
+[weekly review](WEEKLY-REVIEW.md#hand-changes) for review.
+`audit.py record --changes FILE` accepts a JSON list of `{commit, actor, note?}`
+and records it oldest first in one record-only commit. Declaration is in-process only; terminal writers cannot declare an audit line.

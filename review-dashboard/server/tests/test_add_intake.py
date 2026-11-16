@@ -159,7 +159,7 @@ class AddIntake(Fixture):
     def test_trash_and_continue_with_a_new_account_never_invert_locks(self):
         from currency_settings import create_account
         from ledger_lock import ledger_lock
-        self.jj('commit', '-m', 'Declare fictional account')
+        self.checkpoint('Declare fictional account')
         creating, trash_locked = threading.Event(), threading.Event()
         results = {}
         @contextmanager
@@ -202,7 +202,7 @@ class AddIntake(Fixture):
 
     def test_continue_revalidates_after_account_creation_and_reuses_the_stage_on_retry(self):
         from currency_settings import create_account
-        self.jj('commit', '-m', 'Declare fictional account')
+        self.checkpoint('Declare fictional account')
         with self.client(worker=False) as client:
             drafts = client.app.state.drafts
             for changed in ('text', 'discarded', 'discard_requested'):

@@ -1,18 +1,23 @@
 # Weekly audit review
 
-Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` from the application root with an absolute `LEDGER_DIR`. Scheduling is external to the application. Review every unreviewed outcome and report findings to the user. Read first, then record all verdicts in one command. Corrections to entries or evidence require user agreement. Keep the ledger clean on failure.
+Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` from the application root with `LEDGER_DIR` set for another ledger, or use the default `ledger/`. Scheduling is external to the application. Review every unreviewed outcome and report findings to the user. Read first, then record all verdicts in one command. Corrections to entries or evidence require user agreement. Keep the ledger clean on failure.
 
 1. Read the current policy (the general policy, then the ledger's personal rules) and
    every line still waiting for a verdict:
 
    ```sh
+   export LEDGER_DIR="${LEDGER_DIR:-$PWD/ledger}"
    cat policy/BOOKKEEPING.md "$LEDGER_DIR/AGENTS.md"
    uv run --locked --project review-dashboard/server python scripts/ledger/audit.py list --unreviewed
    uv run --locked --project review-dashboard/server python scripts/ledger/audit.py list --unreviewed --json
    ```
 
-   `--unreviewed` lists every draft, statement, correction and rule-operation line without a verdict, whatever
-   its age, so a skipped week is covered by the next run. If it lists nothing, say so
+   `--unreviewed` lists every draft, statement, correction, hand-change and rule-operation line without a verdict, whatever
+   its age, so a skipped week is covered by the next run. Report every stderr
+   warning about an unrecorded commit and ask the owner who made it: only the
+   owner can identify the actor for `audit.py record --commit C --actor user`
+   (or `--actor agent`). Report inability to check history too, even when no
+   lines await review. If it lists nothing, say so
    in one line, name the model you are running as, and stop. Otherwise read every
    line, including failed, discarded and not-expense outcomes. Review and rule-review lines record
    earlier verdicts; do not review either kind of review line. Record the period covered.
@@ -131,3 +136,53 @@ rule/bill and its median agree with the final actual payments. A restore refusal
 must retain its reason and record-only commit. Check settings before/after and
 immediate expiry effects. Permanent removal retains a version-history copy.
 Record a verdict only; review never authorizes an edit, deletion or restore.
+
+
+## Hand changes
+
+Review every unreviewed `change` line. Read its revision using read-only jj
+commands, substituting its `commit` when present, otherwise its `change_id`.
+A change-id lookup shows today's revision; compare the recorded snapshots with
+its evidence and policy. Terminal writers check prepared content at commit time.
+Settings and first-run saves refuse unexpected paths; other operation lines may
+include extra paths without a complete inventory. Page rollback keeps files
+outside its own before-images but cannot protect concurrent edits to its own paths.
+Merges need separate inspection. Raw jj during a save can change descriptions or
+defeat rollback; raw history/audit edits can forge attribution.
+Do not edit `auditStart` or rewrite `main`; doing so deliberately can hide a commit from this check.
+The generated expense_ledger.ledger must stay ignored (see docs/SAVES.md).
+
+Commands use the default ledger when unset:
+
+```sh
+export LEDGER_DIR="${LEDGER_DIR:-$PWD/ledger}"
+```
+
+Then read the revision:
+
+```sh
+jj --ignore-working-copy -R "$LEDGER_DIR" show -r REVISION
+jj --ignore-working-copy -R "$LEDGER_DIR" diff -r REVISION --git
+jj --ignore-working-copy -R "$LEDGER_DIR" file show -r REVISION Bills/PATH
+jj --ignore-working-copy -R "$LEDGER_DIR" file show -r 'REVISION-' data/expenses/YEAR.json
+```
+
+Judge the change as it stood when committed against its evidence and policy,
+and separately name anything still wrong today. Check added entries in full;
+every changed field and complete before/after value; statement membership and
+paying accounts; rule dates, origin and links; and cited, moved or removed evidence.
+A removed entry must have been intended to go (Delete in the page is the normal
+route); removed evidence must have no remaining citations. Read historical
+evidence from the named revision when necessary.
+
+Give each change line only `ok` or `issue`, even when it made a rule. Do not use
+`confirm` or `propose-removal` for a change line; `audit.py review` enforces this.
+A verdict never authorizes a correction, removal or rule operation.
+
+
+Review compact `baseline` migration records by their from/to format, checkpoint
+and paths, and the upgrade's verification/comparison output. Do not ask for a
+hand diff of every converted entry. Boundary-removal/movement and unknown-history
+warnings always need reporting; editing the working `auditStart` cannot dismiss
+them. An uncommitted terminal audit line causes the next hand commit to refuse
+with its exact audit-only restore command; follow that refusal before retrying. No review verdict authorizes history rewriting.

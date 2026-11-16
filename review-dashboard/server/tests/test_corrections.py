@@ -31,7 +31,7 @@ class CorrectionTests(Fixture):
         if rule:
             r=store_rule('f'*16,'2026-11-29',e['description'],deepcopy(e['postings']),schedule={'every':'month','from':'2026-11-29','interval':1,'anchor-day':29})
             e['rule']=dict(id=r['id'],occurrence=day);dump(self.ledger/'data/forecast.json',[r])
-        dump(self.ledger/f'data/expenses/{day[:4]}.json',[e]);self.jj('commit','-m','Fictional correction baseline')
+        dump(self.ledger/f'data/expenses/{day[:4]}.json',[e]);self.checkpoint('Fictional correction baseline')
         return e
 
     def body(self,e):
@@ -452,13 +452,13 @@ class CorrectionTests(Fixture):
         e['postings'][0].update(amount='20.00',commodity=foreign,cost=dict(amount='5.00',commodity=self.currency,per='unit'))
         e['original-amount']=dict(amount='20.00',commodity=foreign);e['references']={'reference':'original-ref','order-id':['original-order']}
         e['statement']={'end':None,'serial':None,'page':None,'source-page':2,'source-row':7}
-        dump(self.ledger/'data/expenses/2026.json',[e]);self.jj('commit','-m','Fictional unit conversion baseline')
+        dump(self.ledger/'data/expenses/2026.json',[e]);self.checkpoint('Fictional unit conversion baseline')
         body=self.body(e);body['proposal']['entry']['notes'].append('A receipt note');self.save(e,body)
         after=entries(load(self.ledger))[0]
         for key in ('postings','original-amount','references','statement'):self.assertEqual(after[key],e[key])
         self.assertEqual(load(self.ledger)[self.ledger/'data/accounts.json'],declarations)
         after['extensions']={'fuel':{'litres':'5.00','trip-km':'50.00'}};dump(self.ledger/'data/expenses/2026.json',[after])
-        manifest=json.loads((self.ledger/'ledger.json').read_text());manifest['extensions']['fuel']['ask']=False;dump(self.ledger/'ledger.json',manifest);self.jj('commit','-m','An extension the agent is no longer asked for')
+        manifest=json.loads((self.ledger/'ledger.json').read_text());manifest['extensions']['fuel']['ask']=False;dump(self.ledger/'ledger.json',manifest);self.checkpoint('An extension the agent is no longer asked for')
         body=self.body(after);body['proposal']['entry']['description']='Corrected history label';self.save(after,body)
         updated=entries(load(self.ledger))[0]
         self.assertEqual(updated['extensions'],after['extensions'])
@@ -474,7 +474,7 @@ class CorrectionTests(Fixture):
         e=self.seed()
         (self.ledger/'extensions').mkdir(exist_ok=True);(self.ledger/'extensions/work.json').write_text(json.dumps(work)+'\n')
         manifest=json.loads((self.ledger/'ledger.json').read_text());manifest['extensions']['work']={'ask':False};dump(self.ledger/'ledger.json',manifest)
-        e['extensions']={'fuel':None,'work':None};dump(self.ledger/'data/expenses/2026.json',[e]);self.jj('commit','-m','A fictional custom extension')
+        e['extensions']={'fuel':None,'work':None};dump(self.ledger/'data/expenses/2026.json',[e]);self.checkpoint('A fictional custom extension')
         body=self.body(e);self.assertEqual(body['proposal']['entry']['extensions'],{'fuel':None,'work':None})
         values={'rate':'12.50','client':'Fictional Studio','hours':3,'billed-on':'2026-11-02','billable':True,'stage':'sent'}
         body['proposal']['entry']['extensions']['work']=values;self.save(e,body)
@@ -601,7 +601,7 @@ class ReceiptTests(Fixture):
         with self.assertRaisesRegex(ValueError,'symlink'):safe_evidence(self.ledger,'Bills/linked/file.png')
 
     def test_split_refusal_and_statement_locks(self):
-        e=self.seed();e['postings'][0]['amount']='50.00';e['postings'].insert(1,deepcopy(e['postings'][0]));dump(self.ledger/'data/expenses/2026.json',[e]);self.jj('commit','-m','Split fixture')
+        e=self.seed();e['postings'][0]['amount']='50.00';e['postings'].insert(1,deepcopy(e['postings'][0]));dump(self.ledger/'data/expenses/2026.json',[e]);self.checkpoint('Split fixture')
         drafts,d,worker=self.receipt(e,amount='120.00')
         with self.assertRaisesRegex(ValueError,'split payment'):choose(self.settings,drafts,d,'use')
         choose(self.settings,drafts,d,'keep');self.assertEqual(entries(load(self.ledger))[0]['postings'],e['postings'])
@@ -609,7 +609,7 @@ class ReceiptTests(Fixture):
     def test_conversion_refusal_and_agreement_resume_without_another_read(self):
         e=self.seed();declarations=load(self.ledger)[self.ledger/'data/accounts.json'];foreign=next(c for c in declarations['commodities'] if c!=self.currency)
         e['postings'][0].update(amount='20.00',commodity=foreign,cost=dict(amount='100.00',commodity=self.currency,per='total'))
-        dump(self.ledger/'data/expenses/2026.json',[e]);self.jj('commit','-m','Fictional conversion')
+        dump(self.ledger/'data/expenses/2026.json',[e]);self.checkpoint('Fictional conversion')
         drafts,d,worker=self.receipt(e,amount='120.00')
         with self.assertRaisesRegex(ValueError,'currency conversion'):choose(self.settings,drafts,d,'use')
         choose(self.settings,drafts,d,'keep')

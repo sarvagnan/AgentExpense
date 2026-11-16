@@ -124,8 +124,8 @@ def release_020(root):
     (root / f'migrations/{NEXT_FORMAT:04d}_test_field.py').write_text(MIGRATION)
     # The upgrade test lists the manifest keys a full upgrade produces.
     replace_once(root / 'scripts/ledger/migration_tests/test_upgrade.py',
-                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review'])",
-                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review', 'testField'])")
+                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review', 'auditStart'])",
+                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review', 'auditStart', 'testField'])")
     for manifest in sorted((root / 'fixtures/ledgers').glob('*/ledger.json')):
         value = json.loads(manifest.read_text())
         manifest.write_text(json.dumps({**value, 'format': NEXT_FORMAT, 'testField': True}, indent=2, ensure_ascii=False) + '\n')
@@ -153,6 +153,7 @@ def setUpModule():
         (fake / name).write_text(FAKE_SERVICE)
         (fake / name).chmod(0o755)
     environ.update(GIT_CONFIG_GLOBAL=str(base / 'gitconfig'), GIT_CONFIG_NOSYSTEM='1', JJ_CONFIG=str(base / 'jj.toml'),
+                   XDG_CONFIG_HOME=str(base / 'config'),
                    PATH=str(fake) + os.pathsep + environ['PATH'], GIT_TERMINAL_PROMPT='0')
     source, remote = base / 'source', base / 'remote.git'
     for name in committed_files():
@@ -205,7 +206,8 @@ def make_ledger(clone, target, kind, environ):
         run(['jj', 'commit', '-m', 'Fictional ledger baseline'], target, environ)
         run(['jj', 'bookmark', 'set', 'main', '-r', '@-'], target, environ)
     else:
-        run(['git', 'init', '--quiet'], target, environ)
+        # Ledger branches need not share the application's main branch name.
+        run(['git', 'init', '--quiet', '-b', 'master'], target, environ)
         run(['git', 'add', '--all'], target, environ)
         run(['git', 'commit', '--quiet', '-m', 'Fictional ledger baseline'], target, environ)
 

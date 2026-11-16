@@ -68,7 +68,8 @@ class FreshCloneTests(unittest.TestCase):
         code, output = self.make('test-scanner', 'SCANNER_TESTS=test_server_worker_suite_removes_owned_root')
         self.assertEqual(code, 0, output[-6000:])
         self.assertIn(NOTICE, output)
-        self.assertIn('Ran 1 test', output)
+        # The slow browser-box modules report themselves as skipped under any -k selection.
+        self.assertRegex(output, r'test_server_worker_suite_removes_owned_root \([^)]*\) \.\.\. ok')
 
     def test_doctor_reports_no_ledger_as_information(self):
         code, output = self.make('doctor')

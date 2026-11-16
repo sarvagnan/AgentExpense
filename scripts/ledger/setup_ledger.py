@@ -10,7 +10,7 @@ Opening balances are positive amounts: what is in a bank, cash, wallet or invest
 account, what is owed on a card or loan (including unbilled charges), and for a person
 what they owe you (negative when you owe them). Each becomes a balance assertion on the
 start date against Equity:Opening Balances, and the start date is saved as startDate.
-Nothing is committed: run `make commit m="…"` afterwards.
+Nothing is committed: run `make commit m="…" by=user|agent` afterwards.
 """
 from __future__ import annotations
 import argparse
@@ -273,11 +273,11 @@ def main(argv=None):
             name = apply(root, lambda: account_changes(root, kind=args.kind, label=args.label, currency=args.currency,
                                                         aliases=args.alias, reader=args.reader,
                                                         identifier=args.identifier, account=args.account))
-            print(f'Declared {name}. Commit with make commit m="Add account {name}".')
+            print(f'Declared {name}. Commit with make commit m="Add account {name}" by=user.')
         else:
             apply(root, lambda: opening_changes(root, args.date, args.balances))
             print(f'Recorded {len(args.balances)} opening balance(s) on {args.date} and set startDate. '
-                  'Commit with make commit m="Record opening balances".')
+                  'Commit with make commit m="Record opening balances" by=user.')
     except ValueError as exc:
         raise SystemExit(str(exc))
 

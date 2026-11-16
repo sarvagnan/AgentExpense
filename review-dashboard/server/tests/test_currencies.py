@@ -77,7 +77,7 @@ class CurrencyTests(Fixture):
     def test_settings_api_commits_verified_change_under_write_rules_and_locks_activity(self):
         self.setup_currencies()
         opening=store_entry('1'*16,'2026-10-01','Opening',[posting(TRAVEL,'650.00','EUR',**{'assert':dict(amount='650.00',commodity='EUR')}),posting('Equity:Opening Balances','-650.00','EUR')])
-        dump(self.ledger/'data/expenses/2026.json',[opening]);self.jj('commit','-m','Currency settings baseline')
+        dump(self.ledger/'data/expenses/2026.json',[opening]);self.checkpoint('Currency settings baseline')
         with self.client(worker=False) as client:
             before=(self.ledger/'data/accounts.json').read_bytes()
             response=client.post('/api/settings/default-currency',json={'currency':'GBP'})
@@ -93,13 +93,13 @@ class CurrencyTests(Fixture):
             response=client.post('/api/settings/default-currency',json={'currency':'EUR'})
             self.assertEqual(response.status_code,409);self.assertIn('uncommitted',response.text)
         (self.ledger/'uncommitted.txt').unlink()
-        row['postings'][1]['account']='Expenses:Food';dump(self.ledger/'data/expenses/2026.json',[row]);self.jj('commit','-m','Activity fixes currency')
+        row['postings'][1]['account']='Expenses:Food';dump(self.ledger/'data/expenses/2026.json',[row]);self.checkpoint('Activity fixes currency')
         with self.client(worker=False) as client:
             response=client.post('/api/accounts/currency',json={'account':TRAVEL,'currency':'EUR'})
             self.assertEqual(response.status_code,409);self.assertIn('fixed by transaction',response.text)
 
     def test_failed_settings_verification_rolls_back(self):
-        self.setup_currencies();self.jj('commit','-m','Currency baseline')
+        self.setup_currencies();self.checkpoint('Currency baseline')
         before=self.bytes()
         from currency_settings import update_currency
         with patch('commit.verify',side_effect=ValueError('injected failure')),self.assertRaisesRegex(RuntimeError,'failed verification'):
@@ -109,7 +109,7 @@ class CurrencyTests(Fixture):
     def test_usd_statement_applies_foreign_cost_and_replaces_estimate(self):
         self.setup_currencies()
         opening=store_entry('1'*16,'2026-01-01','Opening',[posting(CARD,'0.00','USD'),posting('Equity:Opening Balances','0.00','USD')])
-        dump(self.ledger/'data/expenses/2026.json',[opening]);self.jj('commit','-m','USD statement baseline')
+        dump(self.ledger/'data/expenses/2026.json',[opening]);self.checkpoint('USD statement baseline')
         text=TEXT.replace('Statement period:', 'Statement currency: USD\nStatement period:').replace('2.00 | USD','2.00 | EUR')
         sessions=Statements(self.settings);session=sessions.create(statement_pdf(text),'Fictional-USD.pdf')
         with patch('agent.run') as agent:
@@ -176,7 +176,7 @@ class CurrencyTests(Fixture):
     def test_currency_form_validates_rounds_commits_and_records_estimate_without_another_agent(self):
         self.setup_currencies()
         path=self.ledger/'data/accounts.json';declared=read_json(path);declared['commodities'].remove('EUR');declared['accounts'].pop(TRAVEL);dump(path,declared)
-        self.jj('commit','-m','Currency form baseline')
+        self.checkpoint('Currency form baseline')
         answer=self.proposal(cost=False);answer.update(status='question',question='How much was charged?')
         answer['entry']['postings'][1]['amount']='0.00'
         self.set_answers(answer)
@@ -200,7 +200,7 @@ class CurrencyTests(Fixture):
             self.assertTrue(clean(self.ledger))
 
     def test_transfer_form_saves_both_amounts(self):
-        self.setup_currencies();self.jj('commit','-m','Transfer form baseline')
+        self.setup_currencies();self.checkpoint('Transfer form baseline')
         answer=self.proposal(cost=False);answer.update(status='question',question='How much arrived?')
         answer['entry']['original-amount']=None
         answer['entry']['postings']=[dict(account=BANK,amount='-1000.00',commodity='USD',cost=None),dict(account=TRAVEL,amount='0.00',commodity='EUR',cost=None)]
@@ -218,7 +218,7 @@ class CurrencyTests(Fixture):
     def test_statement_mismatch_reassign_and_create_account_through_verified_endpoint(self):
         self.setup_currencies()
         path=self.ledger/'data/accounts.json';declared=read_json(path);declared['commodities'].remove('GBP');dump(path,declared)
-        self.jj('commit','-m','Statement account baseline')
+        self.checkpoint('Statement account baseline')
         sessions=Statements(self.settings)
         text=TEXT.replace('Statement period:','Statement currency: EUR\nStatement period:').replace('2.00 | USD','2.00 | GBP')
         session=sessions.create(statement_pdf(text),'Fictional-EUR.pdf');sessions.read(session)

@@ -156,13 +156,16 @@ def _make_commit(application, env, lock_fd):
                 with step('data_snapshot'): data.prepare()
             except Exception as exc: data.failed_prepare(str(exc))
     try:
+        from audit import take_appends
+        receipts = take_appends(root)
+        rollback = service.rollback_operation if service else receipts[0].operation if receipts else None
         identity = ledger_commit.commit(root, env['EXPENSES_COMMIT_MESSAGE'], lock_fd=lock_fd,
-            rollback_operation=service.rollback_operation if service else None,
+            rollback_operation=rollback,
             index=service.index if service else None, canonical_cache=service.canonical if service else None,
             emit=lambda *args: output.append(' '.join(map(str, args))),
             hledger_mode=env.get('EXPENSES_HLEDGER_CHECK'),
             before_commit=prepare_data if data else None,
-            after_commit=accepted)
+            after_commit=accepted, carries_audit=True, audit_receipts=receipts)
         completed = subprocess.CompletedProcess(['in-process', 'commit'], 0, identity+'\n', '')
         completed.data_candidate = candidate
         return completed

@@ -52,6 +52,10 @@ class FirstRun(Fixture):
         return self.jj('log', '-r', '@-', '--no-graph', '-T', 'description')
 
     def test_about_and_opening_balances_are_two_verified_commits(self):
+        manifest = read_json(self.ledger/'ledger.json'); manifest['auditStart'] = {'after': self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id')}
+        dump(self.ledger/'ledger.json', manifest)
+        self.jj('commit', '-m', 'Start audit coverage for fictional setup')
+        self.jj('bookmark', 'set', 'main', '-r', '@-')
         with self.client(worker=False) as client:
             self.assertEqual(client.get('/api/setup').json(), dict(fresh=True, accounts=[]))
             response = client.post('/api/setup/about', json=dict(name='Jordan Lee', currency='USD'))
@@ -87,6 +91,11 @@ class FirstRun(Fixture):
             self.assertEqual(opened['Assets:People:Casey Morgan']['amount'], '-75.00')
             self.assertTrue(all(e['date'] == today for e in entries(documents)))
             self.assertEqual(read_json(self.ledger / 'ledger.json')['startDate'], today)
+            from audit_changes import unrecorded
+            self.assertEqual(unrecorded(self.ledger, records(self.ledger)), [])
+            change = next(r for r in records(self.ledger) if r['kind'] == 'change' and r['entries'])
+            self.assertEqual(len(change['entries']), 5)
+            self.assertTrue(all(e['action'] == 'added' for e in change['entries']))
             # Setup is over once entries exist: every first-run write refuses.
             self.assertEqual(client.get('/api/setup').json()['fresh'], False)
             for path, body in [('about', dict(name='Other', currency='USD')), ('opening', dict(start=today, accounts=rows[:1])),
@@ -152,7 +161,7 @@ class FirstRun(Fixture):
         changes, account = setup_ledger.account_changes(self.ledger, kind='bank', label='Alder Checking', currency='USD', aliases=['checking'])
         for path, value in changes.items():
             dump(path, value)
-        self.jj('commit', '-m', 'Account declared from the command line')
+        self.checkpoint('Account declared from the command line')
         with self.client(worker=False) as client:
             self.assertEqual(client.get('/api/setup').json(), dict(fresh=True, accounts=[account]))
             mismatch = client.post('/api/setup/opening', json=dict(start=date.today().isoformat(), accounts=[dict(kind='bank', label='Alder Checking', currency='EUR', balance='5')]))

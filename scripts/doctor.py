@@ -22,6 +22,7 @@ import dependencies  # noqa: E402
 
 # The oldest hledger whose behaviour the app relies on; docs/VERSIONS.md says why.
 HLEDGER_MINIMUM = (1, 25)
+JJ_MINIMUM = (0, 47, 1)
 OK, INFO, WARN, FAIL = 'ok', 'info', 'warn', 'FAIL'
 OFFLINE = {'npm_config_update_notifier': 'false', 'npm_config_offline': 'true', 'UV_OFFLINE': '1'}
 
@@ -125,7 +126,10 @@ def check_tools(environ):
             versions[name] = dotted(version_in(text))
     detail = ', '.join(f'{name} {value}' for name, value in versions.items())
     # Saves and make commit go through jj; git alone can only read a ledger's history.
-    rows.append(Row('jj / git', OK, detail) if 'jj' in versions else
+    rows.append(Row('jj / git', FAIL, detail + '; jj needs ' + dotted(JJ_MINIMUM) + '+',
+                    'Install Jujutsu ' + dotted(JJ_MINIMUM) + ' or newer.')
+                if 'jj' in versions and version_in(versions['jj']) < JJ_MINIMUM else
+                Row('jj / git', OK, detail) if 'jj' in versions else
                 Row('jj / git', WARN, f'{detail}; jj not found, and saves need it', 'Install Jujutsu (jj).') if versions else
                 Row('jj / git', FAIL, 'neither found', 'Install Jujutsu (jj); ledgers are version-controlled.'))
     return rows

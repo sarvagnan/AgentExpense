@@ -123,13 +123,19 @@ def _update_settings(settings, get_changes, result, description, operation_id=No
         if operation_id: draft['request_hash']=request_hash
         records.put(draft)
         transaction = Transaction(settings, records, draft)
-        journal = transaction.snapshot([*changes, settings.ledger / 'expense_ledger.ledger'])
+        from audit import audit_path, stamp
+        audit_time = stamp()
+        journal = transaction.snapshot([*changes, settings.ledger / 'expense_ledger.ledger',
+                                        audit_path(settings.ledger, {'time': audit_time})])
         try:
             for path, value in changes.items():
                 dump(path, value)
             journal['result'] = result
             transaction.save_journal(journal)
             message = f"{description}\n\n{transaction.marker}"
+            from audit_changes import document_change
+            from audit import append
+            append(settings.ledger, document_change(settings.ledger, changes, journal, message, audit_time))
             from save_timing import make_commit
             run = make_commit(settings.application, {**os.environ, 'LEDGER_DIR': str(settings.ledger), LOCK_FD_ENV: str(fd), 'EXPENSES_COMMIT_MESSAGE': message}, fd)
             if run.returncode:

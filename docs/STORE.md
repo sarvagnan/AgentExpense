@@ -49,6 +49,29 @@ uv run --locked --project review-dashboard/server python scripts/ledger/store_mo
 `ledger.json` (the manifest) keeps its own schema, `schema/ledger.schema.json`.
 The schema's `x-documents` names the definition that validates each file.
 
+The optional `auditStart` in the current `ledger.json` is
+`{"after": "<40-hex commit ID>"}`. `list --unreviewed` checks later commits on
+`main`, excluding that commit's ancestors, roots and merges. New ledgers use
+`{"after": null}`: the first commit is their baseline. Upgrade seeds an absent
+boundary from the clean working copy's parent (`@-` for jj, HEAD for plain Git),
+and keeps an existing one. Without the field or history, checking warns.
+Do not edit `auditStart` or rewrite `main`; doing so deliberately can hide a commit from this check.
+This optional field keeps format 2. Migrations append compact `baseline` receipts
+(from/to format, checkpoint, change id and paths), without serializing every
+entry. Upgrade adds `meta.ledger.auditStart`; journal and reports stay unchanged.
+
+Version-1 audit logs additionally accept `kind: change`, requiring `actor`
+(`user` or `agent`), `message`, `change_id` (32 letters k–z), `commit` (null when
+written with the change, 40 hex when backfilled), `entries`, `rules` and `paths`;
+`note` is optional. Entry actions are `added`, `changed`, `removed`; rule actions
+are `made`, `edited`, `removed`. Added/removed items keep their full snapshot as
+`entry`; changed/edited items keep a nonempty `changed_fields` object mapping
+field names to complete `{before, after}` values. Snapshot schemas require only
+`id`, preserving historical formats. Paths carry `path`, `status` (added,
+modified, removed, renamed, copied), and `source` only for rename/copy. They include
+uncovered changes and exclude the audit log. Duplicate change or commit identities
+are refused. Historical lines are never rewritten.
+
 ## Conventions
 
 - **Every key is present.** A missing key is an error, and so is an unknown key.
@@ -807,3 +830,12 @@ The upgrade runner compares the journal and hledger reports with format 1's own
 rendering: identical, except the entries the migration declares (converted unit
 costs, policy terms, moved order-ids, cleared empty values), whose blocks are compared by count, and
 the at-cost balance when unit costs were converted.
+
+
+`kind: baseline` is a version-1 compact migration receipt with `message`, `actor`
+and a closed `baseline` object: `from_format`, `to_format`, `checkpoint`,
+`change_id` and `paths`. The checker matches these to the committed migration,
+including its parent, formats and exact paths. It gets an ordinary ok/issue
+verdict, while the migration's full verification and output comparison remain
+the financial gate. Other kinds' fields are refused on `change` records, and
+change-only fields are refused on other kinds.

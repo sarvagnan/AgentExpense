@@ -1,4 +1,4 @@
-"""Append-only live-page audit records and weekly review commands."""
+"""Append-only operation and hand-change audit records and weekly review commands."""
 from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -9,10 +9,12 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import sys
+from contextvars import ContextVar
+from dataclasses import dataclass
 from jsonschema import Draft202012Validator, FormatChecker
 from store import ROOT, read_json, _unique_object
-from ledger_lock import LOCK_FD_ENV, ledger_lock
-from project_paths import APPLICATION_ROOT
+from ledger_lock import ledger_lock
 from proposal_consent import validate_consent
 
 SCHEMA = Path(__file__).resolve().parents[2] / 'schema/additions.schema.json'
@@ -45,6 +47,7 @@ def records(root=ROOT):
     schema_key = hashlib.sha256(json.dumps(schema).encode()).digest() if memo else None
     validator = Draft202012Validator(schema, format_checker=FORMATS)
     used = set()
+    changes, commits = set(), set()
     result = []
     for path in sorted((root / 'data/additions').glob('*.jsonl')):
         if not re.fullmatch(r'\d{4}\.jsonl', path.name):
@@ -63,6 +66,11 @@ def records(root=ROOT):
                         with memo.lock:
                             if len(memo.audit_lines) > 100000: memo.audit_lines.clear()
                             memo.audit_lines.add(key)
+                if record['kind'] == 'change':
+                    if record['change_id'] in changes or record['commit'] and record['commit'] in commits:
+                        raise ValueError('Duplicate recorded change')
+                    changes.add(record['change_id'])
+                    if record['commit']: commits.add(record['commit'])
                 if record['id'] in used:
                     raise ValueError('Duplicate audit ID ' + record['id'])
                 if datetime.fromisoformat(record['time']).year != int(path.stem):
@@ -82,7 +90,11 @@ def append(root, record, *, lines=None):
     """Caller holds the lock; optional lines are its current locked audit snapshot."""
     Draft202012Validator(read_json(SCHEMA), format_checker=FORMATS).validate(record)
     validate_consent(record)
-    existing = next((r for r in (records(root) if lines is None else lines) if r['id'] == record['id']), None)
+    current = records(root) if lines is None else lines
+    if record['kind'] == 'change' and any(r['kind'] == 'change' and r['id'] != record['id'] and
+            (r['change_id'] == record['change_id'] or record['commit'] and r['commit'] == record['commit']) for r in current):
+        raise ValueError('Duplicate recorded change')
+    existing = next((r for r in current if r['id'] == record['id']), None)
     if existing:
         if existing != record:
             raise ValueError('Audit ID already contains a different record')
@@ -94,11 +106,70 @@ def append(root, record, *, lines=None):
     if path.exists() and path.stat().st_size and not path.read_bytes().endswith(b'\n'):
         raise ValueError('Audit log has an incomplete final line')
     data = (json.dumps(record, ensure_ascii=True, allow_nan=False, separators=(',', ':')) + '\n').encode()
+    offset = path.stat().st_size if path.exists() else 0
     with path.open('ab') as handle:
         handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
     if lines is not None: lines.append(record)
+    key = str(Path(root).resolve())
+    operation, receipts = _APPENDS.get().get(key, (None, ()))
+    receipt = AppendReceipt(Path(root).resolve(), operation, path.resolve(), offset, data, _receipt_stamp(path))
+    _APPENDS.set({**_APPENDS.get(), key: (operation, (*receipts, receipt))})
+    return receipt
+
+
+@dataclass(frozen=True)
+class AppendReceipt:
+    root: Path
+    operation: str
+    path: Path
+    offset: int
+    data: bytes
+    stamp: tuple
+
+
+_APPENDS = ContextVar('validated_audit_appends', default={})
+
+
+def reset_appends(root, operation):
+    _APPENDS.set({**_APPENDS.get(), str(Path(root).resolve()): (operation, ())})
+
+
+def take_appends(root):
+    key = str(Path(root).resolve())
+    state = _APPENDS.get()
+    operation, receipts = state.get(key, (None, ()))
+    _APPENDS.set({name: value for name, value in state.items() if name != key})
+    return receipts
+
+
+def _receipt_stamp(path):
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+def validate_appends(root, operation, receipts):
+    """Validate sealed, in-process appends using only their new byte ranges."""
+    if not receipts:
+        return False
+    root = Path(root).resolve()
+    last = {}
+    for receipt in receipts:
+        if not isinstance(receipt, AppendReceipt) or receipt.root != root or receipt.operation != operation:
+            raise ValueError('Audit append receipt belongs to another locked transaction')
+        if receipt.path in last and receipt.offset != last[receipt.path].offset + len(last[receipt.path].data):
+            raise ValueError('Audit append receipts do not form a contiguous append')
+        if receipt.path.is_symlink():
+            raise ValueError('Audit log must not be a symlink')
+        with receipt.path.open('rb') as handle:
+            handle.seek(receipt.offset)
+            if handle.read(len(receipt.data)) != receipt.data:
+                raise ValueError('Validated audit append changed before commit')
+        last[receipt.path] = receipt
+    if any(_receipt_stamp(path) != receipt.stamp for path, receipt in last.items()):
+        raise ValueError('Audit file changed after its validated append')
+    return True
 
 
 def missing_entries(root, entry_ids, *, lines=None):
@@ -112,16 +183,94 @@ def unreviewed(lines):
 
 
 def ledger_clean(root):
-    return not subprocess.check_output(['jj', '-R', str(root), 'diff', '--summary'], text=True).strip()
+    from audit_changes import require_repository
+    require_repository(root)
+    # A writer's explicit cleanliness check snapshots; history readers never do.
+    return not subprocess.check_output(['jj', '-R', str(root), 'diff', '--summary'], cwd=root, text=True).strip()
 
 
-def make_commit(root, message, lock_fd):
-    env = {**os.environ, 'LEDGER_DIR': str(root), LOCK_FD_ENV: str(lock_fd), 'EXPENSES_COMMIT_MESSAGE': message}
-    completed = subprocess.run(['make', 'commit'], cwd=APPLICATION_ROOT, env=env, pass_fds=(lock_fd,),
-                               text=True, capture_output=True)
-    if completed.returncode:
-        raise RuntimeError('Ledger commit failed: ' + (completed.stdout + completed.stderr)[-5000:])
-    return subprocess.check_output(['jj', '-R', str(root), 'log', '-r', '@-', '--no-graph', '-T', 'commit_id'], text=True).strip()
+def make_commit(root, message, lock_fd, *, snapshot=None, audit_before=None, operation=None):
+    from commit import commit
+    return commit(root, message, lock_fd=lock_fd, carries_audit=True, snapshot=snapshot,
+                  audit_before=audit_before, rollback_operation=operation, audit_receipts=take_appends(root))
+
+
+def _append_commit(root, additions, message, fd, callback):
+    """Restore this append batch in memory on failure; kills leave a clear refusal."""
+    from commit import jj
+    from audit_changes import identity
+    before = {path: path.read_bytes() if path.exists() else None for path in {audit_path(root, line) for line in additions}}
+    snapshot, operation = None, None
+    if callback is make_commit:
+        jj(root, 'status')
+        snapshot = identity(root, '@')
+        operation = jj(root, 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id')
+        reset_appends(root, operation)
+    try:
+        for line in additions:
+            append(root, line)
+        result = (callback(root, message, fd, snapshot=snapshot, audit_before=before, operation=operation)
+                  if callback is make_commit else callback(root, message, fd))
+        return result, [line['id'] for line in additions]
+    except BaseException:
+        for path, data in before.items():
+            if data is None: path.unlink(missing_ok=True)
+            else: path.write_bytes(data)
+        raise
+
+
+def record(root, changes, *, commit=make_commit):
+    """Backfill one or more ancestors of main as one atomic, record-only commit."""
+    from audit_changes import identity, main_history, change_line, own_lines, audit_restore_hint
+    with ledger_lock(root) as fd:
+        if not isinstance(changes, list) or not changes:
+            raise ValueError('Changes must be a nonempty JSON list of {commit, actor, note?}.')
+        lines = records(root)
+        if not ledger_clean(root):
+            raise ValueError('The ledger has uncommitted changes; record requires a clean working copy.' + audit_restore_hint(root))
+        history = main_history(root)
+        order = {row['commit']: position for position, row in enumerate(history)}
+        known_changes = {r['change_id'] for r in lines if r['kind'] == 'change'}
+        known_commits = {r['commit'] for r in lines if r['kind'] == 'change' and r['commit']}
+        additions = []
+        for item in changes:
+            if (not isinstance(item, dict) or not {'commit', 'actor'} <= item.keys() or
+                    item.keys() - {'commit', 'actor', 'note'} or
+                    not isinstance(item['commit'], str) or not re.fullmatch('[0-9a-f]{4,40}|[k-z]{4,32}', item['commit']) or
+                    item['actor'] not in ('user', 'agent') or
+                    'note' in item and not isinstance(item['note'], str)):
+                raise ValueError('Each change needs commit, actor user|agent and optional text note.')
+            info = identity(root, item['commit'])
+            if info['commit'] not in order:
+                raise ValueError('The commit is not on main.')
+            if info['change_id'] in known_changes or info['commit'] in known_commits:
+                raise ValueError('The change is already recorded (or repeated in this request).')
+            if len(info['parents']) == 1 and own_lines(root, info):
+                raise ValueError('The commit already carries its own audit line.')
+            line = change_line(root, info['commit'], item['actor'], recorded=True, note=item.get('note'))
+            additions.append(line)
+            known_changes.add(info['change_id']); known_commits.add(info['commit'])
+        additions.sort(key=lambda r: order[r['commit']])
+        return _append_commit(root, additions, 'Record earlier hand changes in the audit log', fd, commit)
+
+
+def warn_unrecorded(root, lines):
+    from audit_changes import unrecorded, HistoryUnavailable
+    try:
+        missing = unrecorded(root, lines)
+    except (HistoryUnavailable, ValueError, OSError) as exc:
+        print(f"WARNING: couldn't check unrecorded commits: {exc}", file=sys.stderr)
+        return
+    import shlex
+    for info in missing:
+        if info.get('reason'):
+            print(f"WARNING: ledger commit {info['commit']} (change {info['change_id']}): {info['reason']}", file=sys.stderr)
+            continue
+        print(f"WARNING: unrecorded ledger commit {info['commit']} (change {info['change_id']}): "
+              + json.dumps(info['message'].rstrip('\n')), file=sys.stderr)
+        print('Ask the owner who made it; use --actor agent instead if they identify an agent. Then run:', file=sys.stderr)
+        print('uv run --locked --project review-dashboard/server python '
+              f"scripts/ledger/audit.py --root {shlex.quote(str(root))} record --commit {info['commit']} --actor user", file=sys.stderr)
 
 
 def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make_commit):
@@ -161,20 +310,9 @@ def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make
             seen.add(item['line'])
             additions.append(event('review', line_id=item['line'], verdict=item['verdict'], note=item['note'], reviewer=reviewer))
         if not clean(root):
-            raise ValueError('The ledger has uncommitted changes; leave them for the user rather than committing them with verdicts')
-        sizes = {path: path.stat().st_size if path.exists() else None for path in {audit_path(root, r) for r in additions}}
-        try:
-            for record in additions:
-                append(root, record)
-            return commit(root, message, lock_fd), [r['id'] for r in additions]
-        except BaseException:
-            # Back to the exact earlier bytes: truncation keeps every committed line untouched.
-            for path, size in sizes.items():
-                if size is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    os.truncate(path, size)
-            raise
+            from audit_changes import audit_restore_hint
+            raise ValueError('The ledger has uncommitted changes; review requires a clean working copy.' + audit_restore_hint(root))
+        return _append_commit(root, additions, message, lock_fd, commit)
 
 
 def since_time(value, at=None):
@@ -191,12 +329,18 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     listing = sub.add_parser('list')
     listing.add_argument('--since', help='7d by default, unless --unreviewed')
-    listing.add_argument('--unreviewed', action='store_true', help='draft, statement and rule-operation lines without a verdict, of any age')
+    listing.add_argument('--unreviewed', action='store_true', help='operation and hand-change lines without a verdict, of any age')
     listing.add_argument('--json', action='store_true')
     reviewing = sub.add_parser('review', help='record every verdict and commit them together, or change nothing')
     reviewing.add_argument('--verdicts', type=Path, required=True, help='JSON list of outcome {line,verdict,note} and/or rule {rule,verdict,reason} verdicts')
     reviewing.add_argument('--reviewer', required=True)
     reviewing.add_argument('--message', default='Review the dashboard audit log')
+    recording = sub.add_parser('record', help='record earlier hand commits together, or change nothing')
+    choice = recording.add_mutually_exclusive_group(required=True)
+    choice.add_argument('--commit')
+    choice.add_argument('--changes', type=Path, help='JSON list of {commit, actor, note?}')
+    recording.add_argument('--actor', choices=('user', 'agent'))
+    recording.add_argument('--note')
     args = parser.parse_args(argv)
     root = args.root.resolve()
     # A checkout without the ledger (such as an application worktree) must not read as an empty log.
@@ -208,8 +352,14 @@ def main(argv=None):
     except ValueError as exc:
         parser.error(str(exc))
     if args.command == 'list':
-        lines = records(root)
+        try:
+            lines = records(root)
+        except (ValueError, OSError) as exc:
+            print('WARNING: cannot read audit records: ' + str(exc), file=sys.stderr)
+            if args.json: print('[]')
+            return
         if args.unreviewed:
+            warn_unrecorded(root, lines)
             lines = unreviewed(lines)
         if args.since or not args.unreviewed:
             lines = [r for r in lines if datetime.fromisoformat(r['time']) >= since_time(args.since or '7d')]
@@ -217,8 +367,25 @@ def main(argv=None):
             print(json.dumps(lines, ensure_ascii=False, indent=2))
         else:
             for r in lines:
-                print(f"{r['time']} {r['id']} {r['kind']} {r.get('action', r.get('outcome', r.get('verdict', r.get('statement', {}).get('periodEnd', ''))))}")
+                summary = r['message'].splitlines()[0] if r.get('message') else r.get('action', r.get('outcome', r.get('verdict', r.get('statement', {}).get('periodEnd', ''))))
+                if r['kind'] == 'change':
+                    summary = f"{r['actor']}: {summary} ({len(r['entries'])} entries, {len(r['rules'])} rules, {len(r['paths'])} paths)"
+                print(f"{r['time']} {r['id']} {r['kind']} {summary}")
                 print(json.dumps(r, ensure_ascii=False, indent=2))
+    elif args.command == 'record':
+        try:
+            if args.changes:
+                if args.actor is not None or args.note is not None:
+                    raise ValueError('--actor and --note belong with --commit, not --changes.')
+                changes = json.loads(args.changes.read_text(), object_pairs_hook=_unique_object)
+            else:
+                if args.actor is None:
+                    raise ValueError('--commit requires --actor user|agent.')
+                changes = [dict(commit=args.commit, actor=args.actor, **({'note': args.note} if args.note is not None else {}))]
+            commit_id, ids = record(root, changes)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
+        print(f'Committed {len(ids)} change records as {commit_id}')
     else:
         try:
             verdicts = json.loads(args.verdicts.read_text(), object_pairs_hook=_unique_object)

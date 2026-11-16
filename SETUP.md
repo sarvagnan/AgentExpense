@@ -153,7 +153,7 @@ make add-account ARGS='--account Expenses:Groceries'
 Commit the accounts:
 
 ```sh
-make commit m="Add accounts"
+make commit m="Add accounts" by=user
 ```
 
 **Or in the dashboard.** The person can do this step and the next in the dashboard
@@ -169,7 +169,7 @@ In that case:
    `data/accounts.json`: `aliases` (lower-case words) and, for a bank or card
    account, `"statement": {"reader": "…", "identifier": "…"}` (fields as in
    [docs/READERS.md](docs/READERS.md)). `make add-account` refuses an account that
-   already exists. Commit with `make commit m="Add aliases and statement readers"`.
+   already exists. Commit with `make commit m="Add aliases and statement readers" by=user`.
    If the person's records start before today, use `make opening-balances` instead
    of the screens (step 4).
 3. Stop the server (Ctrl-C), continue with steps 5 and 6, then run step 7 again so
@@ -187,7 +187,7 @@ person owes them).
 
 ```sh
 make opening-balances ARGS='--date 2026-11-05 "Example Checking=2400.00" "Example Card=312.40" cash=80'
-make commit m="Record opening balances"
+make commit m="Record opening balances" by=user
 ```
 
 Use today's date, or, if the person will type in expenses from an earlier day (for
@@ -234,7 +234,7 @@ expense was for, say), a ledger extension can hold it; [docs/EXTENSIONS.md](docs
 describes the definition file. After listing or changing an extension, run
 `make extension-update NAME=…`.
 
-After changing `ledger.json` or `AGENTS.md`: `make commit m="Set modules and personal rules"`.
+After changing `ledger.json` or `AGENTS.md`: `make commit m="Set modules and personal rules" by=user`.
 
 ## 6. The in-app agent
 

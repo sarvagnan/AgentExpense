@@ -13,6 +13,9 @@ endif
 ifneq ($(origin m),undefined)
 export EXPENSES_COMMIT_MESSAGE = $(m)
 endif
+ifneq ($(origin by),undefined)
+export EXPENSES_COMMIT_ACTOR = $(by)
+endif
 
 HLEDGER ?= $(shell command -v hledger 2>/dev/null || printf '%s' /opt/homebrew/bin/hledger)
 LEDGER ?= ledger

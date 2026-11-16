@@ -34,7 +34,7 @@ class RuleTests(Fixture):
     def seed(self, rule=None, actual=None):
         if rule is not False: dump(self.ledger/'data/forecast.json',[rule or payment_rule()])
         if actual is not None: dump(self.ledger/'data/expenses/2026.json',actual)
-        self.jj('commit','-m','Fictional rules baseline')
+        self.checkpoint('Fictional rules baseline')
 
     def op(self, action, **kw):
         return operate(self.settings,secrets.token_hex(16),dict(action=action,**kw))
@@ -75,7 +75,7 @@ class RuleTests(Fixture):
                 self.assertTrue(records(self.ledger)[-1]['usual_payment']['another_anyway'])
                 # Reset only this disposable fixture between the two variants.
                 dump(self.ledger/'data/expenses/2026.json',[])
-                self.jj('commit','-m','Reset disposable payment examples')
+                self.checkpoint('Reset disposable payment examples')
 
     def test_foreign_planned_cost_note_and_missing_payer_remember(self):
         r=payment_rule();r['postings'][0].update(amount='10.00',commodity='USD',cost=dict(amount='100.00',commodity='INR',per='total'))
@@ -84,7 +84,7 @@ class RuleTests(Fixture):
         self.assertIn('statement reconciliation will correct',e['notes'][-1]);self.assertTrue(records(self.ledger)[-1]['usual_payment']['estimated'])
         self.assertTrue(result['usual_payment']['estimated'])
         declarations=read_json(self.ledger/'data/accounts.json');declarations['accounts']['Equity:Unassigned']={};dump(self.ledger/'data/accounts.json',declarations)
-        r=payment_rule(day='2026-12-15');r['postings'][-1]['account']='Equity:Unassigned';dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Unassigned payment fixture')
+        r=payment_rule(day='2026-12-15');r['postings'][-1]['account']='Equity:Unassigned';dump(self.ledger/'data/forecast.json',[r]);self.checkpoint('Unassigned payment fixture')
         drafts=Drafts(self.ledger);draft=drafts.create('Willow')
         with self.assertRaisesRegex(ValueError,'paying account'):queue_usual(self.settings,drafts,draft,dict(rule_id=r['id'],date='2026-12-15'))
         queue_usual(self.settings,drafts,draft,dict(rule_id=r['id'],date='2026-12-15',account='Assets:Cash',amount='120',update_rule=True,remember_account=False))
@@ -161,7 +161,7 @@ class RuleTests(Fixture):
             with self.assertRaisesRegex(ValueError,'different payload'):operate(self.settings,op_id,{**body,'entry_id':'1'*16})
         with self.assertRaisesRegex(ValueError,'changed'):self.op('paused',rule_id=identity,version='old')
         with ledger_lock(self.ledger):append(self.ledger,event('rule-review',rule_id=identity,rule_verdict='propose-removal',reason='No longer needed',reviewer='Offline reviewer'))
-        self.jj('commit','-m','Fictional review proposal')
+        self.checkpoint('Fictional review proposal')
         self.assertIsNotNone(snapshot(self.settings)['rules'][0]['review']);self.op('kept',rule_id=identity)
         self.assertIsNone(snapshot(self.settings)['rules'][0]['review'])
         copy=payment_rule();copy['id']='f000000000000002';self.op('made',rule=copy)
@@ -178,7 +178,7 @@ class RuleTests(Fixture):
         self.assertEqual(operate(self.settings,no_op,{'action':'backfill'},clock=clock)['changed'],0)
         self.assertTrue(operate(self.settings,no_op,{'action':'backfill'},clock=clock)['replayed'])
         with self.assertRaisesRegex(ValueError,'different payload'):operate(self.settings,no_op,{'action':'catch-up'},clock=clock)
-        r['date']=r['schedule']['from']='2026-09-15';dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Fictional stale rule')
+        r['date']=r['schedule']['from']='2026-09-15';dump(self.ledger/'data/forecast.json',[r]);self.checkpoint('Fictional stale rule')
         self.assertEqual(snapshot(self.settings,clock)['rules'][0]['rule_status'],'stale');caught=self.op('catch-up')
         self.assertEqual(caught['changed'],1);self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['date'],'2026-11-15')
         self.assertEqual(self.op('catch-up')['changed'],0)
@@ -317,7 +317,7 @@ class RuleTests(Fixture):
                 shutil.copyfile(source/'ledger.json',self.ledger/'ledger.json');shutil.copyfile(source/'AGENTS.md',self.ledger/'AGENTS.md')
                 if (source/'extensions').is_dir():shutil.copytree(source/'extensions',self.ledger/'extensions',dirs_exist_ok=True)
                 if (source/'Bills').is_dir():shutil.copytree(source/'Bills',self.ledger/'Bills',dirs_exist_ok=True)
-                self.jj('commit','-m','Fictional '+persona+' history baseline')
+                self.checkpoint('Fictional '+persona+' history baseline')
                 clock=lambda:datetime(2026,11,2,tzinfo=timezone.utc)
                 result=operate(self.settings,secrets.token_hex(16),dict(action='backfill'),clock=clock)
                 self.assertEqual(result['changed'],count)

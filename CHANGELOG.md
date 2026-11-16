@@ -12,6 +12,12 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Hand ledger commits carry their diff, actor and jj identity in the audit log;
+  backfill and weekly review cover earlier changes. Settings and first-run writes
+  are audited. Interrupted writers name an audit-only restore command, and failed
+  saves preserve files outside their own writes. Browser fixture seeding records
+  evidence writes and removals in the same transaction.
+
 - Forecast omits its chart while the measured container has no room inside its
   axis margins, then redraws it when space returns. Hidden and tiny containers
   no longer produce a negative SVG width.
@@ -159,6 +165,13 @@ that fails and keep its output.
   claims resume at their deadlines; refresh failures remain retryable.
 
 ### Upgrade notes
+
+- Use `make commit m="…" by=user` or `by=agent` for hand data changes. Run
+  `make upgrade-ledger` to initialize an older ledger's audit boundary (format 2
+  stays unchanged). Ask who made earlier changes, then backfill with
+  `uv run --locked --project review-dashboard/server python scripts/ledger/audit.py record --commit COMMIT --actor user`
+  (or `--actor agent`; `--changes FILE` batches them). After an interrupted append,
+  run the refusal's exact audit-only restore command, then retry.
 
 - Rebuild with `make dashboard` and reload for the Forecast chart-width fix.
   No ledger-format migration is needed.

@@ -66,7 +66,7 @@ class DoctorFixture(unittest.TestCase):
                                        f'exec) echo "{self.node}/node";; esac\n')
         executable(self.tools / 'uv', 'case "$1" in --version) echo "uv 0.12.13 (fictional)";; sync) exit "${UV_SYNC_STATUS:-0}";; esac\n')
         executable(self.tools / 'hledger', 'echo "hledger ${HLEDGER_STUB_VERSION:-1.52.4}, fictional"\n')
-        executable(self.tools / 'jj', 'echo "jj 0.46.0"\n')
+        executable(self.tools / 'jj', 'echo "jj 0.47.1"\n')
         executable(self.tools / 'git', 'echo "git version 2.54.0"\n')
         self.environ = {'PATH': str(self.tools)}
 
@@ -137,6 +137,12 @@ class DoctorTests(DoctorFixture):
         self.assertEqual(self.statuses()['jj / git'], 'FAIL')
         (self.tools / 'uv').unlink()
         self.assertEqual(self.statuses()['uv'], 'FAIL')
+
+    def test_jj_template_minimum(self):
+        executable(self.tools / 'jj', 'echo "jj 0.46.0"\n')
+        row = self.rows()['jj / git']
+        self.assertEqual(row.status, 'FAIL')
+        self.assertIn('0.47.1', row.fix)
 
     def test_node_selection(self):
         executable(self.tools / 'fnm', 'case "$1" in --version) echo "fnm 1.39.0";; list) echo "* v25.9.0";; esac\n')

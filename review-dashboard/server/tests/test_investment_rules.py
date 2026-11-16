@@ -25,7 +25,7 @@ class InvestmentRules(Fixture):
         r=payment_rule(day='2026-10-15',amount='5000.00');r['description']='SIP contribution'
         r['postings']=[posting(DESTINATION,'5000.00'),posting(PAYER,'-5000.00')]
         if varying:r['amount']='varies'
-        dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Fictional contribution baseline')
+        dump(self.ledger/'data/forecast.json',[r]);self.checkpoint('Fictional contribution baseline')
         return r
 
     def proposal(self, day='2026-10-15', amount='5000.00'):
@@ -40,7 +40,7 @@ class InvestmentRules(Fixture):
         docs=load(self.ledger);accounts=docs[self.ledger/'data/accounts.json']
         total=sum((Decimal(amount) for _,_,amount in rows),Decimal(0));closing=Decimal(opening)-total
         accounts['accounts'][PAYER]['statement']=dict(reader='generic-csv',identifier=None,options=dict(currency='INR',date_format='%Y-%m-%d',period={'start':start,'end':end},opening_balance=opening,closing_balance=str(closing),debits=str(total),credits='0.00',columns={'date':'Date','description':'Description','amount':'Amount','balance':'Balance'}))
-        dump(self.ledger/'data/accounts.json',accounts);self.jj('commit','-m','Fictional bank statement baseline')
+        dump(self.ledger/'data/accounts.json',accounts);self.checkpoint('Fictional bank statement baseline')
         balance=Decimal(opening);csv='Date,Description,Amount,Balance\n'
         for day,description,amount in rows:
             balance-=Decimal(amount);csv+=f'{day},{description},-{amount},{balance}\n'
@@ -52,7 +52,7 @@ class InvestmentRules(Fixture):
 
     def assert_statement_pays_bill(self, day):
         r=self.seed(varying=True);r.update(date='2026-11-01');r['schedule']['from']=r['date']
-        dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Fictional November occurrence')
+        dump(self.ledger/'data/forecast.json',[r]);self.checkpoint('Fictional November occurrence')
         bill=dict(amount='5000.00',received='2026-10-01',**{'pay-by':'2026-11-01','occurrence':r['date'],'evidence':[]})
         operate(self.settings,secrets.token_hex(16),dict(action='bill-saved',rule_id=r['id'],bill=bill))
         sessions,identity=self.bank_statement([(day,'SIP contribution','5000.00')]);sessions.queue_apply(identity);sessions.work(threading.Event());s=sessions.get(identity)
@@ -164,7 +164,7 @@ class InvestmentRules(Fixture):
         r=self.seed();accounts=read_json(self.ledger/'data/accounts.json');accounts['accounts'][DESTINATION]['currency']='UNITS';accounts['commodities'].append('UNITS')
         dump(self.ledger/'data/accounts.json',accounts)
         r['postings'][0].update(amount='5.00',commodity='UNITS',cost=dict(amount='5000.00',commodity='INR',per='total'))
-        dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Fictional unit contribution')
+        dump(self.ledger/'data/forecast.json',[r]);self.checkpoint('Fictional unit contribution')
         drafts=Drafts(self.ledger);d=drafts.create('SIP contribution')
         queue_usual(self.settings,drafts,d,dict(rule_id=r['id'],date='2026-10-15',amount='5000.00'))
         self.assertEqual(d['proposal']['entry']['postings'][0]['amount'],'5.00')
@@ -216,7 +216,7 @@ class InvestmentRules(Fixture):
         from statements import Statements
         r=self.seed();docs=load(self.ledger);a=docs[self.ledger/'data/accounts.json']
         a['accounts'][PAYER]['statement']=dict(reader='generic-csv',identifier=None,options=dict(currency='INR',date_format='%Y-%m-%d',period={'start':'2026-10-01','end':'2026-10-31'},opening_balance='10000.00',closing_balance='5000.00',debits='5000.00',credits='0.00',columns={'date':'Date','description':'Description','amount':'Amount','balance':'Balance'}))
-        dump(self.ledger/'data/accounts.json',a);self.jj('commit','-m','Fictional statement reader')
+        dump(self.ledger/'data/accounts.json',a);self.checkpoint('Fictional statement reader')
         sessions=Statements(self.settings)
         s=sessions.create(b'Date,Description,Amount,Balance\n2026-10-15,SIP contribution,-5000.00,5000.00\n','Contribution.csv')
         s['assigned_account']=PAYER;sessions.put(s);sessions.read(s)
@@ -243,7 +243,7 @@ class InvestmentRules(Fixture):
         a['accounts'][card]=meta(kind='card',currency='INR',statement=dict(reader='example-card-pdf',identifier='5678'))
         r.update(date='2026-01-02',amount='varies',description='Fable Shop');r['schedule']['from']=r['date'];r['postings']=[posting(DESTINATION,'120.00'),posting(card,'-120.00')]
         r['bill']=dict(amount='120.00',received='2026-01-01',**{'pay-by':'2026-01-02','occurrence':r['date'],'evidence':[]})
-        dump(self.ledger/'data/accounts.json',a);dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Fictional card contribution')
+        dump(self.ledger/'data/accounts.json',a);dump(self.ledger/'data/forecast.json',[r]);self.checkpoint('Fictional card contribution')
         sessions=Statements(self.settings);s=sessions.create(statement_pdf(TEXT.replace('2.00 | USD',' | ')),'Contribution.pdf');sessions.read(s)
         s=sessions.get(s['id']);self.assertIn(s['state'],('found','review'),s.get('error'))
         for item in s['plan']['items']:

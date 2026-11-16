@@ -27,7 +27,7 @@ class StatementReading(Fixture):
         self.meta=meta(kind='bank',currency=self.currency,label='Cited Export')
         docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][ACCOUNT]=self.meta
         dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json'])
-        self.jj('commit','-m','Fictional statement reading baseline')
+        self.checkpoint('Fictional statement reading baseline')
         self.work=self.base/'extraction';self.work.mkdir()
 
     def source(self,extension='csv'):
@@ -210,7 +210,7 @@ class StatementReading(Fixture):
                 # Each format uses an independent account/period identity.
                 account=ACCOUNT+' '+extension
                 docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][account]=deepcopy(self.meta)
-                dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json']);self.jj('commit','-m','Fictional format account')
+                dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json']);self.checkpoint('Fictional format account')
                 self.set_answers(answer(self.currency,'Activity',pdf=extension=='pdf'))
                 sessions,s=self.session(extension);s['assigned_account']=account;sessions.put(s)
                 sessions.work(threading.Event());s=sessions.get(s['id']);self.assertEqual(s['state'],'found',s.get('error'))
@@ -323,7 +323,7 @@ class StatementReading(Fixture):
                     store_entry('a'*16,'2026-01-01','Concurrent opening',[posting(ACCOUNT,'100.00',self.currency),posting('Equity:Opening Balances','-100.00',self.currency)]),
                     store_entry('b'*16,'2026-01-02','Fable Shop',[posting('Expenses:Food','10.00',self.currency),posting(ACCOUNT,'-10.00',self.currency)],references={'reference':'CITED-001','order-id':[]})]
                 for path,value in docs.items():dump(path,value)
-                self.jj('commit','-m','Fictional concurrent addition')
+                self.checkpoint('Fictional concurrent addition')
             return result
         def locked_plan(*args,**kwargs):
             fd=os.open(self.ledger/'.lock',os.O_RDWR)
@@ -347,7 +347,7 @@ class StatementReading(Fixture):
                 with ledger_lock(self.ledger):
                     docs=load(self.ledger);docs[self.ledger/'data/accounts.json']['accounts'][ACCOUNT]=deepcopy(self.meta)
                     dump(self.ledger/'data/accounts.json',docs[self.ledger/'data/accounts.json']);dump(self.ledger/'ledger.json',original_manifest)
-                    self.jj('commit','-m','Fictional reading context baseline')
+                    self.checkpoint('Fictional reading context baseline')
                 self.set_answers(answer(self.currency));sessions,s=self.session()
                 def changed_context(*args,**kwargs):
                     result=real_run(*args,**kwargs)
@@ -357,7 +357,7 @@ class StatementReading(Fixture):
                             declarations['accounts'][ACCOUNT]['currency']=next(c for c in declarations['commodities'] if c!=self.currency)
                             dump(self.ledger/'data/accounts.json',declarations)
                         else:dump(self.ledger/'ledger.json',{**original_manifest,'locale':'de-DE'})
-                        self.jj('commit','-m','Fictional concurrent reading context change')
+                        self.checkpoint('Fictional concurrent reading context change')
                     return result
                 with patch('agent.run',side_effect=changed_context),patch('statements.plan') as plan:
                     sessions.work(threading.Event());plan.assert_not_called()

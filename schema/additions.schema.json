@@ -27,7 +27,9 @@
         "rule",
         "rule-review",
         "correction",
-        "retention"
+        "retention",
+        "change",
+        "baseline"
       ]
     },
     "time": {
@@ -877,6 +879,334 @@
     },
     "details": {
       "type": "object"
+    },
+    "message": {
+      "type": "string"
+    },
+    "change_id": {
+      "type": "string",
+      "pattern": "^[k-z]{32}$"
+    },
+    "commit": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      ]
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "action"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "added",
+              "changed",
+              "removed"
+            ]
+          },
+          "entry": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "changed_fields": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "before",
+                "after"
+              ],
+              "properties": {
+                "before": {},
+                "after": {}
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "changed"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "changed_fields"
+              ],
+              "not": {
+                "required": [
+                  "entry"
+                ]
+              }
+            },
+            "else": {
+              "required": [
+                "entry"
+              ],
+              "not": {
+                "required": [
+                  "changed_fields"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "action"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "made",
+              "edited",
+              "removed"
+            ]
+          },
+          "entry": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "changed_fields": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "before",
+                "after"
+              ],
+              "properties": {
+                "before": {},
+                "after": {}
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "edited"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "changed_fields"
+              ],
+              "not": {
+                "required": [
+                  "entry"
+                ]
+              }
+            },
+            "else": {
+              "required": [
+                "entry"
+              ],
+              "not": {
+                "required": [
+                  "changed_fields"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "status"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "added",
+              "modified",
+              "removed",
+              "renamed",
+              "copied"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "renamed",
+                    "copied"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "source"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "source"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_format",
+        "to_format",
+        "checkpoint",
+        "change_id",
+        "paths"
+      ],
+      "properties": {
+        "from_format": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "to_format": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checkpoint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "change_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[k-z]{32}$"
+            }
+          ]
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "status"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "added",
+                  "modified",
+                  "removed",
+                  "renamed",
+                  "copied"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "renamed",
+                        "copied"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "source"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "source"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
     }
   },
   "allOf": [
@@ -1067,6 +1397,192 @@
           "client_time",
           "client_zone"
         ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "change"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "actor",
+          "message",
+          "change_id",
+          "commit",
+          "entries",
+          "rules",
+          "paths"
+        ],
+        "properties": {
+          "actor": {
+            "enum": [
+              "user",
+              "agent"
+            ]
+          }
+        },
+        "propertyNames": {
+          "enum": [
+            "version",
+            "id",
+            "kind",
+            "time",
+            "note",
+            "actor",
+            "message",
+            "change_id",
+            "commit",
+            "entries",
+            "rules",
+            "paths"
+          ]
+        }
+      },
+      "else": {
+        "propertyNames": {
+          "enum": [
+            "version",
+            "id",
+            "kind",
+            "time",
+            "draft_id",
+            "outcome",
+            "text",
+            "saved_at",
+            "pieces",
+            "files",
+            "questions",
+            "runs",
+            "proposal",
+            "doubts",
+            "check_errors",
+            "error",
+            "entry_id",
+            "statement",
+            "counts",
+            "decisions",
+            "entry_ids",
+            "extraction",
+            "line_id",
+            "verdict",
+            "note",
+            "reviewer",
+            "client_time",
+            "client_zone",
+            "action",
+            "request_id",
+            "request_hash",
+            "changes",
+            "finished_by",
+            "account_consent",
+            "usual_payment",
+            "rule_changes",
+            "rule_id",
+            "rule_action",
+            "undoes",
+            "reversal_id",
+            "rule_verdict",
+            "reason",
+            "operation_id",
+            "before",
+            "after",
+            "changed_fields",
+            "actor",
+            "result",
+            "receipt",
+            "refusal",
+            "bill",
+            "amount_check",
+            "retention_action",
+            "selected",
+            "details",
+            "message",
+            "baseline"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "baseline"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "baseline",
+          "message",
+          "actor"
+        ],
+        "properties": {
+          "actor": {
+            "const": "application"
+          }
+        },
+        "propertyNames": {
+          "enum": [
+            "version",
+            "id",
+            "kind",
+            "time",
+            "actor",
+            "message",
+            "baseline"
+          ]
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "baseline"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "not": {
+              "enum": [
+                "change",
+                "baseline"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "message"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "actor": {
+            "const": "application"
+          }
+        },
+        "required": [
+          "actor"
+        ]
+      },
+      "then": {
+        "properties": {
+          "kind": {
+            "const": "baseline"
+          }
+        }
       }
     }
   ],

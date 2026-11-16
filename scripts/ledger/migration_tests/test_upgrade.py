@@ -63,7 +63,10 @@ class Repository0(Fixture):
         self.run_command('jj', 'commit', '-m', 'Format zero fixture')
 
     def run_command(self, *args):
-        return subprocess.check_output(args, cwd=self.root, text=True, stderr=subprocess.PIPE).strip()
+        result = subprocess.check_output(args, cwd=self.root, text=True, stderr=subprocess.PIPE).strip()
+        if args[:2] == ('jj', 'commit'):
+            subprocess.check_output(['jj', 'bookmark', 'set', 'main', '-r', '@-'], cwd=self.root, stderr=subprocess.PIPE)
+        return result
 
     def source_bytes(self):
         return {str(p.relative_to(self.root)):p.read_bytes() for p in self.root.rglob('*') if p.is_file() and not set(p.relative_to(self.root).parts)&{'.git','.jj'} and p.name!='.lock'}
@@ -83,11 +86,14 @@ class MigrationTests(Repository0):
         self.assertTrue(compare(before, snapshot(self.root), ignores=('meta.ledger',), emit=False))
         manifest = read_manifest(self.root)
         self.assertEqual(list(read_json(self.root / 'ledger.json')),
-                         ['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review'])
+                         ['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review', 'auditStart'])
         self.assertEqual(list(read_json(self.root / 'ledger.json')['modules']),
                          ['investments', 'history', 'weeklyReview'])
         self.assertEqual(manifest['defaultCurrency'], 'INR')
         self.assertEqual(manifest['review']['storageKey'], 'legacy-key')
+        from audit import records
+        from audit_changes import unrecorded
+        self.assertEqual(unrecorded(self.root, records(self.root)), [])
         repo = Repository(self.root);repo.require_clean()
         checkpoint = repo.checkpoint()
         self.run_upgrade();self.assertEqual(repo.checkpoint()[0], checkpoint[0])
@@ -288,6 +294,11 @@ class MigrationTests(Repository0):
         self.run_upgrade()
         self.assertEqual(read_manifest(self.root)['format'],CURRENT_FORMAT)
         self.assertEqual(self.run_command('git','status','--porcelain'),'')
+        self.run_command('jj','git','init','--colocate',str(self.root))
+        self.run_command('jj','bookmark','set','main','-r','@-')
+        from audit import records
+        from audit_changes import unrecorded
+        self.assertEqual(unrecorded(self.root,records(self.root)),[])
 
     def test_multiple_account_commodities_refused(self):
         path=self.root/'data/expenses/2026.json';rows=read_json(path)

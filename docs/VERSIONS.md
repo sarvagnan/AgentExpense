@@ -42,6 +42,11 @@ then say so and give the steps.
 
 ## Ledger format
 
+Optional manifest keys go forward only: an older build with a closed schema
+can reject a new optional key even when the ledger format is unchanged. Downgrade
+the application together with its ledger checkpoint; removing the key is not a
+migration and must never reset an audit boundary.
+
 Each application version reads exactly one ledger format and carries migrations
 from every older one. A ledger without `ledger.json` is format 0. Every entry point
 reads `ledger.json` first:
@@ -103,7 +108,7 @@ Exported Review files carry `reviewVersion` 2. Import accepts that version.
 | Python | `requires-python` in `review-dashboard/server/pyproject.toml` (3.11+) | Server, ledger tools and tests. |
 | uv | any recent release | Runs the server environment from `uv.lock`. |
 | hledger | 1.25 or newer, optional | The second check and the hledger reports; see below. |
-| jj or git | either | Ledgers are version-controlled; dashboard saves commit with Jujutsu colocated with git. |
+| jj or git | jj 0.47.1+ for writes; git for legacy history | Ledgers are version-controlled; dashboard saves commit with Jujutsu colocated with git. |
 
 **hledger 1.25.** hledger is optional: the JSON strict check is the gate, and without
 hledger only the hledger reports, the background second check and, during a ledger upgrade,
@@ -118,3 +123,10 @@ costs, which `-B` totals depend on, behave as they do now; every other feature a
 is older. So 1.25 is the minimum. The test suites run only on the hledger installed
 where they run, so versions between 1.25 and that one are expected to work but are
 not exercised. Raise this minimum when the app starts to use a newer feature.
+
+
+Jujutsu 0.47.1 is the minimum supported version for audit templates (`json`,
+`stringify`, `Commit.diff().files()`, and git patch formatting). It is the tested
+floor, rather than a claim that all these features first appeared in that release.
+`make doctor` checks this offline and refuses older installed versions. History
+checks emit one batched log over main; no remote repository is contacted.

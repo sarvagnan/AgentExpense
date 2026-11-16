@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
+import shlex
 import tempfile
 import unittest
 import urllib.error
@@ -71,6 +73,17 @@ class NewLedgerTests(SetupCase):
         self.assertIn('data/accounts.json', committed)
         self.assertNotIn('expense_ledger.ledger', committed)
         self.assertNotIn('.lock', committed)
+        self.assertIn('auditStart', manifest)
+        self.assert_no_unrecorded(ledger)
+
+    def assert_no_unrecorded(self, ledger):
+        python = shlex.split(self.environ.get('LEDGER_PYTHON') or 'uv run --locked --project review-dashboard/server python')
+        run = subprocess.run([*python, str(APPLICATION/'scripts/ledger/audit.py'), '--root', str(ledger),
+                              'list', '--unreviewed', '--json'], cwd=APPLICATION, env=self.environ,
+                             text=True, capture_output=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        json.loads(run.stdout)
+        self.assertNotIn('WARNING:', run.stderr)
 
     def test_setup_commands_add_accounts_and_openings_then_commit(self):
         ledger = self.new_ledger()
@@ -80,10 +93,10 @@ class NewLedgerTests(SetupCase):
             ('add-account', 'ARGS=--kind bank --label "Travel Account" --currency USD'),
             ('add-account', 'ARGS=--account Expenses:Groceries'),
             ('opening-balances', 'ARGS=--date 2026-11-05 checking=1200 "Example Card=80.10" "Travel Account=50"'),
-            ('commit', 'm=Set up fictional accounts'),
+            ('commit', 'm=Set up fictional accounts', 'by=user'),
         ]
-        for target, argument in steps:
-            code, output = self.make(target, argument, ledger=ledger)
+        for arguments in steps:
+            code, output = self.make(*arguments, ledger=ledger)
             self.assertEqual(code, 0, output)
         accounts = json.loads((ledger / 'data/accounts.json').read_text())
         self.assertEqual(accounts['commodities'], ['EUR', 'USD'])
@@ -91,6 +104,7 @@ class NewLedgerTests(SetupCase):
                          {'reader': 'example-card-pdf', 'identifier': '4321', 'options': None})
         self.assertEqual(json.loads((ledger / 'ledger.json').read_text())['startDate'], '2026-11-05')
         self.assertIn('The working copy has no changes', self.jj(ledger, 'st'))
+        self.assert_no_unrecorded(ledger)
         code, output = self.make('add-account', 'ARGS=--kind bank --label Other --reader missing-reader', ledger=ledger)
         self.assertNotEqual(code, 0)
         self.assertIn('Unknown statement reader', output)

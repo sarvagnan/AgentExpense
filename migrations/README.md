@@ -247,3 +247,21 @@ Actions are deleted, restored, restore-refused, removed-for-good, queue-trashed,
 queue-restored and settings-changed. Previous payment/separation reversal lines
 remain valid. Current writes use Delete, Restore, Edit and the shared retention
 service instead. Ignored operation journals/receipts live in `drafts/retention/`.
+
+
+## Hand-change audit starting point (format 2, optional)
+
+`make upgrade-ledger` initializes a missing `ledger.json.auditStart` from main for jj, or HEAD
+for plain Git regardless of its branch name,
+or restores its earliest committed value after removal. It never moves that
+original boundary forward. Current-format dry-run uses only read-only history
+commands, leaves dirty edits untouched and creates no lock file. An absent
+ledger-local repository is a clear refusal.
+
+Jj format migrations append compact `baseline` receipts: from/to format,
+checkpoint, change id and paths. They do not create a multi-megabyte entry/rule
+diff. The receipts are checked against their commits and retain the existing
+locked verification, output comparison and rollback. Plain-git legacy upgrades
+remain a baseline, ready for later jj initialization. Initialization is optional
+format-2 metadata, not a format bump; old audit snapshots are never rewritten.
+The only additional dashboard difference is `meta.ledger.auditStart`.

@@ -169,7 +169,7 @@ commands. From the application root, with `LEDGER_DIR` set to the ledger:
 
 - every writer cooperates with the ledger lock (`.lock`); never delete it;
 - after changing the store, run `make verify-data`, then commit with
-  `make commit m="what changed, and on what evidence"`, which verifies and commits
+  `make commit m="what changed, and on what evidence" by=agent`, which verifies and commits
   under the lock;
 - rebuild the dashboard with `make build-dashboard`;
 - record nothing from memory: every amount comes from the evidence or the person.

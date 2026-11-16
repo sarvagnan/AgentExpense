@@ -11,6 +11,7 @@ import io
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 from store import canonical_text, dump, load, read_json, write_text
 from project_paths import APPLICATION_ROOT, ledger_root
@@ -30,9 +31,12 @@ class Repository:
     def __init__(self, root):
         root = root.resolve()
         self.root = root
+        self.audit_before = {}
         self.jj = (root / '.jj').is_dir()
+        if not self.jj and not (root / '.git').exists():
+            raise ValueError('Initialize the ledger as its own repository before upgrading.')
         if self.jj:
-            actual = command(root, 'jj', 'root')
+            actual = command(root, 'jj', '--ignore-working-copy', 'root')
         else:
             actual = command(root, 'git', 'rev-parse', '--show-toplevel')
         if Path(actual).resolve() != root:
@@ -50,17 +54,50 @@ class Repository:
 
     def checkpoint(self):
         if self.jj:
-            return (self.jj_command('log', '-r', '@-', '--no-graph', '-T', 'commit_id'),
+            return (self.jj_command('--ignore-working-copy', 'log', '-r', '@-', '--no-graph', '-T', 'commit_id'),
                     self.jj_command('op', 'log', '--limit', '1', '--no-graph', '-T', 'id'))
         return command(self.root, 'git', 'rev-parse', 'HEAD'), None
 
-    def commit(self, message):
+    def audit_start(self):
+        return read_manifest(self.root, check_format=False).get('auditStart')
+
+    def commit(self, message, *, formats=None):
         if self.jj:
+            if formats is not None:
+                from audit_changes import paths, identity
+                from audit import append, audit_path, event
+                self.jj_command('status')
+                info = identity(self.root, '@')
+                line = event('baseline', message=message, actor='application', baseline=dict(
+                    from_format=formats[0], to_format=formats[1], checkpoint=info['parents'][0],
+                    change_id=info['change_id'], paths=paths(self.root, info['commit'])))
+                path = audit_path(self.root, line)
+                if path not in self.audit_before:
+                    self.audit_before[path] = path.read_bytes() if path.exists() else None
+                append(self.root, line)
             self.jj_command('commit', '-m', message)
             self.jj_command('bookmark', 'set', 'main', '-r', '@-')
         else:
-            # The working copy was clean before the upgrade: every change is the migration's.
+            # The clean checkpoint makes staged paths exclusively this migration's.
             command(self.root, 'git', 'add', '-A')
+            if formats is not None:
+                from audit import append, audit_path, event
+                parts = command(self.root, 'git', 'diff', '--cached', '--name-status', '-z', '-M', '-C').split('\0')
+                changed = []
+                while parts and parts[0]:
+                    status, source = parts.pop(0), parts.pop(0)
+                    path = parts.pop(0) if status[0] in ('R','C') else source
+                    row = dict(path=path,status={'A':'added','M':'modified','D':'removed','R':'renamed','C':'copied'}[status[0]])
+                    if status[0] in ('R','C'):row['source']=source
+                    changed.append(row)
+                line = event('baseline', message=message, actor='application', baseline=dict(
+                    from_format=formats[0], to_format=formats[1],
+                    checkpoint=command(self.root,'git','rev-parse','HEAD'), change_id=None, paths=changed))
+                path = audit_path(self.root,line)
+                if path not in self.audit_before:
+                    self.audit_before[path] = path.read_bytes() if path.exists() else None
+                append(self.root,line)
+                command(self.root,'git','add','-A')
             command(self.root, 'git', 'commit', '-m', message)
 
     def rollback(self, checkpoint):
@@ -68,6 +105,13 @@ class Repository:
             self.jj_command('op', 'restore', checkpoint[1])
         else:
             command(self.root, 'git', 'reset', '--mixed', checkpoint[0])
+        # Include the event's actual year even if an upgrade spans New Year.
+        for path, data in self.audit_before.items():
+            if data is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
 
 
 def migrations():
@@ -193,7 +237,31 @@ def upgrade(root, options):
     if version > CURRENT_FORMAT:
         read_manifest(root)  # Shared, identical newer-format diagnostic.
     if version == CURRENT_FORMAT:
-        print(f'Ledger already uses format {CURRENT_FORMAT}; no changes.')
+        repo = Repository(root)
+        original = repo.audit_start()
+        if original is not None and manifest.get('auditStart') == original:
+            print(f'Ledger already uses format {CURRENT_FORMAT}; no changes.')
+            return
+        if options.dry_run:
+            # No lock file, snapshot or cleanliness command on a current-format plan.
+            print('Plan: initialize ledger.json auditStart at the working copy parent; format is unchanged.')
+            return
+        with ledger_lock(root):
+            repo.require_clean()
+            checkpoint = repo.checkpoint()
+            before = {p: p.read_bytes() if p.exists() else None for p in (root / 'ledger.json', root / 'expense_ledger.ledger')}
+            try:
+                manifest = read_manifest(root)
+                manifest.setdefault('auditStart', {'after': checkpoint[0]})
+                dump(root / 'ledger.json', ordered_manifest(manifest), root)
+                verify(root)
+                repo.commit('Start auditing hand changes (app v' + app_version() + ')', formats=(version, version))
+            except BaseException:
+                repo.rollback(checkpoint)
+                for path, data in before.items():
+                    path.unlink(missing_ok=True) if data is None else path.write_bytes(data)
+                raise
+        print('Initialized auditStart; ledger format is unchanged.')
         return
     repo = Repository(root)
     steps = migrations()
@@ -226,9 +294,11 @@ def upgrade(root, options):
         if not find_hledger():
             print(WITHOUT_HLEDGER)
         checkpoint = repo.checkpoint()
+        original_start = repo.audit_start()
         print('Checkpoint: ' + checkpoint[0])
         # Migrations and verification only write these paths. Preserve ignored journal bytes too.
         targets = ['ledger.json', 'data/accounts.json', 'expense_ledger.ledger',
+                   'data/additions/' + str(datetime.now(timezone.utc).year) + '.jsonl',
                    *(path for source in range(version, CURRENT_FORMAT) if hasattr(steps[source], 'targets')
                      for path in steps[source].targets(root))]
         targets = list(dict.fromkeys(targets))
@@ -260,11 +330,14 @@ def upgrade(root, options):
                 applied = True
                 step.apply(root, result)
                 if final:
+                    settings = read_json(root / 'ledger.json')
+                    settings['auditStart'] = original_start if original_start is not None else {'after': checkpoint[0]}
+                    dump(root / 'ledger.json', ordered_manifest(settings), root)
                     verify(root)
-                    if not compare(baseline, snapshot(root), declared, allowed=allowed):
+                    if not compare(baseline, snapshot(root), [*declared, '$.meta.ledger.auditStart'], allowed=allowed):
                         raise CountsOnly('Generated outputs changed beyond the changes the migrations declare.' if declared
                                          else 'Generated outputs changed; migration declares no output changes.')
-                repo.commit(f'Upgrade ledger format {version} → {step.TARGET_FORMAT} (app v{app_version()})')
+                repo.commit(f'Upgrade ledger format {version} → {step.TARGET_FORMAT} (app v{app_version()})', formats=(version, step.TARGET_FORMAT))
                 version = step.TARGET_FORMAT
             print(f'Upgraded ledger to format {version}.')
         except BaseException as error:

@@ -25,7 +25,7 @@ class VaryingTests(Fixture):
             if i==3:e['rule']=dict(id=r['id'],occurrence=day)
             rows.append(e)
         dump(self.ledger/'data/forecast.json',[r]);dump(self.ledger/'data/expenses/2026.json',rows)
-        self.jj('commit','-m','Fictional varying baseline');return r
+        self.checkpoint('Fictional varying baseline');return r
 
     def rule(self):return read_json(self.ledger/'data/forecast.json')[0]
     def usual(self,**body):
@@ -63,7 +63,7 @@ class VaryingTests(Fixture):
 
     def test_paying_bill_attaches_sources_clears_links_advances_and_audits(self):
         r=self.seed(bill=True);source='Bills/2026-11-01/Willow-bill.txt';(self.ledger/source).parent.mkdir(parents=True,exist_ok=True);(self.ledger/source).write_text('Fictional bill evidence.')
-        r['bill']['evidence']=[source];dump(self.ledger/'data/forecast.json',[r]);self.jj('commit','-m','Fictional filed bill')
+        r['bill']['evidence']=[source];dump(self.ledger/'data/forecast.json',[r]);self.checkpoint('Fictional filed bill')
         _,d,result=self.usual()
         entry=next(e for e in entries(load(self.ledger)) if e['id']==result['entry_id'])
         self.assertEqual(entry['postings'][0]['amount'],'125.00');self.assertIn(source,entry['evidence']);self.assertIn(source,result['sources']);self.assertIsNone(self.rule()['bill']);self.assertEqual(self.rule()['date'],'2026-12-15');self.assertEqual(self.rule()['postings'][0]['amount'],'125.00')
@@ -112,7 +112,7 @@ class VaryingTests(Fixture):
             identity=self.create(client,upload=False);body=dict(rule_id=r['id'],amount='125',date='2026-11-01')
             response=client.post(f'/api/drafts/{identity}/bill',json=body);self.assertEqual(response.status_code,200,response.text);position=response.json()['queued_at']
             waiting=self.wait_condition(client,identity,lambda d:bool(d.get('waiting')));self.assertEqual(waiting['state'],'working');self.assertIsNone(self.rule()['bill'])
-            with ledger_lock(self.ledger):self.jj('commit','-m','Finish fictional unrelated work')
+            with ledger_lock(self.ledger):self.checkpoint('Finish fictional unrelated work')
             done=self.wait(client,identity,'added');self.assertEqual(done['result']['outcome'],'bill');self.assertEqual(done['queued_at'],position);self.assertEqual(self.calls(),[]);self.assertTrue(clean(self.ledger))
 
     def test_bill_operation_survives_crash_after_commit_and_recovers_without_duplicate(self):

@@ -1,11 +1,44 @@
 # Verified saves and fresh views
 
-Every server writer calls the same Python commit implementation as terminal
-`make commit`: `scripts/ledger/commit.py`. The server imports it into its existing
-process. It does not start make, uv or Python for a save. The ledger lock covers
-verification, the commit and the main bookmark. Existing transaction journals
-retain file/evidence backups and the jj operation needed to roll back a failure.
-Commit messages, audit lines and one commit per operation are unchanged.
+Server and terminal writers share `scripts/ledger/commit.py`. The ledger lock
+covers the audit append, verification, commit and main bookmark; acquire it before
+`drafts.mutex`. Server saves pass sealed receipts from validated audit appends,
+bound to their transaction's rollback operation. Verification and the receipt/path
+check precede publication of the verified commit id. Ordinary saves use three jj
+calls without a separate expense diff or process. Settings use their before-images
+and writes to build a `change` line, including manifest-only changes.
+
+`make commit m="…" by=user|agent` records its own diff for `data/` except
+`additions/` and `prices/`, plus `Bills/` (either rename/copy endpoint counts).
+Uncovered changes need neither a line nor `by=`; hand audit-log edits are refused.
+Terminal, extension-update and audit.py writers check intended content, paths and
+exact audit bytes before committing, then check again before moving main. Failure
+or Ctrl-C restores audit/journal bytes from memory and squashes only the writer's
+own unpublished commit into the current tree. Extension writes are restored only
+while they still hold that writer's bytes; planning checks its before-images.
+
+A kill cannot run rollback. A leftover audit append causes a refusal naming the
+exact command to remove it, for example:
+
+```sh
+jj -R "$LEDGER_DIR" restore --from @- -- data/additions/YEAR.jsonl
+```
+
+Run that command and retry the interrupted writer; financial edits and evidence
+stay in place. `@-` retains any earlier verified, unpublished commit's audit line.
+The next save publishes verified pending ancestors, including after `jj new`.
+Hand merges and the ledger's root commit need separate inspection.
+
+Page-save rollback restores its own before-images and undoes its own commit/main
+move if the success receipt fails, preserving files created elsewhere. Settings
+and first-run saves refuse unexpected paths. Other operations can carry extra
+paths under their own line; concurrent edits to a writer's own paths remain
+outside this guarantee. Use the lock: raw jj during a save can change descriptions
+or defeat rollback. Raw history/audit edits can forge attribution.
+
+The generated `expense_ledger.ledger` must stay ignored. Terminal writers refuse
+a tracked journal; retain the file and, with the owner's agreement, untrack it
+and add `/expense_ledger.ledger` before saving. No ignore/index edits are automatic.
 
 ## Verification state
 

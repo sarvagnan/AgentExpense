@@ -41,6 +41,55 @@ def captured():
 
 
 class SaveTimingTests(Fixture):
+    def test_live_save_after_plain_new(self):
+        from store import read_json
+        for count in (1, 2):
+            with self.subTest(count=count):
+                for _ in range(count): self.jj('new')
+                with self.client(worker=False) as client:
+                    response = client.post('/api/settings/name', json={'name': 'Routine new ' + str(count)})
+                    self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(read_json(self.ledger / 'ledger.json')['name'], 'Routine new ' + str(count))
+
+    def test_live_save_allows_described_or_nonempty_parent(self):
+        for kind in ('described', 'nonempty'):
+            with self.subTest(kind=kind):
+                self.jj('new', 'main')
+                if kind == 'described': self.jj('describe', '-m', 'Unpublished description')
+                else: (self.ledger / 'unpublished-note.txt').write_text('Keep unpublished work')
+                self.jj('new'); before = (self.ledger / 'ledger.json').read_bytes()
+                with self.client(worker=False) as client:
+                    response = client.post('/api/settings/name', json={'name': 'Published with ' + kind})
+                    self.assertEqual(response.status_code, 200, response.text)
+                self.assertNotEqual((self.ledger / 'ledger.json').read_bytes(), before)
+
+    def test_server_startup_keeps_interrupted_hand_edits_for_the_owner(self):
+        from support import entry, posting
+        from store import dump
+        from audit import records
+        from save_service import SaveService
+        year = self.ledger / 'data/expenses/2026.json'
+        dump(year, [entry('0000000000000001', '2026-10-29', 'Intended before startup',
+                          [posting('Expenses:Food', '10.00'), posting('Assets:Cash', '-10.00')])])
+        intended = year.read_bytes()
+        script = '''import os,sys
+from pathlib import Path
+import commit
+commit.verify=lambda *a,**k:os._exit(73)
+commit.commit(Path(sys.argv[1]),'Crash before startup',actor='user')
+'''
+        run = subprocess.run([sys.executable, '-c', script, str(self.ledger)], capture_output=True, text=True,
+                             env={**os.environ, 'PYTHONPATH': str(APPLICATION / 'scripts/ledger')})
+        self.assertEqual(run.returncode, 73, run.stderr)
+        service = SaveService(self.settings)
+        try:
+            service.start()
+            self.assertEqual(len(records(self.ledger)), 1)
+            self.assertEqual(year.read_bytes(), intended)
+            self.assertFalse((self.ledger / '.jj/agentexpense-commit.json').exists())
+        finally:
+            service.close()
+
     def ledger_bytes(self):
         return {path: data for path, data in self.bytes().items() if path != 'expense_ledger.ledger'}
 
@@ -70,16 +119,33 @@ class SaveTimingTests(Fixture):
         self.assertNotIn('save-timing', self.jj('log', '--no-graph', '-T', 'description'))
 
     def test_agent_add_logs_pickup_agent_and_prepare(self):
+        from store import dump, read_json
+        manifest = read_json(self.ledger/'ledger.json'); manifest['auditStart'] = {'after': self.jj('log', '-r', '@-', '--no-graph', '-T', 'commit_id')}
+        dump(self.ledger/'ledger.json', manifest)
+        self.jj('commit', '-m', 'Start audit coverage for fictional server save')
+        self.jj('bookmark', 'set', 'main', '-r', '@-')
         with captured() as lines, self.client() as client:
             identity = self.create(client)
             self.save(client, identity)
             self.wait(client, identity, 'added')
+        from audit import records
+        from audit_changes import unrecorded
+        self.assertEqual(unrecorded(self.ledger, records(self.ledger)), [])
+        self.assertEqual([r['kind'] for r in records(self.ledger)], ['draft'])
         self.assertEqual([l['operation'] for _, l in lines], ['add'])
         line = lines[0][1]
         self.assertEqual(line['outcome'], 'ok')
         self.assertLessEqual(VERIFY_STEPS | {'pickup', 'agent', 'prepare', 'lock_wait'}, set(line['steps']))
         self.assertLess(line['steps']['pickup'], 60)
         self.assertLessEqual(line['steps']['agent'] + line['steps']['commit'], line['total'])
+
+    def test_unpublished_parent_is_published_with_the_settings_save(self):
+        from currency_settings import update_name
+        before = (self.ledger / 'ledger.json').read_bytes()
+        self.jj('commit', '-m', 'Unpublished fictional work')
+        result = update_name(self.settings, 'Unpublished setting')
+        self.assertEqual(result['commit_id'], self.jj('log', '-r', 'main', '--no-graph', '-T', 'commit_id'))
+        self.assertNotEqual((self.ledger / 'ledger.json').read_bytes(), before)
 
     def test_failed_commit_logs_error_outcome_and_reads_log_nothing(self):
         from currency_settings import update_name

@@ -114,9 +114,16 @@ class ExtensionTests(Fixture):
         subprocess.run(['jj', 'commit', '-m', 'Fictional baseline'], cwd=self.root, check=True, capture_output=True)
         self.define(work={'ask': True})
         subprocess.run(['jj', 'commit', '-m', 'List the work extension'], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(['jj', 'bookmark', 'set', 'main', '-r', '@-'], cwd=self.root, check=True, capture_output=True)
+        boundary = subprocess.check_output(['jj', 'log', '-r', '@-', '--no-graph', '-T', 'commit_id'], cwd=self.root, text=True).strip()
+        dump(self.root/'ledger.json', {**read_json(self.root/'ledger.json'), 'auditStart': {'after': boundary}})
         with redirect_stdout(io.StringIO()):
-            result = update(self.root, 'work')
+            result = update(self.root, 'work', actor='user')
         self.assertTrue(result['commit'])
+        from audit import records
+        from audit_changes import unrecorded
+        self.assertEqual([r['kind'] for r in records(self.root)], ['change'])
+        self.assertEqual(unrecorded(self.root, records(self.root)), [])
         description = subprocess.run(['jj', 'log', '-r', '@-', '--no-graph', '-T', 'description'], cwd=self.root,
                                      check=True, capture_output=True, text=True).stdout
         for line in ('Update extension work via make extension-update', 'Listed: yes', 'Entries changed: 1',
@@ -137,9 +144,10 @@ class ExtensionTests(Fixture):
         jj = lambda *args: subprocess.run(['jj', *args], cwd=self.root, check=True, capture_output=True, text=True).stdout
         subprocess.run(['jj', 'git', 'init', '--colocate', str(self.root)], cwd=self.root, check=True, capture_output=True)
         jj('commit', '-m', 'Fictional empty baseline')
+        jj('bookmark', 'set', 'main', '-r', '@-')
         self.define(work={'ask': True})
         with redirect_stdout(io.StringIO()):
-            result = update(self.root, 'work')
+            result = update(self.root, 'work', actor='user')
         self.assertEqual(result['changed'], 0)
         self.assertTrue(result['commit'])
         self.assertIn('Entries changed: 0', jj('log', '-r', '@-', '--no-graph', '-T', 'description'))
@@ -147,7 +155,7 @@ class ExtensionTests(Fixture):
         self.assertIn('extensions/work.json', jj('diff', '--summary', '-r', '@-'))
         dump(self.root / 'ledger.json', {**read_json(self.root / 'ledger.json'), 'extensions': {'work': {'ask': False}}})
         with redirect_stdout(io.StringIO()):
-            self.assertTrue(update(self.root, 'work')['commit'])
+            self.assertTrue(update(self.root, 'work', actor='user')['commit'])
         self.assertEqual(jj('diff', '--summary').strip(), '')
         with redirect_stdout(io.StringIO()):
-            self.assertIsNone(update(self.root, 'work')['commit'])
+            self.assertIsNone(update(self.root, 'work', actor='user')['commit'])
