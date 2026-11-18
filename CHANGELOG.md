@@ -12,6 +12,8 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Early recurring payments clear the occurrence they pay, including when a rule is detected from payment history.
+
 - Browser fixture resets clear Add recovery after the app unloads, preventing
   late autosave replies from leaving draft IDs that fail in later cases.
 

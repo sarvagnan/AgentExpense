@@ -212,13 +212,15 @@ class InvestmentRules(Fixture):
         self.assertIsNone(current['bill']);self.assertEqual(current['date'],'2027-01-15');self.assertEqual(current['postings'][0]['amount'],'5100.00')
         self.assertEqual(len(snapshot(self.settings)['rules'][0]['varying']['history']),3)
 
-    def test_statement_row_links_and_advances_in_same_audited_commit(self):
+    def test_early_statement_row_links_and_advances_in_same_audited_commit(self):
         from statements import Statements
         r=self.seed();docs=load(self.ledger);a=docs[self.ledger/'data/accounts.json']
+        r['date']=r['schedule']['from']='2026-11-02'
+        dump(self.ledger/'data/forecast.json',[r])
         a['accounts'][PAYER]['statement']=dict(reader='generic-csv',identifier=None,options=dict(currency='INR',date_format='%Y-%m-%d',period={'start':'2026-10-01','end':'2026-10-31'},opening_balance='10000.00',closing_balance='5000.00',debits='5000.00',credits='0.00',columns={'date':'Date','description':'Description','amount':'Amount','balance':'Balance'}))
         dump(self.ledger/'data/accounts.json',a);self.checkpoint('Fictional statement reader')
         sessions=Statements(self.settings)
-        s=sessions.create(b'Date,Description,Amount,Balance\n2026-10-15,SIP contribution,-5000.00,5000.00\n','Contribution.csv')
+        s=sessions.create(b'Date,Description,Amount,Balance\n2026-10-27,SIP contribution,-5000.00,5000.00\n','Contribution.csv')
         s['assigned_account']=PAYER;sessions.put(s);sessions.read(s)
         s=sessions.get(s['id']);self.assertIn(s['state'],('found','review'),s.get('error'))
         for item in s['plan']['items']:
@@ -231,9 +233,25 @@ class InvestmentRules(Fixture):
         sessions.queue_apply(s['id']);sessions.work(threading.Event());s=sessions.get(s['id'])
         self.assertEqual(s['state'],'applied',s.get('error'))
         e=next(e for e in entries(load(self.ledger)) if e['description']=='SIP contribution')
-        self.assertEqual(e['rule'],dict(id=r['id'],occurrence='2026-10-15'))
-        self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['date'],'2026-11-15')
+        self.assertEqual(e['rule'],dict(id=r['id'],occurrence='2026-11-02'))
+        self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['date'],'2026-12-02')
         self.assertEqual(records(self.ledger)[-1]['rule_changes'][0]['id'],r['id'])
+
+    def test_statement_batch_settles_an_on_time_and_an_early_payment_in_order(self):
+        rule=self.seed()
+        rule['date']=rule['schedule']['from']='2026-10-02'
+        dump(self.ledger/'data/forecast.json',[rule])
+        sessions,identity=self.bank_statement([
+            ('2026-10-02','SIP contribution','5000.00'),
+            ('2026-10-27','SIP contribution','5000.00'),
+        ],end='2026-10-31')
+        sessions.queue_apply(identity);sessions.work(threading.Event())
+        saved=sessions.get(identity)
+        self.assertEqual(saved['state'],'applied',saved.get('error'))
+        payments=[e for e in entries(load(self.ledger)) if e['description']==rule['description']]
+        self.assertEqual([(e['date'],e['rule']['occurrence']) for e in payments],
+                         [('2026-10-02','2026-10-02'),('2026-10-27','2026-11-02')])
+        self.assertEqual(read_json(self.ledger/'data/forecast.json')[0]['date'],'2026-12-02')
 
     def test_card_statement_contribution_links_and_advances(self):
         from statements import Statements

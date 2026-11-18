@@ -2,7 +2,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationRoot, ledgerRoot } from '../../scripts/project-paths.mjs';
 import { moduleSettings, parseStoreJson, readManifest, storeSchema, validateDocument } from './ledger-manifest.mjs';
-import {complexRule,mainPostings,payer,varyingDetails,periodFor} from './recurring-ui.mjs';
+import {complexRule,mainPostings,payer,varyingDetails,periodFor,occurrenceDate} from './recurring-ui.mjs';
+export {occurrenceDate} from './recurring-ui.mjs';
 
 const storeRoot = ledgerRoot();
 export const compact = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -86,19 +87,6 @@ export function scheduleText({ every, interval, from }) {
   }
   checkDate(from);
   return `${interval === 1 ? (every === 'month' ? 'monthly' : 'yearly') : `every ${interval} ${every}s`} from ${from}`;
-}
-
-// Always offset from the original anchor: Jan 30 -> Feb 28 -> Mar 30, without drift.
-export function occurrenceDate(from, months, anchorDay) {
-  const [year, month, fromDay] = from.split('-').map(Number);
-  const day = anchorDay ?? fromDay;
-  const target = new Date(`${from}T00:00:00Z`);
-  target.setUTCDate(1);
-  target.setUTCFullYear(year, month - 1 + months, 1);
-  const end = new Date(target);
-  end.setUTCMonth(end.getUTCMonth() + 1, 0);
-  target.setUTCDate(Math.min(day, end.getUTCDate()));
-  return isoDay(target);
 }
 
 /** Expand [start, end), retaining input rule order for occurrences on the same date. */

@@ -86,6 +86,7 @@ class StatementPayments:
     """
     def __init__(self, actual, rules, accounts):
         self.actual=actual
+        self.pending=set()
         self.by_id={entry['id']:entry for entry in actual}
         self.order={entry['id']:index for index,entry in enumerate(actual)}
         self.signatures={}
@@ -187,17 +188,19 @@ def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persi
         if batch is not None:before=[deepcopy(link)]
         occurrence=usual['occurrence'] if usual else billed_occurrence or period_for(link,entry['date'])
         entry['rule']=dict(id=link['id'],occurrence=occurrence)
-        if (link['bill'] or {}).get('occurrence') == occurrence:
+        another=usual and usual['another_anyway']
+        if not another and (link['bill'] or {}).get('occurrence') == occurrence:
             paid_bill=deepcopy(link['bill']);link['bill']=None
             entry['evidence']=list(dict.fromkeys([*entry['evidence'],*paid_bill['evidence']]))
-        # The explicitly paid occurrence is consumed even when paid a little early.
         history=batch.history(link,accounts) if batch is not None else actual
-        latest=max((e['date'] for e in history if e['id']!=entry_id and ((e['rule'] or {}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
+        latest=max((e['date'] for e in history if e['id']!=entry_id
+                    and (batch is None or e['id'] not in batch.pending)
+                    and ((e['rule'] or {}).get('id')==link['id'] or same_payment(e,link,accounts))),default='')
         if paid_bill:
             # A saved bill identifies exactly one occurrence, even if its
             # payment is backdated or arrives after the following due date.
             index=batch.positions[link['id']] if batch is not None else rules.index(link);rules[index]=link=advance(link,occurrence)
-        elif entry['date']>=latest and max(entry['date'],occurrence)>=link['date']:
+        elif not another and entry['date']>=latest and max(entry['date'],occurrence)>=link['date']:
             index=batch.positions[link['id']] if batch is not None else rules.index(link);rules[index]=link=advance(link,max(entry['date'],occurrence))
         if batch is not None:batch.linked(entry,link)
         recompute_estimate(link,batch.history(link,accounts) if batch is not None else actual,accounts)
@@ -246,7 +249,10 @@ def statement_effects(root, entry_ids, session, *, documents, lines=None):
     saved = session.get('client_time') or session.get('saved_at') or session.get('created_at')
     context = dict(client_time=saved or current_time().astimezone().isoformat(), text='')
     changed_years, bills = set(), []
+    # Future rows in this Apply must not make the current payment look backdated.
+    batch.pending.update(entry['id'] for entry in payments)
     for entry in sorted(payments, key=lambda e: e['date']):
+        batch.pending.remove(entry['id'])
         previous = deepcopy(entry)
         result = addition_effects(root, entry['id'], context, documents=documents, lines=lines, persist=False, statement=True, batch=batch)
         if entry != previous:

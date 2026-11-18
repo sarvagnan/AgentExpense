@@ -109,3 +109,14 @@ test('chosen payment date owns the cadence and older payments keep the current n
   assert.equal(nextDueForPayment(r,'2026-12-16'),'2027-01-15');
   assert.equal(nextDueForPayment({...r,date:'2027-01-15',schedule:{every:'month',from:'2027-01-15'},payments:[{date:'2026-12-15'}]},'2026-10-15'),'2027-01-15');
 });
+
+test('an early usual payment preview uses the nearby due date, even across months',()=>{
+  const due='2026-11-02',previous='2026-10-02',r=rule({date:due,schedule:{every:'month',from:due},
+    payments:[{id:'1',date:previous,rule:{id:rule().id,occurrence:previous}}]});
+  assert.equal(periodFor(r,'2026-10-27'),due);
+  assert.equal(paymentInPeriod(r,'2026-10-27'),undefined);
+  assert.equal(nextDueForPayment(r,'2026-10-27'),'2026-12-02');
+  assert.equal(paymentInPeriod({...r,date:'2026-12-02',schedule:{...r.schedule,from:'2026-12-02'},
+    payments:[{id:'2',date:'2026-10-27'}]},'2026-11-01').id,'2');
+  assert.equal(nextDueForPayment(r,'2026-10-05'),due);
+});

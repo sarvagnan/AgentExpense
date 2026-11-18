@@ -193,10 +193,25 @@ def advance(rule, through):
 
 
 def period_for(rule, payment_date):
-    """Occurrence in the payment's cadence bucket (also detects earlier paid periods)."""
+    """Use the closer occurrence before the next due date, and skip stale periods."""
     start, day = date.fromisoformat(rule['schedule']['from']), date.fromisoformat(payment_date)
-    index = ((day.year-start.year)*12 + day.month-start.month)//step_months(rule)
-    return occurrence(rule, index)
+    step = step_months(rule)
+    start_month = (start.year - 1) * 12 + start.month - 1
+    index = ((day.year - start.year) * 12 + day.month - start.month) // step
+    if start_month + index * step < 0:
+        return occurrence(rule, index + 1)
+    bucket = occurrence(rule, index)
+    if day >= start or payment_date == bucket:
+        return bucket
+    # Compare the occurrences on either side of the payment, including across months.
+    previous_index = index - (payment_date < bucket)
+    following = occurrence(rule, previous_index + 1)
+    if start_month + previous_index * step < 0:
+        return following
+    previous = occurrence(rule, previous_index)
+    until_due = (date.fromisoformat(following) - day).days
+    since_previous = (day - date.fromisoformat(previous)).days
+    return following if until_due <= 3 or until_due < since_previous else previous
 
 
 def periodic_schedules(rule):
@@ -332,13 +347,15 @@ def candidate(entry, actual, rules, accounts, settings, today, text=''):
     if any(r['lifecycle'] in ('paused','ended') and same_payment(entry,r,accounts) and payee_match(entry,r) for r in rules): return None
     if any(p['account'] == prefix or p['account'].startswith(prefix+':') for prefix in settings.get('never-automatic',[]) for p in main_postings(entry, accounts)): return None
     removal = suppressed(entry,rules,accounts)
-    history = [e for e in actual if e['id'] != entry['id'] and e['id'] not in removed_evidence and e['date'] < entry['date'] and e['status'] == 'confirmed'
-               and same_payment(e,entry,accounts) and payee_match(e,entry) and within_ten(entry,e,accounts)]
+    history = [e for e in actual if e['id'] != entry['id'] and e['id'] not in removed_evidence
+               and e['date'] != entry['date'] and e['status'] == 'confirmed'
+               and same_payment(e,entry,accounts) and payee_match(e,entry)
+               and (within_ten(entry,e,accounts) if e['date'] < entry['date'] else within_ten(e,entry,accounts))]
     if removal:
         if entry['date'] <= removal['removal']['date']: return None
         history = [e for e in history if e['date'] > removal['removal']['date'] and e['id'] not in removal['removal']['entry-ids']]
     qualifying_words = bool(words(text) & {'subscription','membership','renewal'}) and not any(w.startswith('cancel') for w in words(text))
-    previous = max(history,key=lambda e:e['date']) if history else None
+    previous = max((e for e in history if e['date'] < entry['date']), key=lambda e:e['date'], default=None)
     if removal and not previous: return None
     if not qualifying_words and not previous: return None
     days = (date.fromisoformat(entry['date'])-date.fromisoformat(previous['date'])).days if previous else 0
@@ -354,7 +371,13 @@ def candidate(entry, actual, rules, accounts, settings, today, text=''):
                               'from': entry['date'], 'interval': 1, 'anchor-day': None},
                     origin=origin, created=today, postings=deepcopy(entry['postings']))
     for p in rule['postings']: p['assert'] = None
-    return dict(rule=advance(rule,entry['date']), automatic=bool(automatic), reason='monthly-history' if automatic else 'Confirm an irregular or older payment pattern')
+    rule = advance(rule, entry['date'])
+    if automatic:
+        for later in sorted((e for e in history if e['date'] > entry['date']), key=lambda e:e['date']):
+            through = max(later['date'], period_for(rule, later['date']))
+            if through >= rule['date']:
+                rule = advance(rule, through)
+    return dict(rule=rule, automatic=bool(automatic), reason='monthly-history' if automatic else 'Confirm an irregular or older payment pattern')
 
 
 def detect(actual, rules, accounts, settings, today):

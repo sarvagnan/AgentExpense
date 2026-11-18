@@ -293,6 +293,38 @@ class RecurringTests(unittest.TestCase):
         wrong=payment('0000000000000002',currency='USD');self.assertIsNone(candidate(wrong,[old,wrong],[],ACCOUNTS,{},'2026-11-01'))
         far=payment('0000000000000002',amount='22.01');self.assertIsNone(candidate(far,[old,far],[],ACCOUNTS,{},'2026-11-01'))
 
+    def test_automatic_history_rule_consumes_a_later_early_payment(self):
+        sept=payment('1'*16,day='2026-09-17')
+        oct_payment=payment('2'*16,day='2026-10-17')
+        for amount, next_due in (('20.00','2026-12-17'),('22.00','2026-12-17'),
+                                 ('18.00','2026-12-17'),('22.01','2026-11-17')):
+            with self.subTest(amount=amount):
+                nov=payment('3'*16,day='2026-11-09',amount=amount)
+                actual=[sept,oct_payment,nov]
+                found=candidate(oct_payment,actual,[],ACCOUNTS,{},'2026-11-10')
+                self.assertTrue(found['automatic'])
+                self.assertEqual(found['rule']['date'],next_due)
+
+    def test_history_pass_uses_the_latest_payment_in_the_qualifying_group(self):
+        for days, next_due in (
+            (('2026-09-17','2026-10-17','2026-11-09'),'2026-12-17'),
+            (('2026-09-02','2026-10-02','2026-10-27'),'2026-12-02'),
+            (('2026-09-17','2026-10-17','2026-10-24'),'2026-11-17'),
+        ):
+            with self.subTest(days=days):
+                actual=[payment(f'{i:016x}',day=day) for i,day in enumerate(days,1)]
+                made,_=detect(actual,[],ACCOUNTS,{},'2026-11-10')
+                self.assertEqual([rule['date'] for rule in made],[next_due])
+
+    def test_weaker_history_suggestion_keeps_its_proposed_date(self):
+        previous=payment('1'*16,day='2026-09-17')
+        proposed=payment('2'*16,day='2026-10-17')
+        early=payment('3'*16,day='2026-11-09')
+        found=candidate(proposed,[previous,proposed,early],[],ACCOUNTS,{},'2027-01-01')
+        self.assertFalse(found['automatic'])
+        self.assertEqual(found['reason'],'Confirm an irregular or older payment pattern')
+        self.assertEqual(found['rule']['date'],'2026-11-17')
+
     def test_suppression_requires_two_new_payments_and_came_back(self):
         removed=rule();removed.update(lifecycle='removed',removal={'date':'2026-10-20','entry-ids':['0000000000000001']})
         old=payment();one=payment('0000000000000002','2026-11-15');two=payment('0000000000000003','2026-12-15')

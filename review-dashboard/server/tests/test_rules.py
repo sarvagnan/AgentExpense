@@ -25,9 +25,9 @@ def payment_rule(day='2026-10-15', amount='100.00', life='active'):
                       lifecycle=life,origin={'kind':'owner','words':None,'entry-ids':[],'came-back':False})
 
 
-def as_entry(rule, **changes):
+def as_entry(template, **changes):
     """A payment entry with the rule's description and postings."""
-    return store_entry(rule['id'],rule['date'],rule['description'],deepcopy(rule['postings']),**changes)
+    return store_entry(template['id'],template['date'],template['description'],deepcopy(template['postings']),**changes)
 
 
 class RuleTests(Fixture):
@@ -59,6 +59,70 @@ class RuleTests(Fixture):
         self.assertEqual(line['entry_id'],entry['id']);self.assertIn('Added-by: user (usual payment, rule '+rule['id']+')',self.jj('log','-r','@-','--no-graph','-T','description'))
         queued_at=draft['queued_at'];queue_usual(self.settings,drafts,draft,dict(rule_id=rule['id'],date='2026-11-10'));self.assertEqual(draft['queued_at'],queued_at)
         with self.assertRaisesRegex(ValueError,'different usual'):queue_usual(self.settings,drafts,draft,dict(rule_id=rule['id'],date='2026-11-16'))
+
+    def test_early_usual_payment_uses_the_next_occurrence_across_cadences(self):
+        for case, previous, due, paid, next_due, every, interval in (
+            ('same month', '2026-10-17', '2026-11-17', '2026-11-09', '2026-12-17', 'month', 1),
+            ('prior month', '2026-10-02', '2026-11-02', '2026-10-27', '2026-12-02', 'month', 1),
+            ('within three days', '2026-10-02', '2026-11-02', '2026-10-30', '2026-12-02', 'month', 1),
+            ('yearly', None, '2026-11-17', '2026-09-23', '2027-11-17', 'year', 1),
+            ('two months', '2026-10-17', '2026-12-17', '2026-11-28', '2027-02-17', 'month', 2),
+        ):
+            with self.subTest(case=case):
+                rule=payment_rule(day=due)
+                rule['schedule'].update(every=every,interval=interval)
+                history=[as_entry(rule,id='1'*16,date=previous,rule=dict(id=rule['id'],occurrence=previous))] if previous else []
+                self.seed(rule,history)
+                _,_,result=self.add_direct(date=paid)
+                self.assertEqual(result['rule']['occurrence'],due)
+                self.assertEqual(result['next_due'],next_due)
+                self.assertEqual(snapshot(self.settings)['rules'][0]['next_due'],next_due)
+
+    def test_early_hand_payment_removes_the_paid_occurrence_from_forecast(self):
+        rule=payment_rule(day='2026-11-02')
+        self.seed(rule,[as_entry(rule,id='1'*16,date='2026-10-02',rule=dict(id=rule['id'],occurrence='2026-10-02'))])
+        drafts=Drafts(self.ledger);draft=drafts.create('Willow club');drafts.save_time(draft)
+        proposal=ready(new=False);proposal['attachment-names']=[]
+        proposal['entry'].update(date='2026-10-27',description='Willow club')
+        draft.update(proposal=proposal,finished_by=dict(actor='user',reason='agent unavailable'));drafts.put(draft)
+        with ledger_lock(self.ledger) as fd:
+            result=Transaction(self.settings,drafts,draft).apply(proposal,fd)
+        self.assertEqual(result['rule']['occurrence'],'2026-11-02')
+        self.assertEqual(result['next_due'],'2026-12-02')
+        subprocess.run(['node',str(self.application/'review-dashboard/scripts/build-dashboard-data.mjs')],
+                       env={**os.environ,'LEDGER_DIR':str(self.ledger),'DASHBOARD_TODAY':'2026-11-01'},
+                       check=True,capture_output=True,text=True)
+        forecast=read_json(self.settings.dashboard_data/'app/data/dashboard.json')['forecast']
+        self.assertEqual([item['date'] for item in forecast['items'] if item['description']==rule['description']][:2],
+                         ['2026-12-02','2027-01-02'])
+        with self.assertRaisesRegex(ValueError,'already has'):
+            self.add_direct(date='2026-10-27')
+
+    def test_late_previous_payment_keeps_the_next_occurrence_due(self):
+        for due, paid, previous in (
+            ('2026-11-17','2026-10-25','2026-10-17'),
+            ('2026-11-29','2026-11-03','2026-10-29'),
+        ):
+            with self.subTest(paid=paid):
+                self.seed(payment_rule(day=due),[])
+                _,_,result=self.add_direct(date=paid)
+                self.assertEqual(result['rule']['occurrence'],previous)
+                self.assertEqual(result['next_due'],due)
+
+    def test_stale_rule_advances_past_a_new_payment_without_backfill(self):
+        self.seed(payment_rule(day='2026-07-17'),[])
+        _,_,result=self.add_direct(date='2026-11-09')
+        self.assertEqual(result['rule']['occurrence'],'2026-11-17')
+        self.assertEqual(result['next_due'],'2026-12-17')
+        self.assertEqual(len(entries(load(self.ledger))),1)
+
+    def test_another_usual_payment_keeps_an_outstanding_occurrence_due(self):
+        rule=payment_rule(day='2026-11-17')
+        self.seed(rule,[as_entry(rule,id='1'*16,date='2026-11-09',rule=dict(id=rule['id'],occurrence=rule['date']))])
+        _,_,result=self.add_direct(date='2026-11-10',another_anyway=True)
+        self.assertEqual(result['rule']['occurrence'],rule['date'])
+        self.assertEqual(result['next_due'],rule['date'])
+        self.assertEqual(result['rule_changes'],[])
 
     def test_amount_this_payment_or_update_rule_and_duplicate_override(self):
         for update in (False,True):

@@ -30,6 +30,10 @@ unique whole-payment rule in the same checked commit. A paused match offers a
 resume choice in the saved result without changing the lifecycle.
 
 Calendar advancement skips every unrecorded period through the payment's date.
+An early payment settles the next due occurrence when it falls within three days
+of that date or is closer to it than to the previous occurrence.
+Automatically detected rules start after any later matching payments that settle
+their occurrences.
 The schedule retains `anchor-day`, so January 31 → February 28 → March 31.
 The generator emits a bounded set of yearly phases for anchors 29–31; February
 uses `4 / gcd(year_step, 4)` leap phases. Node expansion uses the same anchor.
@@ -49,12 +53,10 @@ journals, validate, audit and commit through the shared transaction service.
 | POST `/api/drafts/{draft-id}/usual` | `rule_id`, optional `date`, positive decimal-string `amount`, `update_rule`, `account`, `remember_account`, `another_anyway`, `client_time`, `client_zone`. Returns the queued draft; poll the existing draft endpoint for completion. |
 | POST `/api/rules/operations/{32-hex-operation-id}` | Operation body below. Identical retry returns `replayed: true`; a changed payload with the same ID is refused. |
 
-A usual payment keeps the original draft FIFO position. An explicitly paid
-occurrence is consumed even when its payment date is a little earlier, so it
-cannot remain in the forecast after being paid. New drafts use the local
+A usual payment keeps the original draft FIFO position. New drafts use the local
 save date unless `date` is supplied. The rule is frozen by hash and rechecked under
 the lock; an intervening edit requires another explicit choice. A known payment
-in that cadence bucket is refused unless `another_anyway` is true. `amount`
+for the occurrence is refused unless `another_anyway` is true, which leaves the next due date in place. `amount`
 scales the balanced posting set; rounding must pass the ordinary strict checks.
 `update_rule: false` changes this payment only. `true` retains its checked postings
 on the rule. A missing payer asks for `account`; `remember_account: true` changes
