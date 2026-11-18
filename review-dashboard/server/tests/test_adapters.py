@@ -22,6 +22,7 @@ from adapters.cli import inspect_inventory,home_problems,child_environment
 from agent import run,AgentFailure
 from agent_check import fixture,OfflineFailure,PolicyFailure
 from agent_gate import AgentGate,fingerprint
+from run_events import RunEvents,read_events
 from settings import Settings,APPLICATION
 
 ANSWER={'status':'not_expense','question':None,'entry':None,'new-accounts':[],
@@ -57,7 +58,20 @@ class AdapterTests(unittest.TestCase):
                 adapter=self.adapter(name)
                 adapter.offline_check(self.task(adapter).work)
                 self.assertTrue(adapter.signed_in(self.work))
-                result=adapter.run(self.task(adapter,images=[image]))
+                task=self.task(adapter,images=[image])
+                self.config.write_text(json.dumps({**json.loads(self.config.read_text()),
+                                                   'steps':[{'answer':{'value':'ok'},'progress':True}]}))
+                events=RunEvents(task.work,name,self.settings.model)
+                events.allowed={'list_accounts'}
+                result=adapter.run(replace(task,events=events))
+                progress=read_events(task.work,0)['events']
+                expected=['start','prompt','progress','lookup']
+                if name in ('claude','pi'):expected[2:2]=['reconnecting','progress']
+                self.assertEqual([event['type'] for event in progress],expected)
+                self.assertEqual(progress[-1]['tool'],'list_accounts')
+                self.assertEqual(json.loads(progress[-1]['arguments']),{'contains':'AgentCheck'})
+                self.assertGreater(progress[-1]['result_bytes'],0)
+                self.assertNotIn(self.account,json.dumps(progress))
                 self.assertEqual(result.answer,{'value':'ok'});self.assertEqual(sum(result.usage.values()),168)
                 self.assertEqual(result.lookups[0]['tool'],'list_accounts');self.assertGreater(result.duration,0)
                 call=json.loads(self.config.with_suffix('.calls').read_text().splitlines()[-1])
@@ -347,6 +361,8 @@ class AdapterTests(unittest.TestCase):
                     answer={'choices':[{'message':message,'finish_reason':'stop' if is_tool_result else 'tool_calls'}],'usage':{'prompt_tokens':10,'completion_tokens':5}}
                 else:
                     content=[{'type':'text','text':json.dumps(final_answer)}] if is_tool_result else [{'type':'tool_use','id':'lookup1','name':tool,'input':{}}]
+                    if mode=='progress' and not is_tool_result:
+                        content.insert(0,{'type':'thinking','thinking':'Checking fictional details'})
                     answer={'content':content,'stop_reason':'end_turn' if is_tool_result else 'tool_use','usage':{'input_tokens':10,'output_tokens':5}}
                 if mode=='tokens':answer['usage']={'input_tokens':1000001}
                 if mode=='refusal':
@@ -373,11 +389,20 @@ class AdapterTests(unittest.TestCase):
 
     def test_direct_api_tool_loops_schemas_images_usage_retry_and_secret_redaction(self):
         for name in ('openai','anthropic'):
-            for mode in ('normal',):
+            for mode in ('progress',):
                 with self.subTest(adapter=name,mode=mode),self.http_server(name,mode=mode) as (url,received,_,_):
                     adapter=self.api_adapter(name,url);image=self.work/'test.png';image.write_bytes(b'fictional')
                     adapter.offline_check(self.work);self.assertEqual(received,[])
-                    result=adapter.run(self.task(adapter,images=[image]))
+                    task=self.task(adapter,images=[image])
+                    events=RunEvents(task.work,name,self.settings.model)
+                    events.allowed={'list_accounts'}
+                    result=adapter.run(replace(task,events=events))
+                    progress=read_events(task.work,0)['events']
+                    self.assertEqual([event['type'] for event in progress],
+                                     ['start','prompt',*(['progress'] if name=='anthropic' else []),'lookup'])
+                    self.assertEqual(json.loads(progress[-1]['arguments']),{})
+                    self.assertGreater(progress[-1]['result_bytes'],0)
+                    self.assertNotIn(self.account,json.dumps(progress))
                     self.assertEqual(result.answer,{'value':'ok'});self.assertEqual(len(result.lookups),1);self.assertEqual(sum(result.usage.values()),30)
                     self.assertEqual(len(received),3 if mode=='rate' else 2)
                     first=received[0][1];self.assertEqual(len(first['tools']),4)

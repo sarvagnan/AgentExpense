@@ -638,3 +638,9 @@ body:has(.dialog-layer) .data-refresh-notice { z-index:49; }
 .hand-finish>.panel-header{align-items:start;gap:16px}
 
 .hand-cancel-actions{flex-wrap:wrap}
+
+.agent-progress{margin-block:var(--space-2);overflow-wrap:anywhere}
+.agent-progress p{margin-block:0 var(--space-2)}
+.agent-progress [data-reconnecting=true]{color:var(--warning)}
+.agent-progress summary{cursor:pointer}
+.agent-progress ol{max-block-size:16rem;overflow:auto;padding-inline-start:1.5em}

@@ -8,6 +8,7 @@ from pathlib import Path
 import threading
 import time
 from typing import Protocol
+from run_events import RunEvents
 
 INTERFACE_VERSION = 1
 
@@ -49,6 +50,7 @@ class Task:
     deadline: float  # monotonic, shared across tools, retries and transport
     cancel: threading.Event = field(default_factory=threading.Event)
     work: Path = Path('.')
+    events: RunEvents | None = None
 
     def remaining(self):
         if self.cancel.is_set():

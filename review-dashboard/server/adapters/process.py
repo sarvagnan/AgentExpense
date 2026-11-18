@@ -29,11 +29,31 @@ def communicate(process, task, *, data=None, legacy=None):
                 return
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
+    reader, lines, errors = None, [], []
+    if task.events:
+        # Give stdout its own reader while communicate drains stderr and writes
+        # stdin under the established deadline boundary.
+        stdout, process.stdout = process.stdout, None
+        def read():
+            try:
+                with stdout:
+                    for line in stdout:
+                        lines.append(line)
+                        task.events.observe(line)
+            except (OSError, UnicodeError) as exc:
+                errors.append(exc)
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
     try:
         if legacy:
             output = legacy(process, task.remaining(), data)
         else:
             output = process.communicate(input=data, timeout=task.remaining())
+        if reader:
+            reader.join(timeout=task.remaining())
+            if errors:
+                raise errors[0]
+            output = (''.join(lines), output[1])
         task.remaining()
         return output
     finally:
@@ -42,3 +62,6 @@ def communicate(process, task, *, data=None, legacy=None):
         if process.poll() is None:
             kill(process)
             process.communicate()
+        if reader and reader.is_alive():
+            kill(process)
+            reader.join(timeout=1)

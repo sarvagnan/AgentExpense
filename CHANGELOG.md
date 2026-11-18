@@ -12,6 +12,8 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Queue shows live lookup counts, agent steps and provider reconnection for additions and statement readings.
+
 - Early recurring payments clear the occurrence they pay, including when a rule is detected from payment history.
 
 - Browser fixture resets clear Add recovery after the app unloads, preventing

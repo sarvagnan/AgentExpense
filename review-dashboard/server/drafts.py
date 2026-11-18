@@ -33,12 +33,12 @@ class Drafts:
             raise FileNotFoundError('Invalid item')
         return folder
 
-    def get(self, identity, *, include_discarded=False):
+    def get(self, identity, *, include_discarded=False, release_expired_claim=True):
         with self.mutex:
             draft = json.loads((self.folder(identity) / 'draft.json').read_text())
             if (draft.get('trashed_at') or draft.get('discarded_until')) and not include_discarded:
                 raise FileNotFoundError('Item in Trash')
-            if draft.get('claim') and datetime.fromisoformat(draft['claim']['expires_at']) <= self.clock():
+            if release_expired_claim and draft.get('claim') and datetime.fromisoformat(draft['claim']['expires_at']) <= self.clock():
                 self.release_claim(draft)
                 self.put(draft)
             return ensure_context(draft)

@@ -287,6 +287,7 @@ class CLI:
         process=subprocess.Popen(command,cwd=task.work,env=env,stdin=subprocess.PIPE if data else subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
         try:
+            if task.events: task.events.write('prompt')
             if self.id=='pi':
                 output=self._rpc(process,task,data)
             else:
@@ -347,6 +348,7 @@ class CLI:
                 except queue.Empty: continue
                 if line is None: raise AdapterError('Pi exited before agent_settled')
                 lines.append(line)
+                if task.events: task.events.observe(line)
                 event=json.loads(line)
                 if event.get('type')=='response' and not event.get('success'):
                     raise event_failure([event])

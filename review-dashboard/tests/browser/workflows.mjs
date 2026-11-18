@@ -1,6 +1,47 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {hold} from './held.mjs';
+
+export async function runQueueProgress({page,base,persona,stage,expect,control,go,refresh,overflow,snap,record,resetDrafts}){
+ await control('gate',{state:'ready'});await resetDrafts({persona,empty:true});
+ const config=stage.env.EXPENSES_FAKE_CONFIG,gate=config.replace(/\.json$/,'.progress');
+ const answer={status:'question',question:'Which category fits?',entry:null,doubts:[],
+  'new-accounts':[],'attachment-names':[],explanation:null};
+ await writeFile(gate,'hold');
+ await writeFile(config,JSON.stringify({steps:[{answer,progress:true,hold_progress:true}]}));
+ const created=await fetch(base+'api/drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Fictional book'})});
+ assert.equal(created.status,201);const {id}=await created.json(),url=base+`api/drafts/${id}`;
+ const progress=page.locator('.agent-progress'),summary=progress.locator('summary');
+ try{
+  assert.equal((await fetch(url+'/save',{method:'POST'})).status,200);
+  await go('queue/?draft='+id);
+  await expect(progress.getByRole('status')).toHaveText('1 lookup so far · Checking fictional details');
+  await snap('queue-progress-working');
+  const response=await hold(page,new RegExp(`${url}/events\\?after=[1-9]\\d*$`),{
+   accept:body=>JSON.parse(body).events.some(event=>event.type==='reconnecting'),limit:15000,
+  });
+  try{
+   await writeFile(gate,'reconnect');
+   await expect.poll(async()=>(await(await fetch(url+'/events')).json()).events.at(-1)?.type).toBe('reconnecting');
+   await refresh();await response.ready;
+   await expect(progress.getByRole('status')).toContainText('Checking fictional details');
+   await summary.focus();await summary.click();await expect(summary).toBeFocused();
+   await expect(progress.locator('details')).toHaveAttribute('open','');
+   await expect(progress.locator('li')).toHaveText([/Run started · codex/,/Prompt sent/,/Lookup · entries_near/,/Checking fictional details/]);
+  }finally{await response.release();}
+  await expect(progress.getByRole('status')).toHaveText('1 lookup so far · Provider reconnecting');
+  await expect(summary).toBeFocused();
+  await expect(progress.locator('li').last()).toHaveText('Provider reconnecting');
+  await overflow('Queue agent progress');
+  await snap('queue-progress-reconnecting');
+  await page.mouse.move(1,1);await summary.evaluate(node=>node.blur());
+ }finally{await writeFile(gate,'finish');}
+ await expect(page.getByText('Which category fits?',{exact:true})).toBeVisible({timeout:15000});
+ await expect(progress).toHaveCount(0);
+ await resetDrafts({persona,empty:true});
+ record('Queue shows lookup count, last step, ordered steps and a reconnect warning during a held fake run. Opening steps survives a held poll and completion clears progress.');
+}
 
 export async function runWorkflows({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}){
  const tag=`${engine}-${theme}-${width}`,november=`Fictional-November-${tag}.pdf`,foreignFile=`Fictional-Foreign-${tag}.pdf`,newAccountFile=`Fictional-New-Account-${tag}.pdf`;
@@ -17,7 +58,7 @@ export async function runWorkflows({page,base,persona,engine,theme,width,stage,e
   return (await get('drafts?include_added=true')).find(d=>d.text===text&&d.state!=='editing').id;
  };
  const quiet=async()=>expect.poll(async()=>(await get('drafts?include_added=true')).some(d=>d.audit_pending?.length),{timeout:180000}).toBe(false);
- await control('gate',{state:'ready'});await resetDrafts({persona,empty:true});
+ await runQueueProgress({page,base,persona,stage,expect,control,go,refresh,overflow,snap,record,resetDrafts});
  let config=await control('scenario',{mode:'ready',attachment:'Copper-Finch-Receipt'});
  await go('add/');
  await expect(page.locator('.composer-panel h2')).toHaveText('What happened?');await expect(page.locator('.understood-panel h2')).toHaveText('Understood as');

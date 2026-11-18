@@ -122,7 +122,16 @@ with config.with_suffix('.calls').open('a') as handle:
                              'schema': json.loads(Path('schema.json').read_text())}) + '\n')
 step = settings['steps'][min(count, len(settings['steps']) - 1)]
 print(json.dumps({'type': 'item.completed', 'item': {'type': 'mcp_tool_call', 'server': 'ledger',
-      'tool': 'entries_near', 'arguments': {'day': '2026-10-29'}, 'status': 'completed'}}), flush=True)
+      'tool': 'entries_near', 'arguments': {'day': '2026-10-29'}, 'status': 'completed',
+      'result': {'content': [{'type': 'text', 'text': 'Fictional lookup payload'}]}}}), flush=True)
+if step.get('progress'):
+    print(json.dumps({'type':'item.completed','item':{'type':'reasoning','text':'Checking fictional details'}}),flush=True)
+    control = config.with_suffix('.progress')
+    if step.get('hold_progress'):
+        while control.read_text() == 'hold': time.sleep(.02)
+    print(json.dumps({'type':'error','message':'Reconnecting... 1/5'}),flush=True)
+    if step.get('hold_progress'):
+        while control.read_text() != 'finish': time.sleep(.02)
 print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 123, 'output_tokens': 45}}), flush=True)
 kind = step.get('kind', 'answer')
 if kind == 'provider_error':

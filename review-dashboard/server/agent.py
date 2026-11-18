@@ -301,7 +301,9 @@ def communicate(process, timeout, data=None):
 
 
 def run(settings, draft, folder, *, cancel=None):
+    from run_events import RunEvents
     started = time.monotonic()
+    events = RunEvents(folder, settings.adapter, settings.model)
     record = {'start': now(), 'end': None, 'model': settings.model, 'effort': settings.effort,
               'outcome': None, 'question': None, 'doubts': [], 'error': None, 'duration': 0,
               'usage': {}, 'lookups': [], 'adapter': settings.adapter, 'errors': []}
@@ -320,7 +322,8 @@ def run(settings, draft, folder, *, cancel=None):
             from adapters.base import Task, LookupTools
             import threading
             task = Task('', (), LookupTools.for_settings(settings), schema,
-                        time.monotonic() + settings.timeout, cancel or threading.Event(), work)
+                        time.monotonic() + settings.timeout, cancel or threading.Event(), work, events)
+            events.allowed = {definition['name'] for definition in task.lookups.definitions}
             prompt, images = prompt_for(settings, draft, folder, work, check=task.remaining)
             from dataclasses import replace
             task = replace(task, prompt=prompt, images=tuple(images))
@@ -367,8 +370,10 @@ def run(settings, draft, folder, *, cancel=None):
             record['failure_kind'] = 'auth' if status['state'] in ('signed out','paused') else 'transient'
         record.setdefault('failure_kind', 'bad_answer')
         record.update(outcome='error', error=message)
+        events.write('error', terminal=True, text=record['failure_kind'])
         raise AgentFailure(message, record, retryable=gate_passed) from exc
     finally:
+        events.write('exit', terminal=True, outcome=record['outcome'])
         record.update(end=now(), duration=round(time.monotonic() - started, 3))
 
     return answer, record

@@ -63,18 +63,29 @@ def run(settings,config):
     text='invalid json' if kind=='invalid' else json.dumps(answer)
     if adapter=='claude':
         emit({'type':'system','subtype':'init','tools':['mcp__ledger__'+tool], 'mcp_servers':[{'name':'ledger'}]})
-        emit({'type':'assistant','message':{'content':[{'type':'tool_use','id':'lookup1','name':'mcp__ledger__'+tool,'input':{'contains':'AgentCheck'}}]}})
+        if step.get('progress'):
+            emit({'type':'system','subtype':'api_retry','attempt':1,'max_retries':2,'retry_delay_ms':50,'error_status':503})
+            emit({'type':'system','subtype':'status','status':'requesting'})
+        emit({'type':'assistant','message':{'content':[
+            *([{'type':'thinking','thinking':'Checking fictional details'}] if step.get('progress') else []),
+            {'type':'tool_use','id':'lookup1','name':'mcp__ledger__'+tool,'input':{'contains':'AgentCheck'}}]}})
         emit({'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'lookup1','content':json.dumps(result)}]}})
         emit({'type':'result','subtype':'error' if kind=='error' else 'success','is_error':kind=='error',
               'structured_output':None if kind=='invalid' else answer,'result':text,'usage':{'input_tokens':123,'output_tokens':45}})
     elif adapter=='pi':
         emit({'type':'response','id':'expense','command':'prompt','success':True,'data':{'disposition':'started'}})
+        if step.get('progress'):
+            emit({'type':'auto_retry_start','attempt':1,'maxAttempts':2,'delayMs':50,'errorMessage':'Fictional overload'})
+            emit({'type':'auto_retry_end','success':True,'attempt':1})
+            emit({'type':'message_update','assistantMessageEvent':{'type':'thinking_end','content':'Checking fictional details'}})
         emit({'type':'tool_execution_start','toolCallId':'lookup1','toolName':tool,'args':{'contains':'AgentCheck'}})
         emit({'type':'tool_execution_end','toolCallId':'lookup1','toolName':tool,'result':{'content':[{'type':'text','text':json.dumps(result)}]},'isError':kind=='error'})
         emit({'type':'message_end','message':{'role':'assistant','content':[{'type':'text','text':text}],'usage':{'input':123,'output':45},'stopReason':'stop'}})
         emit({'type':'agent_settled','aborted':False})
         assert sys.stdin.read()==''
     else:
+        if step.get('progress'):
+            emit({'type':'step_start','part':{'messageID':'lookup-message'}})
         if settings.get('intermediate_text'):
             emit({'type':'text','part':{'messageID':'lookup-message','id':'progress','text':'Reading fictional accounts.'}})
             emit({'type':'step_finish','part':{'messageID':'lookup-message','reason':'tool-calls','tokens':{}}})

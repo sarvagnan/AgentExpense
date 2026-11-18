@@ -141,6 +141,10 @@ class StatementReading(Fixture):
             self.assertTrue(session['agent_requested']);self.assertEqual(self.calls(),[])
             client.app.state.statements.work(threading.Event());session=client.get('/api/statements/'+session['id']).json()
             self.assertEqual(session['state'],'found',session.get('error'))
+            progress=client.get('/api/statements/'+session['id']+'/events').json()
+            self.assertEqual([event['type'] for event in progress['events']],['start','prompt','lookup','exit'])
+            self.assertEqual(progress['events'][-1]['outcome'],'statement')
+            self.assertEqual(client.get(f'/api/drafts/{identity}/events').json()['events'],[])
             response=client.post('/api/statements/'+session['id']+'/mapping',json=dict(enabled=True))
             self.assertEqual(response.status_code,200,response.text)
 

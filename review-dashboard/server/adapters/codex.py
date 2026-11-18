@@ -8,6 +8,7 @@ import subprocess
 import time
 from .base import AdapterError, Description, Result
 from .failures import event_failure, diagnostic
+from run_events import codex_reconnect
 
 
 class Codex:
@@ -50,6 +51,7 @@ class Codex:
         try:
             # Keep the injectable deadline boundary used by the offline retry tests.
             from .process import communicate
+            if task.events: task.events.write('prompt')
             out, err = communicate(process, task, data=task.prompt, legacy=agent.communicate)
             log = out + '\n' + err
             usage, calls = agent.parse_events(log)
@@ -57,7 +59,7 @@ class Codex:
             for line in out.splitlines():
                 try: event = json.loads(line)
                 except ValueError: continue
-                if event.get('type') in ('error', 'turn.failed'):
+                if event.get('type') in ('error', 'turn.failed') and not codex_reconnect(event):
                     events.append(event)
             if events:
                 raise event_failure(events, usage=usage, lookups=calls)

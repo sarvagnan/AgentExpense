@@ -11,8 +11,8 @@ import shutil
 import time
 from urllib.parse import unquote, urlsplit
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Body
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form, Body, Query
+from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -24,6 +24,7 @@ from agent import now
 from draft_time import client_context
 from agent_gate import get_gate
 from drafts import Drafts
+from run_events import read_events
 from settings import Settings
 from dashboard_data import public_data
 from ledger_manifest import read_manifest
@@ -271,9 +272,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             return JSONResponse({'detail': str(exc)}, status_code=409)
         return await call_next(request)
 
-    def get(identity):
+    def get(identity, **kwargs):
         try:
-            return drafts.get(identity)
+            return drafts.get(identity, **kwargs)
         except (FileNotFoundError, ValueError):
             raise HTTPException(404, 'Unknown item')
 
@@ -653,6 +654,12 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             return public_many([value])[0]
         except FileNotFoundError:
             raise HTTPException(404, 'Unknown item')
+
+    @app.get('/api/drafts/{identity}/events')
+    def draft_events(identity: str, response: Response, after: int = Query(0, ge=0, le=2**63-1)):
+        get(identity, release_expired_claim=False)
+        response.headers['Cache-Control'] = 'no-store'
+        return read_events(drafts.folder(identity), after)
 
     @app.patch('/api/drafts/{identity}')
     def update(identity: str, body: Edit):
@@ -1272,6 +1279,12 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.get('/api/statements/{identity}')
     def read_statement(identity: str):
         return statement_get(identity, include_discarded=True)
+
+    @app.get('/api/statements/{identity}/events')
+    def statement_events(identity: str, response: Response, after: int = Query(0, ge=0, le=2**63-1)):
+        statement_get(identity)
+        response.headers['Cache-Control'] = 'no-store'
+        return read_events(statements.folder(identity), after)
 
     @app.post('/api/statements/{identity}/unlock')
     async def unlock_statement(identity: str, request: Request):

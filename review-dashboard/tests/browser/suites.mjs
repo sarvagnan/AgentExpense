@@ -34,7 +34,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {runReview} from './review.mjs';
-import {runWorkflows} from './workflows.mjs';
+import {runQueueProgress,runWorkflows} from './workflows.mjs';
 import {execFileSync} from 'node:child_process';
 import {gzipSync} from 'node:zlib';
 
@@ -206,6 +206,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await directObserver.close();
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
+      if(process.env.BROWSER_FOCUS==='queue-progress') {
+        await runQueueProgress({page,base,persona,stage,expect,control,go,refresh,overflow,snap,record,resetDrafts});
+        await directObserver.close();assert.deepEqual(errors,[]);
+        await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='workflows') {
         await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));

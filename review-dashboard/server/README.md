@@ -132,6 +132,22 @@ completed results leave the active list immediately; records last 24 hours and
 uploads are deleted. Other states persist until discarded. Retry retains earlier
 runs/questions and resets the proposal/error/check-repair allowance and consecutive timeout count.
 
+### Live run progress
+
+Each run appends to `events.jsonl` beside its draft or statement session. The
+file expires with that folder. Events have a `type` and UTC `at`. Start records
+carry the adapter and model. Prompt records mark dispatch. Lookup records carry
+the tool, arguments as JSON text, and the result size in UTF-8 JSON bytes when
+available. A run can also record progress text, provider reconnection, errors,
+and its exit outcome. Prompt contents and lookup result bodies are omitted.
+
+Each run can write 128 events, with two slots held for a terminal error and exit.
+Progress snippets and model names are capped at 240 characters. Lookup arguments
+are capped at 512 characters, including the ellipsis for a truncated preview.
+`GET api/drafts/{id}/events` and `GET api/statements/{id}/events` return up to 128
+lines per read. Start at `after=0` and reuse the returned byte cursor. Incomplete
+lines wait for a later read. Queue uses its existing refreshes.
+
 ## Adapter isolation and readiness
 
 The server selects Codex, Claude Code, Pi, OpenCode, OpenAI-compatible or Anthropic

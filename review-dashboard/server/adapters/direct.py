@@ -151,12 +151,16 @@ class DirectAPI:
                         payload['max_completion_tokens']=output_limit
                         if self.options.get('sendEffort',True):payload['reasoning_effort']=self.settings.effort
                         if self.options.get('structuredOutput',True):payload['response_format']={'type':'json_schema','json_schema':{'name':'expense_answer','schema':task.schema,'strict':True}}
+                    if task.events and turn == 0: task.events.write('prompt')
                     data=await self.request(client,task,payload,headers)
                     for k,v in data.get('usage',{}).items():
                         if k in ('input_tokens','output_tokens','prompt_tokens','completion_tokens') and isinstance(v,int):usage[k]=usage.get(k,0)+v
                     if sum(usage.values())>self.limits['maxTokens']:raise AdapterError('API token limit reached')
                     if self.id=='anthropic':
                         blocks=data.get('content',[])
+                        if task.events:
+                            for block in blocks:
+                                if block.get('type') == 'thinking': task.events.progress(block.get('thinking'))
                         calls=[dict(id=b['id'],name=b['name'],arguments=b['input']) for b in blocks if b.get('type')=='tool_use']
                         text=''.join(b.get('text','') for b in blocks if b.get('type')=='text')
                         if any(b.get('type') not in ('text','tool_use','thinking','redacted_thinking') for b in blocks):raise AdapterError('API returned an unsupported content block')
@@ -179,6 +183,7 @@ class DirectAPI:
                         validate(call['arguments'],definitions[call['name']]['inputSchema'])
                         result=task.lookups.call(call['name'],call['arguments'])
                         task.remaining()
+                        if task.events: task.events.lookup(call['name'],call['arguments'],result)
                         lookups.append(dict(type='mcp_tool_call',server='ledger',tool=call['name'],arguments=call['arguments'],
                                             status='completed',error=None,result=result))
                         if self.id=='anthropic':results.append({'type':'tool_result','tool_use_id':call['id'],'content':json.dumps(result)})
