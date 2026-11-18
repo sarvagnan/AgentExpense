@@ -339,8 +339,9 @@ filters remain unchanged.
 
 `BROWSER_FOCUS=fixture-isolation` holds a real committed worker-result reply.
 Fixture cleanup must retain recovery until the page's direct save has completed,
-then clear it before deleting ignored records. The next Add document must never
-fetch the deleted result ID. `writesSettled` skips the network-idle wait for
+then unload the app on an inert same-origin page and clear recovery there before
+deleting ignored records. The next Add document must never fetch a deleted result
+ID. `writesSettled` skips the network-idle wait for
 deliberately blocked health checks; it never skips the pending-save barrier.
 
 Receipt-choice checks follow the accepted usual-payment request's draft ID. The
@@ -858,6 +859,8 @@ detail prompt, Edit entry Back/Cancel, the discard question, a held autosave dur
 Cancel, reload recovery, edit Trash Restore, URL-persisted Rules sorting and hash
 focus, and the calendar-day average with a fixed local date and future spending.
 The default suite includes it. Captures prefixed `intent-` cover each new state.
+It also forces a late Add autosave response at fixture departure and checks that
+the next Add document never requests the deleted draft.
 The held autosave is released explicitly; tests never depend on browser speed.
 The reload regression holds the first claim response after the server claims the
 edit, reloads before delivering that response, then reclaims and cancels the edit.

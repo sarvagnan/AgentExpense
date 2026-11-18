@@ -68,8 +68,12 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
     stage.activeContext=context;stage.activeCase=`${engine}-${theme}-${width}`;
     const page=await context.newPage(),errors=[];
     page.on('pageerror',error=>errors.push(error.message));
-    page.on('console',message=>{if(message.type()==='error'&&!consumeInjected422(page,message)&&!benignConsole(message.text()))errors.push(message.text());});
+    page.on('console',message=>{if(message.type()==='error'&&!consumeInjected422(page,message)&&!benignConsole(message.text()))errors.push(message.text()+(message.location()?.url?` (${message.location().url})`:''));});
+    // A failed resource names no URL in its console text; log every 404 with its request.
+    page.on('response',response=>{if(response.status()===404)console.log('HTTP_404 '+JSON.stringify({method:response.request().method(),url:response.url(),type:response.request().resourceType()}));});
     await page.route('**/*',route=>{const url=route.request().url();return url.startsWith(base) || url.startsWith('blob:') || url.startsWith('data:')?route.continue():route.abort('blockedbyclient');});
+    const idleUrl=new URL('/__test/fixture-idle',base).href;
+    await page.route(idleUrl,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture idle</title>'}));
     const record=(name)=>{results.push({persona,engine,theme,width,test:name,pass:true});console.log(`  PASS ${persona} ${engine} ${theme} ${width}: ${name}`);};
     const commits=()=>execFileSync('jj',['-R',ledger,'log','-r','ancestors(@)','--no-graph','-T','commit_id'],{env:stage.env,encoding:'utf8'}).trim().length/40;
     const timed=async(name,run)=>{
@@ -95,17 +99,17 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       for(const height of heights)assert.ok(height>=44,`Empty-view primary actions have a 44px phone touch target: ${height}px at ${page.url()}`);
     };
     const refresh=async()=>{await page.evaluate(()=>window.dispatchEvent(new Event('drafts-changed')));};
-    const quiesce=async({writesSettled=false}={})=>{
+    const quiesce=async({writesSettled=false,beforeDeparture}={})=>{
       if(page.url().startsWith(base)){
         // Fixture deletion must not manufacture a missing composer recovery ID.
         // An accepted worker can finish between its result polls. Network idle
         // alone cannot retire recovery: its completion can publish it again.
         await expect(page.locator('[data-action-path][data-action-state="queued"],[data-action-path][data-action-state="saving"],[data-action-path][data-action-state="waiting"]')).toHaveCount(0);
-        // Clear only the test composer's recovery copy, then unload the app
-        // before deleting ignored server records.
         if(!writesSettled)await page.waitForLoadState('networkidle');
+        await beforeDeparture?.();
+        // Unload first so a late Add autosave cannot repopulate recovery after clearing it.
+        await page.goto(idleUrl);
         await page.evaluate(()=>{localStorage.removeItem('ledger-add-v1');for(const key of Object.keys(sessionStorage))if(key.startsWith('ledger-add-visit-')||key.startsWith('ledger-form-')||key.startsWith('ledger-direct-writes-'))sessionStorage.removeItem(key);});
-        await page.goto('about:blank');
       }
     };
     const resetDrafts=async(body)=>{await quiesce();return control('drafts',body);};

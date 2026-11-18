@@ -12,6 +12,9 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Browser fixture resets clear Add recovery after the app unloads, preventing
+  late autosave replies from leaving draft IDs that fail in later cases.
+
 - Hand ledger commits carry their diff, actor and jj identity in the audit log;
   backfill and weekly review cover earlier changes. Settings and first-run writes
   are audited. Interrupted writers name an audit-only restore command, and failed

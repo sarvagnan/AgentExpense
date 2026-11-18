@@ -10,6 +10,24 @@ export async function runUiIntent({page,base,persona,width,stage,expect,control,
   const get=async path=>{const r=await fetch(base+'api/'+path);assert.ok(r.ok,await r.clone().text());return r.json();};
   await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});
   const seed=await control('retention',{}),entry=seed.plain;
+  await go('add/');
+  let staleId;
+  const created=await hold(page,base+'api/drafts',{method:'POST',transform:body=>{staleId=JSON.parse(body).id;return body;}});
+  try{
+    await page.locator('#expense-words').fill('Willow autosave before fixture reset');await created.ready;
+    await quiesce({writesSettled:true,beforeDeparture:async()=>{
+      await created.release();
+      await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('ledger-add-v1')||'null')?.id)).toBe(staleId);
+    }});
+  }finally{await created.release();}
+  await resetDrafts({persona,empty:true});
+  const staleReads=[];
+  const observeStale=request=>{if(request.method()==='GET'&&request.url()===base+'api/drafts/'+staleId)staleReads.push(request.url());};
+  page.on('request',observeStale);
+  try{await go('add/');assert.deepEqual(staleReads,[],'Add must not fetch an autosave deleted by fixture reset');await expect(page.locator('#expense-words')).toHaveValue('');}
+  finally{page.off('request',observeStale);}
+  record('intent late Add autosave cannot leave a recovery ID across fixture reset');
+  await quiesce();
   const form=page.getByRole('article',{name:'Edit entry',exact:true}),inspector=page.locator('#transaction-inspector');
   const current=()=>go('explorer/?month=2026-11&entry='+entry);
   const open=async()=>{await current();await inspector.getByRole('button',{name:'Edit',exact:true}).click();await expect(form.getByLabel('Description',{exact:true})).toHaveValue('Willow lunch');await expect(form.getByRole('button',{name:'Cancel',exact:true})).toBeEnabled();};
