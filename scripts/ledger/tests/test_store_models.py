@@ -534,6 +534,20 @@ class StrictnessTests(unittest.TestCase):
                 m.Rule.model_validate({**rule, **change})
 
     @needs_sources
+    def test_forecast_rejects_schedule_notes_and_keeps_other_dates(self):
+        rule = json.loads(next(text for name, _, text in examples() if name == 'Rule'))
+        for note in ('Next payment 17 Dec', 'next forecast renewal', 'NEXT CONTRIBUTION',
+                     'next due', 'forecast starts in May'):
+            with self.subTest(note=note):
+                with self.assertRaises(ValidationError) as caught:
+                    m.Forecast.model_validate([{**rule, 'notes': [note]}])
+                for detail in (rule['id'], rule['description'], f'"{note}"'):
+                    self.assertIn(detail, str(caught.exception))
+        notes = ['price rises in March', 'paid 12 Nov by cash']
+        self.assertEqual(m.Forecast.model_validate([{**rule, 'notes': notes}]).root[0].notes, notes)
+        m.RuleChange.model_validate({'id': rule['id'], 'before': {**rule, 'notes': ['Next renewal']}, 'after': rule})
+
+    @needs_sources
     def test_other_documents(self):
         accounts = {'commodities': ['INR'], 'accounts': {
             'Assets:Cash': {'kind': 'cash', 'currency': 'INR', 'label': None, 'aliases': ['cash'], 'statement': None},

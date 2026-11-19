@@ -583,7 +583,8 @@ def operate(settings, op_id, body, *, clock=None):
                     rule['bill']=bill;bill_record=bill
             elif action=='edited':
                 patch=deepcopy(body.get('rule'))
-                if not isinstance(patch,dict) or set(patch)-{'description','postings','schedule','date','status','amount'}: raise ValueError('Edit description, postings, schedule, date, status or amount')
+                if not isinstance(patch,dict) or set(patch)-{'description','postings','schedule','date','status','amount','notes'}:
+                    raise ValueError('Edit description, postings, schedule, date, status, amount or notes')
                 if patch.get('amount','varies') in (None,'fixed'):
                     if rule['bill']: raise ValueError('Remove the saved bill before making the amount fixed')
                     patch['amount']='fixed'

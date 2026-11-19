@@ -93,7 +93,7 @@ class BrowserBoxTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'Asia/Calcutta'):
                 check()
 
-    def test_missing_timezone_alias_reproduces_actual_draft_validation_error(self):
+    def test_server_translates_browser_alias_without_legacy_zone_files(self):
         from zoneinfo import TZPATH
         database = self.root/'zoneinfo'
         (database/'Asia').mkdir(parents=True)
@@ -106,13 +106,11 @@ class BrowserBoxTests(unittest.TestCase):
                    'at=datetime(2026,11,11,12,tzinfo=timezone.utc)))')
         command = [sys.executable, '-S', '-c', program, str(application/'review-dashboard/server')]
         environment = {**os.environ, 'PYTHONTZPATH': str(database), 'PYTHONDONTWRITEBYTECODE': '1'}
-        red = subprocess.run(command, env=environment, text=True, capture_output=True)
-        self.assertNotEqual(red.returncode, 0)
-        self.assertIn('client_zone must be a known IANA zone name.', red.stderr)
-        shutil.copyfile(canonical, database/'Asia/Calcutta')
-        green = subprocess.run(command, env=environment, text=True, capture_output=True)
-        self.assertEqual(green.returncode, 0, green.stderr)
-        self.assertIn("'client_zone': 'Asia/Calcutta'", green.stdout)
+        # The server maps old names itself (zone_aliases.json), so a database holding only
+        # current names accepts the browser's alias and records the current name.
+        result = subprocess.run(command, env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("'client_zone': 'Asia/Kolkata'", result.stdout)
 
     def listing(self, names):
         return patch.object(box.subprocess, 'check_output', side_effect=[str(self.root)+'\n',

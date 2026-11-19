@@ -195,11 +195,11 @@ C linker and system `python3` for Make's toolchain resolver. Before publishing,
 the version step requires `python3`, `make`, `cc` and `git`, executes the actual
 `scripts/node_toolchain.py` and checks its selected Node version. Those two
 toolchain source files are also image-hash inputs. Image metadata records these
-capability checks. Debian's `tzdata-legacy` supplies browser-emitted IANA aliases
-such as `Asia/Calcutta`; the version step checks that alias and every persona's
-timezone with the server Python. A partial timezone database can otherwise
-reject a draft before it reaches the fake agent. Assertions and browser locale
-settings remain unchanged.
+capability checks. The server maps browser-emitted IANA aliases such as
+`Asia/Calcutta` to current names itself; the image still installs Debian's
+`tzdata-legacy`, and the version step checks that alias and every persona's
+timezone with the server Python. Assertions and browser locale settings remain
+unchanged.
 
 Run containers have **no profiles and no network device**, with 2 CPUs and 3 GiB
 each. They inherit neither the builder's NIC nor any default-profile NIC. The

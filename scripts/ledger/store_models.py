@@ -567,6 +567,15 @@ class Forecast(RootModel[list[Rule]]):
     """data/forecast.json: the recurring rules in order."""
     model_config = ConfigDict(strict=True)
 
+    @model_validator(mode='after')
+    def _notes_exclude_schedule(self):
+        for rule in self.root:
+            for note in rule.notes:
+                if re.search(r'\bnext (?:forecast )?(?:payment|renewal|contribution|due)\b|\bforecast starts\b', note, re.I):
+                    raise ValueError(f'Rule {rule.id} ({rule.description}): use the next date and schedule '
+                                     f'for the next occurrence. Reword or remove note {json.dumps(note, ensure_ascii=False)}.')
+        return self
+
 
 class Statements(RootModel[list[Annotated[CardStatement | BankStatement, Field(discriminator='kind')]]]):
     """data/card-statements.json: filed statements in end-date order; each kind has its own shape."""

@@ -4,6 +4,7 @@ Rules live in the selected ledger's `data/forecast.json`; they are commitments,
 not recorded expenses. Only lifecycle `active` rules forecast or match typed words.
 Missing lifecycle means active. `status` still means confirmed/pending and is
 independent of lifecycle. Paused rules have no resume date.
+Use the rule’s date and schedule for the next occurrence, and keep rule notes for other details.
 
 The Python logic is `scripts/ledger/recurring.py`. A whole payment is identified by
 its main expense or investment destinations and one paying account with bank/card/cash/wallet metadata.

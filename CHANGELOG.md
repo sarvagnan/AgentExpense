@@ -12,6 +12,11 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Older IANA time zone names from browsers are accepted and saved under their current names.
+- Rules reject notes that repeat the rule’s next occurrence and show the reason beside Notes.
+- Sidebar links remember browsing context and open live views at their overviews.
+- Month pickers list the newest month first.
+
 - The ledger check browser case waits for a Trash Restore to finish before opening
   Queue, so slower machines no longer miss the "now passes" notice.
 

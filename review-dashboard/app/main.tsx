@@ -1,4 +1,5 @@
 import {editOverviewOnLoad,watchEditRestores} from '../scripts/edit-navigation.mjs';
+import {sidebarSearch} from '../scripts/sidebar-navigation.mjs';
 import {PendingActions} from './live/pending-actions';
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -103,10 +104,9 @@ function App() {
       if (url.origin !== window.location.origin || !routes[path]) return;
 
       event.preventDefault();
-      sessionWrite(`ledger-view:${routeFor(window.location.pathname)}`, window.location.search);
-      if (routes[path]!=='queue'&&target.closest('nav[aria-label="Views"]')) {
-        const remembered = sessionRead(`ledger-view:${routes[path]}`);
-        if (remembered !== null) url.search = remembered;
+      remember();
+      if (target.closest('.sidebar, .phone-live-nav, #phone-more-views')) {
+        url.search = sidebarSearch(routes[path], url.search, sessionRead);
       }
       if (`${url.pathname}${url.search}${url.hash}` !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
         window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`);

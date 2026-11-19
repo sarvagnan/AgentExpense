@@ -102,7 +102,7 @@ export function MonthStepper({ months, value, onChange, format = monthLong }: { 
   const index = months.indexOf(value);
   return <div className="segmented month-stepper" role="group" aria-label="Month">
     <button type="button" className="icon-button" aria-label="Previous month" title="Previous month ([)" disabled={index <= 0} onClick={() => onChange(months[index - 1])}><Icon name="chevron-left"/></button>
-    <label className="month-select"><Icon name="calendar"/><span className="sr-only">Month</span><select value={value} onChange={(event) => onChange(event.target.value)}>{months.map((key) => <option key={key} value={key}>{format(key)}</option>)}</select></label>
+    <label className="month-select"><Icon name="calendar"/><span className="sr-only">Month</span><select value={value} onChange={(event) => onChange(event.target.value)}>{[...months].reverse().map((key) => <option key={key} value={key}>{format(key)}</option>)}</select></label>
     <button type="button" className="icon-button" aria-label="Next month" title="Next month (])" disabled={index >= months.length - 1} onClick={() => onChange(months[index + 1])}><Icon name="chevron-right"/></button>
   </div>;
 }

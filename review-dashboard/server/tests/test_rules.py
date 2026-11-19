@@ -438,3 +438,33 @@ class RuleTests(Fixture):
         self.assertTrue(operate(self.settings,operation,body)['replayed']);self.assertEqual(read_json(self.ledger/'data/forecast.json'),[saved]);self.assertTrue(clean(self.ledger))
         with self.assertRaisesRegex(ValueError,'already exists'):operate(self.settings,secrets.token_hex(16),dict(action='made',rule=saved))
         self.assertEqual(len(records(self.ledger)),1)
+
+    def test_schedule_notes_are_refused_on_rule_writes(self):
+        rule = payment_rule()
+        note = 'Next payment 17 Dec'
+        entry = as_entry(rule, id='a000000000000001', notes=[note])
+        self.seed(rule, [entry])
+        path = self.ledger / 'data/forecast.json'
+        before = path.read_bytes()
+        operations = (
+            dict(action='made', rule={**rule, 'id': 'f000000000000002', 'notes': [note]}),
+            dict(action='edited', rule_id=rule['id'], rule={'notes': [note]}),
+            dict(action='made', entry_id=entry['id']),
+        )
+        with self.client(worker=False) as client:
+            for body in operations:
+                with self.subTest(body=body):
+                    response = client.post('/api/rules/operations/' + secrets.token_hex(16), json=body)
+                    self.assertEqual(response.status_code, 409, response.text)
+                    self.assertIn(f'"{note}"', response.json()['detail'])
+                    self.assertIn(rule['description'], response.json()['detail'])
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(records(self.ledger), [])
+        self.assertTrue(clean(self.ledger))
+
+    def test_rule_edits_save_notes_about_other_dates(self):
+        rule = payment_rule()
+        self.seed(rule)
+        notes = ['price rises in March', 'paid 12 Nov by cash']
+        self.op('edited', rule_id=rule['id'], rule={'notes': notes})
+        self.assertEqual(load(self.ledger)[self.ledger / 'data/forecast.json'][0]['notes'], notes)

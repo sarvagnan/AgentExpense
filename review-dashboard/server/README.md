@@ -80,6 +80,11 @@ statement calendar dates remain as printed; undated entries and relative dates
 use the draft's local save date. Displays use the viewer's zone and the ledger's
 optional locale, otherwise the viewer's locale.
 
+The server translates old IANA time zone names to their current names on arrival
+and when looking up its own zone. After a tz release, regenerate the alias file
+from the repository root with
+`python3 scripts/generate_zone_aliases.py /usr/share/zoneinfo/tzdata.zi review-dashboard/server/zone_aliases.json`.
+
 The commit's save line is `Saved: <YYYY-MM-DD HH:MM> <±HH:MM> <IANA zone>`.
 Draft audit events optionally carry `client_time` and `client_zone`; version 1
 lines written before these fields were introduced remain valid and unchanged.

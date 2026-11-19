@@ -1,9 +1,17 @@
 """Local save context, independent of entry dates and retry/run timestamps."""
 from datetime import datetime, timedelta, timezone
+import json
 import os
 from pathlib import Path
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, TZPATH, available_timezones
+
+
+_ZONE_ALIASES = json.loads(Path(__file__).with_name('zone_aliases.json').read_text(encoding='utf-8'))['aliases']
+
+
+def _zone(name):
+    return ZoneInfo(_ZONE_ALIASES.get(name, name))
 
 
 def server_zone():
@@ -18,7 +26,7 @@ def server_zone():
         candidates.append(timezone_file.read_text().strip())
     for name in candidates:
         try:
-            return ZoneInfo(name)
+            return _zone(name)
         except (ValueError, ZoneInfoNotFoundError):
             pass
     if localtime.is_file():
@@ -27,10 +35,10 @@ def server_zone():
             for directory in TZPATH:
                 path = Path(directory) / name
                 if path.is_file() and path.read_bytes() == contents:
-                    return ZoneInfo(name)
+                    return _zone(name)
     # Systems without a timezone database configuration normally use UTC.
     if datetime.now().astimezone().utcoffset() == timedelta(0):
-        return ZoneInfo('UTC')
+        return _zone('UTC')
     raise ValueError('Cannot identify the server local zone; set TZ to an IANA zone name.')
 
 
@@ -52,10 +60,10 @@ def client_context(client_time=None, client_zone=None, *, at=None):
     try:
         if not isinstance(client_zone, str) or not client_zone:
             raise ValueError()
-        ZoneInfo(client_zone)
+        zone = _zone(client_zone)
     except (ValueError, ZoneInfoNotFoundError):
         raise ValueError('client_zone must be a known IANA zone name.') from None
-    return dict(client_time=client_time, client_zone=client_zone)
+    return dict(client_time=client_time, client_zone=zone.key)
 
 
 def ensure_context(record):

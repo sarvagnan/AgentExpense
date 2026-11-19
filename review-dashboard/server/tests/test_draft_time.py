@@ -2,8 +2,14 @@
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
+import zoneinfo
 
 from support import Fixture, ready
 from agent import prompt_for
@@ -14,6 +20,20 @@ from test_agent import pdf_bytes
 
 
 class ContextTests(unittest.TestCase):
+    def test_browser_zone_alias_with_canonical_only_system_data(self):
+        with tempfile.TemporaryDirectory() as folder:
+            canonical = Path('Asia/Kolkata')
+            source = next(Path(path) / canonical for path in zoneinfo.TZPATH
+                          if (Path(path) / canonical).is_file())
+            (Path(folder) / canonical.parent).mkdir()
+            shutil.copyfile(source, Path(folder) / canonical)
+            run = subprocess.run(
+                [sys.executable, '-m', 'unittest', 'test_draft_time.AliasRequests.check_browser_requests'],
+                cwd=Path(__file__).parent, env={**os.environ, 'PYTHONTZPATH': folder, 'TZ': str(canonical)},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     def test_offset_bounds_calendar_validation_future_limit_and_old_times(self):
         at = datetime(2026, 11, 1, tzinfo=timezone.utc)
         for offset in ('-14:00', '-05:00', '+00:00', '+01:00', '+05:30', '+14:00'):
@@ -162,3 +182,49 @@ class DraftTimeTests(Fixture):
             fallback = dict(session, statement_task=True, saved_at=session['created_at'], files=[])
             prompt, _ = prompt_for(self.settings, fallback, self.base, self.base)
             self.assertIn('Saved: 2000-01-01 23:45 -05:00 America/Chicago', prompt)
+
+
+class AliasRequests(Fixture):
+    # The parent test runs this in a fresh interpreter with a restricted TZPATH.
+    def check_browser_requests(self):
+        self.assertEqual(zoneinfo.TZPATH, (os.environ['PYTHONTZPATH'],))
+        with self.assertRaises(zoneinfo.ZoneInfoNotFoundError):
+            zoneinfo.ZoneInfo('Asia/Calcutta')
+        context = dict(client_time='2000-01-01T12:00:00+05:30', client_zone='Asia/Calcutta')
+        canonical = 'Asia/Kolkata'
+        with self.client(worker=False) as client:
+            drafts = client.app.state.drafts
+            statements = client.app.state.statements
+            created = client.post('/api/drafts', json={**context, 'text': 'Lunch'})
+            self.assertEqual(created.status_code, 201, created.text)
+            self.assertEqual(created.json()['client_zone'], canonical)
+            identity = created.json()['id']
+            path = '/api/drafts/' + identity
+            self.assertEqual(drafts.get(identity)['client_zone'], canonical)
+            saved = client.patch(path, json={**context, 'text': 'Lunch yesterday'})
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertEqual(saved.json()['text'], 'Lunch yesterday')
+            self.assertEqual(drafts.get(identity)['client_zone'], canonical)
+
+            def upload(data):
+                return client.post('/api/statements', data=data,
+                                   files={'file': ('Statement.pdf', pdf_bytes(), 'application/pdf')})
+
+            statement = upload(context)
+            self.assertEqual(statement.status_code, 201, statement.text)
+            self.assertEqual(statements.get(statement.json()['id'])['client_zone'], canonical)
+            for zone in ('Invalid/Zone', '../etc'):
+                with self.subTest(zone=zone):
+                    invalid = {**context, 'client_zone': zone}
+                    self.assertEqual(client.post('/api/drafts', json=invalid).status_code, 422)
+                    self.assertEqual(client.patch(path, json={**invalid, 'text': 'Changed'}).status_code, 422)
+                    self.assertEqual(upload(invalid).status_code, 422)
+                    self.assertEqual(client.get(path).json(), saved.json())
+                    self.assertEqual(len(drafts.all()), 1)
+                    self.assertEqual(len(statements.all()), 1)
+            queued = client.post(path + '/save', json=context)
+            self.assertEqual(queued.status_code, 200, queued.text)
+            self.assertEqual(draft_event(drafts.get(identity), 'added')['client_zone'], canonical)
+
+        with patch.dict(os.environ, TZ=':Asia/Calcutta'):
+            self.assertEqual(server_zone().key, canonical)

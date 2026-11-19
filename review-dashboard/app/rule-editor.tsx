@@ -10,6 +10,8 @@ import {complexRule, mainPostings, payer, varyingDetails, ruleDestinations} from
 import {type Rule,useRuleOperation} from './live/rules-api';
 import {accountFieldLabel} from './account-labels';
 const metadata=()=>dashboard.meta.accounts;
+// Match the store check's Unicode word boundaries and case folding.
+const nextOccurrenceNote=/(?<![\p{L}\p{N}_])(?:next (?:forecast )?(?:payment|renewal|contribution|due)|forecast starts)(?![\p{L}\p{N}_])/iu;
 export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;onSaved:(unchanged?:()=>boolean)=>void|Promise<void>}) {
   useDocumentScrollLock();
   const guard=useActionGuard();
@@ -18,35 +20,40 @@ export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;o
   const formKey=`rule-${rule?.id||'new'}-`;
   const [description,setDescription]=useRetainedState(formKey+'description',rule?.description||''),[amount,setAmount]=useRetainedState(formKey+'amount',main?.amount||''),[account,setAccount]=useRetainedState(formKey+'account',pay?.account||''),[category,setCategory]=useRetainedState(formKey+'category',main?.account||''),[every,setEvery]=useRetainedState<'month'|'year'>(formKey+'every',rule?.schedule.every||'month'),[interval,setInterval]=useRetainedState(formKey+'interval',rule?.schedule.interval||1),[date,setDate]=useRetainedState(formKey+'date',rule?.date||localDate()),[anchor,setAnchor]=useRetainedState(formKey+'anchor',rule?.schedule['anchor-day']||Number((rule?.date||localDate()).slice(8)));
   const [mode,setMode]=useRetainedState<'fixed'|'varies'>(formKey+'mode',rule?.amount==='varies'?'varies':'fixed');
-  const fields=['description','amount','account','category','every','interval','date','anchor','mode','version'].map(key=>formKey+key);
+  const originalNotes=rule?.notes?.join('\n')??'';
+  const [notes,setNotes]=useRetainedState(formKey+'notes',originalNotes);
+  const noteLines=notes===originalNotes?rule?.notes??[]:notes?notes.split('\n'):[];
+  const invalidNote=nextOccurrenceNote.test(notes.replace(/[İı]/g,'i'));
+  const fields=['description','amount','account','category','every','interval','date','anchor','mode','notes','version'].map(key=>formKey+key);
   const [baseVersion,setBaseVersion]=useRetainedState<string|null>(formKey+'version',rule?.version||null);
   const [keptOnOpen,setKeptOnOpen]=useState(()=>hasRetained(fields));
   const stale=!!rule&&!!baseVersion&&baseVersion!==rule.version;
   const close=()=>{clearRetained(fields);onClose();};
-  const discard=()=>{setKeptOnOpen(false);setDescription(rule?.description||'');setAmount(main?.amount||'');setAccount(pay?.account||'');setCategory(main?.account||'');setEvery(rule?.schedule.every||'month');setInterval(rule?.schedule.interval||1);setDate(rule?.date||localDate());setAnchor(rule?.schedule['anchor-day']||Number((rule?.date||localDate()).slice(8)));setMode(rule?.amount==='varies'?'varies':'fixed');setBaseVersion(rule?.version||null);clearRetained(fields);};
+  const discard=()=>{setKeptOnOpen(false);setDescription(rule?.description||'');setAmount(main?.amount||'');setAccount(pay?.account||'');setCategory(main?.account||'');setEvery(rule?.schedule.every||'month');setInterval(rule?.schedule.interval||1);setDate(rule?.date||localDate());setAnchor(rule?.schedule['anchor-day']||Number((rule?.date||localDate()).slice(8)));setMode(rule?.amount==='varies'?'varies':'fixed');setNotes(originalNotes);setBaseVersion(rule?.version||null);clearRetained(fields);};
   const saveTicket=useRef<number|null>(null);
   const op=useRuleOperation(()=>onSaved(()=>saveTicket.current!==null&&guard.unchanged(saveTicket.current)),rule?.id||'new',!!rule||hasRetained(fields));
   const chartRule:Rule|undefined=rule?{...rule,varying:rule.varying||varyingDetails(rule,dashboard.transactions.map(e=>({...e,status:e.status==='Cleared'?'confirmed':e.status})),accounts)}:undefined;
   const recent=chartRule?.varying?.history.slice(0,3).map(p=>Number(p.amount)).sort((a,b)=>a-b)||[];
   const preview=mode==='varies'&&rule?.amount!=='varies'&&recent.length?(recent[Math.floor(recent.length/2)]+recent[Math.floor((recent.length-1)/2)])/2:Number(amount);
   const compatible=accounts[category]?.kind!=='investment'||accounts[category]?.currency===(accounts[account]?.currency||dashboard.meta.ledger.defaultCurrency);
-  const valid=(complex||compatible)&&!!description.trim()&&!!date&&Number.isInteger(interval)&&interval>0&&anchor>=1&&anchor<=31&&(complex || Number(amount)>0&&!!account&&!!category);
-  const latest=useRef('');latest.current=JSON.stringify([description,amount,account,category,every,interval,date,anchor,mode]);
+  const valid=!invalidNote&&(complex||compatible)&&!!description.trim()&&!!date&&Number.isInteger(interval)&&interval>0&&anchor>=1&&anchor<=31&&(complex || Number(amount)>0&&!!account&&!!category);
+  const latest=useRef('');latest.current=JSON.stringify([description,amount,account,category,every,interval,date,anchor,mode,notes]);
   async function save(){
     const submitted=latest.current,ticket=guard.begin();saveTicket.current=ticket;
     if(!valid||stale)return;
     const currency=accounts[account]?.currency||dashboard.meta.ledger.defaultCurrency;
     const quantity=String(amount).includes('.')?String(amount):String(amount)+'.00';
     const postings=complex?rule!.postings:[{account:category,amount:quantity,commodity:currency},{account,amount:'-'+quantity,commodity:currency}];
-    const patch={amount:mode==='varies'?'varies' as const:'fixed' as const,description:description.trim(),postings,schedule:{every,interval,from:date,'anchor-day':anchor},date};
+    const patch={amount:mode==='varies'?'varies' as const:'fixed' as const,description:description.trim(),postings,schedule:{every,interval,from:date,'anchor-day':anchor},date,notes:noteLines};
     const body=rule?{action:'edited',rule_id:rule.id,version:baseVersion||rule.version,rule:patch}:{action:'made',rule:{...patch,status:'confirmed'}};
     if(await op.operate(body,retainedSnapshot(fields))&&guard.unchanged(ticket)&&latest.current===submitted){clearRetained(fields);onClose();}
   }
   async function retry(item:DirectWrite){
     const body=JSON.parse(item.body),savedRule=body.rule;
     const matches=savedRule?description.trim()===savedRule.description&&date===savedRule.date&&mode===savedRule.amount&&every===savedRule.schedule?.every&&interval===savedRule.schedule?.interval&&anchor===savedRule.schedule?.['anchor-day']&&(complex||savedRule.postings?.some((posting:{account:string;amount:string})=>posting.account===category&&Number(posting.amount)===Number(amount))&&savedRule.postings?.some((posting:{account:string;amount:string})=>posting.account===account&&Number(posting.amount)===-Number(amount))):!hasRetained(fields);
+    const matchesNotes=JSON.stringify(noteLines)===JSON.stringify(savedRule?.notes??rule?.notes??[]);
     const ticket=guard.begin();saveTicket.current=ticket;await retryWrite(item.id);
-    if(writeSnapshot().find(value=>value.id===item.id)?.state==='saved'){await onSaved(()=>matches&&guard.unchanged(ticket));if(matches&&guard.unchanged(ticket))onClose();}
+    if(writeSnapshot().find(value=>value.id===item.id)?.state==='saved'){await onSaved(()=>matches&&matchesNotes&&guard.unchanged(ticket));if(matches&&matchesNotes&&guard.unchanged(ticket))onClose();}
   }
   return <Dialog title={rule?'Edit rule':'New rule'} labelId="rule-editor-title" onClose={close} initialFocus="#rule-description"><form onChangeCapture={()=>setBaseVersion(baseVersion)} {...guard.interaction} className="settings-form rule-editor" onSubmit={e=>{e.preventDefault();void save();}} aria-busy={op.busy}>
     <div className="settings-body">{(stale||keptOnOpen)&&<div className="live-notice" role="status"><div>{stale&&<><strong>The saved rule changed</strong><p>Your kept edits are still below. Compare or copy them before starting from the current saved rule.</p></>}<button type="button" className="button" onClick={discard}>Discard kept edits</button></div></div>}<label><span className="field-label">Description</span><input id="rule-description" className="field" value={description} onChange={e=>setDescription(e.target.value)} required/></label>
@@ -59,6 +66,8 @@ export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;o
       <label><span className="field-label">{accounts[category]?.kind==='investment'?'Invest in':'Category or investment'}</span><select aria-label={accounts[category]?.kind==='investment'?'Invest in':'Category or investment'} className="field" value={category} onChange={e=>setCategory(e.target.value)} required disabled={!!rule?.bill}><option value="">Choose a destination</option>{categories.map(a=><option key={a} value={a} disabled={accounts[a]?.kind==='investment'&&accounts[a]?.currency!==(accounts[account]?.currency||dashboard.meta.ledger.defaultCurrency)}>{accounts[a]?.kind==='investment'?'Invest in · ':''}{accountFieldLabel(a,accounts)}{accounts[a]?.kind==='investment'?` · ${accounts[a].currency}`:''}</option>)}</select></label><p className="live-hint">Investment destinations use the paying currency. For units or a conversion, edit the full balanced postings with the rules CLI.</p></>}
       <div className="rule-form-grid"><label><span className="field-label">Schedule</span><select aria-label="Schedule" className="field" value={every} onChange={e=>setEvery(e.target.value as 'month'|'year')} disabled={op.busy}><option value="month">Monthly</option><option value="year">Yearly</option></select></label><label><span className="field-label">Every</span><input className="field" type="number" min={1} step={1} value={interval} onChange={e=>setInterval(Number(e.target.value))}/></label>
       <label><span className="field-label">Next date</span><input className="field" type="date" value={date} required disabled={!!rule?.bill} onChange={e=>{setDate(e.target.value);setAnchor(Number(e.target.value.slice(8)));}}/></label><label><span className="field-label">Day of month</span><input className="field" type="number" min={1} max={31} value={anchor} onChange={e=>setAnchor(Number(e.target.value))}/></label></div><p className="live-hint">The day clamps to month end in shorter months.</p>
+      <label><span className="field-label">Notes</span><textarea id="rule-notes" className="field" value={notes} onChange={e=>{guard.touch();setNotes(e.target.value);}} aria-invalid={invalidNote} aria-describedby={invalidNote?'rule-notes-error':undefined}/></label>
+      {invalidNote&&<p id="rule-notes-error" className="live-error" role="alert">Use Next date and Schedule for the next occurrence.</p>}
       <div className="action-error-slot">{op.error&&<p role="alert" className="live-error">{op.error}</p>}</div></div><ActionFeedback owner={op.owner} scope="rules" resource={rule?.id||'new'} onRetry={item=>void retry(item)}/><footer className="dialog-footer"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={op.busy||!valid||stale}>{op.busy?'Saving…':'Save rule'}</button></footer>
   </form></Dialog>;
 }

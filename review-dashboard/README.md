@@ -14,6 +14,8 @@ Sources retain their original order; explicit statement membership takes priorit
 
 Vite development uses `/`; production builds use `/expenses/`. `scripts/build-static-views.mjs` writes a directory index for every route because plain file servers have no SPA fallback. The browser loads the gzip JSON payloads itself; serve them as bytes without an extra Content-Encoding header. Build outputs are local artifacts.
 
+The sidebar and phone navigation return to the last place in Explorer, Atlas, Journal, Forecast, Accounts and Review without replaying one-time messages or opening forms. Live views such as Add, Queue and Trash open at their default addresses.
+
 The optional Python server serves the built dashboard, evidence and API; see [server/README.md](server/README.md). For local development, `EXPENSES_DEV=1 EXPENSES_PORT=8701` enables Vite's `/api/` proxy to a local server. Evidence may contain private data: use trusted access controls on any real deployment.
 
 ## Review storage
