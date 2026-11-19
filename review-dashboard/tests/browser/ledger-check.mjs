@@ -171,7 +171,8 @@ export async function runLedgerCheck({page,base,persona,engine,theme,width,expec
     await form.getByLabel('Reason (optional)').fill('Owner reason immediately before Discard');
     await form.locator('.ledger-fix-notice').getByRole('button',{name:'Discard proposal',exact:true}).click();await expect(form).toHaveCount(0);
     await go('trash/?item='+proposalId);await page.locator('.trash-row').filter({hasText:'Fix the ledger check'}).getByRole('button',{name:'Restore',exact:true}).click();
-    await expect.poll(async()=>(await get('drafts/'+proposalId)).state,{timeout:180000}).toBe('question');
+    // The single-draft read includes Trash, so wait for Restore to finish, not just the state.
+    await expect.poll(async()=>{const d=await get('drafts/'+proposalId);return [d.state,Boolean(d.trashed_at)];},{timeout:180000}).toEqual(['question',false]);
     await control('ledger-check',{mode:'pass'});
     await go('queue/?draft='+proposalId);await expect(page.locator('.ledger-fix-notice')).toContainText('The ledger check now passes');
     await page.getByRole('button',{name:'Continue editing',exact:true}).click();await expect(form).toBeVisible();

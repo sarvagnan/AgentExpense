@@ -12,6 +12,9 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- The ledger check browser case waits for a Trash Restore to finish before opening
+  Queue, so slower machines no longer miss the "now passes" notice.
+
 - Queue shows live lookup counts, agent steps and provider reconnection for additions and statement readings.
 
 - Early recurring payments clear the occurrence they pay, including when a rule is detected from payment history.
