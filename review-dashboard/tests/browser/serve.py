@@ -7,7 +7,6 @@ from pathlib import Path
 import secrets
 import shutil
 import sys
-import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 from app import create_app
@@ -194,15 +193,27 @@ def gate(body: dict):
     return app.state.agent_gate.status()
 
 
+def clear_workflow_folders():
+    drafts, statements = app.state.drafts, app.state.statements
+    def clear():
+        with drafts.mutex, statements.mutex:
+            pending = drafts.all(include_discarded=True)
+            sessions = statements.all()
+            assert not any(item.get('audit_pending') for item in [*pending, *sessions])
+            for draft in pending:
+                shutil.rmtree(drafts.folder(draft['id']))
+            for session in sessions:
+                shutil.rmtree(statements.folder(session['id']))
+    # The FIFO worker flushes audits before picking its next job. Delete on
+    # that worker so active runs can finish writing outside the store mutexes.
+    app.state.worker.call(clear, kind='browser-reset-workflows')
+
+
 @app.post('/__test/drafts')
 def seed_drafts(body: dict):
+    clear_workflow_folders()
     drafts, statements = app.state.drafts, app.state.statements
     with drafts.mutex, statements.mutex:
-        for draft in drafts.all(include_discarded=True):
-            assert not draft.get('audit_pending')
-            shutil.rmtree(drafts.folder(draft['id']))
-        for session in statements.all():
-            shutil.rmtree(statements.folder(session['id']))
         if body.get('empty'):
             return dict(attention=0, ids=[])
         states = ['question', 'failed'] if body['persona'] == 'asha' else ['question'] if body['persona'] == 'sam' else ['question', 'question', 'failed']
@@ -421,17 +432,7 @@ def scenario(body: dict):
 
 @app.post('/__test/reset-workflows')
 def reset_workflows():
-    # Called once all real worker operations have completed. A Discard's record-only
-    # audit commit can still be finishing under load, so wait for it instead of failing.
-    deadline=time.monotonic()+120
-    while any(d.get('audit_pending') for d in app.state.drafts.all(include_discarded=True)) and time.monotonic()<deadline:
-        time.sleep(0.2)
-    with app.state.drafts.mutex,app.state.statements.mutex:
-        assert not any(d.get('audit_pending') for d in app.state.drafts.all(include_discarded=True))
-        for d in app.state.drafts.all(include_discarded=True):
-            shutil.rmtree(app.state.drafts.folder(d['id']))
-        for session in app.state.statements.all():
-            shutil.rmtree(app.state.statements.folder(session['id']))
+    clear_workflow_folders()
     return update_settings(settings,lambda:original,dict(reset=True),'Restore browser workflow baseline')
 
 
@@ -939,12 +940,7 @@ def first_run_fixture(body: dict):
     root = settings.ledger
     skip = {'.jj', '.git', 'drafts', '.lock', 'expense_ledger.ledger'}
     files = lambda: [p for p in root.rglob('*') if p.is_file() and p.relative_to(root).parts[0] not in skip]
-    with app.state.drafts.mutex, app.state.statements.mutex:
-        assert not any(d.get('audit_pending') for d in app.state.drafts.all(include_discarded=True))
-        for d in app.state.drafts.all(include_discarded=True):
-            shutil.rmtree(app.state.drafts.folder(d['id']))
-        for session in app.state.statements.all():
-            shutil.rmtree(app.state.statements.folder(session['id']))
+    clear_workflow_folders()
     from ledger_lock import LOCK_FD_ENV
     with ledger_lock(root) as fd:
         if body.get('restore'):

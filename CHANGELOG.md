@@ -19,6 +19,8 @@ that fails and keep its output.
 
 - The ledger check browser case waits for a Trash Restore to finish before opening
   Queue, so slower machines no longer miss the "now passes" notice.
+- Browser test resets wait for a running agent to finish writing before clearing Queue
+  folders, so a reset no longer fails with "Directory not empty".
 
 - Queue shows live lookup counts, agent steps and provider reconnection for additions and statement readings.
 

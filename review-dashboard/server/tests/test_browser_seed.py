@@ -1,6 +1,13 @@
 """Exercise the browser host's actual seeding helper without launching a browser."""
+from dataclasses import replace
+import os
+from pathlib import Path
+import runpy
 import sys
+from threading import Event
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 from support import APPLICATION, Fixture
 
 sys.path.insert(0, str(APPLICATION / 'review-dashboard/tests/browser'))
@@ -8,6 +15,57 @@ from fixture_seed import save_fixture_settings
 
 
 class BrowserSeedTests(Fixture):
+    def test_workflow_reset_waits_for_running_agent_exit(self):
+        from adapters.base import Result
+        from run_events import RunEvents
+        from settings import Settings
+
+        fake = self.fake.rename(self.base / 'fake-agent')
+        settings = replace(self.settings, codex=str(fake))
+        fixture = APPLICATION / 'review-dashboard/tests/browser/serve.py'
+        with patch.object(Settings, 'from_env', return_value=settings), patch('uvicorn.run') as serve:
+            runpy.run_path(str(fixture))
+        app = serve.call_args.args[0]
+        entered, release, exited = Event(), Event(), Event()
+
+        def run(adapter, task):
+            entered.set()
+            assert release.wait(10), 'The reset never reached the held agent'
+            return Result(dict(status='question', question='Which account did you pay from?', entry=None,
+                               doubts=[], explanation=None, **{'new-accounts': [], 'attachment-names': []}))
+
+        write = RunEvents.write
+        def event(events, kind, **fields):
+            write(events, kind, **fields)
+            if kind == 'exit':
+                exited.set()
+
+        class ResetCalls(list):
+            def append(self, job):
+                super().append(job)
+                release.set()
+
+        rmdir = os.rmdir
+        with patch('adapters.codex.Codex.run', run), patch.object(RunEvents, 'write', event), TestClient(app) as client:
+            identity = self.create(client, upload=False)
+            folder = app.state.drafts.folder(identity)
+            def remove(path, **kwargs):
+                if Path(path).name == identity and not exited.is_set():
+                    # Before the fix, recreate events.jsonl after rmtree has unlinked its contents.
+                    release.set()
+                    self.assertTrue(exited.wait(10))
+                    self.assertIn('"type":"exit"', (folder / 'events.jsonl').read_text())
+                return rmdir(path, **kwargs)
+            try:
+                self.save(client, identity)
+                self.assertTrue(entered.wait(10))
+                with patch.object(app.state.worker, 'calls', ResetCalls()), patch.object(os, 'rmdir', remove):
+                    self.assertEqual(client.post('/__test/reset-workflows').status_code, 200)
+                self.assertTrue(exited.is_set())
+                self.assertFalse(folder.exists())
+            finally:
+                release.set()
+
     def test_extra_file_is_committed_with_its_change_line(self):
         from audit import records, event
         from store import read_json
