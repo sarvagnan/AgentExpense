@@ -93,6 +93,23 @@ class Fixture(unittest.TestCase):
 
 
 class ValidationTests(Fixture):
+    def test_points_redemption_requires_money_cost(self):
+        account = 'Assets:Points:Fern Rewards'
+        path = self.root / 'data/accounts.json'
+        declarations = read_json(path)
+        declarations['commodities'].append('FERNPTS')
+        declarations['accounts'][account] = dict(kind='points', currency='FERNPTS', label=None, aliases=[], statement=None)
+        dump(path, declarations)
+        for cost, amount, error in ((None, '-500.00', 'need a cost'),
+                                    ({'amount': '125.00', 'commodity': 'INR', 'per': 'total'}, '-500.50', 'whole points')):
+            row = entry(postings=[posting('Expenses:Test', '125.00'), posting(account, amount, 'FERNPTS', cost=cost)])
+            with self.subTest(cost=cost, amount=amount), self.assertRaisesRegex(ValueError, error):
+                dump(self.year, [row])
+                load(self.root)
+        cost = {'amount': '125.00', 'commodity': 'INR', 'per': 'total'}
+        dump(self.year, [entry(postings=[posting('Expenses:Test', '125.00'), posting(account, '-500.00', 'FERNPTS', cost=cost)])])
+        self.assertEqual(load(self.root)[self.year][0]['postings'][1]['cost'], cost)
+
     def test_selected_store_smoke(self):
         documents = load()
         # Empty actuals and forecasts are valid in a separately selected ledger.

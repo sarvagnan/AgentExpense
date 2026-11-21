@@ -33,6 +33,7 @@ const useDataVersion = () => useSyncExternalStore(subscribeData, dataVersion, da
 import AccountSummary from './account-summary';
 import { displayAccountLabel, summarizeAccounts } from './account-labels';
 import { paymentSide } from './payment-side';
+import { commodityAmount } from '../scripts/formatting.mjs';
 import { niceScale, trendMonths } from './chart-scale';
 import { useEntryTextTooltip } from './entry-text-tooltip';
 import Forecast from './forecast';
@@ -60,11 +61,12 @@ export const VIEWS: { id: View; label: string; href: string; icon: IconName; car
 const MONEY_IN = new Set(['Income', 'Refund', 'Reimbursement']);
 /** Expenses show plain; money coming in shows "+"; transfers and reimbursable purchases move money without spending it. */
 export function signedAmount(transaction: Pick<Transaction, 'kind' | 'amount'> & Partial<Pick<Transaction, 'currency'>>) {
-  return `${MONEY_IN.has(transaction.kind) ? '+' : ''}${money(transaction.amount, transaction.currency)}`;
+  return `${MONEY_IN.has(transaction.kind) ? '+' : ''}${commodityAmount(transaction.amount, transaction.currency)}`;
 }
 const amountClass = (transaction: Pick<Transaction, 'kind'>) => MONEY_IN.has(transaction.kind) ? 'credit' : transaction.kind === 'Transfer' || transaction.kind === 'Reimbursable purchase' ? 'neutral-amount' : '';
 const defaultMonth = () => today().slice(0, 7);
 const monthKeys = () => calendarMonths(data.months.map((month) => month.month));
+const journalMonthKeys = () => calendarMonths([...monthKeys(), ...data.transactions.filter(row => row.kind === 'Points').map(row => row.month)]);
 // An opening-only foreign account affects balances, not spending charts.
 const spendingMonths = () => data.months.filter(item => item.currency).filter(item => item.count > 0 || (!data.months.some(row => row.month === item.month && row.count > 0)
   && item === (data.months.find(row => row.month === item.month && row.currency === data.meta.ledger.defaultCurrency) || data.months.find(row => row.month === item.month))));
@@ -91,7 +93,7 @@ export function entryMenu(item: Transaction, showDetails: () => void, other: 'ex
     'separator',
     { label: 'Copy Entry Link', action: () => copyAndAnnounce(entryUrl(item.id), 'entry link') },
     { label: 'Copy Description', action: () => copyAndAnnounce(item.description, 'description') },
-    { label: 'Copy Amount', action: () => copyAndAnnounce(item.amount.toFixed(2), 'amount') },
+    { label: 'Copy Amount', action: () => copyAndAnnounce(item.amount.toFixed(item.kind === 'Points' ? 0 : 2), 'amount') },
     { label: 'Copy Ledger Account', action: () => copyAndAnnounce(item.ledgerAccount, 'ledger account') },
     { label: 'Copy Evidence Path', action: () => copyAndAnnounce(evidence || '', 'evidence path'), disabled: !evidence },
   ];
@@ -249,7 +251,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
         <dt>From</dt><dd>{transaction.postings.filter((posting) => posting.amount < 0).map((posting) => posting.label).join(' + ')}</dd>
         <dt>To</dt><dd>{transaction.postings.filter((posting) => posting.amount > 0).map((posting) => posting.label).join(' + ')}</dd>
         <dt>Personal expense impact</dt><dd>{money(transaction.signedExpense, transaction.currency)}</dd>
-      </> : <><dt>{transaction.kind === 'Reimbursement' ? 'Received in' : 'Paid using'}</dt><dd>{transaction.paymentLabel}</dd></>}
+      </> : <><dt>{transaction.kind === 'Points' ? 'Programme' : transaction.kind === 'Reimbursement' ? 'Received in' : 'Paid using'}</dt><dd>{transaction.paymentLabel}</dd></>}
       {transaction.reimbursementParty && <><dt>{reimbursable ? 'Reimbursable from' : 'Reimbursement from'}</dt><dd>{transaction.reimbursementParty}</dd><dt>Personal expense impact</dt><dd>{money(transaction.signedExpense, transaction.currency)}</dd></>}
       <dt>Classification</dt><dd>{transaction.classification || 'Not supplied'}</dd>
     </dl>
@@ -263,7 +265,7 @@ function EntryDetails({ transaction, onClose, closing, entries = [], onStep }: O
       {transaction.postings.map((posting, index) => <div className="posting" key={`${posting.account}-${index}`}>
         <span className="posting-side" title={posting.amount >= 0 ? 'Debit' : 'Credit'}>{posting.amount >= 0 ? 'Dr' : 'Cr'}</span>
         <span><span className="posting-name">{posting.label}</span><span className="posting-path">{breakable(posting.account)}</span></span>
-        <span className="posting-amount">{money(Math.abs(posting.amount), posting.currency)}{'cost' in posting && posting.cost !== undefined && <span className="row-sub" title={`Cost in ${posting.costCurrency}`}>Cost {money(Math.abs(posting.cost), posting.costCurrency)}</span>}</span>
+        <span className="posting-amount">{commodityAmount(Math.abs(posting.amount), posting.currency)}{'cost' in posting && posting.cost !== undefined && <span className="row-sub" title={`Cost in ${posting.costCurrency}`}>Cost {money(Math.abs(posting.cost), posting.costCurrency)}</span>}</span>
       </div>)}
     </div></section>
     {receiptDraft&&live&&<section className="inspector-section"><ReceiptReading draft={receiptDraft} onAction={async()=>{await reloadData();await live.refresh();}}/></section>}
@@ -387,7 +389,7 @@ export function Explorer({ month, setMonth }: { month: string; setMonth: (month:
   const averagePeriod = calendarDayAverage(month,[]);
   const averages = Object.fromEntries(currents.map(item => [item.currency, calendarDayAverage(month,item.daily).average ?? 0]));
   const filtersActive = !!(category || day || needle);
-  const matchingExpenses = sumCurrencies(filtered, (item: Transaction) => item.signedExpense);
+  const matchingExpenses = sumCurrencies(filtered.filter(item => item.kind !== 'Points'), (item: Transaction) => item.signedExpense);
   const showAll = () => { setQuery(''); setCategory(''); setDay(null); requestAnimationFrame(() => document.getElementById('explorer-search')?.focus({ preventScroll: true })); };
   const changeMonth = (value: string) => { setMonth(value); setCategory(''); setDay(null); setSelectedId(''); };
   const select = useCallback((item: Transaction) => { setSelectedId(item.id); setCursor(item.id); }, [setSelectedId]);
@@ -656,7 +658,7 @@ export function Journal({ month, setMonth }: { month: string; setMonth: (month: 
     {menu.element}{textTooltip.element}
     <section className="page journal">
       <PageHeader title="Journal" subtitle={`Every ledger entry in ${monthLong(month)}, by day`}>
-        <MonthStepper months={monthKeys()} value={month} onChange={(value) => { setMonth(value); setSelectedId(''); }}/>
+        <MonthStepper months={journalMonthKeys()} value={month} onChange={(value) => { setMonth(value); setSelectedId(''); }}/>
         <label className="compact-field"><span className="sr-only">Day order</span><select className="field" value={order} onChange={(event) => setOrder(event.target.value)}><option value="newest">Newest day first</option><option value="oldest">Oldest day first</option></select></label>
         <SearchField id="journal-search" value={query} onChange={setQuery} label="Search this month's entries and evidence" placeholder="Search entries" scope={monthShort(month)}/>
       </PageHeader>
@@ -699,7 +701,7 @@ export function editOrigin(view: View, search = typeof location === 'undefined' 
 const TITLES: Record<View, string> = { explorer: 'Explorer', atlas: 'Atlas', journal: 'Journal', forecast: 'Forecast', accounts: 'Accounts', review: 'Review', add: 'Add', queue: 'Queue', trash: 'Trash' };
 
 export default function Dashboard({ view }: { view: View }) {
-  const [month, setMonth] = useQueryState('month', defaultMonth(), isMonth);
+  const [month, setMonth] = useQueryState('month', defaultMonth(), view === 'journal' ? value => journalMonthKeys().includes(value) : isMonth);
   // A data reload re-renders the open view in place; remounting it would drop focus, open dialogs and typing.
   useDataVersion();
   const live = useDrafts();

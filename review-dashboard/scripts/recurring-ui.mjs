@@ -1,11 +1,13 @@
 import calendars from '../../schema/recurring-locales.json' with {type:'json'};
+import {pointsCodes} from './account-metadata.mjs';
 // Instant display only. The live matcher and checked server own every decision.
 const generic = new Set(['subscription','membership','renewal','monthly','yearly','annual','payment','paid','the','a','by','on','for']);
 const ancillary = new Set(['fee','fees','tax','taxes','discount','discounts','rounding']);
 // Words that name a kind of account (and its group) never identify one usual payment.
 const kindWords = new Set(['bank','banks','card','cards','credit','cash','wallet','wallets','prepaid','loan','loans','investment','investments','person','people','account','accounts']);
 export const tokens = text => new Set((text.toLowerCase().match(/[^\P{L}\d_]+/gu) || []));
-export const mainPostings = (rule,accounts={}) => rule.postings.filter(p=>Number(p.amount)>0 && (accounts[p.account]?.kind==='investment' || p.account.startsWith('Expenses:') && ![...tokens(p.account.split(':').slice(1).join(':'))].some(w=>ancillary.has(w))));
+const moneyPostings = (entry, points) => entry.postings.filter(p => !points.has(p.commodity || p.currency));
+export const mainPostings = (rule,accounts={}) => moneyPostings(rule,pointsCodes(accounts)).filter(p=>Number(p.amount)>0 && (accounts[p.account]?.kind==='investment' || p.account.startsWith('Expenses:') && ![...tokens(p.account.split(':').slice(1).join(':'))].some(w=>ancillary.has(w))));
 export const ruleDestinations = accounts => Object.keys(accounts).filter(a=>a.startsWith('Expenses:') || accounts[a]?.kind==='investment');
 export const payer = (rule,accounts) => {const ps=rule.postings.filter(p=>['bank','card','cash','wallet'].includes(accounts[p.account]?.kind) && Number(p.amount)<0);return ps.length===1?ps[0]:null;};
 export function ruleAmounts(rule,accounts={}) {
@@ -91,9 +93,10 @@ export const paymentInPeriod = (rule,day) => !/^\d{4}-\d{2}-\d{2}$/.test(day)||!
 export const complexRule = (rule,accounts={}) => rule.postings.length!==2 || rule.postings.some(p=>p.cost) || mainPostings(rule,accounts).length!==1;
 export function varyingPayments(rule,actual,accounts) {
   const main=mainPostings(rule,accounts)[0],pay=payer(rule,accounts),code=main.commodity||main.currency;
+  const points=pointsCodes(accounts);
   return [...actual].reverse().filter(e=>{
     const m=mainPostings(e,accounts),p=payer(e,accounts);
-    return (e.status==='confirmed'||e.rule?.id===rule.id)&&e.postings.length===2&&m.length===1&&p&&!e.postings.some(p=>p.cost||p.costCurrency||p.assert)
+    return (e.status==='confirmed'||e.rule?.id===rule.id)&&moneyPostings(e,points).length===2&&m.length===1&&p&&!e.postings.some(p=>p.cost||p.costCurrency||p.assert&&!points.has(p.commodity||p.currency))
       &&(m[0].commodity||m[0].currency)===code&&(p.commodity||p.currency)===code&&Number(m[0].amount)===-Number(p.amount)
       &&(e.rule?e.rule.id===rule.id:m[0].account===main.account&&p.account===pay?.account&&[...tokens(e.description)].some(w=>!generic.has(w)&&tokens(rule.description).has(w)));
   }).sort((a,b)=>b.date.localeCompare(a.date));

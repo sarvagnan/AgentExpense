@@ -3,10 +3,10 @@ from copy import deepcopy
 import re
 import shutil
 
-from support import Fixture, ready
+from support import Fixture, metadata, ready
 from drafts import Drafts
 from hand_finish import preview
-from transactions import ProposalError, Transaction
+from transactions import ProposalError, Transaction, payment
 from settings import APPLICATION
 from answers import AnswerError, check
 from store import dump, read_json
@@ -15,6 +15,51 @@ LEARNING = {'course': 'Fictional pottery class', 'hours': '2.50', 'level': 'begi
 
 
 class AnswerTests(Fixture):
+    def test_payment_totals_exclude_unpriced_points(self):
+        account = 'Assets:Points:Fern Rewards'
+        accounts = {account: {'kind': 'points'}, 'Assets:Cash': {'kind': 'cash'}}
+        points = dict(account=account, amount='-500.00', commodity='FERNPTS', cost=None)
+        cash = dict(account='Assets:Cash', amount='-10.00', commodity='INR', cost=None)
+        self.assertEqual(payment({'postings': [points, cash]}, accounts)['total'], '10.00 INR')
+        points['cost'] = dict(amount='125.00', commodity='INR', per='total')
+        self.assertEqual(payment({'postings': [points, cash]}, accounts)['total'], '135.00 INR')
+        from receipts import payment_rows
+        self.assertEqual([(p['amount'], p['commodity']) for p in payment_rows({'postings': [points, cash]}, accounts)],
+                         [('-125.00', 'INR'), ('-10.00', 'INR')])
+
+    def test_fake_agent_points_answer_saves(self):
+        account = 'Assets:Points:Fern Rewards'
+        path = self.ledger / 'data/accounts.json'
+        declarations = read_json(path)
+        declarations['commodities'].append('FERNPTS')
+        declarations['accounts'][account] = metadata(account, kind='points', currency='FERNPTS')
+        declarations['accounts']['Income:Rewards'] = {}
+        dump(path, declarations)
+        self.checkpoint('Declare Fern Rewards')
+        answer = ready(new=False)
+        answer['attachment-names'] = []
+        answer['entry']['postings'] = [
+            dict(account='Expenses:Food', amount='125.00', commodity='INR', cost=None),
+            dict(account=account, amount='-500.00', commodity='FERNPTS', cost=dict(amount='125.00', commodity='INR')),
+        ]
+        earning = deepcopy(answer)
+        earning['entry'].update(date='2026-10-28', description='Fern Rewards promotion', postings=[
+            dict(account=account, amount='600.00', commodity='FERNPTS', cost=None),
+            dict(account='Income:Rewards', amount='-600.00', commodity='FERNPTS', cost=None),
+        ])
+        self.set_answers(earning, answer)
+        with self.client() as client:
+            earned = self.create(client, 'Earned 600 Fern Rewards points', upload=False)
+            self.save(client, earned)
+            self.assertEqual(self.wait(client, earned, 'added')['result']['total'], '')
+            identity = self.create(client, 'Redeemed 500 Fern Rewards points for lunch worth 125 INR', upload=False)
+            self.save(client, identity)
+            saved = self.wait(client, identity, 'added')
+        self.assertEqual(saved['result']['total'], '125.00 INR')
+        self.assertEqual(saved['result']['payment_account'], account)
+        stored = read_json(self.ledger / 'data/expenses/2026.json')[-1]
+        self.assertEqual(stored['postings'][1]['cost'], dict(amount='125.00', commodity='INR', per='total'))
+
     def use_learning(self, *, ask=True):
         """List jordan's fictional custom extension in the fixture ledger."""
         (self.ledger / 'extensions').mkdir(exist_ok=True)

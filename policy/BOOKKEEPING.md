@@ -104,6 +104,18 @@ Cashback or reward credits paid into an account credit an `Income:` rewards acco
 and debit the account that received them. A discount applied at the till simply
 reduces the expense.
 
+For programme points, use the declared points account and its code, such as
+`FERNPTS`. Use whole points with decimal text such as `500.00`. Debit the points
+account and credit `Income:Rewards` for earnings. Include both postings in the
+same entry as a purchase that earned them. For expiry, credit the points account
+and debit `Expenses:Points Expired` in points. Earnings and expiry carry no cost.
+
+For a redemption, credit the points account with the points spent and give that
+posting a total cost in money. Debit the expense with the matching money amount.
+For example, spend `-500.00 FERNPTS` at a total cost of `125.00 USD` against an
+expense of `125.00 USD`. Ask for the money value if the person or evidence hasn't
+given it. Keep points out of recurring payments.
+
 ## Pending entries
 
 An entry the person cannot settle yet (an unclear statement row, an unknown

@@ -1,7 +1,7 @@
 import currencyMinorUnits from '../../schema/currency-minor-units.json' with {type:'json'};
 import {dashboardDataPath, guardDashboardData} from '../../scripts/dashboard-data.mjs';
 guardDashboardData();
-import { paymentPosting as selectPayment, transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions } from './currency.mjs';
+import { paymentPosting as selectPayment, transactionCurrency, postingValue, chargedExpenses, fundedTransactions, pointsOnly } from './currency.mjs';
 import { today } from './date-time.mjs';
 import { expenseSummary, previousMonth } from './month-summary.mjs';
 import { auditProvenance } from './audit-provenance.mjs';
@@ -31,8 +31,8 @@ const variableExclusions = new WeakMap();
 function toRecord(transaction, sequence) {
   const currency = transactionCurrency(transaction, accounts, manifest.defaultCurrency);
   const source = transaction.sources[0] || 'Derived ledger entry';
-  const expensePostings = transaction.postings.filter((posting) => posting.account.startsWith('Expenses:'));
-  const incomePostings = transaction.postings.filter((posting) => posting.account.startsWith('Income:'));
+  const expensePostings = transaction.postings.filter((posting) => !posting.points && posting.account.startsWith('Expenses:'));
+  const incomePostings = transaction.postings.filter((posting) => !posting.points && posting.account.startsWith('Income:'));
   const investmentPostings = transaction.postings.filter((posting) => kindOf(posting.account) === 'investment');
   const reimbursementPostings = transaction.postings.filter(posting => kindOf(posting.account) === 'person' && posting.currency === currency);
   const reimbursementAmount = reimbursementPostings.reduce((sum, posting) => sum + posting.amount, 0);
@@ -50,11 +50,12 @@ function toRecord(transaction, sequence) {
   const transferAmount = received || outgoing;
   // Holdings opened against equity were bought before the ledger began: a balance adjustment, not an investment.
   const opening = transaction.postings.some(posting => posting.account.startsWith('Equity:'));
-  const kind = expensePostings.length ? (expenseAmount < 0 ? 'Refund' : 'Expense') : incomePostings.length ? 'Income' : investmentPostings.length && !opening ? 'Investment' : reimbursablePurchase ? 'Reimbursable purchase' : reimbursementReceipt ? 'Reimbursement' : 'Transfer';
+  const kind = pointsOnly(transaction) ? 'Points' : expensePostings.length ? (expenseAmount < 0 ? 'Refund' : 'Expense') : incomePostings.length ? 'Income' : investmentPostings.length && !opening ? 'Investment' : reimbursablePurchase ? 'Reimbursable purchase' : reimbursementReceipt ? 'Reimbursement' : 'Transfer';
   const bankFunded = transaction.postings.some(posting => posting.amount < 0 && kindOf(posting.account) === 'bank');
   const receives = kind => transaction.postings.some(posting => posting.amount > 0 && kindOf(posting.account) === kind);
   const walletFunded = transaction.postings.some(posting => posting.amount < 0 && ['bank', 'card'].includes(kindOf(posting.account)));
-  const displayType = kind !== 'Transfer' ? kind
+  const displayType = kind === 'Points' ? opening ? 'Opening points' : paymentPosting?.amount < 0 ? 'Points expired' : 'Points earned'
+    : kind !== 'Transfer' ? kind
     : transaction.postings.some(posting => posting.account.startsWith('Equity:')) ? 'Balance adjustment'
     : bankFunded && receives('card') ? 'Card payment'
     : bankFunded && receives('person') ? 'Bill payment'
@@ -75,9 +76,9 @@ function toRecord(transaction, sequence) {
     description: transaction.description,
     kind,
     displayType,
-    amount: Number(Math.abs(kind === 'Transfer' ? transferAmount : expensePostings.length ? expenseAmount : incomeAmount || investmentAmount || reimbursementAmount || 0).toFixed(2)),
+    amount: Number(Math.abs(kind === 'Points' ? paymentPosting?.amount || 0 : kind === 'Transfer' ? transferAmount : expensePostings.length ? expenseAmount : incomeAmount || investmentAmount || reimbursementAmount || 0).toFixed(2)),
     signedExpense: Number(expenseAmount.toFixed(2)),
-    category: expensePostings.length ? expenseCategory(expensePostings[0].account, accounts) : incomePostings.length ? 'Income' : investmentPostings.length ? 'Investments' : reimbursementPostings.length ? 'People' : 'Transfers',
+    category: kind === 'Points' ? 'Points' : expensePostings.length ? expenseCategory(expensePostings[0].account, accounts) : incomePostings.length ? 'Income' : investmentPostings.length ? 'Investments' : reimbursementPostings.length ? 'People' : 'Transfers',
     ledgerAccount: expensePostings[0]?.account || incomePostings[0]?.account || investmentPostings[0]?.account || transaction.postings[0]?.account || '',
     paymentAccount: paymentPosting?.account || '',
     paymentLabel: paymentPosting ? shortAccount(paymentPosting.account) : 'Multiple postings',
@@ -112,6 +113,7 @@ function toRecord(transaction, sequence) {
   return record;
 }
 const records = transactions.flatMap(transaction => fundedTransactions(transaction, accounts)).map(toRecord);
+const moneyRecords = records.filter(record => record.kind !== 'Points');
 
 const reimbursementGroups = [...new Set(records.filter(record => record.reimbursementGroup).map(record => `${record.reimbursementGroup}\0${record.currency}`))].map(key => {
   const [id, currency] = key.split('\0');
@@ -137,14 +139,14 @@ const recurringSpend = (record) => expenseValues.get(record)
   .reduce((sum, posting) => sum + posting.amount, 0);
 
 const monthKeys = [...new Set(records.map((record) => record.month))].sort();
-const currencies = [...new Set([manifest.defaultCurrency, ...records.map(record => record.currency), ...forecastRecords.map(record => record.currency)])].sort();
-const months = monthKeys.flatMap(month => currencies.filter(currency => records.some(record => record.month === month && record.currency === currency && (month !== currentMonth || record.date <= buildToday))).map(currency => {
-  const currencyRecords = records.filter(record => record.currency === currency && (month !== currentMonth || record.date <= buildToday));
+const currencies = [...new Set([manifest.defaultCurrency, ...moneyRecords.map(record => record.currency), ...forecastRecords.map(record => record.currency)])].sort();
+const months = monthKeys.flatMap(month => currencies.filter(currency => moneyRecords.some(record => record.month === month && record.currency === currency && (month !== currentMonth || record.date <= buildToday))).map(currency => {
+  const currencyRecords = moneyRecords.filter(record => record.currency === currency && (month !== currentMonth || record.date <= buildToday));
   const rows = currencyRecords.filter(record => record.month === month && ['Expense', 'Refund'].includes(record.kind));
   const income = currencyRecords.filter((record) => record.month === month && record.kind === 'Income').reduce((sum, record) => sum + record.amount, 0);
   const investments = currencyRecords.filter((record) => record.month === month && record.kind === 'Investment').reduce((sum, record) => sum + record.amount, 0);
   const before = previousMonth(month);
-  const previousRecords = records.filter(record => record.currency === currency && record.month === before);
+  const previousRecords = moneyRecords.filter(record => record.currency === currency && record.month === before);
   const comparison = previousRecords.length ? {month: before, ...expenseSummary(previousRecords.filter(record => month !== currentMonth || Number(record.date.slice(8, 10)) <= Number(buildToday.slice(8, 10))))} : null;
   return {
     month,
@@ -166,8 +168,8 @@ const months = monthKeys.flatMap(month => currencies.filter(currency => records.
 const portions = [[1, 7], [8, 14], [15, 21], [22, 31]];
 const isInstalment = (record) => /Amortization - <\d+\/\d+>/.test(record.description);
 function forecastFor(currency) {
-const expenseRecords = records.filter(record => record.currency === currency && ['Expense', 'Refund'].includes(record.kind));
-const currencyRecords = records.filter(record => record.currency === currency);
+const currencyRecords = moneyRecords.filter(record => record.currency === currency);
+const expenseRecords = currencyRecords.filter(record => ['Expense', 'Refund'].includes(record.kind));
 const currencyAsOf = currencyRecords.reduce((latest, record) => record.date > latest ? record.date : latest, '');
 const daysPassed = currencyAsOf.slice(0, 7) === currentMonth ? Number(currencyAsOf.slice(8, 10)) : 0;
 // Today's variable estimate remains until an actual in this currency is dated today.

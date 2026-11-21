@@ -1,6 +1,6 @@
 import {dashboardDataPath, guardDashboardData} from '../../scripts/dashboard-data.mjs';
 guardDashboardData();
-import { transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions } from './currency.mjs';
+import { transactionCurrency, postingValue, sumCurrencies, chargedExpenses, fundedTransactions, pointsOnly } from './currency.mjs';
 import { sourceType } from './source-labels.mjs';
 import { compact, loadExpenseStore, sourceReference } from './expense-store.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -20,24 +20,25 @@ const pending = transactions
   .filter((transaction) => transaction.status === 'pending')
   .flatMap(transaction => fundedTransactions(transaction, accounts))
   .map((transaction) => {
+    const points = pointsOnly(transaction);
     const reviewPosting = transaction.postings.find(
-      (posting) => (posting.account.startsWith('Expenses:') || posting.account.startsWith('Income:')),
+      (posting) => Boolean(posting.points) === points && /^(Expenses|Income):/.test(posting.account),
     );
     if (!reviewPosting) return null;
 
     const source = transaction.sources[0] || 'Derived ledger entry';
     const reference = compact(sourceReference(transaction));
     const isExpense = reviewPosting.account.startsWith('Expenses:');
-    const kind = isExpense
+    const kind = points ? 'Points' : isExpense
       ? reviewPosting.amount >= 0
         ? 'Expense'
         : 'Refund'
       : 'Income';
     const currency = transactionCurrency(transaction, accounts, manifest.defaultCurrency);
-    const allocation = isExpense
+    const allocation = points ? -reviewPosting.amount : isExpense
       ? chargedExpenses(transaction, currency).reduce((sum, posting) => sum + posting.amount, 0)
-      : transaction.postings.filter(posting => posting.account.startsWith('Income:')).reduce((sum, posting) => sum + postingValue(posting, currency), 0);
-    const foreignExpense = isExpense && transaction.postings.some(posting => posting.account.startsWith('Expenses:') && posting.currency !== currency);
+      : transaction.postings.filter(posting => !posting.points && posting.account.startsWith('Income:')).reduce((sum, posting) => sum + postingValue(posting, currency), 0);
+    const foreignExpense = isExpense && transaction.postings.some(posting => !posting.points && posting.account.startsWith('Expenses:') && posting.currency !== currency);
     const signedAmount = foreignExpense ? Number(allocation.toFixed(2)) : allocation;
     const amount = Math.abs(signedAmount);
     return {
@@ -69,13 +70,14 @@ const totals = pending.reduce(
   },
   { byKind: {}, bySource: {} },
 );
+const moneyRows = pending.filter(row => row.kind !== 'Points');
 
 const payload = {
   meta: {
     ledger: 'data/expenses/*.json',
     pendingTransactionCount: pending.length,
-    pendingNetAmount: sumCurrencies(pending, row => row.signedAmount),
-    pendingAbsoluteAmount: sumCurrencies(pending),
+    pendingNetAmount: sumCurrencies(moneyRows, row => row.signedAmount),
+    pendingAbsoluteAmount: sumCurrencies(moneyRows),
     byKind: totals.byKind,
     bySource: totals.bySource,
   },

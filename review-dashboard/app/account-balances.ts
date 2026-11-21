@@ -1,8 +1,8 @@
 import {isCurrency} from '../scripts/formatting.mjs';
 import type { Accounts } from './account-metadata';
 import { currentAccounts as accountMetadata } from '../scripts/account-metadata.mjs';
-import { groupNames } from '../scripts/account-metadata.mjs';
-export type Posting = { account: string; currency: string; amount: number; cost?: number; costCurrency?: string };
+import { groupNames, isPointsCurrency } from '../scripts/account-metadata.mjs';
+export type Posting = { account: string; currency: string; amount: number; cost?: number; costCurrency?: string; points?: boolean };
 export type Entry = { id: string; date: string; sequence: number; description: string; postings: Posting[] };
 export type PriceSeries = { commodity: string; currency?: string; dates: string[]; navs: number[] };
 export const groups = Object.values(groupNames);
@@ -10,22 +10,27 @@ export function accountGroup(account: string, metadata: Accounts = accountMetada
   return groupNames[metadata[account]?.kind as keyof typeof groupNames] || 'Other accounts';
 }
 /** Mutual fund units are a ledger commodity such as DEMOFUND, not an ISO currency code. */
-export const isFund = (currency: string) => !isCurrency(currency);
+export const isFund = (currency: string) => !isCurrency(currency) && !isPointsCurrency(currency);
 // Balances are summed in whole hundredths of a currency, or thousandths of a fund unit, to avoid float drift.
-const scale = (currency: string) => isFund(currency) ? 1000 : 100;
+const scale = (currency: string) => isPointsCurrency(currency) ? 1 : isFund(currency) ? 1000 : 100;
 export function balanceAccounts(entries: Entry[], asOf: string, metadata: Accounts = accountMetadata()) {
   const accounts = new Map<string, { key: string; account: string; currency: string; balance: number; group: string }>();
+  for (const [account, meta] of Object.entries(metadata)) {
+    if (meta.kind !== 'points' || !meta.currency) continue;
+    const key = [account, meta.currency].join('\0');
+    accounts.set(key, {key, account, currency: meta.currency, balance: 0, group: 'Points'});
+  }
   for (const entry of entries) {
     for (const posting of entry.postings) {
       if (entry.date > asOf) continue;
       if (/^(Expenses|Income|Equity):/.test(posting.account)) continue;
       const key = `${posting.account}\0${posting.currency}`;
       const value = accounts.get(key) || { key, account: posting.account, currency: posting.currency, balance: 0, group: accountGroup(posting.account, metadata) };
-      value.balance += Math.round(posting.amount * scale(posting.currency));
+      value.balance += value.group === 'Points' ? posting.amount : Math.round(posting.amount * scale(posting.currency));
       accounts.set(key, value);
     }
   }
-  return [...accounts.values()].map(value => ({ ...value, balance: value.balance / scale(value.currency) })).sort((a, b) => a.account.localeCompare(b.account) || a.currency.localeCompare(b.currency));
+  return [...accounts.values()].map(value => ({ ...value, balance: value.group === 'Points' ? value.balance : value.balance / scale(value.currency) })).sort((a, b) => a.account.localeCompare(b.account) || a.currency.localeCompare(b.currency));
 }
 /**
  * An account's entries with the running balance. For fund units, `cost` is the account-currency cost of the units

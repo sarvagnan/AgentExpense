@@ -12,6 +12,9 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Accounts groups reward programmes under Points and shows whole-point balances.
+  Add records earnings, expiry and redemptions. Money totals include each
+  redemption's recorded value and exclude unpriced points.
 - Older IANA time zone names from browsers are accepted and saved under their current names.
 - Rules reject notes that repeat the rule’s next occurrence and show the reason beside Notes.
 - Sidebar links remember browsing context and open live views at their overviews.

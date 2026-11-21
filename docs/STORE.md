@@ -288,10 +288,28 @@ verbatim, as a unique list. `accounts` maps each declared name, in order, to its
 - **Income and Equity accounts:** `{}`.
 - **Expenses accounts:** `{"category": …}`, a display category or `null`.
 - **Every other root:** `kind` (`bank`, `card`, `cash`, `wallet`, `loan`,
-  `investment` or `person`), `currency` (a declared commodity code), `label`
+  `investment`, `person` or `points`), `currency` (a declared commodity code), `label`
   (line or `null`), `aliases` (unique lowercase words, `[]` when none) and
   `statement`. `statement` is `null` or `{reader, identifier, options}`, where
   `identifier` and `options` are each `null` when absent.
+
+**Points accounts** are declared with `make add-account KIND=points LABEL="Fern Rewards" CURRENCY=FERNPTS`.
+They default to `Assets:Points:<label>` and carry no statement reader. Use an uppercase
+ASCII programme code ending in `PTS` with at least one letter before the suffix.
+It must be distinct from other kinds of holdings in the ledger. `make opening-balances`
+accepts whole quantities for points, and the store writes them as decimal text such
+as `500.00`. The programme code is fixed on the account.
+
+Post earnings against `Income:Rewards` and expiry against `Expenses:Points Expired`,
+both in the points commodity, with no cost. Earnings can share an entry with a
+cash purchase. A redemption credits the points account with the points spent and
+a money cost, and debits the expense in money. The journal supports total or unit
+costs. Add answers use the existing total-cost shape. Points stay outside money
+totals. Recurring rules contain only the money postings of a cash purchase that
+earns points and don't use a points account as a payer.
+
+This additive kind keeps ledger format 2. Earlier builds reject the new kind in a
+ledger that uses it. A downgrade after adding points requires the pre-points checkpoint.
 
 **`data/card-statements.json`** holds two kinds of statement, in end-date order:
 

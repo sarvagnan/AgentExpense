@@ -20,18 +20,18 @@ const purchase = (currency = 'INR', sign = 1) => [
 ];
 const round = value => Number(value.toFixed(2));
 
-async function build(t, postings, {accounts = {}, rules = [], status = 'pending'} = {}) {
+async function build(t, postings, {accounts = {}, rules = [], status = 'pending', extra = []} = {}) {
   const work = await temporaryDirectory('charged-amounts-');
   t.after(() => rm(work, {recursive: true, force: true}));
   const copy = await disposableDashboard(join(work, 'copy')), root = join(work, 'ledger');
   await mkdir(join(root, 'data/expenses'), {recursive: true});
   const write = (file, value) => writeFile(join(root, file), JSON.stringify(value));
   await write('ledger.json', store.manifest({id: '00000000-0000-4000-8000-000000000006', name: 'Charged amount fixture', locale: 'en-IN'}));
-  await write('data/accounts.json', {commodities: ['INR', 'USD', 'GBP', 'EUR', 'CHF'], accounts: store.accounts({
+  await write('data/accounts.json', {commodities: [...new Set(['INR', 'USD', 'GBP', 'EUR', 'CHF', ...Object.values(accounts).map(meta => meta.currency).filter(Boolean)])], accounts: store.accounts({
     Pocket: {kind: 'card', currency: 'INR'}, Friend: {kind: 'person', currency: 'INR'},
     'Expenses:Food': {}, 'Expenses:Software': {}, 'Expenses:Other': {}, ...accounts,
   })});
-  await write('data/expenses/2026.json', [store.entry({id: '0000000000000001', date: '2026-10-10', status, description: 'Fictional multi-line purchase', postings})]);
+  await write('data/expenses/2026.json', [store.entry({id: '0000000000000001', date: '2026-10-10', status, description: 'Fictional multi-line purchase', postings}), ...extra]);
   await write('data/forecast.json', rules);
   for (const script of ['build-dashboard-data', 'build-review-data', 'build-add-patterns', 'check-dashboard-data']) {
     execFileSync(process.execPath, [join(copy.dash, 'scripts', `${script}.mjs`)], {env: {...copy.env, LEDGER_DIR: root}, stdio: 'pipe'});
@@ -39,6 +39,33 @@ async function build(t, postings, {accounts = {}, rules = [], status = 'pending'
   const read = async name => JSON.parse(await readFile(join(copy.dash, 'app/data', `${name}.json`), 'utf8'));
   return {dashboard: await read('dashboard'), review: await read('pending-transactions')};
 }
+
+test('dashboard_money_totals_exclude_points', async t => {
+  const account = 'Assets:Points:Fern Rewards';
+  const code = 'FERNPTS';
+  const accounts = {[account]: {kind: 'points', currency: code}, 'Income:Rewards': {}, 'Expenses:Points Expired': {}};
+  const earning = [posting(account, 600, code), posting('Income:Rewards', -600, code)];
+  const later = (id, day, postings) => store.entry({id, date: `2026-10-${day}`, status: 'pending', postings});
+  const {dashboard, review} = await build(t, [posting('Expenses:Food', 10, 'INR'), posting('Pocket', -10, 'INR'), ...earning], {
+    accounts, extra: [
+      later('0000000000000002', 11, [posting('Expenses:Food', 125, 'INR'), posting(account, -500, code, cost('125.00', 'INR'))]),
+      later('0000000000000003', 12, [posting(account, -40, code), posting('Expenses:Points Expired', 40, code)]),
+      later('0000000000000004', 13, earning),
+    ],
+  });
+  assert.deepEqual(dashboard.transactions.map(row => [row.currency, row.amount, row.signedExpense, row.kind]),
+    [['INR', 10, 10, 'Expense'], ['INR', 125, 125, 'Expense'], [code, 40, 0, 'Points'], [code, 600, 0, 'Points']]);
+  const october = dashboard.months.filter(row => row.month === '2026-10');
+  assert.deepEqual(october.map(row => [row.currency, row.total, row.income, row.count]), [['INR', 135, 0, 2]]);
+  assert.deepEqual(dashboard.forecasts.map(row => [row.currency, row.asOf]), [['INR', '2026-10-11']]);
+  assert.deepEqual(review.meta.pendingNetAmount, {INR: 135});
+  assert.deepEqual(review.meta.pendingAbsoluteAmount, {INR: 135});
+
+  const only = await build(t, earning, {accounts});
+  assert.deepEqual(only.dashboard.months.map(row => [row.currency, row.income]), [['', 0]]);
+  assert.deepEqual(only.dashboard.forecasts.map(row => [row.currency, row.asOf]), [['INR', '']]);
+  assert.deepEqual(only.review.meta.pendingAbsoluteAmount, {});
+});
 
 function assertCharge(data, currency, charged) {
   const record = data.dashboard.transactions.find(row => row.currency === currency);

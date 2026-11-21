@@ -12,6 +12,12 @@ import { buildSentence, draftPieces, PATTERN_DEFS, payLabel } from '../app/live/
 const PAYS = {savings:bank, card, cash:'Pocket', wallet};
 const data={extensions:{fuel:{ask:true}},patterns:{fuel:{count:19,usualPay:PAYS.savings,usualShare:15,usualExpense:'Expenses:Transport:Fuel',last:[]}},people:['Casey'],accounts:Object.keys(metadata),payments:metadata};
 const build=(text,edits={},files=false)=>buildSentence(text,data,edits,files,'2026-10-30');
+test('Add treats a typed points count as units and accepts an explicit money value', () => {
+ assert.equal(build('Earned 500 Fern Rewards points').fields.amount.value, '');
+ const redeemed=build('Redeemed 500 Fern Rewards points for lunch worth 125 USD').fields;
+ assert.equal(redeemed.amount.value, '125');
+ assert.equal(redeemed.currency.value, 'USD');
+});
 test('runtime data decoding survives a retired document blob origin',async()=>{
  const server=await createServer({optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
  const originalFetch=globalThis.fetch,originalStream=Blob.prototype.stream;

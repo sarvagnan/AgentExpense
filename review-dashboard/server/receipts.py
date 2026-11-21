@@ -10,6 +10,7 @@ from corrections import apply, wire_entry
 from replacements import entry_hash, safe_evidence
 from store import load, entries
 from ledger_lock import ledger_lock
+from transactions import payment_value
 
 
 def date_order(locale):
@@ -71,7 +72,14 @@ def validate_reading(answer, locale=None):
 
 
 def payment_rows(entry, accounts):
-    return [p for p in entry['postings'] if accounts.get(p['account'],{}).get('kind') in ('bank','card','cash','wallet') and Decimal(p['amount'])<0]
+    rows = []
+    for posting in entry['postings']:
+        kind = accounts.get(posting['account'], {}).get('kind')
+        redeemed = kind == 'points' and bool(posting['cost'])
+        if (kind in ('bank', 'card', 'cash', 'wallet') or redeemed) and Decimal(posting['amount']) < 0:
+            code, amount = payment_value(posting, points=redeemed)
+            rows.append(dict(posting, commodity=code, amount=format(amount, 'f')) if redeemed else posting)
+    return rows
 
 
 def resume_cancelled(worker, identity, run=None):

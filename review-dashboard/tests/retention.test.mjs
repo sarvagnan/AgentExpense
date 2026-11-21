@@ -43,7 +43,7 @@ test('Just added follows the actual ledger after Delete and Restore',()=>{
  assert.equal(run([{storeId:'a'.repeat(16)}]).length,1,'Restoring the same entry makes its result available again');
 });
 test('Queue totals keep an explicitly typed foreign currency without conversion',()=>{
- const exports={};vm.runInNewContext(compile('../app/live/drafts.tsx'),{exports,require:name=>name==='../data'?{dashboard:{meta:{ledger:{defaultCurrency:'EUR'},accounts:{'Assets:Bank:Willow':{currency:'EUR'}}}}}:{} });
+ const exports={};vm.runInNewContext(compile('../app/live/drafts.tsx'),{exports,require:name=>name==='../data'?{dashboard:{meta:{ledger:{defaultCurrency:'EUR'},accounts:{'Assets:Bank:Willow':{currency:'EUR'}}}}}:name==='../../scripts/account-metadata.mjs'?{isPointsCurrency:()=>false,paymentAccounts:()=>({})}:name==='../../scripts/formatting.mjs'?{isCurrency:()=>true}:name==='./builder'?{mentionsPoints:()=>false}:{} });
  const pieces={fields:{amount:{value:'12.34',source:'typed'},currency:{value:'GBP',source:'typed'},pay:{value:'Assets:Bank:Willow',source:'typed'}}};
  assert.equal(JSON.stringify(exports.typedAmount({pieces})),JSON.stringify({amount:12.34,currency:'GBP'}));
  pieces.fields.currency={value:'EUR',source:'usual'};assert.equal(exports.typedAmount({pieces}).currency,'EUR');

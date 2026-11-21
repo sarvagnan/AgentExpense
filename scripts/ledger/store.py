@@ -323,6 +323,10 @@ def commodities(declarations: dict) -> set[str]:
     return {commodity_symbol(directive) for directive in declarations['commodities']}
 
 
+def points_codes(accounts):
+    return {metadata['currency'] for metadata in accounts.values() if metadata.get('kind') == 'points'}
+
+
 def extension_mismatch(documents: dict[Path, Any], root: Path, listed: list[str]) -> None:
     """Entries whose extension groups don't match ledger.json, counted, with what to run."""
     held, differing, names = Counter(), 0, set()
@@ -370,6 +374,9 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> dict[Path, Any]:
         if metadata.get('currency') and metadata['currency'] not in declared_commodities:
             raise ValueError(f'{name}: account currency is not a declared commodity')
     declarations = accounts['accounts']
+    points = points_codes(declarations)
+    if any(meta.get('kind') != 'points' and meta.get('currency') in points for meta in declarations.values()):
+        raise ValueError('A points code must be distinct from other account commodities')
     codes = currency_codes()
     ids: dict[str, Path] = {}
     for path, document in documents.items():
@@ -394,6 +401,23 @@ def validate(documents: dict[Path, Any], root: Path = ROOT) -> dict[Path, Any]:
             for posting in entry['postings']:
                 metadata = declarations.get(posting['account'], {})
                 currency = metadata.get('currency')
+                if points:
+                    unit = posting['commodity']
+                    cost = posting['cost']
+                    assertion = posting['assert']
+                    if cost and cost['commodity'] in points:
+                        raise ValueError(f'{identity}: points cannot be a cost currency')
+                    if unit in points:
+                        if kind == 'forecast':
+                            raise ValueError(f'{identity}: recurring rules cannot include points')
+                        quantity = Decimal(posting['amount'])
+                        if quantity != quantity.to_integral_value() or (assertion and Decimal(assertion['amount']) % 1):
+                            raise ValueError(f'{identity}: points postings and balances must use whole points')
+                        if metadata.get('kind') != 'points' and posting['account'] not in (
+                                'Income:Rewards', 'Expenses:Points Expired', 'Equity:Opening Balances'):
+                            raise ValueError(f'{identity}: points must use a points account or its rewards, expiry or opening counterpart')
+                        if cost and (metadata.get('kind') != 'points' or quantity >= 0 or cost['commodity'] not in codes):
+                            raise ValueError(f'{identity}: only outgoing points can have a cost in money')
                 if not currency:
                     continue
                 unit_holding = metadata.get('kind') == 'investment' and posting['commodity'] not in codes

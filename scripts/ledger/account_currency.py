@@ -11,7 +11,8 @@ def check_code(code):
 
 
 def currency_changes(root, code, account=None):
-    check_code(code)
+    if account is None:
+        check_code(code)
     documents = deepcopy(load(root))
     manifest = read_json(root / 'ledger.json')
     if account is None:
@@ -21,6 +22,9 @@ def currency_changes(root, code, account=None):
     metadata = declared['accounts'].get(account)
     if not metadata or not metadata.get('currency'):
         raise ValueError('Choose a declared balance-sheet account')
+    if metadata['kind'] == 'points':
+        raise ValueError('The programme code is fixed for a points account.')
+    check_code(code)
     old = metadata['currency']
     changed = {}
     for path, rows in documents.items():

@@ -10,6 +10,10 @@ Builders read the JSON store directly through `scripts/expense-store.mjs`. Accou
 
 Sources retain their original order; explicit statement membership takes priority in evidence labels. Receipt/image matching and fuel links need explicit confirmation. An amount/date coincidence is not proof. Reimbursements retain their group and party and do not become personal expenses. Typed variable-estimate exclusions and policy terms stay in the store.
 
+Accounts lists reward programmes under Points with individual whole-point balances.
+Money totals and net worth exclude these balances. Journal shows points activity,
+and redemptions contribute their recorded money value to spending.
+
 ## Routing and static builds
 
 Vite development uses `/`; production builds use `/expenses/`. `scripts/build-static-views.mjs` writes a directory index for every route because plain file servers have no SPA fallback. The browser loads the gzip JSON payloads itself; serve them as bytes without an extra Content-Encoding header. Build outputs are local artifacts.
@@ -24,4 +28,4 @@ Review decisions and counts come from the server and are shared across devices. 
 
 For card statement parsing or adaptation, read [the example layout and reader](../scripts/statements/README.md). Payment shortcuts are `card` (Rewards card), `savings` (Savings account), `salary` (Salary account), `wallet` (Shopping wallet), `appstore` (App store balance) and `cash`. Both wallet accounts appear as prepaid balances, and bank-funded top-ups appear as Balance top-up.
 
-All data builders require a format-1 `ledger.json`. See [migrations](../migrations/README.md) for older ledgers. `make personas` builds and tests Asha, Jordan and the empty fixture. Missing optional fuel and price files produce empty data.
+All data builders require a format-2 `ledger.json`. See [migrations](../migrations/README.md) for older ledgers. `make personas` builds and tests the fictional fixtures. Missing optional fuel and price files produce empty data.

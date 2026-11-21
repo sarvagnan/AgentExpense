@@ -3,6 +3,8 @@ import path from 'node:path';
 import { applicationRoot, ledgerRoot } from '../../scripts/project-paths.mjs';
 import { moduleSettings, parseStoreJson, readManifest, storeSchema, validateDocument } from './ledger-manifest.mjs';
 import {complexRule,mainPostings,payer,varyingDetails,periodFor,occurrenceDate} from './recurring-ui.mjs';
+import {pointsCodes} from './account-metadata.mjs';
+import {isCurrency} from './formatting.mjs';
 export {occurrenceDate} from './recurring-ui.mjs';
 
 const storeRoot = ledgerRoot();
@@ -39,7 +41,7 @@ export function sourceReference(entry) {
   return row.serial || row['source-row'] || row.page || row['source-page'] || '';
 }
 
-export function toTransaction(entry, accounts = {}) {
+export function toTransaction(entry, accounts = {}, points = pointsCodes(accounts)) {
   checkDate(entry.date);
   if (!['confirmed', 'pending'].includes(entry.status)) throw new Error(`Invalid status for ${entry.id}: ${entry.status}`);
   if (!Array.isArray(entry.evidence)) throw new Error(`Invalid evidence for ${entry.id}`);
@@ -50,8 +52,22 @@ export function toTransaction(entry, accounts = {}) {
     sources: entry.evidence,
     description: compact(entry.description),
     postings: entry.postings.map((posting) => {
+      const isPoints = points.has(posting.commodity);
+      const meta = accounts[posting.account];
+      if (isPoints) {
+        if (!/^-?\d+\.0+$/.test(posting.amount) || posting.assert && !/^-?\d+\.0+$/.test(posting.assert.amount))
+          throw new Error('Points postings and balances must use whole points');
+        if (meta?.kind !== 'points' && !['Income:Rewards', 'Expenses:Points Expired', 'Equity:Opening Balances'].includes(posting.account))
+          throw new Error('Points must use a points account or its rewards, expiry or opening counterpart');
+        if (posting.cost && (meta?.kind !== 'points' || Number(posting.amount) >= 0 || !isCurrency(posting.cost.commodity)))
+          throw new Error('Only outgoing points can have a cost in money');
+      }
+      if (points.has(posting.cost?.commodity)) throw new Error('Points cannot be a cost currency');
+      if (meta?.kind === 'points' && (posting.commodity !== meta.currency || posting.assert && posting.assert.commodity !== meta.currency))
+        throw new Error('The posting must use its programme’s points code');
       const quantity = decimalNumber(posting.amount);
       const result = { account: compact(posting.account), amount: quantity, currency: posting.commodity };
+      if (isPoints) result.points = true;
       // Costs retain their quote currency, signed like the posting quantity.
       if (posting.cost) {
         const value = decimalNumber(posting.cost.amount);
@@ -146,6 +162,9 @@ async function readExpenseStore(root) {
   validateDocument(recurringSettings, schema, 'data/recurring-settings.json');
   validateDocument(trash, schema, 'data/trash.json');
   validateDocument(statements, schema, 'data/card-statements.json');
+  const points = pointsCodes(declarations.accounts);
+  if (Object.values(declarations.accounts).some(meta => meta.kind !== 'points' && points.has(meta.currency)))
+    throw new Error('A points code must be distinct from other account commodities');
   const trashedIds = new Set(trash.map(item => item.entry.id));
   if (trashedIds.size !== trash.length || new Set(trash.map(item=>item.id)).size !== trash.length) throw new Error('Trash IDs must be unique');
   const storedPaths=new Set();
@@ -159,6 +178,7 @@ async function readExpenseStore(root) {
     }
   }
   for (const rule of rawRules) {
+    if (rule.postings.some(p => points.has(p.commodity))) throw new Error('Recurring rules cannot include points');
     if (rule.lifecycle === 'removed' && rule.removal === null) throw new Error('A removed rule needs removal');
     if(rule.amount==='varies') {
       const main=mainPostings(rule,declarations.accounts)[0],pay=payer(rule,declarations.accounts);
@@ -182,12 +202,12 @@ async function readExpenseStore(root) {
   }
   if (actuals.some((entry, index) => index && entry.date < actuals[index - 1].date)) throw new Error('Expenses are not in date order');
   // Normalize before filtering so bad assertion entries cannot silently bypass input checks.
-  const transactions = actuals.map(entry => toTransaction(entry, declarations.accounts)).filter((_, index) => !isAssertionOnly(actuals[index]));
+  const transactions = actuals.map(entry => toTransaction(entry, declarations.accounts, points)).filter((_, index) => !isAssertionOnly(actuals[index]));
   const rules = rawRules.map((rule) => {
     scheduleText(rule.schedule);
     if (occurrenceDate(rule.schedule.from, 0, rule.schedule['anchor-day']) !== rule.date) throw new Error('Rule anchor and date disagree');
     if ([...(rule.origin?.['entry-ids'] ?? []), ...(rule.removal?.['entry-ids'] ?? [])].some(id => !actualIds.has(id) && !trashedIds.has(id))) throw new Error('Unknown rule evidence');
-    return {...toTransaction(rule, declarations.accounts),...(rule.amount==='varies'?{varying:varyingDetails(rule,actuals,declarations.accounts)}:{})};
+    return {...toTransaction(rule, declarations.accounts, points),...(rule.amount==='varies'?{varying:varyingDetails(rule,actuals,declarations.accounts)}:{})};
   });
   return { transactions, rules, rawRules, recurringSettings, prices: parsePrices(priceText), accounts: declarations.accounts, manifest, extensions, ...statementFacts(actuals, statements, declarations.accounts) };
 }

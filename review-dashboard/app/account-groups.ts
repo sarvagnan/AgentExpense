@@ -45,6 +45,8 @@ export function groupView<T extends Entry>({ entries, group, start, asOf, metada
   entries: readonly T[]; group: string; start: string; asOf: string; metadata: Accounts;
   confirmedBalances?: readonly ConfirmedBalance[]; cardStatements?: readonly CardStatement[];
 }) {
+  const pointsGroup = group === 'Points';
+  const shownAmount = (amount: number, currency: string) => pointsGroup ? amount : fromMinor(amount, currency);
   const inGroup = new Map<string, boolean>();
   const member = (account: string) => {
     if (!inGroup.has(account)) inGroup.set(account, !/^(Expenses|Income|Equity):/.test(account) && (groupNames[metadata[account]?.kind as keyof typeof groupNames] || 'Other accounts') === group);
@@ -53,6 +55,11 @@ export function groupView<T extends Entry>({ entries, group, start, asOf, metada
   const ordered = entries.filter(entry => entry.date <= asOf).sort((a, b) => a.date.localeCompare(b.date) || a.sequence - b.sequence);
   type Running = { key: string; account: string; currency: string; opening: number; balance: number; inflow: number; outflow: number; lastUsed: string | null; lastSettled: string | null };
   const rows = new Map<string, Running>();
+  if (pointsGroup) for (const [account, meta] of Object.entries(metadata)) {
+    if (meta.kind !== 'points' || !meta.currency) continue;
+    const key = [account, meta.currency].join('\0');
+    rows.set(key, {key, account, currency: meta.currency, opening: 0, balance: 0, inflow: 0, outflow: 0, lastUsed: null, lastSettled: null});
+  }
   const totals = new Map<string, { opening: number; balance: number; increase: number; decrease: number; points: { date: string; total: number }[] }>();
   const activity: GroupActivity<T>[] = [];
   for (const entry of ordered) {
@@ -63,7 +70,7 @@ export function groupView<T extends Entry>({ entries, group, start, asOf, metada
     for (const posting of inside) {
       const key = `${posting.account}\0${posting.currency}`;
       const row = rows.get(key) || { key, account: posting.account, currency: posting.currency, opening: 0, balance: 0, inflow: 0, outflow: 0, lastUsed: null, lastSettled: null };
-      const amount = toMinor(posting.amount, posting.currency);
+      const amount = pointsGroup ? posting.amount : toMinor(posting.amount, posting.currency);
       const before = row.balance;
       row.balance += amount;
       if (!period) row.opening = row.balance;
@@ -74,7 +81,7 @@ export function groupView<T extends Entry>({ entries, group, start, asOf, metada
       rows.set(key, row);
       changes[posting.currency] = (changes[posting.currency] || 0) + groupSign(group, posting.account) * amount;
     }
-    for (const [currency, change] of Object.entries(changes)) {
+    for (const [currency, change] of pointsGroup ? [] : Object.entries(changes)) {
       const total = totals.get(currency) || { opening: 0, balance: 0, increase: 0, decrease: 0, points: [] };
       total.balance += change;
       if (!period) total.opening = total.balance;
@@ -89,7 +96,7 @@ export function groupView<T extends Entry>({ entries, group, start, asOf, metada
     if (!period || !inside.some(posting => moving(posting.amount))) continue;
     const internal = inside.length === entry.postings.length && Object.values(changes).every(value => value === 0)
       && new Set(inside.map(posting => posting.account)).size > 1;
-    activity.push({ entry, date: entry.date, changes: Object.fromEntries(Object.entries(changes).map(([currency, value]) => [currency, fromMinor(value, currency)])), accounts: [...new Set(inside.map(posting => posting.account))], internal });
+    activity.push({ entry, date: entry.date, changes: Object.fromEntries(Object.entries(changes).map(([currency, value]) => [currency, shownAmount(value, currency)])), accounts: [...new Set(inside.map(posting => posting.account))], internal });
   }
   const latest = <F extends { account: string; currency: string }>(facts: readonly F[], row: Running, date: (fact: F) => string) =>
     facts.filter(fact => fact.account === row.account && fact.currency === row.currency && date(fact) <= asOf).reduce<F | null>((last, fact) => !last || date(fact) >= date(last) ? fact : last, null);
@@ -99,8 +106,8 @@ export function groupView<T extends Entry>({ entries, group, start, asOf, metada
     const statement = latest(cardStatements, row, fact => fact.end);
     return {
       key: row.key, account: row.account, currency: row.currency,
-      opening: fromMinor(sign * row.opening, row.currency), balance: fromMinor(sign * row.balance, row.currency),
-      inflow: fromMinor(row.inflow, row.currency), outflow: fromMinor(row.outflow, row.currency),
+      opening: shownAmount(sign * row.opening, row.currency), balance: shownAmount(sign * row.balance, row.currency),
+      inflow: shownAmount(row.inflow, row.currency), outflow: shownAmount(row.outflow, row.currency),
       lastConfirmed: confirmed ? { date: confirmed.date, amount: fromMinor(sign * toMinor(confirmed.amount, row.currency), row.currency) } : null,
       lastStatement: statement ? { end: statement.end, totalDue: fromMinor(toMinor(statement.totalDue, row.currency), row.currency) } : null,
       lastUsed: row.lastUsed, lastSettled: row.lastSettled,

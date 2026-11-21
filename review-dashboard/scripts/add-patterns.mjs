@@ -5,7 +5,7 @@ import { accountLabel, expenseCategory, hasSegment, paymentAccounts } from './ac
 const GENERIC_NAMES = new Set(['fuel','fuels','petrol','diesel','bunk','taxi','cab','auto','ride','transport','subscriptions','subscription','renewal','dining','restaurants','eating out','dinner','lunch','breakfast','snacks','coffee','food','groceries','rent','home','housing','utilities','bills']);
 /** Historical suggestions use account meanings and generic category segments. */
 export function patternOf(entry, metadata = {}) {
-  const posts = entry.postings;
+  const posts = entry.postings.filter(posting => !posting.points);
   const has = (kind, sign) => posts.some(p => metadata[p.account]?.kind === kind && Math.sign(p.amount) === sign);
   const segment = words => posts.some(p => p.account.split(':')[0] === 'Expenses' && hasSegment(p.account, words));
   if (has('bank', -1) && has('card', 1)) return 'cardbill';
@@ -28,7 +28,7 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}, foreca
     const st = patterns[id] ||= {count:0, last:[], pays:new Map(), expenses:new Map(), names:new Map()};
     const sides = entry.postings.filter(p => payments[p.account]);
     const pay = sides.find(p => !['person'].includes(metadata[p.account].kind) && p.amount < 0) || sides.find(p => metadata[p.account].kind !== 'person') || sides[0];
-    const expense = entry.postings.find(p => p.account.startsWith('Expenses:') && p.amount > 0);
+    const expense = entry.postings.find(p => !p.points && p.account.startsWith('Expenses:') && p.amount > 0);
     st.count++;
     if (pay) st.pays.set(pay.account, (st.pays.get(pay.account) || 0) + 1);
     if (expense) st.expenses.set(expense.account, (st.expenses.get(expense.account) || 0) + 1);
@@ -46,7 +46,7 @@ export function buildPatterns(transactions, metadata = {}, manifest = {}, foreca
   const merchants = {};
   const candidates = transactions.map((entry,index)=>({entry,index})).sort((a,b)=>b.entry.date.localeCompare(a.entry.date) || b.index-a.index).map(item=>item.entry);
   for (const [source, entries] of [['history', candidates], ['forecast', forecasts]]) for (const entry of entries) {
-    const expense = entry.postings.find(p=>p.account.startsWith('Expenses:') && p.amount>0);
+    const expense = entry.postings.find(p=>!p.points && p.account.startsWith('Expenses:') && p.amount>0);
     const pay = entry.postings.find(p=>payments[p.account] && p.amount<0 && metadata[p.account].kind!=='person');
     if (!expense || !pay) continue;
     const aliases = [entry.description, entry.description.split(/\s+[—–·]\s+/)[0], expense.account.split(':').at(-1)].filter(Boolean);

@@ -86,6 +86,21 @@ test('Jordan keeps the original EUR dinner and exactly the USD card cost, with a
  assert.equal(travel.length,1);assert.equal(travel[0].displayType,'Balance adjustment');assert.equal(travel[0].currency,'EUR');
 });
 
+test('Jordan Accounts renders individual points balances and Journal uses the redemption’s money cost', async () => {
+ const {setData} = await server.ssrLoadModule('/app/data.ts');
+ const {default:Accounts} = await server.ssrLoadModule('/app/account-summary.tsx');
+ const {Journal} = await server.ssrLoadModule('/app/dashboard.tsx');
+ setData(jordan);
+ const accounts = renderToStaticMarkup(createElement(Accounts));
+ assert.match(accounts, /aria-label="Points"><h3><button[^>]*>.*?<strong>Points<\/strong>.*?<\/h3>.*?Fern Rewards.*?725 points/s);
+ const pointsGroup = accounts.split('aria-label="Points"><h3>')[1].split('</section>')[0];
+ assert.doesNotMatch(pointsGroup, /account-group-total/);
+ assert.doesNotMatch(accounts.split('Net worth')[1].split('</section>')[0], /points|FERNPTS/);
+ const journal = renderToStaticMarkup(createElement(Journal,{month:'2026-10',setMonth:()=>{}}));
+ assert.match(journal, /Fern Rewards points expired.*?25 points/s);
+ assert.match(journal, /Groceries paid with Fern Rewards.*?\$125\.00/s);
+});
+
 test('Explorer, Accounts, Journal, Atlas and Forecast render Sam without converting currencies', async () => {
  (await server.ssrLoadModule('/app/data.ts')).setData(sam);
  const {Explorer,Journal,Atlas}=await server.ssrLoadModule('/app/dashboard.tsx');

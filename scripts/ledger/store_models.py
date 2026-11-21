@@ -134,6 +134,7 @@ Commodity = Annotated[str, StringConstraints(pattern=r'^[^\r\n"]+$')]
 # and JavaScript call \s (JavaScript adds U+FEFF; Python and Rust add U+0085; Python adds U+001C–U+001F).
 WHITESPACE = r'\t\n\x0b\x0c\r\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 Code = Annotated[str, StringConstraints(pattern=rf'^[^{WHITESPACE}";=@]+$')]
+POINTS_CODE_PATTERN = r'^[A-Z]+PTS$'
 # Exact decimal text. A posting amount always has a decimal point; a cost, an
 # original amount or a reading may be a whole number, as it was written.
 Amount = Annotated[str, StringConstraints(pattern=r'^-?(0|[1-9][0-9]*)\.[0-9]+$')]
@@ -419,6 +420,14 @@ class BalanceSheetAccount(Strict):
     statement: StatementReader | None = field('statement', 'Statement reader settings, or null.')
 
 
+class PointsAccount(BalanceSheetAccount):
+    """A reward programme balance in whole points."""
+    kind: Literal['points'] = field('kind', 'What the account is.')
+    currency: Annotated[str, StringConstraints(pattern=POINTS_CODE_PATTERN)] = field(
+        'currency', 'Its programme commodity code.')
+    statement: None = field('statement', 'Points accounts have no statement reader.')
+
+
 class ExpenseAccount(Strict):
     """Metadata of an Expenses account."""
     category: Annotated[str, StringConstraints(pattern=rf'^[^\r\n]*[^{WHITESPACE}][^\r\n]*$')] | None = field(
@@ -439,19 +448,20 @@ class Accounts(Strict):
     """data/accounts.json: declared commodities and accounts."""
     commodities: unique(Annotated[str, StringConstraints(min_length=1)]) = field(
         'commodities', 'Commodity directive arguments verbatim, in order.')
-    accounts: dict[Account, BalanceSheetAccount | ExpenseAccount | PlainAccount] = field(
+    accounts: dict[Account, BalanceSheetAccount | PointsAccount | ExpenseAccount | PlainAccount] = field(
         'accounts', 'Declared accounts in order, keyed by name.', schema={
             # Each root's metadata, as the model validator below checks it, for JSON Schema readers (Node).
             'additionalProperties': False, 'patternProperties': {
                 r'^(?:Income|Equity)(?::[^\r\n:]+)*$': {'$ref': '#/$defs/PlainAccount'},
                 r'^Expenses(?::[^\r\n:]+)*$': {'$ref': '#/$defs/ExpenseAccount'},
-                r'^(?!(?:Income|Equity|Expenses)(?::|$))[^\r\n:]+(?::[^\r\n:]+)*$': {'$ref': '#/$defs/BalanceSheetAccount'}}})
+                r'^(?!(?:Income|Equity|Expenses)(?::|$))[^\r\n:]+(?::[^\r\n:]+)*$': {
+                    'anyOf': [{'$ref': '#/$defs/BalanceSheetAccount'}, {'$ref': '#/$defs/PointsAccount'}]}}})
 
     @model_validator(mode='after')
     def _metadata_matches_root(self):
         for name, metadata in self.accounts.items():
             expected = account_metadata_model(name)
-            if type(metadata) is not expected:
+            if not isinstance(metadata, expected):
                 raise ValueError(f'{name}: {name.split(":")[0]} accounts need {expected.__name__} metadata')
         return self
 

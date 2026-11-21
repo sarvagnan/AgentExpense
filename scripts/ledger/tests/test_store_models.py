@@ -123,6 +123,22 @@ def schema_keywords(node, found=None):
 
 
 class GeneratedSchemaTests(unittest.TestCase):
+    def test_points_account_schema_and_unit(self):
+        account = 'Assets:Points:Fern Rewards'
+        schema = json.loads(m.STORE_SCHEMA.read_text())
+        validator = __import__('jsonschema').Draft202012Validator({
+            '$defs': schema['$defs'], '$ref': schema['x-documents']['data/accounts.json']})
+        for code, valid in [('FERNPTS', True), ('USD', False)]:
+            document = {'commodities': [code], 'accounts': {account: {
+                'kind': 'points', 'currency': code, 'label': None, 'aliases': [], 'statement': None}}}
+            with self.subTest(code=code):
+                self.assertEqual(validator.is_valid(document), valid)
+                if valid:
+                    m.Accounts.model_validate(document)
+                else:
+                    with self.assertRaises(ValidationError):
+                        m.Accounts.model_validate(document)
+
     def test_checked_in_schemas_match_the_models(self):
         for path, content in m.generated().items():
             with self.subTest(path=path.name):

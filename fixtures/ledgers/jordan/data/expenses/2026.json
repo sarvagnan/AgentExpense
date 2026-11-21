@@ -130,6 +130,48 @@
     ]
   },
   {
+    "id": "0000000000000201",
+    "date": "2026-09-01",
+    "status": "confirmed",
+    "description": "Opening balance",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Points:Fern Rewards", "amount": "1000.00", "commodity": "FERNPTS", "cost": null, "assert": {"amount": "1000.00", "commodity": "FERNPTS"}, "notes": []},
+      {"account": "Equity:Opening Balances", "amount": "-1000.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
+    "id": "0000000000000202",
+    "date": "2026-09-08",
+    "status": "confirmed",
+    "description": "Fern Rewards promotion",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Points:Fern Rewards", "amount": "75.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Rewards", "amount": "-75.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
     "id": "0000000000000105",
     "date": "2026-09-15",
     "status": "confirmed",
@@ -172,7 +214,9 @@
     "notes": [],
     "postings": [
       {"account": "Expenses:Groceries", "amount": "48.25", "commodity": "USD", "cost": null, "assert": null, "notes": []},
-      {"account": "Assets:Bank:Alder Checking", "amount": "-48.25", "commodity": "USD", "cost": null, "assert": null, "notes": []}
+      {"account": "Assets:Bank:Alder Checking", "amount": "-48.25", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Points:Fern Rewards", "amount": "120.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Rewards", "amount": "-120.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -310,7 +354,9 @@
     "notes": [],
     "postings": [
       {"account": "Expenses:Groceries", "amount": "37.80", "commodity": "USD", "cost": null, "assert": null, "notes": []},
-      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-37.80", "commodity": "USD", "cost": null, "assert": null, "notes": []}
+      {"account": "Liabilities:Credit Cards:Lumen Card", "amount": "-37.80", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Points:Fern Rewards", "amount": "55.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []},
+      {"account": "Income:Rewards", "amount": "-55.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []}
     ]
   },
   {
@@ -498,6 +544,27 @@
     ]
   },
   {
+    "id": "0000000000000203",
+    "date": "2026-10-21",
+    "status": "confirmed",
+    "description": "Fern Rewards points expired",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Assets:Points:Fern Rewards", "amount": "-25.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []},
+      {"account": "Expenses:Points Expired", "amount": "25.00", "commodity": "FERNPTS", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
     "id": "0000000000000011",
     "date": "2026-10-22",
     "status": "confirmed",
@@ -518,6 +585,27 @@
     "postings": [
       {"account": "Expenses:Groceries", "amount": "52.10", "commodity": "USD", "cost": null, "assert": null, "notes": []},
       {"account": "Assets:Bank:Alder Checking", "amount": "-52.10", "commodity": "USD", "cost": null, "assert": null, "notes": []}
+    ]
+  },
+  {
+    "id": "0000000000000204",
+    "date": "2026-10-24",
+    "status": "confirmed",
+    "description": "Groceries paid with Fern Rewards",
+    "evidence": [],
+    "statement": null,
+    "references": null,
+    "classification": null,
+    "original-amount": null,
+    "reimbursement": null,
+    "excluded-from-estimate": null,
+    "extensions": {"learning": null},
+    "rule": null,
+    "possible-duplicate-of": [],
+    "notes": [],
+    "postings": [
+      {"account": "Expenses:Groceries", "amount": "125.00", "commodity": "USD", "cost": null, "assert": null, "notes": []},
+      {"account": "Assets:Points:Fern Rewards", "amount": "-500.00", "commodity": "FERNPTS", "cost": {"amount": "125.00", "commodity": "USD", "per": "total"}, "assert": null, "notes": []}
     ]
   },
   {

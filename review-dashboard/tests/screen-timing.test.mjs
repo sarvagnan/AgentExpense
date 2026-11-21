@@ -57,7 +57,7 @@ function ruleGuessHarness(instant){
  const element=(type,props)=>({type,props});
  const rules=[{id:'birch',description:'Birch rent',postings:[]},{id:'music',description:'Clover music',postings:[]},{id:'lessons',description:'Clover lessons',postings:[]}];
  const h=hookHarness('../app/live/rule-guess.tsx',{
-  '../data':{dashboard:{meta:{ledger:{locale:'en-US'},accounts:{}}}},'../date-time':{localDate:()=> '2026-11-02'},'../ui':{money:()=>''},'../rules':{},
+  '../data':{dashboard:{meta:{ledger:{locale:'en-US'},accounts:{}}}},'../date-time':{localDate:()=> '2026-11-02'},'../ui':{money:()=>''},'../rules':{},'./builder':{mentionsPoints:()=>false},
   '../../scripts/recurring-ui.mjs':{matchRules:()=>instant,payer:()=>null,ruleAmounts:()=>({})},'./rules-api':{useRules:()=>({data:{rules},ready:true}),rulesApi:{match:(text,signal)=>{const hold=deferred();requests.push({text,signal,...hold});signal.addEventListener('abort',()=>hold.reject(new DOMException('cancelled','AbortError')));return hold.promise;}}},
   'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
  });

@@ -17,7 +17,7 @@ from transactions import reject_invisible
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 import setup_ledger  # noqa: E402
 
-FIRST_RUN_KINDS = setup_ledger.KINDS
+FIRST_RUN_KINDS = tuple(kind for kind in setup_ledger.KINDS if kind != 'points')
 STATEMENT_KINDS = ('bank', 'card')
 
 

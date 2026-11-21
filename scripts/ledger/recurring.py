@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+from store import points_codes
 
 PAYING_KINDS = {'bank', 'card', 'cash', 'wallet'}
 ANCILLARY = {'fee', 'fees', 'tax', 'taxes', 'discount', 'discounts', 'rounding'}
@@ -53,12 +54,19 @@ def main_expense_account(account):
 def main_postings(entry, accounts=None):
     """Positive destinations: main expenses or explicitly declared investments."""
     accounts = accounts or {}
-    return [p for p in entry['postings'] if Decimal(p['amount']) > 0 and (
+    return [p for p in rule_postings(entry, accounts) if Decimal(p['amount']) > 0 and (
                 accounts.get(p['account'], {}).get('kind') == 'investment' or
                 main_expense_account(p['account']))]
 
 
+def rule_postings(entry, accounts):
+    points = points_codes(accounts)
+    return [p for p in entry['postings'] if p['commodity'] not in points]
+
+
 def paying(entry, accounts):
+    if any(accounts.get(p['account'], {}).get('kind') == 'points' and p['cost'] for p in entry['postings']):
+        return None
     rows = [p for p in entry['postings'] if accounts.get(p['account'], {}).get('kind') in PAYING_KINDS and Decimal(p['amount']) < 0]
     return rows[0] if len(rows) == 1 else None
 
@@ -100,8 +108,9 @@ def payee_match(one, two):
 def simple_payment(rule, accounts):
     """Varying amounts need exactly one destination and one payer in one currency."""
     main, payer = main_postings(rule, accounts), paying(rule, accounts)
-    return (len(rule['postings']) == 2 and len(main) == 1 and payer is not None
-            and all(not p['cost'] and not p['assert'] for p in rule['postings'])
+    postings = rule_postings(rule, accounts)
+    return (len(postings) == 2 and len(main) == 1 and payer is not None
+            and all(not p['cost'] and not p['assert'] for p in postings)
             and main[0]['commodity'] == payer['commodity']
             and Decimal(main[0]['amount']) == -Decimal(payer['amount']))
 
@@ -369,7 +378,7 @@ def candidate(entry, actual, rules, accounts, settings, today, text=''):
     rule = new_rule(id=secrets.token_hex(8), date=entry['date'], status='confirmed', description=entry['description'],
                     schedule={'every': 'year' if qualifying_words and words(text) & {'yearly', 'annual'} else 'month',
                               'from': entry['date'], 'interval': 1, 'anchor-day': None},
-                    origin=origin, created=today, postings=deepcopy(entry['postings']))
+                    origin=origin, created=today, postings=deepcopy(rule_postings(entry, accounts)))
     for p in rule['postings']: p['assert'] = None
     rule = advance(rule, entry['date'])
     if automatic:

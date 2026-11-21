@@ -1,6 +1,7 @@
 /** Shared account behavior. Paths are identities; metadata supplies their meaning. */
 export const paymentKinds = ['bank', 'card', 'cash', 'wallet', 'loan', 'person'];
-export const groupNames = {bank:'Banks', card:'Credit cards', wallet:'Prepaid', investment:'Investments', person:'People', loan:'Loans', cash:'Cash'};
+export const groupNames = {bank:'Banks', card:'Credit cards', wallet:'Prepaid', investment:'Investments', person:'People', loan:'Loans', cash:'Cash', points:'Points'};
+export const pointsCodes = accounts => new Set(Object.values(accounts).filter(meta => meta.kind === 'points').map(meta => meta.currency));
 export const accountLabel = (account, accounts = {}) => accounts[account]?.label || account.split(':').at(-1) || account;
 export const accountKind = (account, accounts = {}) => accounts[account]?.kind;
 export function expenseCategory(account, accounts = {}) {
@@ -27,5 +28,10 @@ export function reviewKeys(ledger) {
 // A complete runtime snapshot publishes metadata together with the dashboard.
 /** @type {Record<string, any>} */
 let selectedAccounts = {};
+let selectedPoints = new Set();
 export const currentAccounts = () => selectedAccounts;
-export const setCurrentAccounts = accounts => { selectedAccounts = accounts || {}; };
+export const isPointsCurrency = currency => selectedPoints.has(currency);
+export const setCurrentAccounts = accounts => {
+  selectedAccounts = accounts || {};
+  selectedPoints = pointsCodes(selectedAccounts);
+};

@@ -238,7 +238,8 @@ new-ledger:
 # Accounts and opening balances during setup (scripts/ledger/setup_ledger.py); commit with make commit.
 .PHONY: add-account opening-balances
 add-account:
-	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/setup_ledger.py account $(ARGS)
+	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/setup_ledger.py account $(ARGS) \
+		$${KIND:+--kind "$$KIND"} $${LABEL:+--label "$$LABEL"} $${CURRENCY:+--currency "$$CURRENCY"}
 
 opening-balances:
 	uv run --locked --directory review-dashboard/server python ../../scripts/ledger/setup_ledger.py opening $(ARGS)

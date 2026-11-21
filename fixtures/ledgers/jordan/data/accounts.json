@@ -1,7 +1,8 @@
 {
   "commodities": [
     "USD",
-    "EUR"
+    "EUR",
+    "FERNPTS"
   ],
   "accounts": {
     "Assets:Bank:Alder Checking": {
@@ -72,6 +73,17 @@
         "retirement reserve"
       ],
       "statement": null
-    }
+    },
+    "Assets:Points:Fern Rewards": {
+      "kind": "points",
+      "currency": "FERNPTS",
+      "label": "Fern Rewards",
+      "aliases": [
+        "fern rewards"
+      ],
+      "statement": null
+    },
+    "Income:Rewards": {},
+    "Expenses:Points Expired": {"category": null}
   }
 }

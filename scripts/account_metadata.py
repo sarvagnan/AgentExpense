@@ -10,7 +10,7 @@ def infer_kind(account):
     for prefix, kind in (
         ('Assets:Bank:', 'bank'), ('Liabilities:Credit Cards:', 'card'),
         ('Assets:Cash', 'cash'), ('Assets:Wallets:', 'wallet'),
-        ('Liabilities:Loans:', 'loan'), ('Assets:Investments:', 'investment'),
+        ('Liabilities:Loans:', 'loan'), ('Assets:Investments:', 'investment'), ('Assets:Points:', 'points'),
         ('Assets:Reimbursements:', 'person'), ('Liabilities:Payable:', 'person'),
     ):
         if account.startswith(prefix) and (prefix.endswith(':') or account == prefix or account.startswith(prefix + ':')):

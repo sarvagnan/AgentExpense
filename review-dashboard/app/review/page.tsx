@@ -4,7 +4,8 @@ import {ActionFeedback,PendingLabel} from '../live/pending-actions';
 import {useEffect,useRef,useState} from 'react';
 import {dashboard,reloadData} from '../data';
 import {reviewKeys} from '../../scripts/account-metadata.mjs';
-import {Dialog,Icon,PageHeader,dayLabel,money,evidenceHref,EvidenceName} from '../ui';
+import {Dialog,Icon,PageHeader,dayLabel,evidenceHref,EvidenceName} from '../ui';
+import {commodityAmount} from '../../scripts/formatting.mjs';
 import {formatTimestamp} from '../date-time';
 import {postReview,requestId,type Decision,type Entry,type Item,type History,type Preview,type ReviewChange,type useReview} from './api';
 import '../styles/server-review.css';
@@ -21,7 +22,7 @@ function downloadFile(content:string,type:string,name:string){const url=URL.crea
 function saveFile(value:unknown){downloadFile(JSON.stringify(value,null,2),'application/json','expense-review-decisions.json');}
 const storedDecision=(id:string,decisions:Record<string,Decision>)=>decisions[id]||decisions[id.match(/^([0-9a-f]{16})-[A-Z]{3}$/)?.[1]||''];
 const decisionEqual=(a:Decision|undefined,b:Decision)=>!!a&&['status','account','label','notes'].every(k=>a[k as keyof Decision]===b[k as keyof Decision]);
-const entryMoney=(entry:Entry)=>Object.entries(entry.amounts||{[entry.currency]:entry.amount}).map(([currency,amount])=>money(Number(amount),currency)).join(' + ');
+const entryMoney=(entry:Entry)=>Object.entries(entry.amounts||{[entry.currency]:entry.amount}).map(([currency,amount])=>commodityAmount(Number(amount),currency)).join(' + ');
 function EntryIdentity({entry,detail}:{entry:Entry;detail?:string}){return <><div className="review-entry-heading"><strong>{entry.description}</strong><span className="money">{entryMoney(entry)}</span></div><p className="review-entry-meta">{dayLabel(entry.date)} · {entry.accountLabel} · {detail||(entry.statement?'Statement':entry.sources.length?'Receipt':'Ledger entry')}</p></>;}
 /** The saved outcome of a Review action, shown as a success notice rather than a plain line. */
 const reviewDone=(text:string)=>/^(Marked as separate|Separation undone|Same expense settled|Marked for follow-up|Saved decisions moved|Review saved to the ledger)/.test(text);

@@ -36,7 +36,7 @@ export async function runAccountGroups({page,base,persona,width,stage,expect,con
   await expect(long).toHaveAccessibleName(/Rowan Reserve for the long weekend away fund/);
   // Card amounts read as owed (positive) with no Owed/In credit line; other currencies carry their code.
   await expect(list.locator('.account-row').filter({hasText:'Rowan Card'}).locator('.num')).toHaveText(m(25.5));
-  for(const [name,meta] of Object.entries(accounts))if(meta.kind&&meta.kind!=='investment'&&meta.currency!==main&&data.transactions.some(t=>t.postings.some(p=>p.account===name))) {
+  for(const [name,meta] of Object.entries(accounts))if(meta.kind&&!['investment','points'].includes(meta.kind)&&meta.currency!==main&&data.transactions.some(t=>t.postings.some(p=>p.account===name))) {
    const amount=await list.locator('.account-row').filter({hasText:meta.label||name.split(':').at(-1)}).first().locator('.num').textContent();
    assert.ok(amount.endsWith(' '+meta.currency),`${meta.label}: ${amount} shows its currency code after the amount`);assert.ok(!amount.includes(meta.currency+' ')&&!/[£€$₹]/.test(amount),'Code, not symbol, after the amount');
   }
@@ -54,12 +54,25 @@ export async function runAccountGroups({page,base,persona,width,stage,expect,con
   // 2. Every heading opens its group; arrows move through headings and rows alike.
   const present=await list.locator('.account-group-open strong').allTextContents();
   assert.ok(['Banks','Credit cards','Prepaid','People'].every(group=>present.includes(group)),'The fixture fills four groups');
+  if(persona==='jordan'){
+   await expect(groupHeading('Points')).toBeVisible();
+   await expect(groupHeading('Points').locator('.account-group-total')).toHaveCount(0);
+   await expect(list.getByRole('button',{name:/Fern Rewards.*725 points/})).toBeVisible();
+  }
   for(const group of present) {
    await openList();await groupHeading(group).click();
    await expect(page).toHaveURL(new RegExp(`account=${encodeURIComponent(group).replace(/%20/g,'(%20|\\+)')}`));
    await expect(page).toHaveTitle(`${group} — Accounts — Ledger`);
    if(group==='Investments'){await expect(page.locator('.accounts')).toHaveAttribute('data-portfolio','true');await expect(page.locator('.holdings-table')).toBeVisible();continue;}
    await expect(view).toHaveAttribute('data-group',group);
+   if(group==='Points'){
+    await expect(view.getByRole('heading',{name:'Points',exact:true})).toBeVisible();
+    await expect(view.getByRole('heading',{name:/^Total over time/})).toHaveCount(0);
+    await expect(view.getByRole('row',{name:/Fern Rewards.*725 points/})).toBeVisible();
+    await overflow('Points accounts group');await snap('accounts-points-group');
+    record('Points accounts show individual whole-point balances with no group total');
+    continue;
+   }
    await expect(view.getByRole('heading',{name:/^Total over time/}).first()).toBeVisible();
    await expect(view.getByRole('heading',{name:'Accounts',exact:true})).toBeVisible();await expect(view.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
    await expect(view.getByLabel('Period')).toHaveValue('30');

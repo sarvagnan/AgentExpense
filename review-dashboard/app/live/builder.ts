@@ -2,7 +2,7 @@ import { hasExtension } from '../../scripts/ledger-modules.mjs';
 import { money, currencySymbol, moneySettings } from '../../scripts/formatting.mjs';
 import type { Accounts } from '../account-metadata';
 import { formatCalendarDate, localDate } from '../../scripts/date-time.mjs';
-import { accountLabel, paymentAccounts } from '../../scripts/account-metadata.mjs';
+import { accountLabel, isPointsCurrency, paymentAccounts } from '../../scripts/account-metadata.mjs';
 /** Pure sentence builder. Values are suggestions for the draft agent, never ledger writes. */
 export type Source = 'typed' | 'usual' | 'agent' | 'missing';
 export type Piece = { value: string; source: Source; shown: string };
@@ -33,8 +33,11 @@ function rideService(text: string, rest: string, hit?: string) {
   return named ?? text.match(words(hit))?.[0] ?? hit;
 }
 const validDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+export const mentionsPoints = (text: string) => /\bpoints?\b/i.test(text)
+  || (text.match(/\b[a-z]+pts\b/gi) || []).some(code => isPointsCurrency(code.toUpperCase()));
 export function buildSentence(text: string, data: PatternData, edits: Record<string, string> = {}, hasFiles = false, today = localDate()) {
   const low = text.toLowerCase().replace(/’/g, "'");
+  const points = mentionsPoints(text);
   // A repayment mentioning coffee is still a repayment; specific financial patterns win.
   const definitions = availablePatterns(data);
   const priority = [...definitions.filter(p => ['payback', 'cardbill', 'rewards'].includes(p.id)), ...definitions.filter(p => !['payback', 'cardbill', 'rewards'].includes(p.id))];
@@ -67,7 +70,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
     const marker = `(?:(?<![a-z])${escape(code)}(?![a-z])${symbol && symbol !== code ? `|${escape(symbol)}` : ''})`;
     if (take(new RegExp(`${marker}\\s*(\\d[\\d,]*(?:\\.\\d+)?)|(?:\\b)(\\d[\\d,]*(?:\\.\\d+)?)\\s*${marker}(?![a-z])`, 'i'), 'amount', m => (m[1] || m[2]).replace(/,/g, ''))) { typed.currency = code; break; }
   }
-  if (!typed.amount) take(/(\d[\d,]*(?:\.\d+)?)(?![\d.])/, 'amount', m => m[1].replace(/,/g, ''));
+  if (!typed.amount && !points) take(/(\d[\d,]*(?:\.\d+)?)(?![\d.])/, 'amount', m => m[1].replace(/,/g, ''));
   const generic = new Set(['card','bank','cash','wallet','loan','person']);
   const matches = new Set<string>();
   let ambiguousPay = false;
@@ -111,7 +114,7 @@ export function buildSentence(text: string, data: PatternData, edits: Record<str
     else if (key === 'currency') set(key, payments[edits.pay || typed.pay || merchant?.pay || '']?.currency || moneySettings().defaultCurrency || Object.values(payments)[0]?.currency || '', 'usual');
     else if (key === 'pay' && !ambiguousPay && merchant?.pay && payments[merchant.pay]) set(key, merchant.pay, 'usual');
     else if (key === 'category' && merchant?.expense) set(key, merchant.expense, 'usual')
-    else if (key === 'amount' && merchant?.amount) set(key, merchant.amount, 'usual');
+    else if (key === 'amount' && merchant?.amount && !points) set(key, merchant.amount, 'usual');
     else if (key === 'category') set(key, '', 'agent', 'the agent works it out');
     else if (key === 'outlet' || key === 'place') vary(key, known || rest);
     else if (key === 'service') vary(key, known || (pattern.id === 'ride' ? rideService(text, rest, hit) : rest));

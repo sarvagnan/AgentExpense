@@ -31,7 +31,14 @@
           "description": "Declared accounts in order, keyed by name.",
           "patternProperties": {
             "^(?!(?:Income|Equity|Expenses)(?::|$))[^\\r\\n:]+(?::[^\\r\\n:]+)*$": {
-              "$ref": "#/$defs/BalanceSheetAccount"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/BalanceSheetAccount"
+                },
+                {
+                  "$ref": "#/$defs/PointsAccount"
+                }
+              ]
             },
             "^(?:Income|Equity)(?::[^\\r\\n:]+)*$": {
               "$ref": "#/$defs/PlainAccount"
@@ -920,6 +927,55 @@
       "additionalProperties": false,
       "description": "Income and Equity accounts carry no metadata.",
       "properties": {},
+      "type": "object"
+    },
+    "PointsAccount": {
+      "additionalProperties": false,
+      "description": "A reward programme balance in whole points.",
+      "properties": {
+        "kind": {
+          "const": "points",
+          "description": "What the account is.",
+          "type": "string"
+        },
+        "currency": {
+          "description": "Its programme commodity code.",
+          "pattern": "^[A-Z]+PTS$",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\r\\n]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Display name, or null."
+        },
+        "aliases": {
+          "description": "Lowercase words people use for it.",
+          "items": {
+            "pattern": "^[^A-Z\\r\\n]+$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "statement": {
+          "description": "Points accounts have no statement reader.",
+          "type": "null"
+        }
+      },
+      "required": [
+        "kind",
+        "currency",
+        "label",
+        "aliases",
+        "statement"
+      ],
       "type": "object"
     },
     "Posting": {

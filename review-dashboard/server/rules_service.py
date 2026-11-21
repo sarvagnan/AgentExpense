@@ -13,7 +13,8 @@ from currency_settings import SettingsRecords
 from store import load, entries, dump, validate, store_paths, new_id
 from recurring import (active, advance, amounts, candidate, detect, identity, main_postings,
                        match_text, paying, payee_match, period_for, same_payment, stale_rules,
-                       simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt, new_rule)
+                       simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt,
+                       new_rule, rule_postings)
 import format1
 from audit import records, append, event, audit_path
 from ledger_lock import ledger_lock
@@ -470,6 +471,11 @@ def from_entry(settings,identity):
     if not entry: raise ValueError('Unknown entry')
     used={e['id'] for v in documents.values() if isinstance(v,list) for e in v}
     rule=new_rule(**{k:deepcopy(entry[k]) for k in ('date','status','description','postings','notes')})
+    accounts=documents[settings.ledger/'data/accounts.json']['accounts']
+    money=rule_postings(rule,accounts)
+    if len(money) != len(rule['postings']) and (not money or not paying(entry,accounts)):
+        raise ValueError('Only payments in money can become recurring rules')
+    rule['postings']=money
     rule.update(id=new_id(used),origin={'kind':'owner','words':None,'entry-ids':[identity],'came-back':False},created=today(),
                 schedule={'every':'month','from':entry['date'],'interval':1,'anchor-day':None})
     for p in rule['postings']: p['assert']=None

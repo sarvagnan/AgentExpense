@@ -5,8 +5,9 @@ import {ActionFeedback} from './pending-actions';
 import {accountFieldLabel} from '../account-labels';
 import {useEffect,useRef,useState,type KeyboardEvent} from 'react';
 import {dashboard,fetchGzipJson} from '../data';
-import {buildSentence,draftPieces,type PatternData} from './builder';
-import {paymentAccounts} from '../../scripts/account-metadata.mjs';
+import {buildSentence,draftPieces,mentionsPoints,type PatternData} from './builder';
+import {isPointsCurrency,paymentAccounts} from '../../scripts/account-metadata.mjs';
+import {commodityAmount,isCurrency} from '../../scripts/formatting.mjs';
 import {Dialog,Icon,PageHeader,useQueryState,announce,money,plural,evidenceHref} from '../ui';
 import {formatCalendarDate,formatTimestamp} from '../date-time';
 import {api,type Draft} from './api';
@@ -36,7 +37,7 @@ export function pieceText(key:string,value:string,fields:Record<string,{value:st
  if(key==='date'&&/^\d{4}-\d{2}-\d{2}$/.test(value))return formatCalendarDate(value);
  if(key==='pay'||dashboard.meta.accounts[value])return accountName(value);
  const pay=fields.pay?.value,currency=fields.currency?.value||(pay?dashboard.meta.accounts[pay]?.currency:undefined)||dashboard.meta.ledger.defaultCurrency;
- if(['amount','charged'].includes(key)&&/^-?\d+(?:\.\d+)?$/.test(value.trim()))return money(Number(value),currency);
+ if(['amount','charged'].includes(key)&&/^-?\d+(?:\.\d+)?$/.test(value.trim()))return commodityAmount(Number(value),currency);
  // Typed words can name an account by its path: show its label instead.
  return Object.keys(dashboard.meta.accounts).sort((a,b)=>b.length-a.length).reduce((text,path)=>text.split(path).join(accountName(path)),value).replace(/\b(?:assets|liabilities|expenses|income|equity)(?::[^\s:,]*)*:(?=\s|$|,)/gi,'').replace(/\s+/g,' ').trim();
 }
@@ -46,6 +47,7 @@ export function typedAmount(d:Draft):{amount:number;currency:string}|null{
  const match=field.value.match(/-?\d+(?:\.\d+)?/);
  const pay=d.pieces?.fields?.pay?.value,currency=d.pieces?.fields?.currency;
  const code=currency?.source==='typed'?currency.value:(pay?dashboard.meta.accounts[pay]?.currency:undefined)||currency?.value;
+ if(isPointsCurrency(code) || mentionsPoints(d.text) && (currency?.source!=='typed' || !isCurrency(code)))return null;
  return match?{amount:Number(match[0]),currency:code||dashboard.meta.ledger.defaultCurrency}:null;
 }
 export function queueGroups(drafts:Draft[]){
@@ -79,6 +81,13 @@ export function DraftDetail({draft:d,onAction,onDiscard,onClose,initialEditing=f
  const question=d.questions.findLast(q=>q.answer===null),fields={...(d.state==='editing'?draftPieces(buildSentence(text,{...patterns,payments:paymentAccounts(dashboard?.meta?.accounts||{})},d.pieces?.edits||{},!!d.files.length),d.pieces?.edits||{}).fields:d.pieces?.fields||{})};
  const proposed=d.proposal?.entry;
  if(proposed){for(const [key,value] of Object.entries({what:proposed.description,date:proposed.date,amount:proposed.postings.find(p=>Number(p.amount)>0)?.amount,pay:proposed.postings.find(p=>Number(p.amount)<0)?.account})){if(value&&(!fields[key]||!fields[key].value))fields[key]={value,source:'agent'};}}
+ const pointsPosting=proposed?.postings.find(p=>dashboard.meta.accounts[p.account]?.kind==='points');
+ if(pointsPosting){
+   const amount=pointsPosting.cost || proposed?.postings.find(p=>!isPointsCurrency(p.commodity)&&Number(p.amount)>0) || pointsPosting;
+   fields.amount={value:String(Math.abs(Number(amount.amount))),source:'agent'};
+   fields.currency={value:amount.commodity,source:'agent'};
+   if(amount===pointsPosting || pointsPosting.cost)fields.pay={value:pointsPosting.account,source:'agent'};
+ }
  const paymentQuestion=!!question&&!/\b(?:expense|income|category)\s+account\b/i.test(question.question)&&/\b(?:pay|paid|payment|paying|card)\b/i.test(question.question)&&/(?:which|what).*(?:account|card)/i.test(question.question);
  const shownPieces=Object.entries(currencyPieces(d,fields) as Record<string,{value:string;source:string;note?:string}>).filter(([key,piece])=>!(key==='currency'&&fields.amount?.value)&&!(key==='pay'&&!piece.value&&paymentQuestion));
  const payerOptions=Object.entries(dashboard?.meta?.accounts||{}).filter(([,m])=>['bank','card','cash','wallet','loan','person'].includes(m.kind||''));

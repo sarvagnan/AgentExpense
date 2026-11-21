@@ -15,6 +15,7 @@ ledger's `startDate`:
 | card | Lumen Card | USD | 125.00 owed | lumen, card | `example-card-pdf`, identifier 4321 |
 | cash | Cash | USD | 80.00 | cash | |
 | bank | Willow Travel | EUR | 650.00 | willow, travel account | |
+| points | Fern Rewards | FERNPTS | 1,000 points | fern rewards | |
 
 Personal rules: opening balances are confirmed on the start date, and Willow Travel
 holds euros for trips and stays untouched between trips.
@@ -23,6 +24,9 @@ holds euros for trips and stays untouched between trips.
 From the application root run `LEDGER_DIR="$PWD/fixtures/ledgers/jordan" make dashboard`.
 
 Willow Travel has an EUR 650 opening balance and no later activity. The fictional Juniper Table dinner keeps EUR 46.80 and USD 51.48 charged to Lumen Card. Spending remains in USD; account totals also retain EUR separately.
+
+Fern Rewards earns 75 promotional points and 175 across two purchases. After
+25 expire and 500 pay for groceries worth 125.00 USD, the balance is 725 points.
 
 Recurring examples include Cedar Studio's September/October whole payments,
 Maple Workshop's weaker irregular pattern, a paused Cedar Archive rule, an

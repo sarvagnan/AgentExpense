@@ -22,7 +22,7 @@ import save_timing
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
 from add_entry import add_entry
 from confirmed_balances import BalanceRefusal
-from store import commodities as declared_symbols, copy_settings, dump, empty_entry, load, posting, store_paths, entries
+from store import commodities as declared_symbols, copy_settings, dump, empty_entry, load, posting, store_paths, entries, points_codes
 from ledger_manifest import read_manifest
 from strict_check import account_problem
 import account_metadata
@@ -124,17 +124,21 @@ def to_store(answer, root, file_count, *, documents=None):
             currencies = {p['commodity'] for p in entry['postings'] if p['account']==account}
             metadata = {**metadata, 'kind': kind, 'currency': explicit['currency'] if explicit else next(iter(currencies)) if len(currencies)==1 else read_manifest(root)['defaultCurrency']}
         accounts[account] = metadata
-    payments = [p for p in entry['postings'] if accounts.get(p['account'], {}).get('currency') and Decimal(p['amount']) < 0]
-    funding = next((p for p in payments if accounts[p['account']].get('kind') not in ('investment', 'person')), payments[0] if payments else None)
+    points = points_codes(accounts)
+    payments = [p for p in entry['postings'] if accounts.get(p['account'], {}).get('currency') and Decimal(p['amount']) < 0
+                and (p['commodity'] not in points or p['cost'])]
+    funding = next((p for p in payments if accounts[p['account']].get('kind') not in ('investment', 'person', 'points')), payments[0] if payments else None)
     if funding:
-        currency = accounts[funding['account']]['currency']
+        redeemed = funding['commodity'] in points
+        currency = funding['cost']['commodity'] if redeemed else accounts[funding['account']]['currency']
+        value = funding['cost']['amount'] if redeemed else funding['amount']
         if (entry['original-amount'] or {}).get('commodity') == currency:
-            if Decimal(entry['original-amount']['amount']) == abs(Decimal(funding['amount'])):
+            if Decimal(entry['original-amount']['amount']) == abs(Decimal(value)):
                 entry['original-amount'] = None
             else:
                 raise ProposalError(f'original-amount must differ from the paying account currency {currency}')
         for p in entry['postings']:
-            if p['account'].startswith('Expenses:') and p['commodity'] != currency:
+            if p['account'].startswith('Expenses:') and p['commodity'] not in points and p['commodity'] != currency:
                 if not p['cost'] or p['cost']['commodity'] != currency or Decimal(p['cost']['amount']) <= 0:
                     raise ProposalError(f'Expense in {p["commodity"]} on {funding["account"]} ({currency}) needs the amount charged or a rate as a cost in {currency}; ask the user when neither is known')
     unknown = sorted({p['account'] for p in entry['postings']} - set(accounts))
@@ -150,7 +154,7 @@ def to_store(answer, root, file_count, *, documents=None):
     registered = declared_symbols(declared)
     for posting_ in entry['postings']:
         for code in (posting_['commodity'], (posting_['cost'] or {}).get('commodity')):
-            if code in supported and code not in registered:
+            if (code in supported or code in points) and code not in registered:
                 commodities.append(code)
                 registered.add(code)
     return entry, {**declared, 'accounts': accounts, 'commodities': commodities}, new
@@ -199,16 +203,31 @@ def evidence_paths(answer, draft, root):
     return paths
 
 
+def payment_value(posting, *, points=False):
+    """Return a payment leg's signed amount and money code for display."""
+    amount = Decimal(posting['amount'])
+    if not points:
+        return posting['commodity'], amount
+    cost = posting['cost']
+    value = Decimal(cost['amount']) * (abs(amount) if cost['per'] == 'unit' else 1)
+    return cost['commodity'], -value if amount < 0 else value
+
+
 def payment(entry, accounts=None):
     # Allocation/category credits are never payment legs. Refunds and repayments
     # with no outflow name the incoming balance-sheet account once.
-    balance = [p for p in entry['postings'] if is_balance_sheet(p['account']) and (accounts.get(p['account'],{}).get('kind') if accounts is not None else infer_kind(p['account'])) in ('bank','card','cash','wallet','loan')]
+    kind = lambda p: accounts.get(p['account'], {}).get('kind') if accounts is not None else infer_kind(p['account'])
+    balance = [p for p in entry['postings'] if is_balance_sheet(p['account']) and (
+        kind(p) in ('bank', 'card', 'cash', 'wallet', 'loan') or kind(p) == 'points' and p['cost'])]
     postings = [p for p in balance if Decimal(p['amount']) < 0]
     if not postings: postings = [p for p in balance if Decimal(p['amount']) > 0]
     totals = {}
-    for p in postings: totals[p['commodity']] = totals.get(p['commodity'], Decimal(0)) + abs(Decimal(p['amount']))
+    for p in postings:
+        code, amount = payment_value(p, points=kind(p) == 'points')
+        totals[code] = totals.get(code, Decimal(0)) + abs(amount)
+    accounts_used = postings or [p for p in entry['postings'] if kind(p) == 'points']
     return {'total': ', '.join(f"{value} {code}" for code,value in totals.items()),
-            'payment_account': ', '.join(dict.fromkeys(p['account'] for p in postings))}
+            'payment_account': ', '.join(dict.fromkeys(p['account'] for p in accounts_used))}
 
 
 def message_for(settings, draft, entry, new, answer, *, accounts=None):
@@ -216,7 +235,7 @@ def message_for(settings, draft, entry, new, answer, *, accounts=None):
     paid = payment(entry,load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'] if accounts is None else accounts)
     lines = [f"Add {entry['description']} via dashboard", '', f"Typed: {quote(draft['text'])}",
              f'Saved: {saved_local(draft)}',
-             f"Total: {paid['total']}, {paid['payment_account']}",
+             f"Total: {paid['total'] or ('none' if paid['payment_account'] else '')}, {paid['payment_account']}",
              'Evidence: ' + ', '.join(entry['evidence'])]
     lines += [f"Asked: {quote(q['question'])} Answered: {quote(q['answer'])}" for q in draft['questions'] if q.get('answer') is not None]
     # Escape line breaks so review metadata always remains one physical line.

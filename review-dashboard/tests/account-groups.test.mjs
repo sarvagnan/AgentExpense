@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { groupView, toMinor } from '../app/account-groups.ts';
 import { statementFacts } from '../scripts/expense-store.mjs';
-import { moneyCode, setMoneySettings } from '../scripts/formatting.mjs';
+import * as formatting from '../scripts/formatting.mjs';
+import { setCurrentAccounts } from '../scripts/account-metadata.mjs';
+const {moneyCode, setMoneySettings} = formatting;
 
 // Fictional accounts. Banks hold USD and EUR; the card and loan read as amounts owed.
 const metadata = {
@@ -34,6 +36,20 @@ const entries = [
   entry('future', '2026-11-03', ['Expenses:Food', 99], ['Assets:Bank:Alder', -99]),
 ];
 const view = (group, extra = {}) => groupView({ entries, group, start: '2026-10-01', asOf: '2026-10-31', metadata, ...extra });
+
+test('accounts_points_group_shows_units', t => {
+  const account = 'Assets:Points:Fern Rewards';
+  const accounts = {...metadata, [account]: {kind: 'points', currency: 'FERNPTS'}};
+  setCurrentAccounts(accounts);
+  t.after(() => setCurrentAccounts({}));
+  const group = view('Points', {metadata: accounts, entries: [
+    entry('opening points', '2026-09-30', [account, 1200, 'FERNPTS']),
+    entry('redemption', '2026-10-01', [account, -200, 'FERNPTS']),
+  ]});
+  assert.deepEqual(group.totals, []);
+  assert.equal(group.accounts[0].balance, 1000);
+  assert.equal(formatting.commodityAmount(group.accounts[0].balance, 'FERNPTS'), '1,000 points');
+});
 
 test('opening and closing totals and in/out for the period, per currency', () => {
   const banks = view('Banks');

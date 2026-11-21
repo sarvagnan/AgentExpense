@@ -27,11 +27,12 @@ from ledger_lock import ledger_lock
 from strict_check import account_problem
 from project_paths import APPLICATION_ROOT
 from store import ROOT, commodities, commodity_directive, dump, empty_entry, load, new_id, posting, read_json, validate
+from store_models import POINTS_CODE_PATTERN
 from account_metadata import empty
 
-KINDS = ('bank', 'card', 'cash', 'wallet', 'loan', 'investment', 'person')
+KINDS = ('bank', 'card', 'cash', 'wallet', 'loan', 'investment', 'person', 'points')
 PARENTS = {'bank': 'Assets:Bank', 'card': 'Liabilities:Credit Cards', 'cash': 'Assets:Cash', 'wallet': 'Assets:Wallets',
-           'loan': 'Liabilities:Loans', 'investment': 'Assets:Investments', 'person': 'Assets:People'}
+           'loan': 'Liabilities:Loans', 'investment': 'Assets:Investments', 'person': 'Assets:People', 'points': 'Assets:Points'}
 OWED = ('card', 'loan')  # amounts typed as owed; the ledger holds them as negative
 OPENING = 'Equity:Opening Balances'
 ROOTS = ('Assets', 'Liabilities', 'Equity', 'Income', 'Expenses')
@@ -83,7 +84,10 @@ def account_changes(root, *, kind=None, label=None, currency=None, aliases=(), r
         if not name.startswith(('Assets:', 'Liabilities:')):
             raise ValueError('Balance-sheet accounts start with Assets: or Liabilities:.')
         currency = (currency or manifest['defaultCurrency']).strip()
-        if kind != 'investment':
+        if kind == 'points':
+            if not re.fullmatch(POINTS_CODE_PATTERN, currency):
+                raise ValueError('--currency for points must be an uppercase programme code ending in PTS, such as FERNPTS.')
+        elif kind != 'investment':
             currency = currency.upper()
             if currency not in currencies():
                 raise ValueError(f'--currency must be an ISO 4217 code such as USD; {currency!r} is not one.')
@@ -130,14 +134,14 @@ def find_account(accounts, key):
     return matches[0]
 
 
-def amount_text(value, currency):
+def amount_text(value, currency, *, points=False):
     try:
         number = Decimal(value.replace(',', '').strip())
     except InvalidOperation:
         raise ValueError(f'{value!r} is not an amount.') from None
     if not number.is_finite():
         raise ValueError(f'{value!r} is not an amount.')
-    places = minor_units(currency)
+    places = 0 if points else minor_units(currency)
     if number != number.quantize(Decimal(1).scaleb(-places)):
         raise ValueError(f'{currency} amounts have at most {places} decimal places: {value!r}.')
     return number, format(number.quantize(Decimal(1).scaleb(-max(places, 2))), 'f')
@@ -180,11 +184,12 @@ def opening_changes(root, start, balances, *, documents=None, manifest=None):
         currency = meta['currency']
         if meta['kind'] == 'investment' and currency not in currencies():
             raise ValueError(f'{name} holds units of {currency}; record its holdings as a purchase with their cost.')
-        number, _ = amount_text(value, currency)
+        points = meta['kind'] == 'points'
+        number, _ = amount_text(value, currency, points=points)
         if meta['kind'] in OWED:
             number = -number
-        text = amount_text(str(number), currency)[1]
-        negated = amount_text(str(-number), currency)[1]
+        text = amount_text(str(number), currency, points=points)[1]
+        negated = amount_text(str(-number), currency, points=points)[1]
         identity = new_id(used)
         used.add(identity)
         held = posting(name, text, currency, assertion={'amount': text, 'commodity': currency})
@@ -258,7 +263,7 @@ def main(argv=None):
     add = commands.add_parser('account', help='declare one account')
     add.add_argument('--kind', choices=KINDS)
     add.add_argument('--label')
-    add.add_argument('--currency', help="default: the ledger's main currency")
+    add.add_argument('--currency', help="programme code for points; otherwise defaults to the ledger's main currency")
     add.add_argument('--alias', action='append', default=[], help='a word the person uses for it (repeatable)')
     add.add_argument('--reader', help='statement reader ID (bank and card accounts)')
     add.add_argument('--identifier', help='what the statement prints for this account, such as the last four digits')

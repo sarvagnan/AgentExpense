@@ -49,6 +49,7 @@ test('Usual payment waits for file interpretation before enabling its moving act
   if(name==='react/jsx-runtime')return {jsx:element,jsxs:element,Fragment:'fragment'};
   if(name==='../data')return {dashboard:{meta:{accounts:{},ledger:{}}}};
   if(name==='../date-time')return {localDate:()=>''};
+  if(name==='./builder')return {mentionsPoints:()=>false};
   if(name==='../../scripts/recurring-ui.mjs')return {matchRules:()=>result};
   if(name==='./rules-api')return {useRules:()=>({data:{rules:[rule]},ready:true})};
   return {};

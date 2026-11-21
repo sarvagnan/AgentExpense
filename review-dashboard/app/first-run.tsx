@@ -109,7 +109,7 @@ export default function FirstRun({onDone}: {onDone: (result: FirstRunDone) => vo
 
 function initialRows(): AccountRow[] {
   const main = dashboard.meta.ledger.defaultCurrency;
-  const declared = Object.entries(dashboard.meta.accounts).filter(([, meta]) => meta.kind && meta.currency);
+  const declared = Object.entries(dashboard.meta.accounts).filter(([, meta]) => meta.kind && meta.kind !== 'points' && meta.currency);
   if (declared.length) return declared.map(([account, meta]) => ({key:nextKey(), kind:meta.kind as Kind, label:meta.label || accountLabel(account), balance:'', currency:meta.currency!, existing:true}));
   return [{key:nextKey(), kind:'bank', label:'', balance:'', currency:main}];
 }

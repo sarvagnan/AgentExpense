@@ -152,6 +152,17 @@ class CommodityDirectiveTests(SetupFixture):
 
 
 class OpeningTests(SetupFixture):
+    def test_points_opening_balance_whole(self):
+        name = self.add(kind='points', label='Fern Rewards', currency='FERNPTS')
+        self.assertEqual(name, 'Assets:Points:Fern Rewards')
+        with self.assertRaisesRegex(ValueError, '0 decimal places'):
+            self.opening('2026-11-05', 'Fern Rewards=4.50')
+        self.opening('2026-11-05', 'Fern Rewards=500')
+        held, equity = self.entries()[0]['postings']
+        self.assertEqual(held['assert'], {'amount': '500.00', 'commodity': 'FERNPTS'})
+        self.assertEqual((equity['account'], equity['amount'], equity['commodity']),
+                         ('Equity:Opening Balances', '-500.00', 'FERNPTS'))
+
     def setUp(self):
         super().setUp()
         self.add(kind='bank', label='Example Checking', aliases=['checking'])

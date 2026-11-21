@@ -14,9 +14,9 @@ import re
 import secrets
 import subprocess
 
-from transactions import Transaction, clean, jj, refresh, reject_invisible
+from transactions import Transaction, clean, jj, refresh, reject_invisible, payment_value
 from currency_settings import SettingsRecords
-from store import load, entries, dump, validate, store_paths
+from store import load, entries, dump, validate, store_paths, points_codes
 from audit import records, event, append, audit_path
 from ledger_lock import ledger_lock, LOCK_FD_ENV
 
@@ -63,22 +63,31 @@ def version(entry, touched):
     return digest([entry, touched.get(entry['id'])])
 
 
+def review_postings(entry, points):
+    rows = [p for p in entry['postings'] if p['account'].split(':')[0] in ('Expenses', 'Income')]
+    return [p for p in rows if p['commodity'] not in points] or rows
+
+
 def summary(entry, accounts, touched):
+    points = points_codes(accounts)
     payment = next((p for p in entry['postings'] if accounts.get(p['account'], {}).get('kind') in ('bank', 'card', 'cash', 'wallet') and Decimal(p['amount']) < 0), None)
+    payment = payment or next((p for p in entry['postings'] if p['commodity'] in points and p['cost']), None)
     payment = payment or next((p for p in entry['postings'] if accounts.get(p['account'], {}).get('currency')), entry['postings'][-1])
-    review = next((p for p in entry['postings'] if p['account'].split(':')[0] in ('Expenses', 'Income')), None)
-    currency = payment['commodity']
-    amount = abs(Decimal(payment['amount']))
+    review = next(iter(review_postings(entry, points)), None)
+    currency, signed = payment_value(payment, points=payment['commodity'] in points and bool(payment['cost']))
+    amount = abs(signed)
     totals = {}
     for posting in entry['postings']:
-        if accounts.get(posting['account'], {}).get('kind') in ('bank', 'card', 'cash', 'wallet'):
-            totals[posting['commodity']] = totals.get(posting['commodity'], Decimal(0)) + Decimal(posting['amount'])
+        redeemed = posting['commodity'] in points and bool(posting['cost'])
+        if accounts.get(posting['account'], {}).get('kind') in ('bank', 'card', 'cash', 'wallet') or redeemed:
+            code, value = payment_value(posting, points=redeemed)
+            totals[code] = totals.get(code, Decimal(0)) + value
     amounts = {code: str(abs(total)) for code, total in totals.items() if total}
     if currency in amounts:
         amount = Decimal(amounts[currency])
-    kind = 'Expense' if review and review['account'].startswith('Expenses') and Decimal(review['amount']) >= 0 else 'Refund' if review and review['account'].startswith('Expenses') else 'Income' if review else 'Transfer'
+    kind = 'Points' if currency in points else 'Expense' if review and review['account'].startswith('Expenses') and Decimal(review['amount']) >= 0 else 'Refund' if review and review['account'].startswith('Expenses') else 'Income' if review else 'Transfer'
     return dict(amounts=amounts or {currency:str(amount)}, signedAmounts={code:str(-total) for code,total in totals.items() if total}, id=entry['id'], version=version(entry, touched), date=entry['date'], originalDate=entry['date'],
-                description=entry['description'], amount=str(amount), signedAmount=str(-totals[currency] if totals.get(currency) else -Decimal(payment['amount'])), currency=currency,
+                description=entry['description'], amount=str(amount), signedAmount=str(-totals[currency] if totals.get(currency) else -signed), currency=currency,
                 account=payment['account'], accountLabel=accounts.get(payment['account'], {}).get('label') or payment['account'].split(':')[-1],
                 currentAccount=review['account'] if review else '', kind=kind,
                 sources=entry['evidence'], source=next(iter(entry['evidence']), 'Derived ledger entry'),
@@ -280,13 +289,13 @@ def apply(settings, body, *, clock=None):
             if entry['status'] != 'pending' and not any(i['kind'] == 'doubt' and i['id'] == entry_id for i in state['items']):
                 raise ValueError('This entry is no longer waiting for review')
             if decision['status'] == 'resolved':
-                postings = [p for p in entry['postings'] if p['account'].split(':')[0] in ('Expenses', 'Income')]
+                declarations = documents[root / 'data/accounts.json']['accounts']
+                postings = review_postings(entry, points_codes(declarations))
                 if not postings:
                     raise ValueError('This entry has no review posting')
                 account = decision['account']
                 if not all(part and part.strip() == part for part in account.split(':')):
                     raise ValueError('Choose a valid ledger account')
-                declarations = documents[root / 'data/accounts.json']['accounts']
                 if account not in declarations:
                     from account_metadata import empty, infer_kind, is_balance_sheet
                     from ledger_manifest import read_manifest

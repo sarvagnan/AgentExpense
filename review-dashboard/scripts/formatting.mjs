@@ -1,5 +1,6 @@
 import currencyCodes from '../../schema/currencies.json' with {type: 'json'};
 import currencyMinorUnits from '../../schema/currency-minor-units.json' with {type: 'json'};
+import {isPointsCurrency} from './account-metadata.mjs';
 let minorUnitTable = currencyMinorUnits;
 export const minorUnits = currency => minorUnitTable[currency] ?? 2;
 export const currencyNumberFormat = (currency, digits = minorUnits(currency), options = {}) => new Intl.NumberFormat(locale, {style:'currency', currency, minimumFractionDigits:digits, maximumFractionDigits:digits, ...options});
@@ -28,6 +29,10 @@ export function money(value, currency = defaultCurrency, digits = minorUnits(cur
     .format(Math.abs(value) < 0.5 * 10 ** -digits ? 0 : value));
 }
 export const moneyWhole = (value, currency) => money(value, currency, 0);
+export function commodityAmount(value, currency = defaultCurrency, digits = minorUnits(currency)) {
+  if (!isPointsCurrency(currency)) return money(value, currency, digits);
+  return minus(count(value)) + (Math.abs(value) === 1 ? ' point' : ' points');
+}
 /** An amount with its currency code after it, for lists where the main currency has no code: `120.00 USD`. */
 export function moneyCode(value, currency) {
   if (!isCurrency(currency)) return `${units(value)} ${currency}`;

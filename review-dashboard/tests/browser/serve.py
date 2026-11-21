@@ -164,6 +164,9 @@ def formatting_module():
     source = (settings.application / 'review-dashboard/scripts/formatting.mjs').read_text()
     for name, file in [('currencyCodes', 'currencies.json'), ('currencyMinorUnits', 'currency-minor-units.json')]:
         source = source.replace(f"import {name} from '../../schema/{file}' with {{type: 'json'}};", f'const {name} = ' + (settings.application / 'schema' / file).read_text() + ';')
+    # The page imports this source from a data: URL, so relative imports cannot resolve; this check uses no points units.
+    source = source.replace("import {isPointsCurrency} from './account-metadata.mjs';", 'const isPointsCurrency = () => false;')
+    assert "from './" not in source, 'formatting.mjs gained a relative import; inline it here'
     return Response(source, media_type='text/javascript')
 
 config = Path(os.environ['EXPENSES_FAKE_CONFIG'])

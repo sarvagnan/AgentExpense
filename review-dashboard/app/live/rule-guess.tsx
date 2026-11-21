@@ -5,6 +5,7 @@ import {dayLabel,money,monthLong} from '../ui';
 import {matchRules,payer,paymentInPeriod,periodFor,ruleAmounts,textAmounts,nextDueForPayment,varyingAmountCheck} from '../../scripts/recurring-ui.mjs';
 import {RuleSummary,entryHref} from '../rules';
 import type {Composer} from './composer';
+import {mentionsPoints} from './builder';
 import {type MatchResult,type Rule,rulesApi,useRules} from './rules-api';
 /** Self-contained so the guess can move with the composer into a future layout. */
 export function RuleGuess({composer:c,online}:{composer:Composer;online:boolean|null}) {
@@ -24,7 +25,7 @@ export function RuleGuess({composer:c,online}:{composer:Composer;online:boolean|
   // One shared word is only a suggestion: it opens the card when chosen, never on its own.
   const suggestions=(result.suggestions||[]).filter(m=>!c.form.declined_rules?.includes(m.id)&&rules.some(r=>r.id===m.id)).slice(0,3);
   const match=matches.find(m=>m.id===selected)||suggestions.find(m=>m.id===selected)||(!result.pick_list||matches.length===1?matches[0]:undefined),rule=rules.find(r=>r.id===match?.id);
-  const shown=!!c.form.text.trim()&&!c.form.declined_rules?.includes(selected||result.rule_id||'');
+  const shown=!!c.form.text.trim()&&!mentionsPoints(c.form.text)&&!c.form.declined_rules?.includes(selected||result.rule_id||'');
   const card=shown&&rule?(rule.amount==='varies'?'varies':'fixed'):'';
   useEffect(()=>{c.setUsualCard?.(card);return()=>c.setUsualCard?.('');},[card]);
   if(!shown||!matches.length&&!suggestions.length)return null;
