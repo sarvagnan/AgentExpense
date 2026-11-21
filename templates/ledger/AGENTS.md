@@ -4,16 +4,15 @@ This ledger follows the general bookkeeping policy in the AgentExpense applicati
 `policy/BOOKKEEPING.md`. Read that first; it covers double entry, evidence,
 duplicates, currencies, transfers, wallets, people, investments, rewards, pending
 entries, statements, recurring rules and bills, and Delete, Trash and retention.
-The dashboard's agent receives both documents on every run.
+The dashboard's Add agent receives the application's Add policy and the section
+below on every run.
 
 Keep only your own rules here, such as which account a regular payee belongs to,
 who shares which costs, or how you name things. Personal rules may add detail;
 they never remove a check from the general policy. Never put passwords, statement
 passwords or sign-in details in this file.
 
-## Personal rules
-
-- (none yet)
+## Rules for entries
 
 ## Rebuild and verify
 

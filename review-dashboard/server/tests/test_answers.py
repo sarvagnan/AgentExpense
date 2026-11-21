@@ -87,7 +87,10 @@ class AnswerTests(Fixture):
         journal = (self.ledger / 'expense_ledger.ledger').read_text()
         for line in ('; learning-course: Fictional pottery class', '; learning-hours: 2.50', '; learning-level: beginner'):
             self.assertIn(line, journal)
-        self.assertIn('entry.extensions.learning.course', self.calls()[0]['stdin'])
+        call = self.calls()[0]
+        course = call['schema']['$defs']['AnswerLearningExtension']['properties']['course']
+        self.assertEqual(course['description'], 'The course or workshop name printed on the receipt.')
+        self.assertNotIn('entry.extensions.learning.course', call['stdin'])
 
     def test_answer_shape_failures(self):
         self.use_learning()

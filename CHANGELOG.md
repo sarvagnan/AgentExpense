@@ -12,6 +12,10 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- The in-app agent's prompts are shorter: Add uses its own entry policy (`policy/ADD-AGENT.md`, kept in step
+  with `policy/BOOKKEEPING.md` by a test), sends only the `## Rules for entries` section of a ledger's
+  `AGENTS.md`, keeps statement identifiers out of account context, and shows earlier answers and save
+  refusals only when they apply.
 - Upgrades preserve older-app audit history and read its drafts, corrections,
   rule changes and review verdicts in the current audit format.
 - Queue lists a saved payment whose receipt disagrees with it under Needs you, opens it on the
@@ -194,6 +198,10 @@ that fails and keep its output.
 
 - Run `make upgrade-ledger ARGS="--dry-run"` for a ledger from the older app,
   then run `make upgrade-ledger` to convert the store and retain the audit history.
+
+- Restart the server for the revised Add prompts. Place ledger-specific entry
+  instructions under `## Rules for entries` in the ledger's `AGENTS.md`.
+  `make doctor` reports ledgers that still use the whole-file fallback.
 
 - Use `make commit m="…" by=user` or `by=agent` for hand data changes. Run
   `make upgrade-ledger` to initialize an older ledger's audit boundary (format 2

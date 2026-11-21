@@ -168,8 +168,9 @@ Adapters run in an empty disposable workspace and their own dedicated home under
 linked, and no existing state directory is migrated. The server validates every answer and owns every write. Only the enabled
 read-only ledger lookups are offered; old history is optional. Every PDF page provides
 a PNG at twice its point dimensions plus its extracted text, and images reach each adapter's image protocol.
-Runtime policy, browser save context, earlier answers and check errors stay in the
-shared production prompt. Execution/schema errors retain the existing bounded retry.
+The Add prompt reads [the Add policy](../../policy/ADD-AGENT.md) and the ledger's
+`## Rules for entries` section on each run. It includes the draft's browser save
+time and includes earlier answers and check refusals when present. Execution/schema errors retain the existing bounded retry.
 
 Codex and OpenCode receive prompts on stdin, as Claude and Pi already do; image
 filenames remain CLI arguments where needed. Preparation renders one PDF page at
@@ -809,9 +810,9 @@ check runs, nothing is recorded, no banner shows and `GET api/ledger-check` answ
 | POST `api/ledger-check/fix` | Ask the agent to fix it: 201 with a correction draft queued for the agent; 409 for an app problem or no named entry; asking again returns the same draft |
 
 The fix draft is an ordinary Edit entry draft (`correction`) with `ledger_fix`. The
-worker gives it to the agent (`agent.ledger_fix_prompt`: the finding, hledger's text,
-the entry's Edit entry form, declared accounts and the policy; the usual answer
-schema), checks the answer with the answer model (one retry with the error), and puts
+worker gives it to the agent (`agent.ledger_fix_prompt`: the finding, the saved
+values in the answer model, declared accounts and the ledger's rules for entries).
+It checks the answer with the answer model (one retry with the error) and puts
 it in the draft's `hand_form`. Nothing is saved: the person opens it in Queue, checks it
 and saves it through the usual correction (`Added-by: user (correction)`, Reason
 "Ledger check: …"). A question or a failed run leaves the entry's own form for the

@@ -3,7 +3,9 @@
 Every value here is invented. This ledger follows the application's general
 bookkeeping policy, `policy/BOOKKEEPING.md`; only personal rules are kept here.
 
-## Personal rules
+## Rules for entries
+
+## Opening balances
 
 - Opening balances are confirmed on the start date.
 

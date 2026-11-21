@@ -16,7 +16,8 @@ import subprocess
 import sys
 
 APPLICATION = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(APPLICATION / 'scripts'))
+sys.path[:0] = [str(APPLICATION / 'scripts'), str(APPLICATION / 'review-dashboard/server')]
+from bookkeeping_policy import ENTRY_RULES_HEADING, entry_rules  # noqa: E402
 import check_version  # noqa: E402
 import dependencies  # noqa: E402
 
@@ -135,10 +136,24 @@ def check_tools(environ):
     return rows
 
 
+def selected_ledger(application, environ):
+    return Path(environ.get('LEDGER_DIR') or application / 'ledger').expanduser().resolve()
+
+
+def check_entry_rules(root):
+    try:
+        rules = entry_rules((root / 'AGENTS.md').read_text())
+    except (OSError, UnicodeError):
+        return []
+    if rules is None:
+        return [Row('Entry rules', WARN, 'the Add agent receives the whole ledger AGENTS.md',
+                    f'Put rules for the in-app agent under "{ENTRY_RULES_HEADING}" in the ledger AGENTS.md.')]
+    return []
+
+
 def check_ledger(application, environ):
     default = application / 'ledger'
-    configured = environ.get('LEDGER_DIR')
-    root = Path(configured).expanduser().resolve() if configured else default.resolve()
+    root = selected_ledger(application, environ)
     if root == default.resolve() and not default.exists():
         return Row('Ledger', INFO, 'no ledger selected (tests use fixtures/ledgers/asha)',
                    'Set LEDGER_DIR to your ledger, or keep one at ledger/.')
@@ -247,7 +262,8 @@ def diagnose(application=APPLICATION, environ=None, python_version=None):
     environ = dict(os.environ if environ is None else environ)
     python_version = tuple(sys.version_info[:3] if python_version is None else python_version)
     return [check_app(application), check_python(application, python_version), *check_node(application, environ),
-            *check_tools(environ), check_ledger(application, environ), check_npm_packages(application),
+            *check_tools(environ), check_ledger(application, environ), *check_entry_rules(selected_ledger(application, environ)),
+            check_npm_packages(application),
             check_python_packages(application, environ), check_adapter(application, environ)]
 
 

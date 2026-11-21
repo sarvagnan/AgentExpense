@@ -12,7 +12,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from support import Fixture, ready, png, SERVER, metadata
-from agent import command_for, prompt_for, prepare, policy_text
+from agent import command_for, prompt_for, prepare
 from transactions import ledger_lock, Transaction, clean, jj
 
 

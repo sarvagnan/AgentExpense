@@ -62,7 +62,7 @@ Added-by: user (correction)
 
 Receipt readings use the same correction transaction and an `Added-by: <adapter/model> (receipt details for <entry id>)` trailer. Pending receipt readings and questions retain their draft beyond 24 hours.
 
-Each server run reads `policy/BOOKKEEPING.md` and the ledger's `AGENTS.md` (`bookkeeping_policy.py`); test application copies include `policy/`. Commands remain disabled for the agent; only its read-only MCP lookup server reads the store and optional older ledger. Offline tests use fake agents and never models. After agent isolation changes run `make agent-check`; see `review-dashboard/server/README.md` for the automatic gate, allow-lists and maintainer-only Codex upgrades. The operator signs in once with `make agent-login`; the server never copies or links authentication into its dedicated home.
+Each Add agent run reads `policy/ADD-AGENT.md` and the ledger's `## Rules for entries` section (`bookkeeping_policy.py`); test application copies include `policy/`. Commands remain disabled for the agent; only its read-only MCP lookup server reads the store and optional older ledger. Offline tests use fake agents and never models. After agent isolation changes run `make agent-check`; see `review-dashboard/server/README.md` for the automatic gate, allow-lists and maintainer-only Codex upgrades. The operator signs in once with `make agent-login`; the server never copies or links authentication into its dedicated home.
 
 ## Audit, statements and review
 

@@ -1,10 +1,11 @@
 # General bookkeeping policy
 
 This is the application's general policy for every ledger. Coding agents read it
-before changing a ledger; the server reads it, with the selected ledger's own
-`AGENTS.md`, every time the in-app agent runs. A ledger's `AGENTS.md` holds only that
-person's rules. Personal rules may add detail or name accounts; they never remove a
-check described here.
+before changing a ledger. The in-app Add agent receives [Add bookkeeping policy](ADD-AGENT.md)
+and the `## Rules for entries` section of the selected ledger's `AGENTS.md`.
+Personal rules may add detail or name accounts; they never remove a check described here.
+In an older ledger without that heading, the agent receives the whole file and
+`make doctor` suggests adding the heading.
 
 ## Before adding or changing entries
 

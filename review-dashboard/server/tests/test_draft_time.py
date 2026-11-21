@@ -98,8 +98,8 @@ class DraftTimeTests(Fixture):
                     self.assertEqual(saved_local(draft), expected)
                     prompt, _ = prompt_for(self.settings, draft, client.app.state.drafts.folder(identity), self.base)
                     self.assertIn('Saved: ' + expected, prompt)
-                    for instruction in ('undated entries', '"yesterday"', '"last Friday"', "draft's local Saved date"):
-                        self.assertIn(instruction, prompt)
+                    for instruction in ('undated entry', '"yesterday"', '"last Friday"', "draft's original Saved time"):
+                        self.assertIn(instruction, ' '.join(prompt.split()))
                     proposal = ready()
                     entry, _, _ = to_store(proposal, self.ledger, len(proposal['attachment-names'] or ()))
                     message = message_for(self.settings, draft, entry, [], proposal)
@@ -181,7 +181,8 @@ class DraftTimeTests(Fixture):
             self.assertEqual({k: handover.json()[k] for k in context}, context)
             fallback = dict(session, statement_task=True, saved_at=session['created_at'], files=[])
             prompt, _ = prompt_for(self.settings, fallback, self.base, self.base)
-            self.assertIn('Saved: 2000-01-01 23:45 -05:00 America/Chicago', prompt)
+            self.assertNotIn('Saved:', prompt)
+            self.assertIn('Keep each movement’s date', prompt)
 
 
 class AliasRequests(Fixture):

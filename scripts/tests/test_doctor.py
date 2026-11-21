@@ -105,6 +105,16 @@ class DoctorTests(DoctorFixture):
         # The make default names the absent application ledger/: still no selection.
         self.assertEqual(self.statuses(LEDGER_DIR=str(self.app / 'ledger'))['Ledger'], 'info')
 
+    def test_legacy_entry_rules_warn_and_section_clears_the_hint(self):
+        root = self.ledger({'format': CURRENT_FORMAT})
+        policy = Path(root) / 'AGENTS.md'
+        policy.write_text('# Personal rules\n\nA legacy rule.\n')
+        row = self.rows(LEDGER_DIR=root)['Entry rules']
+        self.assertEqual(row.status, 'warn')
+        self.assertIn('## Rules for entries', row.fix)
+        policy.write_text('# Personal rules\n\n## Rules for entries\n\n## Terminal notes\n')
+        self.assertNotIn('Entry rules', self.rows(LEDGER_DIR=root))
+
     def test_fresh_clone_without_dependencies_blocks_with_fixes(self):
         shutil.rmtree(self.app / 'review-dashboard/node_modules')
         shutil.rmtree(self.app / 'review-dashboard/server/.venv')

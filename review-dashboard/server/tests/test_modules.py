@@ -47,7 +47,8 @@ class ModuleServerTests(Fixture):
         self.assertIn('extensions', schema['$defs']['AnswerEntry']['required'])
         self.assertEqual(set(schema['$defs']['AnswerFuelExtension']['properties']), {'litres', 'trip-km'})
         self.assertIn('## Fuel log', self.prompt(settings))
-        self.assertIn('entry.extensions.fuel.litres', self.prompt(settings))
+        self.assertIn('Record litres and trip distance', self.prompt(settings))
+        self.assertNotIn('entry.extensions.fuel.litres', self.prompt(settings))
         answer = ready(new=False); answer['attachment-names'] = []
         answer['entry']['extensions'] = {'fuel': {'litres': '8.00', 'trip-km': None}}
         entry, _, _ = to_store(answer, self.ledger, 0)
@@ -57,7 +58,8 @@ class ModuleServerTests(Fixture):
         self.assertNotIn('extensions', schema['$defs']['AnswerEntry']['properties'])
         self.assertNotIn('## Fuel log', self.prompt(settings))
         self.assertIn('# Personal rules for this ledger', self.prompt(settings))
-        self.assertIn('## Personal rules', self.prompt(settings))
+        self.assertIn('Advances for Dev Sen', self.prompt(settings))
+        self.assertNotIn('## Rebuild and verify', self.prompt(settings))
         self.assertNotIn('entry.extensions', self.prompt(settings))
         from answers import AnswerError, check
         with self.assertRaisesRegex(AnswerError, 'extensions'):

@@ -213,11 +213,13 @@ history they will not import, set `startDate` to the first day their records cov
 ## 5. Personal rules and optional modules
 
 The general bookkeeping policy ships with the application in
-[policy/BOOKKEEPING.md](policy/BOOKKEEPING.md); the dashboard's agent receives it
-with the ledger's own `AGENTS.md` on every run. Ask whether the person has rules of
-their own (who shares which costs, which account pays for what) and write them under
-"Personal rules" in the ledger's `AGENTS.md`. Personal rules may add detail; they
-never remove a check from the general policy.
+[policy/BOOKKEEPING.md](policy/BOOKKEEPING.md). The dashboard's Add agent receives
+[policy/ADD-AGENT.md](policy/ADD-AGENT.md) and the ledger's own rules for entries.
+Ask whether the person has rules of their own (who shares which costs, which account
+pays for what) and write them under `## Rules for entries` in the ledger's `AGENTS.md`.
+Personal rules may add detail and every general check still applies. Keep terminal
+instructions under a separate second-level heading. Older ledgers without the
+heading send the whole file to the agent. `make doctor` points out this fallback.
 
 Optional modules and extensions are set in the ledger's `ledger.json`
 ([docs/MODULES.md](docs/MODULES.md), [docs/EXTENSIONS.md](docs/EXTENSIONS.md)):

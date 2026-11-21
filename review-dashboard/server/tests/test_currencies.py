@@ -12,7 +12,7 @@ from statement_pdf import parse_text, account_currency
 from statement_fixtures import TEXT, statement_pdf
 from statements import Statements
 from statement_rules import convert, foreign
-from agent import PREFACE, statement_result
+from agent import prompt_for, statement_result
 
 CARD='Liabilities:Plastic:Lumen'
 BANK='Assets:Checking:Alder'
@@ -60,8 +60,11 @@ class CurrencyTests(Fixture):
         answer['entry']['original-amount']=dict(amount='46.80',commodity='USD')
         normalised,_,_=to_store(answer,self.ledger,0)
         self.assertIsNone(normalised['original-amount'])
-        self.assertIn('ask for the amount charged',PREFACE)
-        self.assertIn('both the sent and received amounts',PREFACE)
+        draft = dict(files=[], text='foreign lunch', saved_at='2026-10-31T12:00:00+00:00')
+        prompt, _ = prompt_for(self.settings, draft, self.base, self.base)
+        prompt = ' '.join(prompt.split())
+        self.assertIn('When neither the charged or received amount nor the rate is known, ask for one.', prompt)
+        self.assertIn('keep the sent and received amounts in their respective currencies', prompt)
 
     def test_cross_currency_transfer_keeps_sent_received_and_cost(self):
         self.setup_currencies();answer=ready(new=False);answer['attachment-names']=[];answer['entry']['original-amount']=None
@@ -183,7 +186,9 @@ class CurrencyTests(Fixture):
         with self.client(timeout=30) as client:
             identity=self.create(client,upload=False);self.save(client,identity)
             draft=self.wait(client,identity,'question');self.assertEqual(draft['currency_request']['currency'],'USD')
-            self.assertIn('unknown amount marker',self.calls()[0]['stdin'])
+            prompt = self.calls()[0]['stdin']
+            self.assertIn('put `0.00` in the charged or receiving posting', prompt)
+            self.assertIn('Use this marker only for the currency question', prompt)
             for value in ('','0','-1','NaN','Infinity','abc','1e4'):
                 response=client.post(f'/api/drafts/{identity}/currency',json={'rate':value})
                 self.assertEqual(response.status_code,422,response.text)

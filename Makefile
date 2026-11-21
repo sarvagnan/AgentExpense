@@ -37,15 +37,18 @@ LEDGER_PYTHON ?= uv run --locked --project review-dashboard/server python
 ledger:
 	$(LEDGER_PYTHON) scripts/ledger/generate_ledger.py
 
-test-inside: check-version test-browser-box-quick test-ledger test-migrations test-server
+test-inside: check-version test-add-policy test-browser-box-quick test-ledger test-migrations test-server
 
-.PHONY: doctor check-version
+.PHONY: doctor check-version test-add-policy
 # Offline prerequisites table; exits non-zero only for blocking problems.
 doctor:
 	@HLEDGER="$(HLEDGER)" python3 scripts/doctor.py
 
 check-version:
 	@python3 scripts/check_version.py
+
+test-add-policy:
+	@python3 -m unittest discover -s scripts/tests -p test_add_policy.py -v
 
 # npm ci only when installed packages differ from package-lock.json by version.
 .PHONY: node-modules install

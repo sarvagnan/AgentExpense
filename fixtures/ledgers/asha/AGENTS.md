@@ -5,11 +5,10 @@ tests. This is Asha Rao's demonstration INR ledger. It follows the application's
 general bookkeeping policy, `policy/BOOKKEEPING.md`; only Asha's own rules are kept
 here.
 
-## Personal rules
+## Rules for entries
 
 - Sources here are invented confirmation notes; never treat them as real receipts.
 - Advances for Dev Sen debit `Assets:Reimbursements:Dev Sen`; their repayment clears it.
-- The fuel log is on: record each fill's litres and trip distance with its expense.
 
 ## Rebuild and verify
 

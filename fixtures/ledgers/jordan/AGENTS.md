@@ -3,10 +3,13 @@
 Every value here is invented. This ledger follows the application's general
 bookkeeping policy, `policy/BOOKKEEPING.md`; only Jordan's own rules are kept here.
 
-## Personal rules
+## Rules for entries
+
+- Willow Travel holds euros for trips; leave it untouched between trips.
+
+## Opening balances
 
 - Opening balances are confirmed on the start date.
-- Willow Travel holds euros for trips; leave it untouched between trips.
 
 ## Rebuild and verify
 

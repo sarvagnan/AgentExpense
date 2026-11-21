@@ -47,17 +47,17 @@ class AgentInputTests(Fixture):
             self.assertEqual(response.status_code, 201)
             self.assertEqual(response.json()['files'][0]['extension'], '.pdf')
 
-    def test_general_policy_and_personal_rules_are_read_on_every_run(self):
+    def test_add_policy_and_entry_rules_are_read_on_every_run(self):
         import tempfile
         draft = dict(files=[], text='lunch 100 cash', saved_at='2026-10-31T12:00:00+00:00', questions=[])
         def prompt():
             with tempfile.TemporaryDirectory(dir=self.base) as folder:
                 return prompt_for(self.settings, draft, self.base, Path(folder))[0]
-        general = self.application / 'policy/BOOKKEEPING.md'
+        general = self.application / 'policy/ADD-AGENT.md'
         personal = self.ledger / 'AGENTS.md'
-        personal.write_text('# Fictional rules\n\n## Personal rules\n\n- First personal marker\n\n## Rebuild and verify\n\nTerminal-only marker\n')
+        personal.write_text('# Fictional rules\n\n## Rules for entries\n\n- First personal marker\n\n## Rebuild and verify\n\nTerminal-only marker\n')
         text = prompt()
-        # General policy without its title or terminal steps, then the personal rules.
+        # The Add policy precedes the payment accounts and the entry-only personal rules.
         self.assertLess(text.index('## Double entry'), text.index('# Personal rules for this ledger'))
         self.assertLess(text.index('# Personal rules for this ledger'), text.index('First personal marker'))
         self.assertNotIn('# General bookkeeping policy', text)
@@ -73,6 +73,13 @@ class AgentInputTests(Fixture):
         with self.assertRaises(FileNotFoundError):
             prompt()
 
+    def test_legacy_personal_rules_fall_back_to_the_whole_file(self):
+        personal = '# Fictional ledger\n\nLegacy personal marker\n\n## Notes\n\nAnother marker'
+        (self.ledger / 'AGENTS.md').write_text(personal)
+        draft = dict(files=[], text='lunch 100 cash', saved_at='2026-10-31T12:00:00+00:00')
+        text, _ = prompt_for(self.settings, draft, self.base, self.base)
+        self.assertIn(personal, text)
+
     def test_runtime_policy_qa_prompt_exact_flags_and_stdin(self):
         with self.client(worker=False) as client:
             identity = self.create(client)
@@ -82,9 +89,9 @@ class AgentInputTests(Fixture):
             draft['check_errors'] = ['Fix the balance']
             folder = client.app.state.drafts.folder(identity)
             policy = self.ledger / 'AGENTS.md'
-            policy.write_text(policy.read_text().replace('## Personal rules', '## Personal rules\n\nRuntime policy marker'))
-            general = self.application / 'policy/BOOKKEEPING.md'
-            general.write_text(general.read_text().replace('## Source of truth', 'General policy marker\n\n## Source of truth'))
+            policy.write_text(policy.read_text().replace('## Rules for entries', '## Rules for entries\n\nRuntime policy marker'))
+            general = self.application / 'policy/ADD-AGENT.md'
+            general.write_text(general.read_text().replace('## Duplicates', 'General policy marker\n\n## Duplicates'))
             declarations = json.loads((self.ledger/'data/accounts.json').read_text())
             declarations['accounts']['Assets:Cash'].update(label='Pocket money',aliases=['pocket'])
             (self.ledger/'data/accounts.json').write_text(json.dumps(declarations))
@@ -121,6 +128,7 @@ class AgentInputTests(Fixture):
                          'Cash', 'Fix the balance', draft['client_zone'], 'category', 'lunch'):
                 self.assertIn(text, prompt)
             self.assertNotIn('## Rebuild and verify', prompt)
+            self.assertNotIn('A confirmed balance cannot be overridden', prompt)
             self.assertIn('not_expense', call['schema']['properties']['status']['enum'])
             self.assertIn('attachment-names', call['schema']['required'])
             self.assertFalse(Path(call['cwd']).exists())
