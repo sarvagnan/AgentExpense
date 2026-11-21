@@ -17,7 +17,7 @@ export function directAction({page,base,expect,snap=async()=>{},record=()=>{}}){
   const controls=[input,button,heading],handles=await Promise.all(controls.map(node=>node?node.elementHandle():null));const boxes=async()=>Promise.all(handles.map(node=>node?node.evaluate(node=>{if(!node.isConnected)return null;const box=node.getBoundingClientRect();return {x:box.x,y:box.y,width:box.width,height:box.height};}):null));
   const check=(before,after,phase)=>before.forEach((box,index)=>{if(!box)return;if(!after[index]){assert.ok(allowContinuation&&phase==='saved',name+' unexpectedly removed a control');return;}for(const key of ['x','y'])assert.ok(Math.abs(box[key]-after[index][key])<=2,`${name} ${phase} control ${index} moved at ${key}: ${box[key]} → ${after[index][key]}`);});
   await page.evaluate(()=>{window.__directCompleted??=[];if(!window.__directListening){window.__directListening=true;window.addEventListener('direct-write-saved',event=>window.__directCompleted.push(event.detail));}});
-  const failure=await holdWrite(page,pattern,{fail:true,method});let value,before,inputFocused=false;
+  const failure=await holdWrite(page,pattern,{fail:true,method,name});let value,before,inputFocused=false;
   try{
    await button.click();const original=await failure.ready,path=original.url().slice((base+'api/').length);
    const state=page.locator('[data-action-path]').filter({has:page.locator('[role="status"]')});
@@ -40,9 +40,19 @@ export function directAction({page,base,expect,snap=async()=>{},record=()=>{}}){
    await page.evaluate(()=>window.__actionFocus=document.activeElement);await paints();before=await boxes();await dialogNotice();await snap('immediate-'+name+'-pending');await failure.release();
    const feedback=container&&await container.getAttribute('role')==='dialog'?container:page;const failed=feedback.locator('.action-feedback [data-action-state="failed"]:visible').last();await expect(failed).toContainText('Your words are kept');const retry=failed.getByRole('button',{name:'Retry',exact:true});await expect(retry).toBeEnabled();await paints();await onFailed?.();await snap('immediate-'+name+'-failed');check(before,await boxes(),'failed');assert.equal(await page.evaluate(()=>document.activeElement===window.__actionFocus),true,name+' failure moved focus');
    if(input){await expect(input).toHaveValue(value);if(inputFocused)await expect(input).toBeFocused();}
-   const success=await holdWrite(page,pattern,{method});let accepted,workerResult,claimRequests=0,observeClaim;
+   const success=await holdWrite(page,pattern,{method,name:`${name} Retry`});let accepted,workerResult,claimRequests=0,observeClaim;
    if(name==='hand-add')workerResult=await holdResult(page,base+'api/'+path.replace(/\/hand-add$/,''),{accept:body=>JSON.parse(body).state==='added'});
    try{
+    if(name==='usual-payment'&&page.viewportSize()?.width<=760){
+     const position=await retry.evaluate(node=>{
+      node.scrollIntoView({block:'end',behavior:'instant'});
+      const {top,bottom}=node.getBoundingClientRect();
+      const limit=Math.min(innerHeight,...Array.from(document.querySelectorAll('.add-savebar,.phone-live-nav'),bar=>bar.getBoundingClientRect().top));
+      return {top,bottom,limit};
+     });
+     assert.ok(position.top>=0&&position.bottom<=position.limit,`Usual-payment Retry scrolls clear of the phone bars ${JSON.stringify(position)}`);
+     record('Usual-payment Retry scrolls clear of the fixed phone bars after a failed write');
+    }
     await beforeRetry?.();await retry.click();accepted=await success.ready;if(name==='hand-add')assert.equal(accepted.postData(),original.postData(),'Hand Retry sends the exact failed-before-server body');const savedPath=accepted.url().slice((base+'api/').length),savedBody=accepted.postData()||'';
     if(workerResult){const sourceUrl=base+'api/'+savedPath.replace(/\/hand-add$/,'');observeClaim=request=>{if(request.url()===sourceUrl+'/claim')claimRequests++;};page.on('request',observeClaim);await page.route(sourceUrl,async route=>{expectInjectedHttp(page,sourceUrl,500);await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({detail:'Fictional result-read interruption'})});},{times:1});}
     await page.waitForFunction(path=>Array.from(document.querySelectorAll('[data-action-path]')).some(node=>node.dataset.actionPath===path&&['saving','queued'].includes(node.dataset.actionState)&&node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'),savedPath);

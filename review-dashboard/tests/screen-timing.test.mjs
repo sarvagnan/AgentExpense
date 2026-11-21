@@ -366,12 +366,42 @@ test('Background bar or refresh-notice measurements never scroll an older focuse
  const nav={getBoundingClientRect:()=>({height:64,top:836})},bar={getBoundingClientRect:()=>({height:80,top:756})},notice={getBoundingClientRect:()=>({height:40,top:700})};let bars=[nav,bar];
  const h=hookHarness('../app/live/focus.ts',{}, {innerHeight:900,getComputedStyle:()=>({display:'block',position:'fixed'}),requestAnimationFrame:fn=>{frames.set(++sequence,fn);return sequence;},cancelAnimationFrame:id=>frames.delete(id),ResizeObserver:class{constructor(fn){resized=fn;}observe(){}unobserve(){}disconnect(){}},MutationObserver:class{constructor(fn){mutated=fn;}observe(){}disconnect(){}}});
  const flush=()=>{for(const [id,fn] of [...frames]){frames.delete(id);fn();}};
- Object.assign(h.document,{body:{},documentElement:{style:{setProperty(){},removeProperty(){}}},querySelector:selector=>selector==='.phone-live-nav'?nav:selector.startsWith('.add-savebar')?bar:null,querySelectorAll:()=>bars,activeElement:null});h.events.scrollBy=value=>scrolls.push(value);
+ Object.assign(h.document,{head:{},body:{},documentElement:{style:{setProperty(){},removeProperty(){}}},querySelector:selector=>selector==='.phone-live-nav'?nav:selector.startsWith('.add-savebar')?bar:null,querySelectorAll:()=>bars,activeElement:null});h.events.scrollBy=value=>scrolls.push(value);
  try{
   h.render(m=>m.useLiveFocus('add'));flush();h.document.activeElement={closest:selector=>selector==='.live-page'?{}:null,getBoundingClientRect:()=>({top:-53,bottom:47})};
-  bars=[nav,bar,notice];mutated();resized();flush();assert.equal(scrolls.length,0,'A background publication must not reveal the old caret while the person is pointing elsewhere');
+  bars=[nav,bar,notice];mutated([{target:h.document.body}]);resized();flush();assert.equal(scrolls.length,0,'A background publication must not reveal the old caret while the person is pointing elsewhere');
   h.document.dispatchEvent(new Event('focusin'));assert.equal(scrolls.length,0);flush();assert.equal(scrolls.length,1);assert.equal(scrolls[0].top,-65);
   h.events.dispatchEvent(new Event('resize'));assert.equal(scrolls.length,1);flush();assert.equal(scrolls.length,2);
+ }finally{h.close();}
+});
+
+test('Phone Add restores Retry scroll space when the full-page capture stylesheet is removed',()=>{
+ const head={},body={},properties=new Map(),mutationTargets=new Map();let captured=false,mutated,resized;
+ const nav={getBoundingClientRect:()=>({height:64,top:851})};
+ const bar={getBoundingClientRect:()=>({height:192,top:659})};
+ const h=hookHarness('../app/live/focus.ts',{}, {
+  innerHeight:915,cancelAnimationFrame(){},
+  getComputedStyle:()=>({display:'block',position:captured?'absolute':'fixed'}),
+  ResizeObserver:class{constructor(fn){resized=fn;}observe(){}unobserve(){}disconnect(){}},
+  MutationObserver:class{constructor(fn){mutated=fn;}observe(target,options){mutationTargets.set(target,options);}disconnect(){mutationTargets.clear();}},
+ });
+ const style={setProperty:(name,value)=>properties.set(name,value),removeProperty:name=>properties.delete(name)};
+ Object.assign(h.document,{head,body,documentElement:{style},
+  querySelector:selector=>selector==='.phone-live-nav'?nav:selector.startsWith('.add-savebar')?bar:null,
+  querySelectorAll:()=>[nav,bar],
+ });
+ const captureStyle=enabled=>{
+  captured=enabled;
+  if(mutationTargets.get(head)?.childList)mutated([{type:'childList',target:head}]);
+ };
+ try{
+  h.render(m=>m.useLiveFocus('add'));
+  assert.equal(properties.get('--live-bottom-space'),'280px');
+  captureStyle(true);resized();
+  assert.equal(properties.get('--live-bottom-space'),'88px','The temporarily absolute save bar is excluded from the fixed space');
+  // Returning to fixed can keep the same observed dimensions and bar nodes.
+  captureStyle(false);
+  assert.equal(properties.get('--live-bottom-space'),'280px','Retry must have room to scroll above the fixed save bar immediately');
  }finally{h.close();}
 });
 

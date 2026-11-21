@@ -26,7 +26,7 @@ export function useComposer(active:boolean){
   const [localOK,setLocalOK]=useState(true),[synced,setSynced]=useState(''),[syncError,setSyncError]=useState('');
   const [patternError,setPatternError]=useState(''),[error,setError]=useState(''),[saving,setSaving]=useState(false),[success,setSuccess]=useState(''),[lastSavedId,setLastSavedId]=useState(''),[recovering,setRecovering]=useState(!!form.id);
   const [passwords,setPasswords]=useState<Record<string,string>>({});
-  const interpretation=useAddInterpretation(form.id,form.text,draft?.files.map(f=>f.id).join(',')||'',form.fileChoices||{},passwords,active&&!saving&&!recovering);
+  const interpretation=useAddInterpretation(form.id,form.text,draft?.files.map(f=>f.id).join(',')||'',form.fileChoices||{},passwords,active&&!recovering,saving);
   const current=useRef(form),uploads=useRef(pending),creation=useRef<Promise<Draft>|null>(null),syncing=useRef<Promise<void>|null>(null),savingRef=useRef(false),generation=useRef(0),fileRequest=useRef(0),restoration=useRef<Promise<void>|null>(null);
   current.current=form;uploads.current=pending;
   const built=useMemo(()=>buildSentence(form.text,{...patterns,extensions:dashboard.meta.ledger.extensions,payments:paymentAccounts(dashboard.meta.accounts)},form.edits,!!draft?.files.length),[form,patterns,draft?.files.length,dashboard.meta.accounts]);

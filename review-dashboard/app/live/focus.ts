@@ -32,7 +32,14 @@ export function useLiveFocus(view:string){
   const resize=new ResizeObserver(measure);
   let bars=new Set<Element>();
   const observeBars=()=>{const next=new Set(document.querySelectorAll('.phone-live-nav,.add-savebar,.statement-review-action,.ledger-check-banner,.data-refresh-notice,[role="dialog"]'));if(next.size===bars.size&&[...next].every(e=>bars.has(e)))return;for(const e of bars)if(!next.has(e))resize.unobserve(e);for(const e of next)if(!bars.has(e))resize.observe(e);bars=next;measure();};
-  const changes=new MutationObserver(observeBars);changes.observe(document.body,{childList:true,subtree:true});observeBars();
+  const changes=new MutationObserver(records=>{
+   observeBars();
+   // A stylesheet can restore fixed positioning without resizing the same bar.
+   if(records.some(record=>record.target===document.head))measure();
+  });
+  changes.observe(document.body,{childList:true,subtree:true});
+  changes.observe(document.head,{childList:true});
+  observeBars();
   const focus=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(reveal);};
   const viewport=()=>{measure();focus();};
   measure();document.addEventListener('focusin',focus);window.addEventListener('resize',viewport);window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',measure);

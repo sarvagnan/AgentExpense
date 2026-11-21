@@ -12,6 +12,10 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Retry after a failed usual-payment save works on the first tap: Add no longer re-checks an
+  attached file while the save is pending, which could move Retry during the click, and on phones it
+  re-measures the save bar when page styles change, so Retry can always be scrolled above it.
+  Browser action tests fail after 30 seconds when an action sends no request, instead of hanging.
 - The in-app agent's prompts are shorter: Add uses its own entry policy (`policy/ADD-AGENT.md`, kept in step
   with `policy/BOOKKEEPING.md` by a test), sends only the `## Rules for entries` section of a ledger's
   `AGENTS.md`, keeps statement identifiers out of account context, and shows earlier answers and save

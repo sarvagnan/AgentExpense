@@ -4,11 +4,13 @@ import {guard,gone} from './held.mjs';
 
 // The request has not reached the server while this gate is closed. This proves
 // pending is visible before a commit exists, rather than exploiting a slow engine.
-export async function holdWrite(page,pattern,{fail=false,method='POST'}={}){
- let open,finished,resolveReady,arrived=false;const gate=new Promise(resolve=>open=resolve),ready=new Promise(resolve=>resolveReady=resolve),done=new Promise(resolve=>finished=resolve);let error;
- const handler=async route=>{if(route.request().method()!==method)return route.fallback();arrived=true;resolveReady(route.request());await page.unroute(pattern,handler);error=await guard(route,async()=>{await gate;if(fail){expectInjected422(page,route.request().url());await route.fulfill({status:422,contentType:'application/json',body:JSON.stringify({detail:'This change could not be saved. Your words are kept.'})});}else await route.continue();});finished();};
+export async function holdWrite(page,pattern,{fail=false,method='POST',name}={}){
+ let open,finished,resolveReady,rejectReady,arrived=false,timer;const gate=new Promise(resolve=>open=resolve),ready=new Promise((resolve,reject)=>{resolveReady=resolve;rejectReady=reject;}),done=new Promise(resolve=>finished=resolve);let error;
+ const handler=async route=>{if(route.request().method()!==method)return route.fallback();arrived=true;clearTimeout(timer);resolveReady(route.request());await page.unroute(pattern,handler);error=await guard(route,async()=>{await gate;if(fail){expectInjected422(page,route.request().url());await route.fulfill({status:422,contentType:'application/json',body:JSON.stringify({detail:'This change could not be saved. Your words are kept.'})});}else await route.continue();});finished();};
  await page.route(pattern,handler);
- return {ready,async release(){open();if(arrived)await done;else await page.unroute(pattern,handler);if(error&&!gone(page,error))throw error;}};
+ if(!arrived)timer=setTimeout(()=>rejectReady(new Error(`${name?`${name}: `:''}No ${method} request to hold for ${pattern} after 30 seconds`)),30_000).unref();
+ ready.catch(()=>{}); // The test may still be clicking when the deadline passes.
+ return {ready,async release(){clearTimeout(timer);open();if(arrived)await done;else await page.unroute(pattern,handler);if(error&&!gone(page,error))throw error;}};
 }
 
 const coordinates=async locators=>Promise.all(locators.map(node=>node.boundingBox()));

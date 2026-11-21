@@ -150,6 +150,8 @@ export async function runLedgerCheck({page,base,persona,engine,theme,width,expec
     await form.getByLabel('Notes',{exact:true}).fill('Owner changes before asking again');
     await form.getByLabel('Reason (optional)').fill('Kept Retry reason');
     await form.getByRole('button',{name:'Back to Queue',exact:true}).click();
+    // Back saves and releases the draft first; a goto while those writes run is refused by the unload guard.
+    await expect(form).toHaveCount(0);
     await control('edit-intent',{id:proposalId,mode:'failed'});await go('queue/?draft='+proposalId);
     await page.getByRole('button',{name:'Retry',exact:true}).click();
     let replace=page.getByRole('alertdialog',{name:'Replace your edits with a new proposal?',exact:true});await expect(replace).toBeVisible();await snap('intent-retry-question');
@@ -162,7 +164,7 @@ export async function runLedgerCheck({page,base,persona,engine,theme,width,expec
     await go('queue/?draft='+proposalId);await page.getByRole('button',{name:'Continue editing',exact:true}).click();
     await expect(form.getByLabel('Notes',{exact:true})).toHaveValue(/Checked for the ledger check/);
     await expect(form.getByLabel('Reason (optional)')).not.toHaveValue('Kept Retry reason');
-    await form.getByRole('button',{name:'Back to Queue',exact:true}).click();await go('queue/?check=ledger');
+    await form.getByRole('button',{name:'Back to Queue',exact:true}).click();await expect(form).toHaveCount(0);await go('queue/?check=ledger');
     await item.getByRole('link',{name:'Review the fix',exact:true}).click();await expect(form).toBeVisible();
     record('intent expired fix Cancel restores the proposal; Retry asks before replacing kept edits and preserves them on Keep');
     // Discard is explicit. Restore retains its correction and proposal even
@@ -186,7 +188,7 @@ export async function runLedgerCheck({page,base,persona,engine,theme,width,expec
     await snap('intent-restored-fix');
     record('intent fix Cancel preserves proposal and Ledger check origin; Trash Restore keeps a resolved fix in Edit entry');
 
-    await form.getByRole('button',{name:'Back to Queue',exact:true}).click();
+    await form.getByRole('button',{name:'Back to Queue',exact:true}).click();await expect(form).toHaveCount(0);
 
     for(const origin of ['Continue editing','Open the entry']) {
       await quiesce();await control('drafts',{persona,empty:true});

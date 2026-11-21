@@ -12,22 +12,26 @@ export function statementWords(text:string){
  const account=accounts.filter(([a,m])=>[m.label||a.split(':').at(-1)||'',...(m.aliases||[])].filter(n=>!['bank','card'].includes(n.toLowerCase())).some(n=>lower.includes(n.toLocaleLowerCase(locale))));
  return {kind:(/\b(?:bank|card)\s+statement\b|\bstatement\s+(?:for|of)\b/i.test(text)||month&&account.length?'statement':'expense') as 'statement'|'expense',account:account.length===1?account[0][0]:undefined};
 }
-export function useAddInterpretation(id:string|null,text:string,files:string,choices:Record<string,FileChoice>,passwords:Record<string,string>,active:boolean){
+export function useAddInterpretation(id:string|null,text:string,files:string,choices:Record<string,FileChoice>,passwords:Record<string,string>,active:boolean,paused=false){
  const [value,setValue]=useState<Interpretation|null>(null),[valueContext,setValueContext]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const generation=useRef(0);
+ const generation=useRef(0),checked=useRef<string|null>(null);
  // Autosave assigning an ID does not change words-only recognition. Keeping
  // that reading stable also keeps Continue enabled during a pointer click.
  const sourceId=files?id:null;
  const context=JSON.stringify([sourceId,text,files]),signature=JSON.stringify([sourceId,text,files,choices,passwords]);
  useEffect(()=>{
   const run=++generation.current;
-  if(!active)return;
+  if(!active){checked.current=null;return;}
+  // Resuming after a save must keep the settled layout for unchanged input.
+  if(paused)return;
+  if(checked.current===signature){setBusy(false);return;}
+  checked.current=null;
   setBusy(true);
   const controller=new AbortController(),timer=setTimeout(()=>{
    const operation=id&&files?request<Interpretation>(`drafts/${id}/interpret`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,choices,passwords}),signal:controller.signal},120000):request<Interpretation['words']>('add/interpret',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text}),signal:controller.signal}).then(words=>({words,files:[]}));
-   void operation.then(next=>{if(run===generation.current){setValue(next);setValueContext(context);setError('');}},e=>{if(run===generation.current&&!controller.signal.aborted)setError((e as Error).message);}).finally(()=>{if(run===generation.current)setBusy(false);});
+   void operation.then(next=>{if(run===generation.current){checked.current=signature;setValue(next);setValueContext(context);setError('');}},e=>{if(run===generation.current&&!controller.signal.aborted)setError((e as Error).message);}).finally(()=>{if(run===generation.current)setBusy(false);});
   },250);
   return()=>{clearTimeout(timer);controller.abort();};
- },[signature,active]);
+ },[signature,active,paused]);
  return {value:valueContext===context?value:null,busy,error};
 }

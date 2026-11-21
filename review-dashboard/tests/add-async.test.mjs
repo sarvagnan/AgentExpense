@@ -228,6 +228,39 @@ test('A usual-payment retry keeps its original words and a shelf completion pres
   assert.equal(h.current.form.text,'Next expense typed during the save');assert.equal(h.current.form.id,next);assert.equal(h.current.error,'');assert.equal(h.current.lastSavedId,id);
  }finally{h.close();}
 });
+
+test('Failed usual payment keeps the receipt layout settled through Retry',async()=>{
+ const reread=deferred(),firstReply=deferred(),retryReply=deferred(),posts=[],reads=[];
+ const interpretation={words:{kind:'expense'},files:[file]};
+ const intake=hookHarness('../app/live/add-intake.ts',{'../data':{},'./api':{request:path=>{
+  reads.push(path);return reads.length===1?Promise.resolve(interpretation):reread.promise;
+ }}});
+ const writes=hookHarness('../app/live/direct-writes.ts',{}, {location:{pathname:'/expenses/add/',search:''}}).exports;
+ const f=composerFixture({dependencies:{'./add-intake':{useAddInterpretation:(...args)=>intake.render(m=>m.useAddInterpretation(...args))}},transport:{
+  request:(path,options)=>writes.enqueueWrite(path,options,async()=>{
+   posts.push({path,body:options.body});
+   return posts.length===1?firstReply.promise:retryReply.promise;
+  }),
+ }}),{h}=f;
+ try{
+  f.type('Birch rent today');h.current.pick([new File(['x'],file.original_name)]);await h.settle();
+  await intake.advance(250);assert.deepEqual(reads,[`drafts/${id}/interpret`]);
+  assert.equal(intake.current.busy,false);
+  const saving=h.current.save({rule_id:'rent',date:'2026-11-02'});await h.settle();assert.equal(h.current.saving,true);
+  firstReply.reject(new ApiError(422,'Fictional refusal before commit'));
+  assert.equal(await saving,false);await h.settle();await intake.settle();
+  const failed=writes.writeSnapshot()[0];assert.equal(failed.path,h.current.directPath);assert.equal(failed.state,'failed');
+  // Reach the 250 ms file check during a pointer click. Its busy hint is
+  // rendered above the Retry button and moves it when the reply removes it.
+  const busyAtPointerDown=intake.current.busy;
+  await intake.advance(250);reread.resolve(interpretation);await intake.settle();
+  assert.equal(busyAtPointerDown,intake.current.busy,'The file-check hint must not disappear during Retry');
+  assert.deepEqual(reads,[`drafts/${id}/interpret`],'A failed save must not reread the same receipt');
+  const retry=writes.retryWrite(failed.id);await h.settle();assert.deepEqual(posts,[posts[0],posts[0]]);
+  retryReply.resolve({...f.record,state:'added',result:{outcome:'added'}});await retry;
+  assert.equal(writes.writeSnapshot()[0].state,'saved');
+ }finally{reread.resolve(interpretation);firstReply.resolve({});retryReply.resolve({});h.close();intake.close();}
+});
 for(const state of ['editing','added'])test(`Held ${state} restoration keeps displayed attachments and submit identity together`,async()=>{
  const held=deferred(),f=composerFixture({api:{get:()=>held.promise}}),{h}=f;
  try{await h.settle();const restoring=h.current.restore(id);await h.settle();f.type('Newer words');held.resolve({...f.record,state,files:[file],result:state==='added'?{entry_id:'saved'}:null});await restoring;await h.settle();
