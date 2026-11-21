@@ -187,6 +187,22 @@ class MigrationTests(Repository0):
                 self.assertNotIn('Fictional detail', str(error.exception))
                 self.assertEqual(self.source_bytes(), before)
 
+    def test_jj_upgrade_requires_a_main_bookmark_before_changing_anything(self):
+        self.run_command('jj', 'bookmark', 'delete', 'main')
+        revision = self.run_command('jj', '--ignore-working-copy', 'log', '-r', '@-', '--no-graph', '-T', 'commit_id')
+        before = self.source_bytes()
+        operation = self.run_command('jj', '--ignore-working-copy', 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id')
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                with self.assertRaisesRegex(ValueError, r'jj bookmark set main -r <reviewed revision>.*make upgrade-ledger'):
+                    self.run_upgrade(dry_run=dry_run)
+                self.assertEqual(self.source_bytes(), before)
+                self.assertEqual(self.run_command('jj', '--ignore-working-copy', 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id'), operation)
+                self.assertFalse((self.root / '.lock').exists())
+        self.run_command('jj', 'bookmark', 'set', 'main', '-r', revision)
+        self.run_upgrade()
+        self.assertEqual(read_manifest(self.root)['format'], CURRENT_FORMAT)
+
     def test_success_preserves_every_output_and_second_run_is_noop(self):
         before = snapshot(self.root)
         self.run_upgrade(locale='en-IN', start_date='2026-01-01', review_storage_key='legacy-key')

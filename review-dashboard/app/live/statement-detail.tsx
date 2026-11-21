@@ -123,13 +123,16 @@ export default function StatementDetail({initialId='',onChange}:{initialId?:stri
  const onChangeRef=useRef(onChange);onChangeRef.current=onChange;
  const changed=useCallback((statement?:StatementSession)=>{if(onChangeRef.current)onChangeRef.current(statement);else window.dispatchEvent(new Event('drafts-changed'));},[]);
  const onPending=useCallback((identity:string,pending:boolean)=>setPendingRows(xs=>pending?[...new Set([...xs,identity])]:xs.filter(x=>x!==identity)),[]);
- const active=useRef(true),control=useRef<AbortController|null>(null),refreshing=useRef(false),reloaded=useRef(new Set<string>()),selectedId=useRef(id),destination=useRef(''),restoreOnOpen=useRef(!!id&&performance.getEntriesByType('navigation').some(e=>(e as PerformanceNavigationTiming).type==='reload'));selectedId.current=id;
+ const active=useRef(true),control=useRef<AbortController|null>(null),refreshing=useRef(false),reportedFinished=useRef(new Set<string>()),selectedId=useRef(id),destination=useRef(''),restoreOnOpen=useRef(!!id&&performance.getEntriesByType('navigation').some(e=>(e as PerformanceNavigationTiming).type==='reload'));selectedId.current=id;
  const refresh=useCallback(async()=>{
   if(refreshing.current||!active.current||document.hidden)return;refreshing.current=true;const c=new AbortController();control.current=c;
   try{const d=await apiS.list(c.signal);const target=selectedId.current;let selected=d.sessions.find(s=>s.id===target)||null;
    if(target&&!selected&&!d.recoverable?.some(s=>s.id===target)){try{selected=await apiS.get(target,c.signal);}catch(e){if(c.signal.aborted||!(e instanceof ApiError)||e.status!==404)throw e;}}
    if(!active.current||c.signal.aborted)return;d.sessions=d.sessions.filter(s=>!s.trashed_at&&!isRemoved(s.id));if(selected?.trashed_at||selected&&isRemoved(selected.id))selected=null;setData(d);if(selectedId.current===target)setCurrent(old=>old?.id===selected?.id&&old?.updated_at&&selected?.updated_at&&old.updated_at>selected.updated_at?old:selected);setLoaded(true);setConnectionError('');
-   if(selected?.state==='applied'&&!reloaded.current.has(selected.id)){await reloadData();reloaded.current.add(selected.id);changed(selected);}
+   if((selected?.state==='applied'||selected?.state==='already_filed')&&!reportedFinished.current.has(selected.id)){
+    if(selected.state==='applied')await reloadData();
+    reportedFinished.current.add(selected.id);changed(selected);
+   }
   }catch(e){if(active.current&&!c.signal.aborted)setConnectionError((e as Error).message);}finally{refreshing.current=false;}
  },[]);
  // A shelf, slot or recovered Retry must finish the same local transition as Discard.

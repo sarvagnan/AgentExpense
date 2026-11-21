@@ -4,6 +4,39 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {hookHarness} from './hook-harness.mjs';
 
+test('An already filed statement leaves the held Queue while other rows stay put',async()=>{
+ const element=(type,props)=>({type,props}),nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
+ const source=readFileSync(new URL('../app/live/drafts.tsx',import.meta.url),'utf8'),dependencies={};
+ for(const match of source.matchAll(/from ['"]([^'"]+)['"]/g))if(match[1]!=='react')dependencies[match[1]]={};
+ const statement=(id,state)=>({id,state,original_name:`${id}.pdf`,created_at:'2026-11-01'});
+ const target=statement('target','locked'),other=statement('other','account_needed'),newcomer=statement('new','locked');
+ let latest,held,refreshes=0;
+ Object.assign(dependencies,{
+  'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
+  '../ui':{useQueryState:(name,initial)=>[name==='session'?target.id:initial,()=>{}],Icon:'icon',PageHeader:'header'},
+  './statement-detail':{default:'statement-detail'},'./statements-api':{statementHref:id=>`?session=${id}`},
+  './api':{isRemoved:()=>false},'./agent-status':{AgentNotice:'agent-notice'},'../date-time':{formatTimestamp:x=>x},
+  './interaction':{useInteractionSnapshot:value=>{latest=value;return [held||value,{onFocusCapture:()=>{held=latest;}},()=>{held=null;}];}},
+ });
+ const h=hookHarness('../app/live/drafts.tsx',dependencies);
+ const live={drafts:[],statements:[target,other],ledgerCheck:null,online:true,attention:2,refresh:async()=>{refreshes++;}};
+ const rows=()=>nodes(h.current).filter(n=>n.type==='a'&&n.props.className==='draft-row');
+ const detail=()=>nodes(h.current).find(n=>n.type==='statement-detail');
+ try{
+  h.render(m=>m.default({live}));
+  const workspace=nodes(h.current).find(n=>n.props.className==='draft-workspace');
+  workspace.props.onFocusCapture();
+  live.statements=[target,other,newcomer];h.render();
+  assert.deepEqual(rows().map(row=>row.props.href),['?session=target','?session=other']);
+  detail().props.onChange({...target,state:'already_filed'});await h.settle();
+  assert.deepEqual(rows().map(row=>row.props.href),['?session=other'],'Only the finished row leaves the held list');
+  assert.equal(detail().props.initialId,target.id,'The result stays open');
+  live.statements=[other,newcomer];h.render();
+  assert.deepEqual(rows().map(row=>row.props.href),['?session=other'],'The later list reply leaves the other held rows alone');
+  assert.equal(refreshes,1);
+ }finally{h.close();}
+});
+
 test('Queue selects nothing until requested and a held snapshot keeps the chosen detail open',()=>{
  const element=(type,props)=>({type,props}),nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
  const source=readFileSync(new URL('../app/live/drafts.tsx',import.meta.url),'utf8'),dependencies={};

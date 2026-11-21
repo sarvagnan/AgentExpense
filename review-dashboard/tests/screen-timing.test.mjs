@@ -135,6 +135,23 @@ for(const correction of [false,true])test(`Native Notes survive controlled write
  }finally{g.h.close();old.holds.claim[0].resolve({claim_token:old.calls[0][2],form:old.form});await old.h.settle();}
 });
 
+for(const correction of [false,true])test(`Notes keep Enter and blank lines in ${correction?'Edit entry':'Finish it yourself'}`,async()=>{
+ const g=handHarness(undefined,correction),saved=[];
+ g.api.handForm=async(_id,_token,proposal)=>{saved.push([...proposal.entry.notes]);return {};};
+ const notes=()=>g.nodes().find(n=>n.type==='textarea'&&n.props['aria-label']==='Notes');
+ const type=async value=>{const event={currentTarget:{value}};notes().props.onInputCapture(event);notes().props.onInput(event);await g.h.settle();};
+ try{
+  g.holds.claim[0].resolve({claim_token:g.calls[0][2],form:g.form,original_form:g.form});await g.h.settle();
+  await type('First line');
+  await type('First line\n');
+  assert.equal(notes().props.value,'First line\n','Enter at the end stays visible');
+  await type('First line\n\nSecond line\n');
+  await g.h.advance(500);
+  assert.deepEqual(saved,[['First line','Second line']]);
+  assert.equal(notes().props.value,'First line\n\nSecond line\n','Autosave leaves the typed lines in place');
+ }finally{g.h.close();}
+});
+
 test('Correction Save notice announces new text in the reserved footer slot without a gap above fields',async()=>{
  let writes=[];const listeners=new Set(),g=handHarness({writeSnapshot:()=>writes,subscribeWrites:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}},true);
  const notice=()=>g.nodes().find(n=>n.props?.id==='cancel-save-unknown');
@@ -240,7 +257,7 @@ test('Discard in the hand form’s refusal keeps its claim until the atomic disc
  }finally{g.h.close();}
 });
 
-function statementHarness(){
+function statementHarness(onChange){
  const lists=[],applies=[],stored=new Map(),reloads={count:0,events:0},frames=[];let selectedSession='s'.repeat(32);
  const row={serial:'S1',date:'2026-11-02',description:'Fern lunch',amount:'10.00',direction:'Debit',page:1,foreignAmount:null,foreignCurrency:null};
  const session=(state,updated)=>({id:'s'.repeat(32),state,created_at:'2026-11-05T10:00:00.000000+00:00',updated_at:updated,original_name:'fictional.pdf',client_time:'2026-11-05T10:00:00',
@@ -257,10 +274,10 @@ function statementHarness(){
   './context':{LiveDraftsContext:{value:null}},'./ledger-check':{LEDGER_CHECK_HREF:'/expenses/queue/?check=ledger',ledgerCheckBlock:()=>null},
  },{document,performance:{getEntriesByType:()=>[]},localStorage:{getItem:k=>stored.get(k)??null,setItem:(k,v)=>stored.set(k,v),removeItem:k=>stored.delete(k)},requestAnimationFrame:fn=>{frames.push(fn);return frames.length;},cancelAnimationFrame(){},innerHeight:900});
  const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
- h.render(m=>m.default({initialId:'s'.repeat(32)}));
+ h.render(m=>m.default({initialId:'s'.repeat(32),onChange}));
  const list=s=>({sessions:[s],filed:[],accounts:[]});
  h.events.addEventListener('drafts-changed',()=>reloads.events++);
- return {h,lists,applies,session,list,reloads,frames,document,nodes:()=>nodes(h.current),button:text=>nodes(h.current).find(n=>n.type==='button'&&n.props.children===text)};
+ return {h,lists,applies,session,list,reloads,frames,document,statementsApi,nodes:()=>nodes(h.current),button:text=>nodes(h.current).find(n=>n.type==='button'&&n.props.children===text)};
 }
 
 test('Statements poll every 1.5 seconds, skip while a read is held, and stop on pagehide',async()=>{
@@ -296,6 +313,21 @@ test('An applied statement reloads the dashboard once, however many polls see it
   await g.h.advance(1500);g.lists[2].resolve(g.list({...g.session('applied','2026-11-05T10:00:03.000000+00:00'),result:{changed:1,converted:0,added:0}}));await g.h.settle();
   assert.equal(g.reloads.count,1,'One data reload per applied statement');assert.equal(g.reloads.events,events,'Badges refresh once');
  }finally{g.h.close();}
+});
+
+test('Statement detail reports an already filed result from a held read once',async()=>{
+ const changes=[],g=statementHarness(s=>changes.push(s)),read=deferred();
+ const finished=g.session('already_filed','2026-11-05T10:00:02.000000+00:00');
+ g.statementsApi.get=()=>read.promise;
+ try{
+  g.lists[0].resolve(g.list(g.session('reading','2026-11-05T10:00:01.000000+00:00')));await g.h.settle();
+  await g.h.advance(1500);g.lists[1].resolve({sessions:[],filed:[],accounts:[]});await g.h.settle();
+  assert.deepEqual(changes,[],'An omitted row alone does not tell Queue which result arrived');
+  read.resolve(finished);await g.h.settle();
+  assert.deepEqual(changes,[finished]);
+  await g.h.advance(1500);g.lists[2].resolve({sessions:[],filed:[],accounts:[]});await g.h.settle();
+  assert.deepEqual(changes,[finished]);assert.equal(g.reloads.count,0);
+ }finally{read.resolve(finished);g.h.close();}
 });
 
 test('Queue polls every 3 seconds while a statement is read, waits for the agent or applies, otherwise every 30',async()=>{

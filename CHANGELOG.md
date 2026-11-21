@@ -12,6 +12,10 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Queue removes a statement from Needs you as soon as it finds the statement was already filed.
+- Pressing Enter in Notes keeps the new line visible when finishing an expense by hand or editing it.
+- When a Jujutsu ledger has no local main bookmark, the upgrade tells you how to set one before retrying.
+
 - Retry after a failed usual-payment save works on the first tap: Add no longer re-checks an
   attached file while the save is pending, which could move Retry during the click, and on phones it
   re-measures the save bar when page styles change, so Retry can always be scrolled above it.

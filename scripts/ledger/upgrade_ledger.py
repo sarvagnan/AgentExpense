@@ -41,6 +41,10 @@ class Repository:
             actual = command(root, 'git', 'rev-parse', '--show-toplevel')
         if Path(actual).resolve() != root:
             raise ValueError('Initialize the ledger as its own repository before upgrading.')
+        if self.jj and not self.jj_command('--ignore-working-copy', 'log', '-r', 'bookmarks(exact:main)',
+                                           '--no-graph', '-T', 'commit_id'):
+            raise ValueError('The ledger has no local main bookmark. In the ledger directory, run '
+                             'jj bookmark set main -r <reviewed revision>, then rerun make upgrade-ledger.')
 
     def jj_command(self, *args):
         return command(self.root, 'jj', '--config', 'snapshot.max-new-file-size=0', *args)
