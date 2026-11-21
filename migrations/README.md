@@ -89,8 +89,17 @@ verification, validation or a later step) rolls back and prints counts only: "Ve
 failed after migrating; the checkpoint is restored". To see the details, run
 `make verify` on a copy, or set `EXPENSES_UPGRADE_DEBUG=1` for the run.
 
-Audit lines are never rewritten. Older audit snapshots (bills, rule and entry
-snapshots in format 1) are converted when read; new lines are written in format 2.
+Upgrade rehearsals, including `--dry-run`, check the historical audit log with
+the current reader. The reader accepts older-app drafts, corrections, rule
+operations and review verdicts and projects their common fields into the current
+audit view. The original JSONL stays byte-identical and the upgrade appends its
+baseline receipts. The read view retains older details and leaves unavailable
+request and replay fields absent. See [the audit read view](../docs/STORE.md#older-app-audit-history).
+An unsupported field outside the historical payloads or other open audit objects
+stops the upgrade with the JSONL line and field name.
+
+Older audit snapshots that need the current store shape, such as a bill restored
+after a payment removal, are converted by the reader that uses them.
 Drafts still waiting in the Queue keep an answer in the format 1 shape, which the
 format 2 answer check refuses: finish or discard them before upgrading.
 

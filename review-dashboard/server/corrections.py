@@ -46,7 +46,7 @@ def recover_pending(settings, drafts):
                     unsettled.add(folder.name)
                     unresolved(folder.name,exc)
         try:
-            committed={r['operation_id']:r for r in records(settings.ledger) if r['kind']=='correction'}
+            committed={r['operation_id']:r for r in records(settings.ledger) if r['kind']=='correction' and 'result' in r}
         except Exception as exc:
             unresolved('pending items',exc)
             return
@@ -145,7 +145,7 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
                 record=json.loads((folder/'record.json').read_text());tx=Transaction(settings,store,record);tx.recover()
         prior=next((r for r in records(root) if r['kind']=='correction' and r['operation_id']==op_id),None)
         if prior:
-            if prior['request_hash']!=request_hash: raise ValueError('An earlier correction may already be saved. Open the saved entry and compare it before saving newer edits.')
+            if prior.get('request_hash')!=request_hash or 'result' not in prior: raise ValueError('An earlier correction may already be saved. Open the saved entry and compare it before saving newer edits.')
             return {**prior['result'],'audit_id':prior['id'],'replayed':True}
         if not clean(root): raise LedgerBusy('Waiting for a clean ledger before correcting this entry')
         documents=load(root);before=next((e for e in entries(documents) if e['id']==entry_id),None)

@@ -191,6 +191,8 @@ def rehearse(root, options, steps, version):
     This app reads only the current format, so intermediate results can't be validated
     alone. Returns each step's plan by its source format; the ledger itself is never written.
     """
+    from audit import records, UnknownAuditField
+
     with tempfile.TemporaryDirectory(prefix='expense-migration-chain-', dir=os.environ.get('EXPENSES_TEST_TMP','/tmp')) as folder:
         scratch = Path(folder)
         shutil.copytree(root / 'data', scratch / 'data')
@@ -218,6 +220,14 @@ def rehearse(root, options, steps, version):
                 raise CountsOnly(f'The ledger converted for format {step.TARGET_FORMAT} does not pass its checks '
                                  f'({document_kind(error)}). Run make verify on a copy after upgrading it by hand to see details.') from None
             version = step.TARGET_FORMAT
+        try:
+            records(scratch)
+        except UnknownAuditField:
+            raise
+        except ValueError:
+            if os.environ.get('EXPENSES_UPGRADE_DEBUG'):
+                raise
+            raise CountsOnly('The audit log does not pass its checks. Set EXPENSES_UPGRADE_DEBUG=1 for details.') from None
         return plans
 
 

@@ -12,6 +12,8 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Upgrades preserve older-app audit history and read its drafts, corrections,
+  rule changes and review verdicts in the current audit format.
 - Queue lists a saved payment whose receipt disagrees with it under Needs you, opens it on the
   receipt choices and counts it in the sidebar, so the question is no longer reachable only
   from Add during that visit or from the entry in Explorer. The sidebar count now also includes
@@ -189,6 +191,9 @@ that fails and keep its output.
   claims resume at their deadlines; refresh failures remain retryable.
 
 ### Upgrade notes
+
+- Run `make upgrade-ledger ARGS="--dry-run"` for a ledger from the older app,
+  then run `make upgrade-ledger` to convert the store and retain the audit history.
 
 - Use `make commit m="…" by=user` or `by=agent` for hand data changes. Run
   `make upgrade-ledger` to initialize an older ledger's audit boundary (format 2

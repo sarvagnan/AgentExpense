@@ -72,6 +72,33 @@ modified, removed, renamed, copied), and `source` only for rename/copy. They inc
 uncovered changes and exclude the audit log. Duplicate change or commit identities
 are refused. Historical lines are never rewritten.
 
+### Older-app audit history
+
+`scripts/ledger/audit.py` projects older-app records into the current audit view
+when reading `data/additions/<year>.jsonl`. The file keeps the original event,
+including its ID, timestamp, links and historical snapshots. In the read view:
+
+- Draft rule events expose `rule_changes`. `legacy` keeps the original events
+  with their actions, declined rule IDs, usual-payment details and older consent.
+  The usual-payment details lack a request hash. The consent's source, time,
+  accounts and proposal hash stay together as historical facts.
+- Corrections expose `changed_fields` as an array of names and retain the full
+  difference and rule note in `legacy`. Receipt details also appear in `receipt`,
+  with the answer's `commodity` exposed as `currency`. `legacy` retains the
+  original receipt details. Run `error_events` appear in `legacy.run_error_events`,
+  keyed by zero-based run index, on both drafts and corrections.
+- Rule operations expose `rule_action` and `rule_changes`; the latter carries the
+  recorded before and after values, including `null` for an absent snapshot.
+  Any recorded `operation_id` and `entry_id` remain historical identifiers.
+- Historical review verdicts of `confirm` appear as `ok` on the same reviewed line.
+
+Historical corrections keep a request hash when one is recorded. Unavailable
+correction results and request identities are omitted. Correction recovery and
+replay require a recorded result. The writer still requires current operation
+receipts and reserves `legacy` for the read view. Unknown fields in closed audit
+objects fail validation with their line and field name. Historical payloads and
+open objects such as snapshots retain their contents.
+
 ## Conventions
 
 - **Every key is present.** A missing key is an error, and so is an unknown key.

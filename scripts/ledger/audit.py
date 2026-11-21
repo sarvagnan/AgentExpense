@@ -12,7 +12,7 @@ import subprocess
 import sys
 from contextvars import ContextVar
 from dataclasses import dataclass
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from store import ROOT, read_json, _unique_object
 from ledger_lock import ledger_lock
 from proposal_consent import validate_consent
@@ -40,6 +40,56 @@ def event(kind, **fields):
     return dict(version=1, id=secrets.token_hex(16), kind=kind, time=stamp(), **fields)
 
 
+class UnknownAuditField(ValueError):
+    """An unsupported field whose name and location can be shown during upgrade."""
+
+
+def _older_audit_view(record):
+    """Read old audit facts in the current shape, leaving the original JSONL intact."""
+    if not isinstance(record, dict):
+        return record
+    if 'legacy' in record:
+        raise UnknownAuditField("Unexpected audit field 'legacy'; it is reserved for the read view")
+    kind = record.get('kind')
+    legacy = {}
+    if kind in ('draft', 'correction'):
+        fields = ('declined_rules', 'rule_events', 'usual') if kind == 'draft' else ('rule_note', 'receipt_details')
+        legacy.update((field, record.pop(field)) for field in fields if field in record)
+        consent = record.get('account_consent')
+        if isinstance(consent, dict) and 'method' not in consent and {'source', 'time'} & consent.keys():
+            legacy['account_consent'] = record.pop('account_consent')
+        runs = record.get('runs')
+        if isinstance(runs, list):
+            errors = {str(index): run.pop('error_events') for index, run in enumerate(runs)
+                      if isinstance(run, dict) and 'error_events' in run}
+            if errors:
+                legacy['run_error_events'] = errors
+    if 'rule_events' in legacy:
+        record.setdefault('rule_changes', [dict(id=row['rule_id'], before=row['before'], after=row['after'])
+                                           for row in legacy['rule_events']])
+    if kind == 'correction' and isinstance(record.get('changed_fields'), dict):
+        legacy['changed_fields'] = record['changed_fields']
+        record['changed_fields'] = list(record['changed_fields'])
+    receipt = legacy.get('receipt_details')
+    if isinstance(receipt, dict) and isinstance(receipt.get('answer'), dict):
+        answer = dict(receipt['answer'])
+        if 'commodity' in answer and 'currency' not in answer:
+            answer['currency'] = answer.pop('commodity')
+        record.setdefault('receipt', dict(receipt, answer=answer))
+    if kind == 'rule' and 'rule_action' not in record and record.get('action') in ('edited', 'undone', 'made'):
+        legacy['action'] = record['rule_action'] = record.pop('action')
+        snapshots = {key: record.pop(key) for key in ('before', 'after')}
+        if 'rule_changes' in record:
+            legacy.update(snapshots)
+        else:
+            record['rule_changes'] = [dict(id=record['rule_id'], **snapshots)]
+    if kind == 'review' and record.get('verdict') == 'confirm':
+        record['verdict'] = 'ok'
+    if legacy:
+        record['legacy'] = legacy
+    return record
+
+
 def records(root=ROOT):
     from store import _model_memos
     memo = _model_memos.get(root.resolve())
@@ -54,7 +104,7 @@ def records(root=ROOT):
             raise ValueError(f'Invalid audit year file: {path.name}')
         for number, line in enumerate(path.read_text().splitlines(), 1):
             try:
-                record = json.loads(line, object_pairs_hook=_unique_object)
+                record = _older_audit_view(json.loads(line, object_pairs_hook=_unique_object))
                 key = (schema_key, hashlib.sha256(line.encode()).digest()) if memo else None
                 if memo is not None:
                     with memo.lock: checked = key in memo.audit_lines
@@ -75,6 +125,12 @@ def records(root=ROOT):
                     raise ValueError('Duplicate audit ID ' + record['id'])
                 if datetime.fromisoformat(record['time']).year != int(path.stem):
                     raise ValueError('Audit event is in the wrong year')
+            except ValidationError as exc:
+                if exc.validator == 'additionalProperties':
+                    raise UnknownAuditField(f'{path.relative_to(root)}:{number}: {exc.json_path}: {exc.message}') from None
+                raise ValueError(f'{path.relative_to(root)}:{number}: {exc}') from exc
+            except UnknownAuditField as exc:
+                raise UnknownAuditField(f'{path.relative_to(root)}:{number}: {exc}') from None
             except Exception as exc:
                 raise ValueError(f'{path.relative_to(root)}:{number}: {exc}') from exc
             used.add(record['id'])
@@ -88,6 +144,8 @@ def audit_path(root, record):
 
 def append(root, record, *, lines=None):
     """Caller holds the lock; optional lines are its current locked audit snapshot."""
+    if isinstance(record, dict) and 'legacy' in record:
+        raise ValidationError("'legacy' is reserved for the older audit read view")
     Draft202012Validator(read_json(SCHEMA), format_checker=FORMATS).validate(record)
     validate_consent(record)
     current = records(root) if lines is None else lines

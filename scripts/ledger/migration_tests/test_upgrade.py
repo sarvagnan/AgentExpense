@@ -80,6 +80,113 @@ class Repository0(Fixture):
 class MigrationTests(Repository0):
     """Format 0 → current: the whole chain."""
 
+    def with_audit(self, *rows):
+        path = self.root / 'data/additions/2026.jsonl'
+        path.parent.mkdir()
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        self.run_command('jj', 'commit', '-m', 'Fictional legacy audit history')
+        return path
+
+    def test_old_audit_shapes_upgrade_and_read_back_without_losing_history(self):
+        from audit import append, records, unreviewed
+        from jsonschema import ValidationError
+        from ledger_lock import ledger_lock
+        from proposal_consent import proposal_hash
+
+        time = '2026-01-02T10:30:00+00:00'
+
+        def line(number, kind, **fields):
+            return dict(version=1, id=f'{number:032x}', time=time, kind=kind, **fields)
+
+        before = entry(notes=[], sources=[], classification='Essentials')
+        after = dict(before, description='Lamp shade', notes=['Checked'], reference='Example 12')
+        rule_id = 'e' * 16
+        made = dict(before, id=rule_id, schedule={'every': 'month', 'from': before['date'], 'anchor-day': 2},
+                    created=before['date'], lifecycle='active', origin={'kind': 'owner', 'evidence': []})
+        advanced = dict(made, date='2026-02-02')
+        events = [dict(action='made', rule_id=rule_id, before=None, after=made),
+                  dict(action='advanced', rule_id=rule_id, before=made, after=advanced)]
+        usual = dict(rule_id=rule_id, occurrence=before['date'], expected_from='schedule', account=None,
+                     use_account=True, another=False, update_rule=True, planning_cost=False, note='Checked')
+        proposal = dict(new_accounts=[])
+        consent = dict(proposal_hash=proposal_hash(proposal), accounts=[], source='review form', time=time)
+        errors = [dict(type='retry', message='Read again')]
+        runs = [dict(model='offline', effort='low', start=time, end=time, outcome='ready', usage={},
+                     lookups=[], error=None, error_events=value) for value in ([], errors)]
+        draft = line(1, 'draft', draft_id='a'*32, outcome='added', entry_id=before['id'], text='Lamp shade',
+                     saved_at=time, pieces=None, files=[], questions=[], runs=runs, proposal=proposal, doubts=[],
+                     check_errors=[], error=None, declined_rules=['d'*16], rule_events=events,
+                     usual=usual, account_consent=consent)
+        diff = {key: dict(before=before.get(key), after=after[key]) for key in ('description', 'notes', 'reference')}
+        receipt = dict(choice='keep', answer=dict(amount='10.00', commodity='INR', date=before['date'], notes=[],
+                       payee='Example Lighting', paying_account=CARD, payment_datetime=time, read_ok=True, references=[]))
+        correction = line(2, 'correction', entry_id=before['id'], operation_id='b'*32, actor='user', reason='Read receipt',
+                          before=before, after=after, changed_fields=diff, proposal=proposal, runs=runs,
+                          account_consent=consent, rule_note='Kept the schedule', receipt_details=receipt)
+        hashed = dict(correction, id=f'{3:032x}', operation_id='c'*32, request_hash='a'*64)
+        rules = [line(i, 'rule', rule_id=rule_id, action=action, before=old, after=new, reason='Fictional rule',
+                      operation_id='f'*32, entry_id=before['id'])
+                 for i, action, old, new in [(4, 'edited', made, advanced), (5, 'undone', None, None), (6, 'made', None, made)]]
+        review = line(7, 'review', line_id=draft['id'], verdict='confirm', note='Checked', reviewer='Offline reviewer')
+        path = self.with_audit(draft, correction, hashed, *rules, review)
+        raw = path.read_bytes()
+
+        self.run_upgrade(dry_run=True)
+        self.run_upgrade()  # Runs the strict store and audit checks, then appends upgrade receipts.
+        self.assertTrue(path.read_bytes().startswith(raw))
+        rows = records(self.root)
+        self.assertEqual([row['id'] for row in rows if row['kind'] != 'baseline'],
+                         [row['id'] for row in (draft, correction, hashed, *rules, review)])
+        by_id = {row['id']: row for row in rows}
+
+        def without_errors(run):
+            return {key: value for key, value in run.items() if key != 'error_events'}
+
+        normalized_draft = by_id[draft['id']]
+        self.assertEqual({key: normalized_draft[key] for key in ('entry_id', 'outcome', 'time')},
+                         {key: draft[key] for key in ('entry_id', 'outcome', 'time')})
+        self.assertEqual(normalized_draft['rule_changes'], [dict(id=rule_id, before=e['before'], after=e['after']) for e in events])
+        self.assertEqual(normalized_draft['runs'], [without_errors(run) for run in runs])
+        self.assertEqual(normalized_draft['legacy'], dict(rule_events=events, declined_rules=draft['declined_rules'],
+                         usual=usual, account_consent=consent, run_error_events={'0': [], '1': errors}))
+        for old in (correction, hashed):
+            new = by_id[old['id']]
+            self.assertEqual((new['before'], new['after'], new['proposal'], new['operation_id']),
+                             (before, after, proposal, old['operation_id']))
+            self.assertEqual(new['changed_fields'], list(diff))
+            self.assertEqual(new.get('request_hash'), old.get('request_hash'))
+            self.assertEqual('request_hash' in new, 'request_hash' in old)
+            self.assertNotIn('result', new)
+            answer = dict(receipt['answer'])
+            answer['currency'] = answer.pop('commodity')
+            self.assertEqual(new['receipt'], dict(receipt, answer=answer))
+            self.assertEqual(new['legacy'], dict(changed_fields=diff, rule_note=old['rule_note'], receipt_details=receipt,
+                             account_consent=consent, run_error_events={'0': [], '1': errors}))
+        for old in rules:
+            new = by_id[old['id']]
+            self.assertEqual(new['rule_action'], old['action'])
+            self.assertEqual(new['rule_changes'], [dict(id=rule_id, before=old['before'], after=old['after'])])
+            self.assertEqual((new['operation_id'], new['entry_id']), (old['operation_id'], old['entry_id']))
+            self.assertFalse({'request_id', 'request_hash'} & new.keys())
+        self.assertEqual(by_id[review['id']], dict(review, verdict='ok'))
+        self.assertNotIn(draft['id'], [row['id'] for row in unreviewed(rows)])
+        listed = self.cli('audit.py', 'list', '--since', '2026-01-01', '--json')
+        self.assertEqual(json.loads(listed.stdout), rows)
+        with ledger_lock(self.root), self.assertRaises(ValidationError):
+            append(self.root, by_id[correction['id']])
+
+    def test_future_audit_field_refuses_upgrade_with_line_and_field(self):
+        self.with_audit(dict(version=1, id='1'*32, time='2026-01-02T10:30:00Z', kind='review',
+                             line_id='2'*32, verdict='confirm', reviewer='Offline reviewer', note='Checked',
+                             future_field='Fictional detail'))
+        before = self.source_bytes()
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                with self.assertRaisesRegex(ValueError, r'2026\.jsonl:1:.*future_field') as error:
+                    self.run_upgrade(dry_run=dry_run)
+                self.assertNotIn('Fictional detail', str(error.exception))
+                self.assertEqual(self.source_bytes(), before)
+
     def test_success_preserves_every_output_and_second_run_is_noop(self):
         before = snapshot(self.root)
         self.run_upgrade(locale='en-IN', start_date='2026-01-01', review_storage_key='legacy-key')

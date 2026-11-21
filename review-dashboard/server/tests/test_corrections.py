@@ -198,6 +198,35 @@ class CorrectionTests(Fixture):
             self.assertEqual(client.post('/api/drafts/'+pending['id']+'/cancel-edit',json={'claim_token':token}).status_code,200)
             self.assertEqual(records(self.ledger),audit);self.assertEqual(self.jj('log','-r','@-','--no-graph','-T','commit_id'),commit)
 
+    def test_imported_correction_without_result_is_history_during_recovery_and_replay(self):
+        from rules_service import digest
+
+        entry = self.seed()
+        drafts = Drafts(self.ledger)
+        draft = open_form(self.settings, drafts, entry['id'])
+        operation = 'b'*32
+        draft['correction_save'] = operation
+        drafts.put(draft)
+        body = self.body(entry)
+        row = dict(version=1, id='c'*32, kind='correction', time='2026-10-29T10:00:00Z',
+                   entry_id=entry['id'], operation_id=operation, actor='user', reason='Checked receipt',
+                   before=dict(entry, description='Before'), after=entry,
+                   changed_fields={'description': {'before': 'Before', 'after': entry['description']}},
+                   request_hash=digest(dict(entry_id=entry['id'], body=body)))
+        path = self.ledger/'data/additions/2026.jsonl'
+        path.parent.mkdir(exist_ok=True)
+        with path.open('a') as audit:
+            audit.write(json.dumps(row) + '\n')
+        self.checkpoint('Imported fictional correction history')
+
+        with self.client(worker=False):
+            recovered = drafts.get(draft['id'])
+            self.assertNotIn('correction_save', recovered)
+            self.assertNotEqual(recovered['state'], 'added')
+            with self.assertRaisesRegex(ValueError, 'Open the saved entry'):
+                self.save(entry, body, operation)
+        self.assertTrue(clean(self.ledger))
+
     def test_startup_keeps_an_unsettled_correction_marker_without_blocking_other_requests(self):
         class Crash(BaseException):pass
         e=self.seed();drafts=Drafts(self.ledger);blocked=open_form(self.settings,drafts,e['id']);op=secrets.token_hex(16)

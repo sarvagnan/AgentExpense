@@ -883,6 +883,11 @@
     "message": {
       "type": "string"
     },
+    "legacy": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Read-only details projected from older-app audit lines. See docs/STORE.md."
+    },
     "change_id": {
       "type": "string",
       "pattern": "^[k-z]{32}$"
@@ -1299,10 +1304,10 @@
       "then": {
         "required": [
           "rule_action",
-          "request_id",
-          "request_hash",
           "rule_changes"
-        ]
+        ],
+        "if": {"not": {"required": ["legacy"]}},
+        "then": {"required": ["request_id", "request_hash"]}
       }
     },
     {
@@ -1339,14 +1344,14 @@
         "required": [
           "entry_id",
           "operation_id",
-          "request_hash",
           "before",
           "after",
           "changed_fields",
           "reason",
-          "actor",
-          "result"
-        ]
+          "actor"
+        ],
+        "if": {"required": ["legacy"], "properties": {"legacy": {"required": ["changed_fields"]}}},
+        "else": {"required": ["request_hash", "result"]}
       }
     },
     {
@@ -1501,6 +1506,7 @@
             "selected",
             "details",
             "message",
+            "legacy",
             "baseline"
           ]
         }
