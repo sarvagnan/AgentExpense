@@ -12,6 +12,10 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- Queue lists a saved payment whose receipt disagrees with it under Needs you, opens it on the
+  receipt choices and counts it in the sidebar, so the question is no longer reachable only
+  from Add during that visit or from the entry in Explorer. The sidebar count now also includes
+  saved payments whose receipt reading failed, which Queue already listed.
 - Accounts groups reward programmes under Points and shows whole-point balances.
   Add records earnings, expiry and redemptions. Money totals include each
   redemption's recorded value and exclude unpriced points.

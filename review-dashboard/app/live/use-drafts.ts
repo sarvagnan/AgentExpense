@@ -87,7 +87,7 @@ export function useDrafts() {
   useEffect(()=>{const restored=()=>setDiscarded('');window.addEventListener('item-restored',restored);return()=>window.removeEventListener('item-restored',restored);},[]);
   async function discard(id:string,claimToken?:string){await api.discard(id,claimToken);setDiscarded(id);latest.current=latest.current.filter(d=>d.id!==id);setDrafts(latest.current);await refresh();}
   async function restore(id:string){await api.restore(id);setDiscarded('');await refresh();}
-  return {agent,statements,trashCount,discarded,discard,restore, drafts, online, error, reloadError, refresh, ledgerCheck, attention: drafts.filter(d=>(d.state!=='added'||!!d.statement_file&&!d.handover_session)&&needsAttention(d)).length + statements.filter(statementNeedsAttention).length + (ledgerCheck?.item ? 1 : 0) };
+  return {agent,statements,trashCount,discarded,discard,restore, drafts, online, error, reloadError, refresh, ledgerCheck, attention: drafts.filter(needsAttention).length + statements.filter(statementNeedsAttention).length + (ledgerCheck?.item ? 1 : 0) };
 
 }
 export type LiveDrafts = ReturnType<typeof useDrafts>;

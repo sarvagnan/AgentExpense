@@ -68,6 +68,8 @@ test('A failed receipt reading returns its saved payment to Needs you without pr
   let groups;h.render(module=>{groups=module.queueGroups([saved]);return null;});
   assert.deepEqual(JSON.parse(JSON.stringify(groups.map(group=>[group.name,group.items.map(item=>item.id)]))),[['Needs you',[saved.id]],['In progress',[]],['Saved for later',[]]]);
   assert.equal(groups[0].items[0].state,'added');
+  h.render(module=>{groups=module.queueGroups([{...saved,receipt_reading:{state:'question'}}]);return null;});
+  assert.deepEqual(groups[0].items.map(item=>item.id),[saved.id],'A receipt that disagrees with its saved payment asks in Needs you');
   h.render(module=>{groups=module.queueGroups([{...saved,receipt_reading:{state:'done'}}]);return null;});
   assert.equal(groups.flatMap(group=>group.items).length,0);
  }finally{h.close();}
