@@ -15,6 +15,8 @@ that fails and keep its output.
 - Queue removes a statement from Needs you as soon as it finds the statement was already filed.
 - Pressing Enter in Notes keeps the new line visible when finishing an expense by hand or editing it.
 - When a Jujutsu ledger has no local main bookmark, the upgrade tells you how to set one before retrying.
+- Security updates: Vite 8.3.8 for development and builds, and the Pi agent 1.6.0, which updates its
+  network library. `npm audit` reports no known vulnerabilities.
 
 - `make browser-flows` measures layout stability and response times during the main
   dashboard tasks and keeps screenshots and measurements for each step.
@@ -206,6 +208,9 @@ that fails and keep its output.
   claims resume at their deadlines; refresh failures remain retryable.
 
 ### Upgrade notes
+
+- Run `make install` for the updated packages, then restart the server. If Pi is your agent, run
+  `make agent-check ADAPTER=pi`.
 
 - Run `make upgrade-ledger ARGS="--dry-run"` for a ledger from the older app,
   then run `make upgrade-ledger` to convert the store and retain the audit history.
