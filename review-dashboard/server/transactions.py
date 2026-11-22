@@ -454,7 +454,9 @@ class Transaction:
             documents[self.root/'data/accounts.json'] = declarations
             identity = add_entry(entry, root=self.root, documents=documents)
             from rules_service import addition_effects
-            recurring = addition_effects(self.root, identity, self.draft, documents=documents, lines=audit_lines)
+            recurring = addition_effects(self.root, identity, self.draft, documents=documents, lines=audit_lines,
+                                         billing_period=answer.get('billing-period') if targets else None,
+                                         update_rule=prepared.get('update_rule', False))
             entry=next(e for e in entries(documents) if e['id']==identity)
             result = dict(outcome='ready', entry_id=identity, description=entry['description'],
                           new_accounts=new, sources=entry['evidence'], **payment(entry,declarations['accounts']))

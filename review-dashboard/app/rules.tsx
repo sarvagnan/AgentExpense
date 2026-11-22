@@ -6,7 +6,7 @@ import {useEffect,useState} from 'react';
 import {dashboard} from './data';
 import {localDate} from './date-time';
 import {dayLabel,Icon,money,PageHeader,useQueryState} from './ui';
-import {mainPostings,originReason,payer,ruleAmounts,ruleStatus,statusLabel} from '../scripts/recurring-ui.mjs';
+import {cadenceLabel,mainPostings,originReason,payer,ruleAmounts,ruleStatus,statusLabel} from '../scripts/recurring-ui.mjs';
 import {RuleEditor} from './rule-editor';
 import {accountFieldLabel} from './account-labels';
 import {type Rule,type RulePosting,useRules,useRuleOperation} from './live/rules-api';
@@ -15,7 +15,7 @@ export const ruleHref=(id:string)=>`${import.meta.env.BASE_URL}forecast/?section
 export const entryHref=(id:string)=>{const row=dashboard.transactions.find(e=>e.id===id||e.storeId===id);return `${import.meta.env.BASE_URL}explorer/?month=${row?.date.slice(0,7)||localDate().slice(0,7)}&entry=${encodeURIComponent(row?.id||id)}`;};
 export function RuleAmounts({rule}:{rule:Rule}) {return <>{Object.entries(ruleAmounts(rule,dashboard.meta.accounts)).map(([currency,amount],i)=><span key={currency}>{i?' + ':''}{rule.amount==='varies'&&!rule.bill?'≈ ':''}{money(Number(rule.bill?.amount??amount),currency)}{rule.bill&&<> <span className="bill-badge">bill</span></>}</span>)}{rule.amount==='varies'&&<small className="rule-varying-range">varies · {rule.varying?.min!=null&&rule.varying?.max!=null?`${money(Number(rule.varying.min),Object.keys(ruleAmounts(rule,dashboard.meta.accounts))[0])}–${money(Number(rule.varying.max),Object.keys(ruleAmounts(rule,dashboard.meta.accounts))[0])} last 3`:'No payments yet'}</small>}</>;}
 export function RuleSummary({rule}:{rule:Rule}) {const pay=payer(rule,dashboard.meta.accounts);return <><strong><RuleAmounts rule={rule}/></strong><span>{mainPostings(rule,dashboard.meta.accounts).some((p:RulePosting)=>dashboard.meta.accounts[p.account]?.kind==='investment')?'Money set aside · ':''}{mainPostings(rule,dashboard.meta.accounts).map((p:RulePosting)=>accountFieldLabel(p.account)).join(', ')}</span><span>{pay?(dashboard.meta.accounts[pay.account]?.label||pay.account):'Choose a paying account when adding'}</span></>;}
-export const scheduleLabel=(rule:Rule)=>`${(rule.schedule.interval||1)===1?(rule.schedule.every==='month'?'Monthly':'Yearly'):`Every ${rule.schedule.interval} ${rule.schedule.every}s`} · day ${rule.schedule['anchor-day']||Number(rule.date.slice(8))}`;
+const scheduleLabel=(rule:Rule)=>`${cadenceLabel(rule.schedule)} · day ${rule.schedule['anchor-day']||Number(rule.date.slice(8))}`;
 export default function Rules({online}:{online:boolean|null}) {
   const {data:liveData,error,ready,refresh}=useRules(online),[editing,setEditing]=useState<Rule|true|null>(null),[dismissed,setDismissed]=useState<string[]>([]);
   const [data,interaction,release]=useInteractionSnapshot(liveData,ready),guard=useActionGuard();

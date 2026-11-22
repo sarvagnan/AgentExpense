@@ -267,6 +267,22 @@
         }
       ],
       "description": "One short reason when status is \"not_expense\", otherwise null."
+    },
+    "billing-period": {
+      "anyOf": [
+        {
+          "enum": [
+            "month",
+            "quarter",
+            "year"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Billing cadence explicitly stated for this payment in attached evidence, such as an annual subscription. Use null when unclear or absent. Do not infer from dates or typed words."
     }
   },
   "required": [
@@ -276,7 +292,8 @@
     "new-accounts",
     "doubts",
     "attachment-names",
-    "explanation"
+    "explanation",
+    "billing-period"
   ],
   "type": "object"
 }

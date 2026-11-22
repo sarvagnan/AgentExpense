@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import {changedPaymentDay} from '../scripts/recurring-ui.mjs';
 
 // The override runs this same regression against an archived application file.
 const source=readFileSync(process.env.VARYING_CHOICE_SOURCE||new URL('../app/live/rule-guess.tsx',import.meta.url),'utf8');
@@ -16,7 +17,7 @@ test('Varying bill selection survives an amount edit and a late passive effect',
  };
  const exports={},jsx=(type,props)=>({type,props});
  const dashboard={meta:{ledger:{defaultCurrency:'USD',locale:'en'},accounts:{'Assets:Bank:Willow':{label:'Willow'}}}};
- vm.runInNewContext(js,{exports,Intl,JSON,navigator:{language:'en'},require:name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='../data'?{dashboard}:name==='../date-time'?{localDate:()=> '2026-11-02'}:name==='../ui'?{money:n=>String(n),dayLabel:x=>x}:name.includes('recurring-ui')?{ruleAmounts:()=>({USD:'110.00'}),payer:()=>({account:'Assets:Bank:Willow'}),textAmounts:text=>[Number(text.match(/\d+(?:\.\d+)?/)[0])],paymentInPeriod:()=>null,varyingAmountCheck:()=>null}:{} });
+ vm.runInNewContext(js,{exports,Intl,JSON,navigator:{language:'en'},require:name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='../data'?{dashboard}:name==='../date-time'?{localDate:()=> '2026-11-02'}:name==='../ui'?{money:n=>String(n),dayLabel:x=>x}:name.includes('recurring-ui')?{changedPaymentDay,ruleAmounts:()=>({USD:'110.00'}),payer:()=>({account:'Assets:Bank:Willow'}),textAmounts:text=>[Number(text.match(/\d+(?:\.\d+)?/)[0])],paymentInPeriod:()=>null,varyingAmountCheck:()=>null}:{} });
  let text='Willow Energy 2000 USD';
  const render=()=>{do{dirty=false;index=0;tree=exports.VaryingRuleChoice({rule:{id:'willow',description:'Willow Energy'},match:{matched_words:['energy']},text,disabled:false,onAdd(){},onDecline(){}});}while(dirty);};
  const walk=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(walk):[node,...walk(node.props?.children)];

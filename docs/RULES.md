@@ -14,7 +14,10 @@ amounts within 10% of the earlier payment. A costed investment compares its mone
 cost (unit price times units, or total cost), not its unit count. Two consecutive calendar months, 25–35
 days apart, with the latest payment within 40 days qualify. Older or irregular
 patterns are suggestions. Subscription/membership/renewal words qualify directly;
-cancellation words do not. Yearly/annual words choose a yearly schedule.
+cancellation words do not. For a subscription, an explicit billing cadence read
+from attached evidence takes precedence over typed words. Yearly, monthly and
+quarterly cadences use the existing calendar schedules. Without a stated cadence,
+the rule starts monthly. The saved payment card shows the cadence beside Edit rule.
 
 `data/recurring-settings.json` is optional:
 
@@ -51,7 +54,8 @@ journals, validate, audit and commit through the shared transaction service.
 | GET `/api/rules` | `rules`, `suggestions`, `history`; each rule includes lifecycle, `version`, `last_payment`, `next_due`, `rule_status`, latest outstanding `review`. Status is on-track, due, overdue, stale, paused, ended or removed. |
 | GET `/api/rules/match?text=…&today=YYYY-MM-DD&currency=EUR` | Ranked `matches`, `pick_list`, unambiguous `rule_id` or null. A description/category name word is mandatory; date words are excluded from amount ranking. The page supplies local today and currency; browserless defaults use the server date and ledger default currency. |
 | GET `/api/rules/from-entry/{entry-id}` | Complete owner-rule proposal and `entry_id`; no write. |
-| POST `/api/drafts/{draft-id}/usual` | `rule_id`, optional `date`, positive decimal-string `amount`, `update_rule`, `account`, `remember_account`, `another_anyway`, `client_time`, `client_zone`. Returns the queued draft; poll the existing draft endpoint for completion. |
+| POST `/api/drafts/{draft-id}/usual` | `rule_id`, optional `version`, `date`, positive decimal-string `amount`, `update_rule`, `account`, `remember_account`, `another_anyway`, `client_time`, `client_zone`. Returns the queued draft; poll the existing draft endpoint for completion. |
+| POST `/api/drafts/{draft-id}/answer` | For a rule question, sends the displayed choice as `answer` and `rule_question.id` as `rule_choice`. An identical retry returns the draft. |
 | POST `/api/rules/operations/{32-hex-operation-id}` | Operation body below. Identical retry returns `replayed: true`; a changed payload with the same ID is refused. |
 
 A usual payment keeps the original draft FIFO position. New drafts use the local
@@ -59,8 +63,13 @@ save date unless `date` is supplied. The rule is frozen by hash and rechecked un
 the lock; an intervening edit requires another explicit choice. A known payment
 for the occurrence is refused unless `another_anyway` is true, which leaves the next due date in place. `amount`
 scales the balanced posting set; rounding must pass the ordinary strict checks.
-`update_rule: false` changes this payment only. `true` retains its checked postings
-on the rule. A missing payer asks for `account`; `remember_account: true` changes
+`update_rule: false` keeps the rule's planned amount and day. `true` uses the
+payment's changed fixed amount or day for future occurrences, keeping the cadence.
+The card requires a choice for those changes. The existing early-payment window
+and three days after the assigned occurrence are within the date grace period.
+When an agent proposal matches one rule, Queue asks the same question before
+saving. The server rechecks the answer against the proposal, rule and occurrence
+under the ledger lock. A missing payer asks for `account`. `remember_account: true` changes
 the rule's payer. The account must use the planned payment currency. Complex
 conversion changes require editing the balanced rule postings first.
 
@@ -123,7 +132,8 @@ against the store. Preferences have a closed schema.
 
 Version-1 draft audit events optionally add `usual_payment` (rule_id, occurrence,
 request_hash, estimated, update_rule, another_anyway, remember_account) and
-`rule_changes` (id, before, after). This captures the addition and rule changes in
+`rule_changes` (id, before, after). Queue saves also record the owner's rule answer
+in `questions`. This captures the addition and rule changes in
 one line and one commit. Standalone `kind: rule` events require `rule_action`,
 `request_id`, `request_hash`, `rule_changes`; they may include `rule_id`, `undoes`,
 `reversal_id` and local save context. Actions are made, edited, paused, resumed,
@@ -225,8 +235,9 @@ clears the bill, retains sources on the entry, advances exactly its recorded
 occurrence and recomputes the median. An early or late payment date does not
 repeat that occurrence or skip the following estimate. Corrections retain the
 saved bill’s occurrence, including when the payment date crosses a month. Delete restores the saved bill and recomputes the estimate; Restore pays it again and recomputes the estimate.
-Varying payments keep the exact typed/bill decimal amount and never accept
-`update_rule: true`; fixed rules retain their existing scaling/rounding path.
+Varying payments keep their exact typed or billed decimal amount. Their
+`update_rule` choice applies only to the day, and the estimate is still the
+median. Fixed rules retain their scaling and rounding path.
 
 An amount above twice the highest or below half the lowest of the last six
 payments returns structured HTTP 409 `{kind: amount_check, amount, min, max,

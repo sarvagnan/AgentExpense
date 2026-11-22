@@ -114,15 +114,28 @@ export function ruleStatus(rule,today) {
   return rule.lifecycle&&rule.lifecycle!=='active'?rule.lifecycle:rule.bill?'bill-received':paid?'stale':rule.date<today?'overdue':rule.date===today?'due':'on-track';
 }
 export const statusLabel = status => ({'on-track':'On track','bill-received':'Bill received',due:'Due',overdue:'Overdue',stale:'Stale',paused:'Paused',ended:'Ended',removed:'Removed'}[status]||status);
-export const originReason = origin => ({'subscription-words':'From subscription or membership words.','monthly-history':'Two consecutive monthly payments.','history-pass':'Two consecutive monthly payments found in history.'}[origin?.kind]||'Made by you.');
+export const originReason = origin => ({'subscription-words':'From payment words or attached evidence.','monthly-history':'Two consecutive monthly payments.','history-pass':'Two consecutive monthly payments found in history.'}[origin?.kind]||'Made by you.');
+export function cadenceLabel({every, interval = 1}) {
+  if (interval === 1) return every === 'month' ? 'Monthly' : 'Yearly';
+  if (every === 'month' && interval === 3) return 'Quarterly';
+  return `Every ${interval} ${every}s`;
+}
 
 /** First due date after this chosen payment. */
-export function nextDueForPayment(rule,day) {
+export function nextDueForPayment(rule,day,reanchor=false) {
   if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day)))return rule.next_due||rule.date;
   const latest=(rule.payments||[]).reduce((last,p)=>p.date>last?p.date:last,'');
-  if(latest&&day<latest)return rule.next_due||rule.date;
+  if(!reanchor&&latest&&day<latest)return rule.next_due||rule.date;
   const bucket=periodFor(rule,day),through=day>bucket?day:bucket;
-  if (through < rule.date) return rule.date;
+  if(!reanchor&&through<rule.date)return rule.date;
   const {from, 'anchor-day':anchor} = rule.schedule;
-  return occurrenceDate(bucket, scheduleStep(rule.schedule), anchor ?? Number(from.slice(8)));
+  const step=scheduleStep(rule.schedule),selected=reanchor?Number(day.slice(8)):anchor??Number(from.slice(8));
+  const next=through<rule.date||day<latest?occurrenceDate(rule.date,0,selected):occurrenceDate(bucket,step,selected);
+  return reanchor&&next<=day?occurrenceDate(next,step,selected):next;
+}
+
+export function changedPaymentDay(rule,day) {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day)))return '';
+  const period=rule.bill?.occurrence||periodFor(rule,day);
+  return day.slice(8)!==period.slice(8)&&Date.parse(day)-Date.parse(period)>3*86400000 ? period : '';
 }

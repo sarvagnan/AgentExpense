@@ -276,6 +276,19 @@ class RecurringTests(unittest.TestCase):
         self.assertIsNone(candidate(entry,[entry],[],ACCOUNTS,{},'2026-11-01','cancel subscription'))
         self.assertTrue(candidate(entry,[entry],[],ACCOUNTS,{},'2027-11-01','Willow annual membership')['automatic'])
 
+    def test_subscription_period_spellings_and_monthly_default(self):
+        entry = payment()
+        for phrases, expected in (
+            (('yearly', 'annual', 'annually', 'per year', 'a year', 'every year', '12 months'), ('year', 1)),
+            (('monthly', 'per month', 'a month', 'every month', 'Willow club', 'paid monthly for 12 months'), ('month', 1)),
+            (('quarterly', 'per quarter', 'a quarter', 'every quarter', '3 months'), ('month', 3)),
+        ):
+            for phrase in phrases:
+                with self.subTest(phrase=phrase):
+                    found = candidate(entry, [entry], [], ACCOUNTS, {}, '2026-11-01', f'Willow subscription {phrase}')
+                    schedule = found['rule']['schedule']
+                    self.assertEqual((schedule['every'], schedule['interval']), expected)
+
     def test_history_consecutive_amount_currency_age_and_exclusions(self):
         old=payment(day='2026-09-15');latest=payment('0000000000000002',amount='22.00')
         found=candidate(latest,[old,latest],[],ACCOUNTS,{},'2026-11-01');self.assertTrue(found['automatic'])

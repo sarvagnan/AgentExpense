@@ -13,6 +13,7 @@ from currency_settings import SettingsRecords
 from draft_time import client_context, saved_local
 from ledger_lock import ledger_lock
 from ledger_manifest import read_manifest
+from recurring import occurrence
 from replacements import entry_hash, require_version, safe_evidence, cited, statement_locked
 import format1
 from rules_service import policy, digest, rule_changes, ignored_entries
@@ -199,10 +200,13 @@ class Retention:
                     others=[e for e in entries(docs) if e.get('rule')==link]
                     if not others:
                         rule['date']=rule['schedule']['from']=min(rule['date'],link['occurrence'])
+                        rule['date']=rule['schedule']['from']=occurrence(rule)
                         bill=format1.bill(next((r['bill'] for r in reversed(lines) if r['kind']=='rule' and r.get('rule_action')=='bill-paid' and r.get('entry_id')==entry['id']),None))
                         if bill:
                             if rule['bill'] and rule['bill']!=bill: raise ValueError('A newer bill is saved; remove it before deleting this payment')
                             rule['bill']=deepcopy(bill);rule['date']=rule['schedule']['from']=bill['occurrence']
+                            if occurrence(rule) != bill['occurrence']:
+                                rule['schedule']['anchor-day'] = int(bill['occurrence'][-2:])
                     self.estimate(docs,rule,lines)
                 # A restored bill can retain evidence formerly cited by its payment alone.
                 owned,kept=file_plan(docs,root,entry)
@@ -249,7 +253,11 @@ class Retention:
                         through=max([entry['rule']['occurrence'],*[e['rule']['occurrence'] for e in entries(docs) if (e['rule'] or {}).get('id')==rule['id']]])
                         # An intervening rule edit or newer bill may already put
                         # its next occurrence beyond this restored payment.
-                        if rule['date']<=through: rule.update(advance(rule,through))
+                        change = next((c for c in item['rule-changes'] if c['id']==rule['id']), None)
+                        if change and change['before'] and change['after'] and not rule['bill'] and rule['schedule']==change['after']['schedule']:
+                            rule.update(date=change['before']['date'], schedule=deepcopy(change['before']['schedule']))
+                        elif rule['date']<=through:
+                            rule.update(advance(rule,through))
                         self.estimate(docs,rule,lines)
                     trash.remove(item);details=dict(entry=entry,files_restored=[f['original'] for f in item['files']],rule_changes=rule_changes(before_rules,docs[root/'data/forecast.json']));event_action='restored';title=f"Restore {entry['description']} via dashboard";result=dict(entry_id=entry['id'],description=entry['description'],item_id=item['id'])
             elif action in ('queue-discard','queue-restore'):

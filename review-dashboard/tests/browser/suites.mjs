@@ -577,6 +577,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await expect(save).toHaveText('Continue');await expect(save).toHaveClass(/\bprimary\b/);await expect(barTitle).toHaveText('Ready to continue');
         await page.mouse.move(1,1);await snap('usual-suggestion');
         await guess.getByRole('button',{name:'Show usual payment',exact:true}).click();await expect(guess.getByRole('heading',{name:weak[1],exact:true})).toBeVisible();
+        await guess.getByRole('radio',{name:'This payment only',exact:true}).check();
         await expect(guess.getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await expect(save).toBeEnabled();
         await expect(save).toHaveText('Send to the agent instead');await expect(save).not.toHaveClass(/\bprimary\b/);await expect(barTitle).toHaveText('Add as usual above, or send it to the agent');
         assert.deepEqual(await page.locator('.add-page .button.primary').filter({visible:true}).allInnerTexts(),['Add as usual'],'Add as usual is the only primary button beside the card');

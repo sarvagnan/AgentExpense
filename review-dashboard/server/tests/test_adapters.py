@@ -26,7 +26,7 @@ from run_events import RunEvents,read_events
 from settings import Settings,APPLICATION
 
 ANSWER={'status':'not_expense','question':None,'entry':None,'new-accounts':[],
-        'doubts':[],'attachment-names':[],'explanation':'Fictional offline document'}
+        'doubts':[],'attachment-names':[],'explanation':'Fictional offline document','billing-period':None}
 SCHEMA={'type':'object','additionalProperties':False,'required':['value'],'properties':{'value':{'type':'string'}}}
 
 

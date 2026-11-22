@@ -14,7 +14,7 @@ from store import load, entries, dump, validate, store_paths, new_id
 from recurring import (active, advance, amounts, candidate, detect, identity, main_postings,
                        match_text, paying, payee_match, period_for, same_payment, stale_rules,
                        simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt,
-                       new_rule, rule_postings)
+                       new_rule, rule_postings, occurrence as calendar_occurrence)
 import format1
 from audit import records, append, event, audit_path
 from ledger_lock import ledger_lock
@@ -129,7 +129,58 @@ class StatementPayments:
         self.rule_by_id[rule['id']]=rule
 
 
-def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persist=True, statement=False, batch=None):
+RULE_CHOICES = ('This payment only', 'Update the rule too')
+
+
+def linked_rule(entry, rules, accounts, declined, *, indexed=False):
+    matches = [r for r in rules if r['id'] not in declined and active(r) and (indexed or same_payment(entry,r,accounts))
+               and (r.get('amount') != 'varies' or simple_payment(entry,accounts) and payee_match(entry,r)
+                    and main_postings(entry, accounts)[0]['commodity']==main_postings(r, accounts)[0]['commodity'])]
+    return matches[0] if len(matches) == 1 else None
+
+
+def payment_changes(rule, entry, accounts, period):
+    old, paid = amounts(rule, accounts), amounts(entry, accounts)
+    price = (old, paid) if rule['amount'] != 'varies' and old != paid else None
+    day = entry['date']
+    moved = (day[-2:] != period[-2:] and day > (date.fromisoformat(period) + timedelta(days=3)).isoformat()
+             and (not rule['bill'] or rule['bill']['occurrence'] == period))
+    return price, moved
+
+
+def payment_choice(root, draft, prepared):
+    """Return the current choice or put the checked proposal back in Queue for an answer."""
+    accounts = prepared['declarations']['accounts']
+    entry = prepared['entry']
+    rule = linked_rule(entry, prepared['documents'][root/'data/forecast.json'], accounts, draft.get('declined_rules', ()))
+    if not rule:
+        return False
+    period = period_for(rule, entry['date'])
+    changes = []
+    price, moved = payment_changes(rule, entry, accounts, period)
+    if price:
+        label = lambda totals: ' + '.join(f'{value} {code}' for code, value in sorted(totals.items()))
+        changes.append(f'Amount from {label(price[0])} to {label(price[1])}')
+    if moved:
+        changes.append(f'Date from {period} to {entry["date"]}')
+    if not changes:
+        return False
+    key = digest([rule, prepared['proposal_hash'], period])
+    current = draft.get('rule_question')
+    if current and current['id'] == key:
+        answer = draft['questions'][current['index']]['answer']
+        if answer is not None:
+            return answer == RULE_CHOICES[1]
+        draft.update(state='question', waiting=None)
+        return None
+    from agent import now
+    draft.update(state='question', waiting=None, rule_question=dict(id=key, index=len(draft['questions'])))
+    draft['questions'].append(dict(question='Update the rule from this payment? ' + '. '.join(changes) + '.',
+                                   answer=None, asked_at=now()))
+    return None
+
+
+def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persist=True, statement=False, batch=None, billing_period=None, update_rule=False):
     """Checked addition effects; statement batches validate and persist once at the end."""
     documents=load(root) if documents is None else documents
     rules=documents[root/'data/forecast.json']; before=deepcopy(rules) if batch is None else []
@@ -153,27 +204,10 @@ def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persi
                     not e.get('rule') and same_payment(e,rule,accounts) and period_for(rule,e['date'])==period)]
         if duplicates and not usual['another_anyway']: raise ValueError('This period already has a payment; choose Add another anyway')
         link=rule
-        if usual['update_rule'] and rule.get('amount') != 'varies':
-            updated = deepcopy(entry['postings'])
-            if not usual['remember_account']:
-                original_payer = paying(rule,accounts) or next((p for p in rule['postings'] if Decimal(p['amount'])<0),None)
-                selected = paying(entry,accounts)
-                if original_payer and selected:
-                    next(p for p in updated if p==selected)['account'] = original_payer['account']
-            rule['postings']=updated
-        elif usual['remember_account']:
-            selected=paying(entry,accounts)
-            old=paying(rule,accounts)
-            placeholder=old or next((p for p in rule['postings'] if Decimal(p['amount'])<0),None)
-            if not placeholder or not selected: raise ValueError('Choose a paying account')
-            if placeholder['commodity']!=selected['commodity']: raise ValueError('The saved paying account needs a conversion; edit the rule postings first')
-            placeholder['account']=selected['account']
+        update_rule = usual['update_rule']
     else:
         possible=batch.matching_rules(entry) if batch is not None else rules
-        matches=[r for r in possible if r['id'] not in declined and active(r) and (batch is not None or same_payment(entry,r,accounts))
-                 and (r.get('amount') != 'varies' or simple_payment(entry,accounts) and payee_match(entry,r)
-                      and main_postings(entry, accounts)[0]['commodity']==main_postings(r, accounts)[0]['commodity'])]
-        if len(matches)==1: link=matches[0]
+        link=linked_rule(entry,possible,accounts,declined,indexed=batch is not None)
     # A statement identifies a saved bill by its exact money amount and payee,
     # rather than guessing its occurrence from an early or late payment date.
     billed_occurrence=None
@@ -190,6 +224,22 @@ def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persi
         occurrence=usual['occurrence'] if usual else billed_occurrence or period_for(link,entry['date'])
         entry['rule']=dict(id=link['id'],occurrence=occurrence)
         another=usual and usual['another_anyway']
+        price, moved = payment_changes(link, entry, accounts, occurrence) if update_rule else (None, False)
+        remember = usual and usual['remember_account']
+        if price:
+            updated = deepcopy(rule_postings(entry, accounts))
+            if not remember:
+                original_payer = paying(link,accounts) or next((p for p in link['postings'] if Decimal(p['amount'])<0),None)
+                selected = paying(entry,accounts)
+                if original_payer and selected:
+                    next(p for p in updated if p==selected)['account'] = original_payer['account']
+            link['postings']=updated
+        elif remember:
+            selected=paying(entry,accounts)
+            placeholder=paying(link,accounts) or next((p for p in link['postings'] if Decimal(p['amount'])<0),None)
+            if not placeholder or not selected: raise ValueError('Choose a paying account')
+            if placeholder['commodity']!=selected['commodity']: raise ValueError('The saved paying account needs a conversion; edit the rule postings first')
+            placeholder['account']=selected['account']
         if not another and (link['bill'] or {}).get('occurrence') == occurrence:
             paid_bill=deepcopy(link['bill']);link['bill']=None
             entry['evidence']=list(dict.fromkeys([*entry['evidence'],*paid_bill['evidence']]))
@@ -203,6 +253,11 @@ def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persi
             index=batch.positions[link['id']] if batch is not None else rules.index(link);rules[index]=link=advance(link,occurrence)
         elif not another and entry['date']>=latest and max(entry['date'],occurrence)>=link['date']:
             index=batch.positions[link['id']] if batch is not None else rules.index(link);rules[index]=link=advance(link,max(entry['date'],occurrence))
+        if moved and not another:
+            link['schedule']['anchor-day'] = int(entry['date'][-2:])
+            link['date'] = link['schedule']['from'] = calendar_occurrence(link)
+            if not paid_bill and link['date'] <= entry['date']:
+                rules[rules.index(link)] = link = advance(link, entry['date'])
         if batch is not None:batch.linked(entry,link)
         recompute_estimate(link,batch.history(link,accounts) if batch is not None else actual,accounts)
     elif not statement:
@@ -211,7 +266,8 @@ def addition_effects(root, entry_id, draft, *, documents=None, lines=None, persi
     if not statement:
         settings=documents.get(root/'data/recurring-settings.json',{'never-automatic':[]})
         covered=any(r['id'] in declined and same_payment(entry,r,accounts) for r in rules)
-        if not link and not covered:found=candidate(entry,actual,rules,accounts,settings,draft['client_time'][:10],draft['text'])
+        if not link and not covered:
+            found=candidate(entry,actual,rules,accounts,settings,draft['client_time'][:10],draft['text'],billing_period=billing_period)
     made=[]
     if found and found['automatic']:
         made=[found['rule']]; rules.extend(made)
@@ -336,7 +392,7 @@ def wire_proposal(rule, day, filenames, root, body):
 def queue_usual(settings, drafts, draft, body):
     if draft.get('correction'): raise ValueError('A correction form cannot add another usual payment')
     if draft.get('bill_request'): raise ValueError('This item is saving a bill')
-    allowed={'rule_id','date','amount','update_rule','account','remember_account','another_anyway','amount_anyway','client_time','client_zone'}
+    allowed={'rule_id','version','date','amount','update_rule','account','remember_account','another_anyway','amount_anyway','client_time','client_zone'}
     if not isinstance(body,dict) or set(body)-allowed: raise ValueError('Unknown usual payment field')
     for key in ('update_rule','remember_account','another_anyway','amount_anyway'):
         if key in body and type(body[key]) is not bool: raise ValueError(key+' must be boolean')
@@ -352,6 +408,9 @@ def queue_usual(settings, drafts, draft, body):
     policy(settings)
     documents=load(settings.ledger); rule=next((r for r in documents[settings.ledger/'data/forecast.json'] if r['id']==body.get('rule_id')),None)
     if not rule or not active(rule) or rule['id'] in draft.get('declined_rules',[]): raise ValueError('Choose an active rule that has not been declined')
+    version = digest(rule)
+    if body.get('version') not in (None, version):
+        raise ValueError('The rule changed; choose Add as usual again')
     from draft_time import client_context
     context = client_context(body.get('client_time'),body.get('client_zone')) if 'client_time' in body or 'client_zone' in body else None
     day=body.get('date') or (draft.get('pieces') or {}).get('fields',{}).get('date',{}).get('value') or (context or draft)['client_time'][:10]
@@ -361,7 +420,6 @@ def queue_usual(settings, drafts, draft, body):
         if rule['bill']:
             effective['amount']=rule['bill']['amount']
         elif not body.get('amount'): raise ValueError('Needs an amount')
-        if body.get('update_rule'): raise ValueError('Varying rules recompute their estimate from payments')
         ignored=ignored_entries(records(settings.ledger))
         actual=[e for e in entries(documents) if e['id'] not in ignored]
         check=amount_check(rule,effective['amount'],actual,documents[settings.ledger/'data/accounts.json']['accounts'])
@@ -388,7 +446,7 @@ def queue_usual(settings, drafts, draft, body):
     from agent import now
     if draft.get('saved_at') is None: drafts.save_time(draft,body.get('client_time'),body.get('client_zone'))
     draft.update(usual_payment=dict(rule_id=rule['id'],occurrence=period,request_hash=request_hash,estimated=estimated,update_rule=body.get('update_rule',False),another_anyway=body.get('another_anyway',False),remember_account=body.get('remember_account',False)),
-                 usual_rule_hash=digest(rule),state='queued',queued_at=draft.get('queued_at') or now(),proposal=proposal,error=None,waiting=None)
+                 usual_rule_hash=version,state='queued',queued_at=draft.get('queued_at') or now(),proposal=proposal,error=None,waiting=None)
     drafts.put(draft)
     return draft
 

@@ -141,6 +141,150 @@ class RuleTests(Fixture):
                 dump(self.ledger/'data/expenses/2026.json',[])
                 self.checkpoint('Reset disposable payment examples')
 
+    def test_usual_payment_updates_the_future_day(self):
+        for varies, interval, amount, update, expected_amount, expected_due in (
+            (False, 1, None, True, '100.00', '2026-12-25'),
+            (False, 1, '125', True, '125.00', '2026-12-25'),
+            (False, 1, '125', False, '100.00', '2026-12-15'),
+            (True, 1, '125', True, '125.00', '2026-12-25'),
+            (False, 3, None, True, '100.00', '2027-02-25'),
+        ):
+            with self.subTest(varies=varies, interval=interval, amount=amount, update=update):
+                rule = payment_rule(day='2026-11-15')
+                rule['schedule']['interval'] = interval
+                if varies:
+                    rule['amount'] = 'varies'
+                self.seed(rule, [])
+                _, _, result = self.add_direct(date='2026-11-25', update_rule=update,
+                                               **({'amount': amount} if amount else {}))
+                self.assertEqual(result['rule']['occurrence'], '2026-11-15')
+                self.assertEqual(result['next_due'], expected_due)
+                line = records(self.ledger)[-1]
+                self.assertEqual(line['usual_payment']['update_rule'], update)
+                self.assertEqual(line['rule_changes'][0]['after']['postings'][0]['amount'], expected_amount)
+
+    def test_reanchored_payment_can_be_deleted_and_restored(self):
+        from retention_service import Retention
+        from replacements import entry_hash
+        for bill in (False, True):
+            with self.subTest(bill=bill):
+                rule = payment_rule(day='2026-11-15')
+                if bill:
+                    rule.update(amount='varies', bill={'amount': '100.00', 'received': '2026-11-01',
+                                'pay-by': None, 'occurrence': rule['date'], 'evidence': []})
+                self.seed(rule, [])
+                drafts, _, result = self.add_direct(date='2026-11-25', update_rule=True)
+                after = read_json(self.ledger/'data/forecast.json')[0]
+                self.assertEqual(after['date'], '2026-12-25')
+                service = Retention(self.settings, drafts)
+                entry = next(e for e in entries(load(self.ledger)) if e['id'] == result['entry_id'])
+                removed = service.operate(secrets.token_hex(16), dict(action='delete', entry_id=entry['id'], version=entry_hash(entry)))
+                reopened = read_json(self.ledger/'data/forecast.json')[0]
+                self.assertEqual(reopened['date'], '2026-11-15' if bill else '2026-11-25')
+                self.assertEqual(reopened['bill'], rule['bill'])
+                service.operate(secrets.token_hex(16), dict(action='restore', item_id=removed['item_id']))
+                self.assertEqual(read_json(self.ledger/'data/forecast.json')[0], after)
+                self.assertEqual(next(e for e in entries(load(self.ledger)) if e['id'] == entry['id']), entry)
+
+    def agent_payment(self, client, day, amount):
+        answer = ready(new=False)
+        answer['attachment-names'] = []
+        answer['entry'].update(date=day, description='Willow club')
+        for posting, value in zip(answer['entry']['postings'], (amount, '-' + amount)):
+            posting['amount'] = value
+        self.set_answers(answer)
+        identity = self.create(client, 'Willow club', upload=False)
+        self.save(client, identity)
+        draft = self.wait_condition(client, identity, lambda d: d['state'] in ('question', 'added', 'failed'))
+        self.assertNotEqual(draft['state'], 'failed', draft.get('error'))
+        return identity, draft
+
+    def test_agent_link_waits_for_the_rule_choice(self):
+        for choice, expected_amount, expected_due in (
+            ('This payment only', '100.00', '2026-12-15'),
+            ('Update the rule too', '125.00', '2026-12-25'),
+        ):
+            with self.subTest(choice=choice):
+                self.seed(payment_rule(day='2026-11-15'), [])
+                with self.client() as client:
+                    identity, draft = self.agent_payment(client, '2026-11-25', '125.00')
+                    self.assertEqual(draft['state'], 'question')
+                    self.assertIsNotNone(draft['proposal'])
+                    self.assertEqual(list(entries(load(self.ledger))), [])
+                    question = draft['questions'][-1]['question']
+                    for value in ('100.00', '125.00', '2026-11-15', '2026-11-25'):
+                        self.assertIn(value, question)
+                    path = f'/api/drafts/{identity}/answer'
+                    body = dict(answer=choice, rule_choice=draft['rule_question']['id'])
+                    applying, release = threading.Event(), threading.Event()
+                    original_apply = Transaction.apply
+
+                    def hold_apply(transaction, *args, **kwargs):
+                        applying.set()
+                        self.assertTrue(release.wait(30), 'Release the checked save')
+                        return original_apply(transaction, *args, **kwargs)
+
+                    with patch.object(Transaction, 'apply', hold_apply):
+                        try:
+                            response = client.post(path, json=body)
+                            self.assertEqual(response.status_code, 200, response.text)
+                            self.assertTrue(applying.wait(30), 'The checked save should reach the hold')
+                            replay = client.post(path, json=body)
+                            self.assertEqual(replay.status_code, 200, replay.text)
+                            self.assertEqual(replay.json()['state'], 'working')
+                        finally:
+                            release.set()
+                        result = self.wait(client, identity, 'added')
+                    self.assertEqual(client.post(path, json=body).status_code, 200)
+                    self.assertEqual(len(self.calls()), 1)
+                    self.assertEqual(len(list(entries(load(self.ledger)))), 1)
+                    lines = [line for line in records(self.ledger) if line.get('draft_id') == identity]
+                    self.assertEqual(len(lines), 1)
+                    self.assertEqual(lines[0]['questions'][-1]['answer'], choice)
+                    self.assertEqual(lines[0]['rule_changes'][0]['after']['postings'][0]['amount'], expected_amount)
+                    self.assertEqual(result['result']['next_due'], expected_due)
+
+    def test_agent_rule_question_excludes_grace_dates_and_varying_amounts(self):
+        for varies, date, amount in ((False, '2026-11-10', '100.00'),
+                                     (False, '2026-11-18', '100.00'),
+                                     (True, '2026-11-15', '125.00'),
+                                     (True, '2026-11-25', '125.00')):
+            with self.subTest(varies=varies, date=date):
+                rule = payment_rule(day='2026-11-15')
+                if varies:
+                    rule['amount'] = 'varies'
+                self.seed(rule, [])
+                with self.client() as client:
+                    _, draft = self.agent_payment(client, date, amount)
+                    if date.endswith('-25'):
+                        self.assertEqual(draft['state'], 'question')
+                        self.assertIn(date, draft['questions'][-1]['question'])
+                        self.assertNotIn('125.00', draft['questions'][-1]['question'])
+                    else:
+                        self.assertEqual(draft['state'], 'added')
+                        self.assertEqual(draft['questions'], [])
+
+    def test_stale_agent_rule_answer_prompts_again_before_saving(self):
+        rule = payment_rule(day='2026-11-15')
+        self.seed(rule, [])
+        with self.client() as client:
+            identity, draft = self.agent_payment(client, '2026-11-25', '125.00')
+            stale = draft['rule_question']['id']
+            self.op('edited', rule_id=rule['id'], rule={'date': '2026-11-17'})
+            path = f'/api/drafts/{identity}/answer'
+            body = dict(answer='Update the rule too', rule_choice=stale)
+            self.assertEqual(client.post(path, json=body).status_code, 200)
+            current = self.wait_condition(client, identity, lambda d: d['rule_question']['id'] != stale)
+            self.assertEqual(current['state'], 'question')
+            self.assertIn('2026-11-17', current['questions'][-1]['question'])
+            self.assertEqual(client.post(path, json=body).status_code, 409)
+            self.assertEqual(list(entries(load(self.ledger))), [])
+            body.update(answer='This payment only', rule_choice=current['rule_question']['id'])
+            self.assertEqual(client.post(path, json=body).status_code, 200)
+            added = self.wait(client, identity, 'added')
+            self.assertEqual(added['result']['next_due'], '2026-12-17')
+            self.assertEqual(len(self.calls()), 1)
+
     def test_foreign_planned_cost_note_and_missing_payer_remember(self):
         r=payment_rule();r['postings'][0].update(amount='10.00',commodity='USD',cost=dict(amount='100.00',commodity='INR',per='total'))
         self.seed(r);_,_,result=self.add_direct()
@@ -173,6 +317,24 @@ class RuleTests(Fixture):
         self.assertEqual(removed['removal']['entry-ids'],[entry['id']]);self.assertEqual(removed['lifecycle'],'removed')
         self.assertEqual(self.op('backfill')['changed'],0)
 
+    def test_printed_billing_period_drives_the_saved_rule(self):
+        answer = ready(new=False)
+        answer['entry'].update(date='2026-10-15', description='Willow subscription')
+        answer['billing-period'] = 'year'
+        for words in ('Willow 100', 'Willow monthly subscription'):
+            with self.subTest(words=words):
+                dump(self.ledger/'data/forecast.json', [])
+                self.seed(False, [])
+                self.set_answers(answer)
+                with self.client() as client:
+                    identity = self.create(client, words)
+                    self.save(client, identity)
+                    draft = self.wait(client, identity, 'added')
+                    self.assertEqual(len(draft['result']['made_rules']), 1)
+                    rule = read_json(self.ledger/'data/forecast.json')[0]
+                    self.assertEqual(rule['schedule']['every'], 'year')
+                    self.assertEqual(rule['date'], '2027-10-15')
+
     def test_backdated_addition_then_delete_does_not_block_later_saves(self):
         self.seed(False)
         drafts=Drafts(self.ledger)
@@ -202,7 +364,7 @@ class RuleTests(Fixture):
     def test_agent_and_hand_additions_link_and_advance_and_paused_offer(self):
         r=payment_rule(day='2026-10-01');r['description']='Cafe';self.seed(r)
         with self.client() as client:
-            proposal=ready(new=False);proposal['attachment-names']=[];self.set_answers(proposal)
+            proposal=ready(new=False);proposal['attachment-names']=[];proposal['entry']['date']='2026-10-04';self.set_answers(proposal)
             identity=self.create(client,upload=False);self.save(client,identity);result=self.wait(client,identity,'added')['result']
             self.assertEqual(result['rule']['id'],r['id']);self.assertEqual(result['next_due'],'2026-11-01')
             self.assertEqual(len(self.calls()),1)
@@ -262,16 +424,20 @@ class RuleTests(Fixture):
     def test_api_reads_usual_fifo_place_and_access(self):
         self.seed()
         with self.client(worker=False) as client:
-            self.assertEqual(len(client.get('/api/rules').json()['rules']),1)
+            rules = client.get('/api/rules').json()['rules']
+            self.assertEqual(len(rules),1)
             self.assertEqual(client.get('/api/rules/match',params={'text':'Willow 100 INR'}).json()['rule_id'],'f000000000000001')
             draft_id=self.create(client,upload=False);drafts=client.app.state.drafts;draft=drafts.get(draft_id)
             draft.update(state='queued',queued_at='2026-01-01T00:00:00+00:00');drafts.put(draft)
-            response=client.post(f'/api/drafts/{draft_id}/usual',json=dict(rule_id='f000000000000001',date='2026-11-15'))
+            path = f'/api/drafts/{draft_id}/usual'
+            body = dict(rule_id=rules[0]['id'], date='2026-11-15', version=rules[0]['version'])
+            self.assertEqual(client.post(path, json={**body, 'version': 'old'}).status_code, 409)
+            response=client.post(path,json=body)
             self.assertEqual(response.status_code,200,response.text);self.assertEqual(response.json()['queued_at'],'2026-01-01T00:00:00+00:00')
             client.app.state.worker.process(drafts.get(draft_id));added=client.get('/api/drafts/'+draft_id).json()
             self.assertEqual(added['state'],'added');self.assertEqual(self.calls(),[])
             self.assertNotIn('can_undo',added['result'])
-            replay=client.post(f'/api/drafts/{draft_id}/usual',json=dict(rule_id='f000000000000001',date='2026-11-15'));self.assertEqual(replay.status_code,200)
+            replay=client.post(path,json=body);self.assertEqual(replay.status_code,200)
             entry_id=added['result']['entry_id'];self.assertEqual(client.get('/api/rules/from-entry/'+entry_id).status_code,200)
         with self.client(worker=False,dev=False) as client:
             response=client.post('/api/rules/operations/'+'1'*32,json=dict(action='paused',rule_id='f000000000000001'));self.assertEqual(response.status_code,403)

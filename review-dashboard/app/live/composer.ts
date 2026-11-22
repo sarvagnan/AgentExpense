@@ -12,7 +12,7 @@ import {buildSentence, draftPieces, type PatternData} from './builder';
 import {readStored, writeStored, findRecoveryDraft, restorePieceEdits} from './persistence';
 import {draftsChanged} from './use-drafts';
 const KEY='ledger-add-v1';
-type UsualRequest={rule_id:string;date:string;amount?:string;update_rule?:boolean;account?:string;remember_account?:boolean;another_anyway?:boolean;amount_anyway?:boolean;bill_only?:boolean;pay_by?:string};
+type UsualRequest={rule_id:string;version?:string;date:string;amount?:string;update_rule?:boolean;account?:string;remember_account?:boolean;another_anyway?:boolean;amount_anyway?:boolean;bill_only?:boolean;pay_by?:string};
 type Recovery={updatedAt?:number;id:string|null;text:string;edits:Record<string,string>;declined_rules?:string[];fileChoices?:Record<string,FileChoice>;uploads?:{key:string;name:string;error:string;cancelled?:boolean}[]};
 export type Pending={key:string;name:string;file?:File;progress:number;error:string;busy:boolean;cancelled?:boolean;controller?:AbortController};
 const blank=():Recovery=>({id:null,text:'',edits:{},declined_rules:[]});

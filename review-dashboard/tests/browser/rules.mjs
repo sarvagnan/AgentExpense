@@ -78,7 +78,15 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await type('Clover 40 '+seed.currency);await guess().getByLabel('Which rule did you mean?').selectOption(seed.rules[1].id);await expect(guess()).toContainText('Clover music');await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await settled();await snap('rule-pick-list');
   record('6c2 live typed guess, ranked pick list and durable Not this without submission');
   await resetDrafts({persona,empty:true});await go('add/');
-  const first=await add('Birch rent 105 '+seed.currency,async()=>{await expect(guess().getByLabel('This payment only',{exact:true})).toBeChecked();await settled();await snap('rule-amount-this-payment');});
+  const first=await add('Birch rent 105 '+seed.currency,async()=>{
+    const keep=guess().getByLabel('This payment only',{exact:true}),update=guess().getByLabel('Update the rule too',{exact:true});
+    const submit=guess().getByRole('button',{name:'Add as usual',exact:true});
+    await expect(keep).not.toBeChecked();await expect(update).not.toBeChecked();await expect(submit).toBeDisabled();
+    await keep.check();await expect(submit).toBeEnabled();
+    await guess().getByLabel('Payment date').fill('2026-11-12');await expect(guess()).toContainText('Date from');
+    await expect(keep).not.toBeChecked();await expect(update).not.toBeChecked();await expect(submit).toBeDisabled();
+    await keep.check();await settled();await snap('rule-amount-this-payment');
+  });
   assert.equal((await byName('Birch rent')).postings[0].amount,'100.00');
   await expect(saved().getByRole('button',{name:'Undo',exact:true})).toHaveCount(0);await expect(saved()).toContainText('Next due');await snap('rule-saved');
   const eligibility=await get('entries/'+first.result.entry_id+'/retention');
@@ -91,6 +99,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await type('Birch rent 108 '+seed.currency);await expect(guess()).toContainText('Already added for');await expect(guess().getByRole('link',{name:'View entry'})).toHaveAttribute('href',new RegExp(second.result.entry_id));
   await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await settled();await snap('rule-already-added');
   await words().fill('Birch rent 109 '+seed.currency);await guess().getByLabel('Add another anyway',{exact:true}).check();
+  await guess().getByLabel('This payment only',{exact:true}).check();
   const [duplicateResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/usual')&&r.request().method()==='POST'),guess().getByRole('button',{name:'Add as usual',exact:true}).click()]);
   assert.ok(duplicateResponse.ok(),await duplicateResponse.text());const duplicate=await duplicateResponse.json();await expect(words()).toHaveValue('');
   submitted.add(duplicate.id);await wait(duplicate.id);
@@ -105,7 +114,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   // Normal fake-agent additions expose automatically made and paused follow-ups.
   await words().fill('Pine studio subscription 22 '+seed.currency);await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(words()).toHaveValue('');
   await expect.poll(async()=>(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Pine studio'))?.state,{timeout:180000}).toBe('added');await refresh();
-  await expect(saved()).toContainText('Made a rule for Pine studio');await expect(saved().getByRole('button',{name:'Edit rule'})).toBeVisible();await snap('rule-automatic-made');
+  await expect(saved()).toContainText('Made a rule for Pine studio. Monthly');await expect(saved().getByRole('button',{name:'Edit rule'})).toBeVisible();await snap('rule-automatic-made');
   await clickOp(saved().getByRole('button',{name:'Don’t make a rule',exact:true}));await expect(saved().getByRole('button',{name:'Don’t make a rule',exact:true})).toHaveCount(0);
   assert.equal((await byName('Pine studio')).lifecycle,'removed');
   const pine=(await get('drafts?include_added=true')).find(d=>d.text.startsWith('Pine studio'));submitted.add(pine.id);assert.ok(pine.result.entry_id);

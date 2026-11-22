@@ -1,5 +1,6 @@
 import {ActionFeedback} from './pending-actions';
 import {useState} from 'react';
+import {cadenceLabel} from '../../scripts/recurring-ui.mjs';
 import {dayLabel} from '../ui';
 import {RuleEditor} from '../rule-editor';
 import {type Draft} from './api';
@@ -15,7 +16,7 @@ export function RuleSaved({draft,online,compact=false }:{draft:Draft;online:bool
   return <article className={`rule-saved ${compact?'rule-saved-inline':'panel'}`} aria-label="Added payment"><header>{!compact&&<h2>Added · {r.description}</h2>}{compact&&<strong>Usual payment saved</strong>}</header>
     {r.next_due&&<p>Next due {dayLabel(data.rules.find(rule=>rule.id===r.rule?.id)?.date||r.next_due)}</p>}
     {r.usual_payment?.estimated&&<p className="rule-conversion">Added at the planned conversion. Statement reconciliation will correct it.</p>}
-    {made.map(rule=><section key={rule.id}><p><strong>Made a rule for {rule.description}.</strong></p><div className="rule-actions"><button className="button" disabled={op.busy||online!==true} onClick={()=>setEditing(rule)}>Edit rule</button><button className="button" disabled={op.busy||online!==true} onClick={()=>void op.operate({action:'removed',rule_id:rule.id,version:rule.version})}>Don’t make a rule</button></div></section>)}
+    {made.map(rule=><section key={rule.id}><p><strong>Made a rule for {rule.description}.</strong> {cadenceLabel(rule.schedule)}</p><div className="rule-actions"><button className="button" disabled={op.busy||online!==true} onClick={()=>setEditing(rule)}>Edit rule</button><button className="button" disabled={op.busy||online!==true} onClick={()=>void op.operate({action:'removed',rule_id:rule.id,version:rule.version})}>Don’t make a rule</button></div></section>)}
     {resumes.map(rule=><section key={rule.id}><p><strong>Resume {rule.description}?</strong></p><div className="rule-actions"><button className="button" disabled={op.busy||online!==true} onClick={()=>void op.operate({action:'resumed',rule_id:rule.id})}>Resume</button><button className="button" disabled={op.busy||online!==true} onClick={()=>{void op.operate({action:'kept',rule_id:rule.id}).then(ok=>{if(ok)setKeptPaused(xs=>[...xs,rule.id]);});}}>Keep paused</button></div></section>)}
     {!compact&&draft.receipt_reading&&<p className="live-hint">{draft.receipt_reading.state==='question'?'The receipt has details to check.':'The payment is saved. Receipt reading continues.'} <a href={`${import.meta.env.BASE_URL}add/?draft=${draft.id}`}>Open receipt details</a></p>}
     {compact&&<button className="text-button" aria-expanded={more} onClick={()=>setMore(!more)}>{more?'Less':'More'}</button>}{(!compact||more)&&<p className="live-hint">The weekly review will look at this payment.</p>}{op.error&&<p className="live-error" role="alert">{op.error}</p>}

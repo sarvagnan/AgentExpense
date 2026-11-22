@@ -345,7 +345,16 @@ def suppressed(entry, rules, accounts):
     return max(removed, key=lambda r:r['removal']['date']) if removed else None
 
 
-def candidate(entry, actual, rules, accounts, settings, today, text=''):
+SUBSCRIPTION_PERIODS = (
+    ('year', 1, re.compile(r'\b(?:yearly|annual(?:ly)?|(?:per|a|every)\s+year|every\s+12\s+months)\b', re.I)),
+    ('month', 3, re.compile(r'\b(?:quarterly|(?:per|a|every)\s+quarter|every\s+3\s+months)\b', re.I)),
+    ('month', 1, re.compile(r'\b(?:monthly|(?:per|a|every)\s+month)\b', re.I)),
+    ('year', 1, re.compile(r'\b12\s+months\b', re.I)),
+    ('month', 3, re.compile(r'\b3\s+months\b', re.I)),
+)
+
+
+def candidate(entry, actual, rules, accounts, settings, today, text='', *, billing_period=None):
     """Return a new rule or a weaker suggestion; never writes or calls an agent."""
     if entry['status'] != 'confirmed' or not identity(entry, accounts): return None
     removed_evidence = {identity for rule in rules if rule['lifecycle'] == 'removed'
@@ -363,21 +372,26 @@ def candidate(entry, actual, rules, accounts, settings, today, text=''):
     if removal:
         if entry['date'] <= removal['removal']['date']: return None
         history = [e for e in history if e['date'] > removal['removal']['date'] and e['id'] not in removal['removal']['entry-ids']]
-    qualifying_words = bool(words(text) & {'subscription','membership','renewal'}) and not any(w.startswith('cancel') for w in words(text))
+    typed = words(text)
+    subscription = bool(billing_period or typed & {'subscription', 'membership', 'renewal'}) and not any(w.startswith('cancel') for w in typed)
     previous = max((e for e in history if e['date'] < entry['date']), key=lambda e:e['date'], default=None)
     if removal and not previous: return None
-    if not qualifying_words and not previous: return None
+    if not subscription and not previous: return None
     days = (date.fromisoformat(entry['date'])-date.fromisoformat(previous['date'])).days if previous else 0
     consecutive = previous and ((date.fromisoformat(entry['date']).year-date.fromisoformat(previous['date']).year)*12+int(entry['date'][5:7])-int(previous['date'][5:7]) == 1)
     recent = 0 <= (date.fromisoformat(today)-date.fromisoformat(entry['date'])).days <= 40
-    automatic = qualifying_words or recent and consecutive and 25 <= days <= 35
+    automatic = subscription or recent and consecutive and 25 <= days <= 35
     if removal: automatic = bool(recent and consecutive and 25 <= days <= 35)
-    origin = {'kind': 'subscription-words' if qualifying_words else 'monthly-history',
-              'words': text if qualifying_words else None,
+    origin = {'kind': 'subscription-words' if subscription else 'monthly-history',
+              'words': text if subscription else None,
               'entry-ids': [previous['id'], entry['id']] if previous else [entry['id']], 'came-back': bool(removal)}
+    if subscription and billing_period:
+        every, interval = ('month', 3) if billing_period == 'quarter' else (billing_period, 1)
+    else:
+        every, interval = next(((unit, count) for unit, count, pattern in SUBSCRIPTION_PERIODS
+                                if subscription and pattern.search(text)), ('month', 1))
     rule = new_rule(id=secrets.token_hex(8), date=entry['date'], status='confirmed', description=entry['description'],
-                    schedule={'every': 'year' if qualifying_words and words(text) & {'yearly', 'annual'} else 'month',
-                              'from': entry['date'], 'interval': 1, 'anchor-day': None},
+                    schedule={'every': every, 'from': entry['date'], 'interval': interval, 'anchor-day': None},
                     origin=origin, created=today, postings=deepcopy(rule_postings(entry, accounts)))
     for p in rule['postings']: p['assert'] = None
     rule = advance(rule, entry['date'])

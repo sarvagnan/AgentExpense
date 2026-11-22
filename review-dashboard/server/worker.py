@@ -453,6 +453,13 @@ class Worker:
                                          account_question=dict(proposal_hash=prepared['proposal_hash'], accounts=prepared['new_roots'], postings=answer['entry']['postings']), proposal=None)
                             draft['questions'].append(dict(question='Create these new top-level accounts and add this entry?', answer=None, asked_at=now()))
                             self.drafts.put(draft);return
+                        if from_agent and not draft.get('usual_payment'):
+                            from rules_service import payment_choice
+                            prepared['update_rule'] = payment_choice(self.settings.ledger, draft, prepared)
+                            if prepared['update_rule'] is None:
+                                draft['proposal'] = answer
+                                self.drafts.put(draft)
+                                return
                         draft['waiting'] = None
                         self.drafts.put(draft)
                         result = transaction.apply(answer, fd, person=not from_agent, prepared=prepared)

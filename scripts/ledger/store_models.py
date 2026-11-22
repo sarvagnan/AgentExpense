@@ -921,7 +921,10 @@ def answer_model(extensions: tuple[LedgerExtension, ...] = ()) -> type[Strict]:
     with only its agent fields; it is left out when there are none.
     """
     entry = _with_extensions(derive(Entry), _answer_extensions(extensions, agent_only=True), 'AnswerEntry')
-    return _envelope('Answer', entry, "The Add agent's answer. The server fills every other entry field when it stores the entry.")
+    return _envelope('Answer', entry, "The Add agent's answer. The server fills every other entry field when it stores the entry.",
+                     billing_period=(Literal['month', 'quarter', 'year'] | None, field(
+                         'billing-period', 'Billing cadence explicitly stated for this payment in attached evidence, '
+                         'such as an annual subscription. Use null when unclear or absent. Do not infer from dates or typed words.')))
 
 
 class NewAccount(Strict):

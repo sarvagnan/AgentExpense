@@ -66,6 +66,7 @@ class Edit(SaveTime):
 class Answer(BaseModel):
     model_config = ConfigDict(extra='forbid')
     answer: str = Field(min_length=1, max_length=100_000)
+    rule_choice: str | None = None
 
 
 class UnsentAnswer(BaseModel):
@@ -917,7 +918,25 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             raise HTTPException(422, 'Answer must not be blank')
         with drafts.mutex:
             draft = get(identity)
+            rule_question = draft.get('rule_question')
+            if body.rule_choice is not None:
+                from rules_service import RULE_CHOICES
+                if not rule_question or rule_question['id'] != body.rule_choice:
+                    raise HTTPException(409, 'The rule question changed. Review the current item.')
+                question = draft['questions'][rule_question['index']]
+                if question['answer'] == body.answer:
+                    return public(draft)
+                require(draft, 'question')
+                if question['answer'] is not None or rule_question['index'] != len(draft['questions']) - 1:
+                    raise HTTPException(409, 'The rule question has already been answered.')
+                if body.answer not in RULE_CHOICES:
+                    raise HTTPException(422, 'Choose This payment only or Update the rule too.')
+                question.update(answer=body.answer, answered_at=now())
+                draft.pop('unsent_answer', None)
+                return queue(draft, draft['proposal'])
             require(draft, 'question')
+            if rule_question and rule_question['index'] == len(draft['questions']) - 1:
+                raise HTTPException(409, 'Choose an answer on the rule question.')
             draft.pop('account_question', None)
             draft.pop('account_proposal', None)
             draft.pop('account_consent', None)
@@ -1118,7 +1137,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 restore_baseline(settings,drafts,draft)
                 draft['ledger_fix'].update(state='queued',message=None,question=None)
             draft['check_errors'] = []
-            return queue(draft, draft.get('proposal') if draft.get('usual_payment') else draft.get('hand_form') if draft.get('finished_by') else None)
+            return queue(draft, draft.get('hand_form') if draft.get('finished_by') else draft.get('proposal') if draft.get('usual_payment') or draft.get('rule_question') else None)
 
     @app.post('/api/drafts/{identity}/receipt-dismiss')
     def dismiss_receipt(identity: str):

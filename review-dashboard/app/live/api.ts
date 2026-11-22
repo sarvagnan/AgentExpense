@@ -11,6 +11,7 @@ export type Draft = {correction_save?:string;hand_form?:Proposal|null;proposal?:
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
   correction?:{original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;version?:string;reask?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
+  rule_question?:{id:string;index:number};
   ledger_fix?:{entry_id?:string;state:'queued'|'working'|'ready'|'question'|'failed'|'resolved';title:string;summary:string;question?:string|null;message?:string|null;doubts?:string[]};
   declined_rules?:string[]; id: string; description?:string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
   pieces: { pattern: string; edits?: Record<string,string>; fields: Record<string, Pick<Piece, 'value' | 'source'>> } | null;
@@ -175,7 +176,7 @@ export const api = {
   create: (text: string, pieces: unknown, client_updated_at=0,declined_rules:string[]=[]) => request<Draft>('drafts', json('POST', {text, pieces, client_updated_at, declined_rules, ...clientTime()})),
   edit: (id: string, text: string, pieces: unknown, client_updated_at=0,declined_rules:string[]=[]) => request<Draft>(`drafts/${id}`, json('PATCH', {text, pieces, client_updated_at, declined_rules, ...clientTime()})),
   save: (id: string) => request<Draft>(`drafts/${id}/save`, json('POST', clientTime())),
-  answer: (id: string, answer: string) => request<Draft>(`drafts/${id}/answer`, json('POST', {answer})),
+  answer: (id: string, answer: string, rule_choice?:string) => request<Draft>(`drafts/${id}/answer`, json('POST', {answer,rule_choice})),
   currency: (id:string, body:{amount?:string;rate?:string;estimate:boolean}) => request<Draft>(`drafts/${id}/currency`,json('POST',body)),
   claim: (id:string,claim_token?:string,previous_token?:string)=>request<{draft:Draft;claim_token:string;form:Proposal;original_form?:Proposal;baseline?:{form:Proposal;sources:string[];reason:string;files:Draft['files']}}>(`drafts/${id}/claim`,json('POST',{claim_token,previous_token})),
   handForm:(id:string,claim_token:string,proposal:Proposal,sources?:string[],reason?:string)=>request<HandChecks>(`drafts/${id}/hand-form`,json('POST',{claim_token,proposal,...(sources?{sources}:{}),...(reason!==undefined?{reason}:{})})),

@@ -27,7 +27,7 @@ JORDAN_EXTENSION = APPLICATION / 'fixtures/ledgers/jordan/extensions/learning.js
 needs_sources = unittest.skipUnless(STORE_MD.exists() and JORDAN_EXTENSION.exists(), 'docs and fixtures are not in this application copy')
 AGENT_ENTRY = {'date', 'status', 'description', 'references', 'classification', 'original-amount', 'notes', 'postings'}
 AGENT_POSTING = {'account', 'amount', 'commodity', 'cost'}
-ENVELOPE = {'status', 'question', 'entry', 'new-accounts', 'doubts', 'attachment-names', 'explanation'}
+ENVELOPE = {'status', 'question', 'entry', 'new-accounts', 'doubts', 'attachment-names', 'explanation', 'billing-period'}
 # Keywords the Node loader's validator (review-dashboard/scripts/ledger-manifest.mjs) understands,
 # plus annotations it ignores. A generated keyword outside this set would be silently skipped there.
 NODE_KEYWORDS = {'$schema', '$id', '$defs', '$ref', 'title', 'description', 'anyOf', 'oneOf', 'discriminator', 'type', 'const',
@@ -95,7 +95,7 @@ def answer(**entry_changes):
         'classification': None, 'original-amount': None, 'notes': [],
         'postings': [{'account': 'Expenses:Groceries', 'amount': '120.50', 'commodity': 'INR', 'cost': None},
                      {'account': 'Assets:Cash', 'amount': '-120.50', 'commodity': 'INR', 'cost': None}]},
-        'new-accounts': [], 'doubts': [], 'attachment-names': [], 'explanation': None}
+        'new-accounts': [], 'doubts': [], 'attachment-names': [], 'explanation': None, 'billing-period': None}
     value['entry'].update(entry_changes)
     return value
 
@@ -423,6 +423,7 @@ def strict_output_problems(schema, rules):
             asked.answer.model_validate(answer(extensions={'work': {'client': 'Fable', 'hours': None, 'band': None, 'visits': 2}}))
         asked.answer.model_validate(answer(extensions={'work': {'client': 'Fable', 'hours': None, 'band': None}}))
         form = dict(answer(extensions={'fuel': None, 'work': {k: None for k in EVERY_TYPE['fields']} | {'visits': 2}}))
+        form.pop('billing-period')
         models.form.model_validate(form)
         models.form.model_validate({**form, 'account-metadata': {'Assets:Bank:New': {'kind': 'bank', 'currency': 'INR'}}})
 

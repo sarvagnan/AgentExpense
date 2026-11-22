@@ -587,7 +587,7 @@ class LedgerCheckTests(Fixture):
         self.commit([lunch('1' * 16)])
         broken = lunch('2' * 16, day='2026-10-30', account='Expenses:Drinks', amount='40.00')
         self.commit([lunch('1' * 16), broken], 'Fictional hand edit with an undeclared account')
-        self.set_answers(fix_answer(broken))
+        self.set_answers({**fix_answer(broken), 'billing-period': None})
         with self.client(ledger_check=True) as client:
             check = client.app.state.ledger_check
             self.assertTrue(check.wait_idle(120))
@@ -609,6 +609,7 @@ class LedgerCheckTests(Fixture):
             # The person opens Edit entry with the proposal, checks it and saves it.
             claimed = client.post(f'/api/drafts/{identity}/claim', json={}).json()
             form, token = claimed['form'], claimed['claim_token']
+            self.assertNotIn('billing-period', form)
             self.assertEqual(form['entry']['postings'][0]['account'], 'Expenses:Food')
             checked = client.post(f'/api/drafts/{identity}/hand-form', json=dict(claim_token=token, proposal=form))
             self.assertTrue(checked.json()['ok'], checked.text)

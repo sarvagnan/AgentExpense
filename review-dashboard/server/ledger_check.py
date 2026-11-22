@@ -23,7 +23,6 @@ afterwards, here:
 """
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 import logging
 import os
@@ -429,7 +428,7 @@ def propose(worker, draft):
     Nothing is saved here. The answer becomes the Edit entry form; the person checks it
     and saves it through the usual correction (one verified commit)."""
     import agent
-    from answers import AnswerError, check as check_answer
+    from answers import AnswerError, check as check_answer, to_form
     from corrections import wire_entry
     settings, drafts = worker.settings, worker.drafts
     def save(draft_state, *, form=None, **updates):
@@ -501,7 +500,7 @@ def propose(worker, draft):
                 except AnswerError as failure:
                     error = str(failure)
         if error is None and answer['status'] == 'ready':
-            proposal = deepcopy(answer)
+            proposal = to_form(answer, settings.ledger)
             proposal['attachment-names'] = []
             save('question', form=proposal, state='ready', doubts=answer.get('doubts') or [], message=answer.get('explanation'))
             return

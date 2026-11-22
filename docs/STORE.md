@@ -212,7 +212,8 @@ of one reimbursement (line). `label` is its display label (line or `null`).
 **`excluded-from-estimate`** (history): `reason` (line), for example "forecast separately".
 
 **`rule`** (server, person): `id` (the rule's ID) and `occurrence` (the
-occurrence date it pays).
+occurrence date it pays). An accepted day change keeps this occurrence as the
+payment's link and sets the rule's anchor for future occurrences.
 
 **`possible-duplicate-of`** items (statement, person, server): `id` is the other
 entry, whose ID is greater than this one. `reason` is one of `amount-date-gap`,
@@ -694,7 +695,9 @@ A varying rule with a saved bill:
 ```
 
 The agent's answer for a USD purchase on an INR card, in a ledger that asks for
-the fuel extension:
+the fuel extension. The answer's `billing-period` holds the cadence stated in
+the attached evidence or null. The server uses this proposal metadata when
+creating a recurring rule.
 
 <!-- example: Answer fuel -->
 ```json
@@ -720,7 +723,8 @@ the fuel extension:
   "attachment-names": [
     "Cedar-Studio-Invoice"
   ],
-  "explanation": null
+  "explanation": null,
+  "billing-period": "year"
 }
 ```
 

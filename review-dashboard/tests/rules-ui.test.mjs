@@ -8,7 +8,7 @@ import {createTestServer} from './test-isolation.mjs';
 import {loadPublishedData} from './load-data.mjs';
 import {buildPatterns} from '../scripts/add-patterns.mjs';
 import {posting, rule as storeRule} from './store-fixtures.mjs';
-import {complexRule,nextDueForPayment,matchRules,paymentInPeriod,periodFor,ruleAmounts,ruleStatus,statusLabel,textAmounts} from '../scripts/recurring-ui.mjs';
+import {changedPaymentDay,complexRule,nextDueForPayment,matchRules,paymentInPeriod,periodFor,ruleAmounts,ruleStatus,statusLabel,textAmounts} from '../scripts/recurring-ui.mjs';
 const accounts={'Assets:Purse':{kind:'cash',currency:'EUR',label:'Purse',aliases:['purse']},'Expenses:Club':{}};
 const rule=(changes={})=>storeRule({description:'Willow club',date:'2026-11-15',postings:[posting('Expenses:Club','20.00','EUR'),posting('Assets:Purse','-20.00','EUR')],...changes});
 test('instant matching agrees with the authoritative matcher across names, dates, ranking, currencies and lifecycles',()=>{
@@ -108,6 +108,14 @@ test('chosen payment date owns the cadence and older payments keep the current n
   assert.equal(nextDueForPayment(r,'2026-11-02'),'2026-12-15');
   assert.equal(nextDueForPayment(r,'2026-12-16'),'2027-01-15');
   assert.equal(nextDueForPayment({...r,date:'2027-01-15',schedule:{every:'month',from:'2027-01-15'},payments:[{date:'2026-12-15'}]},'2026-10-15'),'2027-01-15');
+});
+
+test('a chosen late date reanchors the next due date while preserving the interval',()=>{
+  const r=rule({schedule:{...rule().schedule,interval:3}});
+  assert.equal(changedPaymentDay(r,'2026-11-10'),'');
+  assert.equal(changedPaymentDay(r,'2026-11-18'),'');
+  assert.equal(changedPaymentDay(r,'2026-11-25'),'2026-11-15');
+  assert.equal(nextDueForPayment(r,'2026-11-25',true),'2027-02-25');
 });
 
 test('an early usual payment preview uses the nearby due date, even across months',()=>{

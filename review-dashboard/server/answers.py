@@ -93,6 +93,8 @@ def refusal_message(error: ValidationError, *, person: bool) -> str:
 
 def check(value, root, *, form: bool) -> None:
     models = ledger_models(root)
+    if not form and isinstance(value, dict) and 'billing-period' not in value:
+        value = {**value, 'billing-period': None}  # Proposals saved before the agent field was introduced.
     try:
         (models.form if form else models.answer).model_validate(value)
     except ValidationError as error:
@@ -128,6 +130,7 @@ def answer_extensions(root) -> dict | None:
 def to_form(answer: dict, root) -> dict:
     """An agent's answer (or an older form) as a hand form: every listed extension with every field."""
     form = deepcopy(answer)
+    form.pop('billing-period', None)
     entry = form.get('entry')
     if isinstance(entry, dict):
         groups = entry_extensions(root, entry.get('extensions')) if isinstance(entry.get('extensions'), (dict, type(None))) else entry.get('extensions')
