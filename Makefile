@@ -172,7 +172,7 @@ set-default-currency:
 weekly-review:
 	$(LEDGER_PYTHON) scripts/ledger/weekly_review.py
 
-.PHONY: browser-tests browser-capture
+.PHONY: browser-tests browser-capture browser-flows browser-flows-inside
 # Maintainer-only remote runner; its unit tests are entirely offline. make test runs the
 # quick packaging, refusal, image-hash and parsing tests; test-browser-box adds the slower
 # ones that start real controller, guest and fake-client processes (several minutes). The
@@ -188,6 +188,9 @@ test-browser-box:
 browser-tests-inside:
 	@node --version
 	node review-dashboard/tests/browser/run.mjs
+
+browser-flows-inside:
+	node review-dashboard/tests/browser/run.mjs --flows
 
 browser-capture-inside:
 	CAPTURE=1 node review-dashboard/tests/browser/run.mjs
@@ -218,6 +221,8 @@ personas:
 	@scripts/test-run.sh $(MAKE) --no-print-directory personas-inside
 browser-tests:
 	@scripts/test-run.sh $(MAKE) --no-print-directory browser-tests-inside
+browser-flows:
+	@scripts/test-run.sh $(MAKE) --no-print-directory browser-flows-inside
 test-scanner:
 	@scripts/test-run.sh $(MAKE) --no-print-directory test-scanner-inside
 test-ledger:

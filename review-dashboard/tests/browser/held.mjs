@@ -31,17 +31,18 @@ export async function guard(route, work) {
 
 /**
  * Hold the first `count` matching responses until `release()`. `transform(body, response)`
- * may return a replacement body. `ready` resolves once every held response has arrived and
+ * may return a replacement body. With `repeat`, later matching responses wait on
+ * the same gate. `ready` resolves once every held response has arrived and
  * rejects if one cannot be fetched (or none arrives within `limit` ms); `release()` lets
  * them through and rethrows a failure, unless it only says the page or request is gone.
  */
-export async function hold(page, pattern, {method = 'GET', count = 1, transform = null, accept = null, limit = 120000} = {}) {
+export async function hold(page, pattern, {method = 'GET', count = 1, transform = null, accept = null, repeat = false, limit = 120000} = {}) {
   let resolveReady, rejectReady, open;
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
   const gate = new Promise(resolve => open = resolve);
   let seen = 0, completed = 0; const work = [], failures = [];
   const handler = async route => {
-    if ((method && route.request().method() !== method) || seen >= count) return route.fallback();
+    if ((method && route.request().method() !== method) || !repeat && seen >= count) return route.fallback();
     seen++;
     let fetched = false;
     const task = guard(route, async () => {

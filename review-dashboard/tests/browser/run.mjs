@@ -15,7 +15,9 @@ import {existsSync} from 'node:fs';
 import {createServer} from 'node:net';
 import {capture,contactSheet,shots} from './capture.mjs';
 import {runSuite} from './suites.mjs';
+import {createFlowRun} from './flows.mjs';
 
+const flowMode=process.argv.includes('--flows');
 const source=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
 const cache=join(homedir(),'.cache/expense-playwright');
 const require=createRequire(join(cache,'package.json'));
@@ -29,8 +31,10 @@ for(const engine of engines)assert.ok(['chromium','firefox','webkit'].includes(e
 for(const persona of personas)assert.ok(['asha','empty','jordan','sam'].includes(persona));
 const artifacts=await mkdtemp(join(process.env.AGENTEXPENSE_TEST_ROOT,'agentexpense-5-browser-'));
 process.env.TMPDIR=join(artifacts,'tmp');await mkdir(process.env.TMPDIR);
-const venv=join(source,'review-dashboard/server/.venv'),python=join(venv,'bin/python');
-if(process.env.CAPTURE!=='0' && !process.env.ENGINES && !process.env.PERSONA)await rm(shots,{recursive:true,force:true});
+const venv=resolve(process.env.BROWSER_VENV || join(source,'review-dashboard/server/.venv')),python=join(venv,'bin/python');
+const dependencies=resolve(process.env.BROWSER_NODE_MODULES || join(source,'review-dashboard/node_modules'));
+const flowRun=flowMode?await createFlowRun({engines,themes,personas}):null;
+if(!flowMode && process.env.CAPTURE!=='0' && !process.env.ENGINES && !process.env.PERSONA)await rm(shots,{recursive:true,force:true});
 const manifest=[],results=[];let activeServer,activeBrowser,stage;
 async function checkpoint() {
   const destination=join(artifacts,'results.json');
@@ -63,7 +67,7 @@ async function staging(persona) {
   // Private dependency directory; package links are read-only inputs. Vite caches stay local.
   const {readdir,symlink}=await import('node:fs/promises');
   await mkdir(join(dash,'node_modules'));
-  for(const name of await readdir(join(source,'review-dashboard/node_modules')))if(!name.startsWith('.vite'))await symlink(join(source,'review-dashboard/node_modules',name),join(dash,'node_modules',name));
+  for(const name of await readdir(dependencies))if(!name.startsWith('.vite'))await symlink(join(dependencies,name),join(dash,'node_modules',name));
   if(process.env.BROWSER_LARGE==='1')await run(python,[join(source,'scripts/fixtures/generate_large.py'),'--dir',ledger,'--no-repository'],{cwd:app,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},log:join(root,'large.log')});
   else await cp(join(source,'fixtures/ledgers',persona),ledger,{recursive:true,filter,preserveTimestamps:true});
   await readFile(join(ledger,'AGENTS.md'),'utf8');
@@ -144,6 +148,11 @@ try {
     stage=await staging(persona);
     for(const engine of engines) {
       activeBrowser=await launch(engine,stage.root);
+      if(flowRun) {
+        await flowRun.run({browser:activeBrowser,engine,stage,expect});
+        await activeBrowser.close();activeBrowser=null;
+        continue;
+      }
       // The approved mockups live in the ignored tmp/ folder, so a published checkout (CI) has none.
       const mockups=join(source,'tmp/mockups/index.html');
       if(persona===personas[0] && engine===engines[0] && !existsSync(mockups))console.log('Mockup packaging check not run: tmp/mockups is not in this checkout');
@@ -165,9 +174,10 @@ try {
   console.error(error);process.exitCode=1;
 } finally {
   await activeBrowser?.close();await stop(activeServer);
-  if(process.env.CAPTURE!=='0')await contactSheet(manifest);
+  if(!flowMode && process.env.CAPTURE!=='0')await contactSheet(manifest);
+  if(flowRun && !(await flowRun.finish()))process.exitCode=1;
   await checkpoint();
   console.log('BROWSER_RESULTS '+JSON.stringify({engines,personas,themes,results,captures:manifest.length}));
   await cleanupArtifacts(!process.exitCode);
-  console.log(`Screenshot contact sheet: ${shots}/index.html`);
+  if(!flowMode)console.log(`Screenshot contact sheet: ${shots}/index.html`);
 }

@@ -924,3 +924,28 @@ A container without plotting space must omit its SVG and tooltip. Positive plots
 recover with finite nonnegative dimensions, working Home/End/Escape inspection
 and unchanged financial table values. The same regression runs in the full pass;
 the normal console/page-error assertions remain in place.
+
+## Flow stability
+
+Run `make browser-flows` for the main tasks at 390 × 844, 720 × 450 and 1440 × 900,
+in Light and Dark. The runner prints the path under `/tmp` containing
+`index.html`, `measurements.json` and `summary.md`. Each stability finding names
+the measured row and the screenshots that show the change. Flow failures and
+incomplete runs return a failing exit status. Responsiveness timings are reported
+in the summary.
+
+Use `PERSONA`, `ENGINES` and `THEMES` as for the browser suite. `FLOWS` accepts
+comma-separated task names: `first-run`, `time-limits`, `add-expense`,
+`add-as-usual`, `receipt-question`, `queue-question`, `finish-by-hand`,
+`statement`, `review-duplicate`, `edit-entry`, `delete-restore`, `explorer`,
+`new-rule` and `opening-balances`. Use `BROWSER_CASE=light-390` to debug one
+viewport. Chromium records five undelayed desktop samples per selected task and
+appearance. `FLOW_TIMING=0` skips those repeats during focused debugging and
+`FLOW_TIMING=only` runs the timing samples by themselves.
+`FLOW_ARTIFACT_DIR` sets the parent folder for retained evidence. For a secondary
+checkout with dependencies already installed elsewhere, `BROWSER_NODE_MODULES`
+and `BROWSER_VENV` point the shared runner at those read-only inputs.
+
+```sh
+ENGINES=chromium PERSONA=asha THEMES=light FLOWS=add-expense make browser-flows
+```

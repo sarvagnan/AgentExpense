@@ -44,6 +44,12 @@ const sizes=[{width:1440,height:1000},{width:412,height:915}];
 const locale={asha:'en-IN',jordan:'en-US',sam:'en-GB',empty:'en-US'};
 const zone={asha:'Asia/Kolkata',jordan:'America/Chicago',sam:'Europe/Berlin',empty:'America/Chicago'};
 
+export async function fixtureContext(browser, persona, theme, viewport) {
+  const context=await browser.newContext({viewport,colorScheme:theme,locale:locale[persona],timezoneId:zone[persona],reducedMotion:'reduce',acceptDownloads:true});
+  await context.addInitScript(value=>{if(location.protocol==='http:'||location.protocol==='https:')localStorage.setItem('ledger-appearance',value);},theme);
+  return context;
+}
+
 export async function runSuite({browser,engine,stage,expect,results,capture,checkpoint=async()=>{},themes=['light','dark']}) {
   const {base,persona,ledger}=stage;
   // macOS WebKit follows the system keyboard-access preference. Option-Tab
@@ -60,8 +66,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
   for(const theme of themes)for(const size of sizes) {
     const {width,height}=size;
     if(process.env.BROWSER_CASE && process.env.BROWSER_CASE!==`${theme}-${width}`)continue;
-    const context=await browser.newContext({viewport:size,colorScheme:theme,locale:locale[persona],timezoneId:zone[persona],reducedMotion:'reduce',acceptDownloads:true});
-    await context.addInitScript(value=>{if(location.protocol==='http:'||location.protocol==='https:')localStorage.setItem('ledger-appearance',value);},theme);
+    const context=await fixtureContext(browser,persona,theme,size);
     // WebKit trace screenshots capture through macOS WindowServer, which holds the surfaces while
     // the display sleeps until it aborts and ends the login session (microsoft/playwright#43066).
     await context.tracing.start({screenshots:engine!=='webkit'&&process.env.TRACE_SCREENSHOTS!=='0',snapshots:true});

@@ -16,6 +16,9 @@ that fails and keep its output.
 - Pressing Enter in Notes keeps the new line visible when finishing an expense by hand or editing it.
 - When a Jujutsu ledger has no local main bookmark, the upgrade tells you how to set one before retrying.
 
+- `make browser-flows` measures layout stability and response times during the main
+  dashboard tasks and keeps screenshots and measurements for each step.
+
 - Retry after a failed usual-payment save works on the first tap: Add no longer re-checks an
   attached file while the save is pending, which could move Retry during the click, and on phones it
   re-measures the save bar when page styles change, so Retry can always be scrolled above it.

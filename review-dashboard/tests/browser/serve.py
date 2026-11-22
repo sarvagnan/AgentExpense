@@ -693,10 +693,17 @@ def rule_agent(body: dict):
 
 @app.post('/__test/receipt-answer')
 def receipt_answer(body: dict):
+    if body.get('release'):
+        config.with_suffix('.progress').write_text('finish')
+        return dict(released=True)
     from ledger_manifest import read_manifest
     currency=read_manifest(settings.ledger)['defaultCurrency']
     answer=dict(read_ok=True,references=['willow-receipt-reference'],payment_datetime=None,payee='Willow recipient',date=body.get('date'),amount=body.get('amount','120.00'),currency=currency,paying_account=None,notes=['Printed receipt details'])
-    data=json.loads(config.read_text());data['steps']=[dict(answer=answer)];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
+    step = dict(answer=answer)
+    if body.get('hold'):
+        config.with_suffix('.progress').write_text('hold')
+        step.update(progress=True, hold_progress=True)
+    data=json.loads(config.read_text());data['steps']=[step];config.write_text(json.dumps(data));config.with_suffix('.count').unlink(missing_ok=True)
     return dict(ok=True)
 
 @app.post('/__test/correction-statement')
@@ -944,6 +951,11 @@ def first_run_fixture(body: dict):
     skip = {'.jj', '.git', 'drafts', '.lock', 'expense_ledger.ledger'}
     files = lambda: [p for p in root.rglob('*') if p.is_file() and p.relative_to(root).parts[0] not in skip]
     clear_workflow_folders()
+    if body.get('checkpoint'):
+        with ledger_lock(root):
+            assert first_run_saved is None
+            first_run_saved = {str(p.relative_to(root)): p.read_bytes() for p in files()}
+        return dict(checkpoint=True)
     from ledger_lock import LOCK_FD_ENV
     with ledger_lock(root) as fd:
         if body.get('restore'):
@@ -967,7 +979,12 @@ def first_run_fixture(body: dict):
             fresh = dict(template, format=original_manifest['format'], id=original_manifest['id'], name='New ledger',
                          defaultCurrency=original_manifest['defaultCurrency'], **({'locale': original_manifest['locale']} if original_manifest.get('locale') else {}))
             dump(root / 'ledger.json', ordered_manifest(fresh))
-            dump(root / 'data/accounts.json', {'commodities': [], 'accounts': {}})
+            declarations = json.loads(first_run_saved['data/accounts.json']) if body.get('keepAccounts') else {'commodities': [], 'accounts': {}}
+            if body.get('keepAccounts'):
+                currencies = read_json(settings.application / 'schema/currencies.json')
+                declarations['accounts'] = {account: meta for account, meta in declarations['accounts'].items()
+                                            if not meta.get('kind') or meta['currency'] in currencies}
+            dump(root / 'data/accounts.json', declarations)
             dump(root / 'data/forecast.json', [])
             dump(root / 'data/card-statements.json', [])
             dump(root / 'data/expenses/2026.json', [])
