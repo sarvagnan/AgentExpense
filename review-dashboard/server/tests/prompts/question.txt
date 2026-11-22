@@ -18,9 +18,10 @@ entry. Never record one payment twice.
 
 ## Evidence and dates
 
-Use the calendar date on the receipt or payment. For an undated entry or words
-like "yesterday" or "last Friday", use the draft's original Saved time in its
-recorded zone, even on a retry. Name attachments in the ledger's usual style,
+Use the calendar date on the receipt or payment. If a receipt gives a payment time
+with a zone or offset, convert it to the draft's Saved time zone before taking the date.
+For an undated entry or words like "yesterday" or "last Friday", use the draft's original
+Saved time in its recorded zone, even on a retry. Name attachments in the ledger's usual style,
 such as Fable-Receipt. The server files and cites them.
 
 ## Double entry

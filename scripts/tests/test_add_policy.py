@@ -14,7 +14,7 @@ POLICY = Path(__file__).resolve().parents[2] / 'policy'
 MAPPING = {
     'Before adding': (('Before adding or changing entries',), '366b290274796e5f'),  # pragma: allowlist secret
     'Duplicates': (('Duplicates',), 'd3bb0233bec070c7'),
-    'Evidence and dates': (('Evidence and receipts',), '4bce867bb566d319'),  # pragma: allowlist secret
+    'Evidence and dates': (('Evidence and receipts',), 'd1e37866833024e2'),  # pragma: allowlist secret
     'Double entry': (('Double entry',), '1f422c5bb2310ea6'),  # pragma: allowlist secret
     'Accounts': (('Accounts', 'Before adding or changing entries'), 'dc6129197723367d'),
     'Currencies and conversions': (('Currencies and conversions', 'Transfers'), 'bfb499e83f97c187'),  # pragma: allowlist secret

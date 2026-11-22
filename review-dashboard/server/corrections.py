@@ -132,12 +132,12 @@ def prepare_replacement(settings, draft, editable, declarations):
     return documents,before,after,rule_result
 
 
-def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer=None):
+def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer=None, prepare_receipt=None):
     if not re.fullmatch('[0-9a-f]{32}',op_id) or not re.fullmatch('[0-9a-f]{16}',entry_id): raise ValueError('Invalid correction identity')
     allowed={'version','proposal','sources','reason','approved_accounts','draft_id','receipt'}
     if not isinstance(body,dict) or set(body)-allowed: raise ValueError('Unknown correction field')
     if not isinstance(body.get('reason',''),str) or len(body.get('reason',''))>10000: raise ValueError('Enter a short correction reason')
-    request_hash=digest(dict(entry_id=entry_id,body=body));root=settings.ledger;store=CorrectionRecords(root)
+    root=settings.ledger;store=CorrectionRecords(root)
     with ledger_lock(root) as fd:
         policy(settings)
         for folder in store.root.iterdir():
@@ -145,10 +145,21 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
                 record=json.loads((folder/'record.json').read_text());tx=Transaction(settings,store,record);tx.recover()
         prior=next((r for r in records(root) if r['kind']=='correction' and r['operation_id']==op_id),None)
         if prior:
-            if prior.get('request_hash')!=request_hash or 'result' not in prior: raise ValueError('An earlier correction may already be saved. Open the saved entry and compare it before saving newer edits.')
+            if prepare_receipt:
+                matches = (prior['entry_id'] == entry_id and
+                           (prior.get('receipt') or {}).get('choice') == body['receipt']['choice'])
+            else:
+                matches = prior.get('request_hash') == digest(dict(entry_id=entry_id,body=body))
+            if not matches or 'result' not in prior: raise ValueError('An earlier correction may already be saved. Open the saved entry and compare it before saving newer edits.')
             return {**prior['result'],'audit_id':prior['id'],'replayed':True}
         if not clean(root): raise LedgerBusy('Waiting for a clean ledger before correcting this entry')
         documents=load(root);before=next((e for e in entries(documents) if e['id']==entry_id),None)
+        if prepare_receipt and before is not None:
+            # Compare and build the receipt correction under the same lock as the write.
+            body = prepare_receipt(documents, before)
+            if body is None:
+                return None
+        request_hash=digest(dict(entry_id=entry_id,body=body))
         require_version(before,body.get('version'))
         draft=dict(id=op_id,files=[],hand_form=body.get('proposal'),correction=dict(entry_id=entry_id,version=body['version'],sources=body.get('sources',before['evidence'])))
         if body.get('draft_id'):

@@ -87,7 +87,7 @@ if(typeof window!=='undefined')window.addEventListener('beforeunload',event=>{
 /** Statement Apply retains page order until completion; other workers release at acceptance. */
 const cancelledApplies=new Set<string>();
 export function markApplyCancellation(source:string,active=true){if(active)cancelledApplies.add(source);else cancelledApplies.delete(source);}
-type WorkerResult={state?:string;result?:unknown;error?:string|null;trashed_at?:string|null;refusal?:{message?:string;kind?:string};receipt_reading?:{state?:string;result?:unknown;refusal?:{message?:string;kind?:string}}};
+type WorkerResult={state?:string;result?:unknown;error?:string|null;trashed_at?:string|null;refusal?:{message?:string;kind?:string};receipt_reading?:{state?:string;result?:unknown;reask?:string;refusal?:{message?:string;kind?:string}}};
 export async function committedResult<T>(path:string,send:()=>Promise<T>,read:(path:string)=>Promise<unknown>,pause:(slow?:boolean)=>Promise<void>,refuse?:(failure:WorkerResult)=>Error,accepted?:()=>void,waiting?:()=>void):Promise<T>{
  const failure=(value:WorkerResult)=>{
   const detail=value.state==='already_filed'?{...value,error:'Another session has already filed this statement. Open statement history to view its stored reconciliation.'}:value;
@@ -120,6 +120,7 @@ export async function committedResult<T>(path:string,send:()=>Promise<T>,read:(p
    if(receipt){
     if(value.receipt_reading?.refusal)throw failure({...value,refusal:value.receipt_reading.refusal});
     if(value.receipt_reading?.state==='done'&&value.receipt_reading.result)return result;
+    if(value.receipt_reading?.state==='question'&&value.receipt_reading.reask)return result;
    }else if(statement?value.state==='applied':value.state==='added'&&!!value.result)return result;
    if(statement&&value.state==='review'&&!value.error&&cancelledApplies.has(source))throw Object.assign(new Error('Apply cancelled. Your checklist is kept.'),{applyCancelled:true,retryable:false,terminal:true});
    if(!progress(value))throw failure(value);

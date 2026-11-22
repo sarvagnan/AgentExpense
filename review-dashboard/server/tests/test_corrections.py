@@ -18,7 +18,7 @@ from rules_service import queue_usual
 from ledger_lock import ledger_lock
 from audit import records
 from worker import Worker
-from receipts import read, choose
+from receipts import read, choose, validate_reading
 
 
 class CorrectionTests(Fixture):
@@ -575,12 +575,15 @@ class CorrectionTests(Fixture):
 
 class ReceiptTests(Fixture):
     seed=CorrectionTests.seed
+    body=CorrectionTests.body
+    save=CorrectionTests.save
 
     def receipt(self, e, **values):
         answer=dict(read_ok=True,references=['receipt-reference'],payment_datetime=None,payee='Willow recipient',date=e['date'],amount='100.00',currency=self.currency,paying_account='Assets:Cash',notes=['Printed receipt detail'])
         answer.update(values)
         self.set_answers(answer)
-        drafts=Drafts(self.ledger);draft=drafts.create('Usual payment')
+        drafts=Drafts(self.ledger);draft=drafts.create(
+            'Usual payment', client_time='2026-03-02T11:00:00+05:30', client_zone='Asia/Kolkata')
         draft.update(state='added',completed_at=__import__('agent').now(),result=dict(outcome='ready',entry_id=e['id'],sources=e['evidence']),receipt_reading=dict(state='queued',queued_at=__import__('agent').now(),entry_id=e['id'],sources=e['evidence']))
         drafts.put(draft);worker=Worker(self.settings,drafts)
         read(worker,draft)
@@ -617,6 +620,88 @@ class ReceiptTests(Fixture):
         result=choose(self.settings,drafts,d,'use');self.assertEqual(result['receipt_reading']['state'],'done')
         after=entries(load(self.ledger))[0]
         self.assertEqual([p['amount'] for p in after['postings']],['500.00','-500.00'])
+
+    def test_receipt_uses_the_saved_zone_before_comparing_the_printed_date(self):
+        entry = self.seed(day='2026-03-02')
+        printed_time = '2026-03-01 21:30 PST'
+        _, unzoned, _ = self.receipt(entry, date='2026-03-01', payment_datetime='2026-03-01T21:30')
+        self.assertEqual(unzoned['receipt_reading']['state'], 'question')
+        self.assertEqual(unzoned['receipt_reading']['answer']['date'], '2026-03-01')
+        _, zoned, _ = self.receipt(entry, date='2026-03-01', payment_datetime=printed_time)
+        self.assertEqual(zoned['receipt_reading']['state'], 'done')
+        self.assertEqual(zoned['receipt_reading']['answer']['date'], '2026-03-02')
+        self.assertIn(f'Receipt payment time: {printed_time}', entries(load(self.ledger))[0]['notes'])
+
+    def test_receipt_payment_uses_the_offsets_at_the_payment_instant(self):
+        for timestamp in ('2026-03-08T06:30:00Z', '2026-03-08T07:30+01:00',
+                          '2026-03-08 07:30 Europe/Paris'):
+            with self.subTest(timestamp=timestamp):
+                answer = {'date': '2026-03-08', 'payment_datetime': timestamp}
+                validate_reading(answer, client_zone='America/Denver')
+                self.assertEqual(answer['date'], '2026-03-07')
+                self.assertEqual(answer['payment_datetime'], timestamp)
+
+    def test_receipt_choice_asks_again_after_edit_and_corrects_the_current_entry(self):
+        entry = self.seed()
+        _, draft, _ = self.receipt(entry, amount='120.00')
+        version = draft['receipt_reading']['version']
+        body = self.body(entry)
+        edited = body['proposal']['entry']
+        edited['notes'].append('Owner checked the payment')
+        for row, amount in zip(edited['postings'], ('110.00', '-110.00')):
+            row['amount'] = amount
+        self.save(entry, body)
+        current = entries(load(self.ledger))[0]
+        self.assertEqual(draft['receipt_reading']['state'], 'question')
+        self.assertEqual(draft['receipt_reading']['entry_totals'], {self.currency: '100.00'})
+
+        with self.client(worker=False) as client:
+            url = f"/api/drafts/{draft['id']}/receipt-choice"
+            old_choice = {'choice': 'use', 'version': version}
+            response = client.post(url, json=old_choice)
+            self.assertEqual(response.status_code, 200, response.text)
+            reading = response.json()['receipt_reading']
+            self.assertEqual(reading['state'], 'question')
+            self.assertEqual(reading['version'], entry_hash(current))
+            self.assertEqual(reading['entry_totals'], {self.currency: '110.00'})
+            self.assertEqual(reading['answer']['amount'], '120.00')
+            self.assertEqual(reading['reask'], 'The entry changed. Check the updated details.')
+            self.assertEqual(entries(load(self.ledger))[0], current)
+            self.assertTrue((self.ledger / entry['evidence'][0]).is_file())
+            self.assertEqual(len(records(self.ledger)), 1)
+
+            repeated = client.post(url, json=old_choice)
+            self.assertEqual(repeated.status_code, 200, repeated.text)
+            self.assertEqual(repeated.json()['receipt_reading']['state'], 'question')
+            response = client.post(url, json={'choice': 'use', 'version': reading['version']})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['receipt_reading']['state'], 'done')
+
+        owner_edit, receipt_edit = records(self.ledger)
+        self.assertEqual(owner_edit['after'], current)
+        self.assertEqual(receipt_edit['before'], current)
+        self.assertEqual(receipt_edit['receipt']['entry_totals'], {self.currency: '110.00'})
+        self.assertEqual(receipt_edit['after']['postings'][0]['amount'], '120.00')
+        self.assertIn('Owner checked the payment', receipt_edit['after']['notes'])
+        self.assertIn('Printed receipt detail', receipt_edit['after']['notes'])
+        self.assertEqual(receipt_edit['after']['evidence'], entry['evidence'])
+
+    def test_receipt_choice_finishes_if_the_edit_settled_the_disagreement(self):
+        entry = self.seed()
+        drafts, draft, _ = self.receipt(entry, date='2026-10-28')
+        body = self.body(entry)
+        body['proposal']['entry']['date'] = '2026-10-28'
+        self.save(entry, body)
+        current = entries(load(self.ledger))[0]
+
+        done = choose(self.settings, drafts, draft, 'keep')
+        self.assertEqual(done['receipt_reading']['state'], 'done')
+        _, receipt_edit = records(self.ledger)
+        self.assertEqual(receipt_edit['before'], current)
+        self.assertEqual(receipt_edit['receipt']['choice'], 'agree')
+        self.assertIn('Printed receipt detail', receipt_edit['after']['notes'])
+        self.assertEqual(receipt_edit['after']['evidence'], current['evidence'])
+        self.assertTrue((self.ledger / current['evidence'][0]).is_file())
 
     def test_unreadable_and_unsafe_evidence_change_nothing(self):
         e=self.seed();drafts,d,worker=self.receipt(e,read_ok=False)

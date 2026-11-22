@@ -25,6 +25,13 @@ for(const [label,path,result] of [
  await assert.rejects(api.committedResult(path,async()=>result,async()=>result,async()=>{if(++pauses>1)throw Error('Still polling a terminal result');}),error=>!error.message.includes('Still polling'));
  assert.equal(pauses,0);
 });
+test('A receipt compared again after an edit returns the new question without a save error',async()=>{
+ const {h,api}=writes(),held=deferred();
+ const updated={state:'added',receipt_reading:{state:'question',reask:'The entry changed. Check the updated details.',entry_totals:{EUR:'11.00'}}};
+ const pending=api.committedResult('drafts/item/receipt-choice',()=>held.promise,()=>assert.fail('The question is in the choice response'),()=>assert.fail('No polling needed'));
+ held.resolve(updated);
+ try{assert.equal(await pending,updated);}finally{h.close();}
+});
 test('A decision slot cannot show a stranger’s saved result or Retry',()=>{
  for(const state of ['saved','failed']){
   const items=[{id:'a',owner:'owner-a',scope:'review',path:'review/actions',body:'{}',label:'Review decision',state,reason:'A failed'}];

@@ -438,7 +438,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def receipt_choice(identity: str, body: dict):
         from receipts import choose
         draft=get(identity)
-        try: return public(worker.call(lambda: choose(settings,drafts,draft,body.get('choice')), kind='receipt-choice'))
+        try: return public(worker.call(lambda: choose(settings,drafts,draft,body.get('choice'),body.get('version')), kind='receipt-choice'))
         except BalanceRefusal as exc:
             with drafts.mutex:
                 latest=get(identity)

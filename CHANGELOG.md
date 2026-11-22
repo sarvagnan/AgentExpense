@@ -12,6 +12,8 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+- A receipt with a time zone or UTC offset uses the payment date in the recorded time zone for the item.
+- If a payment changes while its receipt question is waiting, the dashboard checks the receipt against the edited payment and asks again if the details still differ.
 - Queue removes a statement from Needs you as soon as it finds the statement was already filed.
 - Pressing Enter in Notes keeps the new line visible when finishing an expense by hand or editing it.
 - When a Jujutsu ledger has no local main bookmark, the upgrade tells you how to set one before retrying.

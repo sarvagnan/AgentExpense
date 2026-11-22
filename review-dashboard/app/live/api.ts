@@ -9,7 +9,7 @@ export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;re
 export type HandChecks = {refusal?:BalanceRefusal;unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
 export type Draft = {correction_save?:string;hand_form?:Proposal|null;proposal?:Proposal|null;trashed_at?:string|null;refusal?:BalanceRefusal;
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
-  correction?:{original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
+  correction?:{original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;version?:string;reask?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
   ledger_fix?:{entry_id?:string;state:'queued'|'working'|'ready'|'question'|'failed'|'resolved';title:string;summary:string;question?:string|null;message?:string|null;doubts?:string[]};
   declined_rules?:string[]; id: string; description?:string; client_updated_at?: number; state: 'editing' | 'queued' | 'working' | 'question' | 'failed' | 'added'; text: string;
@@ -162,7 +162,7 @@ export const api = {
   correctionForm:(id:string)=>request<Draft>(`entries/${id}/correction-form`,json('POST')),
   correct:(id:string,op:string,body:object,options:WriteOptions={})=>request<CorrectionResult>(`entries/${id}/corrections/${op}`,{...json('POST',body),...options},120000),
   receiptDismiss:(id:string)=>request<Draft>(`drafts/${id}/receipt-dismiss`,json('POST',{})),
-  receiptChoice:(id:string,choice:'use'|'keep',options:WriteOptions={})=>request<Draft>(`drafts/${id}/receipt-choice`,{...json('POST',{choice}),...options},120000),
+  receiptChoice:(id:string,choice:'use'|'keep',version:string|undefined,options:WriteOptions={})=>request<Draft>(`drafts/${id}/receipt-choice`,{...json('POST',{choice,version}),...options},120000),
   health: (signal?: AbortSignal) => request<{ok: boolean;data?:import('../data').DataStatus}>('health', {signal, keepalive:true}, 5000),
   list: async(signal?:AbortSignal)=>keepPendingItems('drafts',await request<Draft[]>('drafts?include_added=true',{signal})),
   get: async (id: string) => {

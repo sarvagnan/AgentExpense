@@ -1,9 +1,10 @@
 """Post-save receipt readings; financial disagreements always need a human choice."""
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import secrets
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import agent
 from corrections import apply, wire_entry
@@ -25,7 +26,24 @@ def date_order(locale):
 
 
 
-def validate_reading(answer, locale=None):
+def printed_payment_time(raw):
+    if not isinstance(raw, str) or raw[10:11] not in ('T', ' '):
+        raise ValueError('Expected a date and time')
+    stamp, _, zone = (raw[:10] + 'T' + raw[11:]).partition(' ')
+    payment = datetime.fromisoformat(stamp)
+    if not zone:
+        return payment
+    if payment.tzinfo is not None:
+        raise ValueError('Expected one time zone')
+    if zone.startswith(('+', '-')):
+        return datetime.fromisoformat(stamp + zone)
+    if zone in ('PST', 'PDT'):
+        offset = -8 if zone == 'PST' else -7
+        return payment.replace(tzinfo=timezone(timedelta(hours=offset)))
+    return payment.replace(tzinfo=ZoneInfo(zone))
+
+
+def validate_reading(answer, locale=None, client_zone=None):
     """Normalize uncertain printed facts independently; one bad fact never loses a receipt."""
     from decimal import InvalidOperation
     notes = answer.get('notes') or []
@@ -63,9 +81,11 @@ def validate_reading(answer, locale=None):
         except (InvalidOperation, ValueError, TypeError): unknown('amount', 'amount')
     if answer.get('payment_datetime') is not None:
         try:
-            if 'T' not in answer['payment_datetime']: raise ValueError()
-            datetime.fromisoformat(answer['payment_datetime'])
-        except (ValueError, TypeError): unknown('payment_datetime', 'payment time')
+            payment = printed_payment_time(answer['payment_datetime'])
+            if payment.tzinfo is not None and client_zone:
+                answer['date'] = payment.astimezone(ZoneInfo(client_zone)).date().isoformat()
+        except (ValueError, ZoneInfoNotFoundError, OverflowError):
+            unknown('payment_datetime', 'payment time')
     answer['notes'] = notes if notes else (None if answer.get('notes') is None else [])
     from transactions import reject_invisible
     reject_invisible(answer)
@@ -80,6 +100,25 @@ def payment_rows(entry, accounts):
             code, amount = payment_value(posting, points=redeemed)
             rows.append(dict(posting, commodity=code, amount=format(amount, 'f')) if redeemed else posting)
     return rows
+
+
+def compare_entry(reading, entry, accounts):
+    answer = reading['answer']
+    payments = payment_rows(entry, accounts)
+    totals = {}
+    for row in payments:
+        code = row['commodity']
+        totals[code] = format(Decimal(totals.get(code, '0')) - Decimal(row['amount']), 'f')
+    currency = answer['currency']
+    total = totals.get(currency)
+    if not currency and len(totals) == 1:
+        total = next(iter(totals.values()))
+    disagrees = (answer['date'] and answer['date'] != entry['date']
+                 or currency and currency not in totals
+                 or answer['amount'] is not None and (total is None or Decimal(answer['amount']) != Decimal(total))
+                 or answer['paying_account'] and {row['account'] for row in payments} != {answer['paying_account']})
+    reading.update(version=entry_hash(entry), entry=deepcopy(entry), entry_totals=totals,
+                   state='question' if disagrees else 'ready')
 
 
 def resume_cancelled(worker, identity, run=None):
@@ -147,7 +186,7 @@ def read(worker, draft):
         latest=worker.drafts.get(draft['id'],include_discarded=True)
         if latest.get('receipt_reading',{}).get('state') == 'cancelled': return
     agent_timeouts.reset(reading)
-    validate_reading(answer, draft.get('client_locale'))
+    validate_reading(answer, draft.get('client_locale'), draft['client_zone'])
     reading.setdefault('runs', []).append(run)
     reading.setdefault('attempt_runs', []).append(run)
     worker.pause.success();reading.update(answer=answer,run=run)
@@ -156,26 +195,57 @@ def read(worker, draft):
     with ledger_lock(settings.ledger):
         documents=load(settings.ledger);entry=next((e for e in entries(documents) if e['id']==reading['entry_id']),None)
         if not entry: return
-        accounts=documents[settings.ledger/'data/accounts.json']['accounts'];payments=payment_rows(entry,accounts)
-        reading.update(version=entry_hash(entry),entry=deepcopy(entry),operation_id=reading.get('operation_id') or secrets.token_hex(16))
         # Keep both sides structured; the page supplies its own date/money formats.
-        totals={}
-        for p in payments: totals[p['commodity']]=format(Decimal(totals.get(p['commodity'],'0'))-Decimal(p['amount']),'f')
-        disagrees=bool(answer['date'] and answer['date']!=entry['date'] or answer['amount'] is not None and (answer['currency'] and (answer['currency'] not in totals or Decimal(answer['amount'])!=Decimal(totals[answer['currency']])) or not answer['currency'] and (len(totals)!=1 or Decimal(answer['amount'])!=Decimal(next(iter(totals.values()))))) or answer['paying_account'] and {p['account'] for p in payments}!={answer['paying_account']} or answer['currency'] and answer['currency'] not in totals)
-        reading['entry_totals']=totals
-    reading['state']='question' if disagrees else 'ready';worker.drafts.put(draft)
-    if not disagrees: choose(settings,worker.drafts,draft,'agree')
+        compare_entry(reading, entry, documents[settings.ledger/'data/accounts.json']['accounts'])
+        reading['operation_id'] = reading.get('operation_id') or secrets.token_hex(16)
+        worker.drafts.put(draft)
+    if reading['state'] == 'ready': choose(settings,worker.drafts,draft,'agree')
 
 
-def choose(settings, drafts, draft, choice):
+def choose(settings, drafts, draft, choice, version=None):
     draft=drafts.get(draft['id'])
     reading=draft.get('receipt_reading',{})
     if choice not in ('use','keep','agree'): raise ValueError('Choose Use the receipt or Keep the entry')
     if reading.get('state')=='done':
-        if reading.get('choice')!=choice: raise ValueError('This receipt question was already answered')
+        if reading.get('choice') not in (choice, 'agree'): raise ValueError('This receipt question was already answered')
         return draft
     if reading.get('state') not in ('question','ready'): raise ValueError('The receipt is not waiting for an answer')
     if choice=='agree' and reading['state']!='ready': raise ValueError('A receipt disagreement needs a choice')
+    if reading['state'] == 'ready':
+        choice = 'agree'
+    elif version != reading['version'] and (version is not None or reading.get('reask')):
+        # A replay of the old choice cannot answer the refreshed question.
+        return draft
+
+    def prepare_receipt(documents, current):
+        nonlocal choice
+        accounts = documents[settings.ledger/'data/accounts.json']['accounts']
+        if entry_hash(current) != reading['version']:
+            compare_entry(reading, current, accounts)
+            reading.pop('refusal', None)
+            reading['reask'] = 'The entry changed. Check the updated details.'
+            draft['waiting'] = None
+            drafts.put(draft)
+            if reading['state'] == 'question':
+                return None
+            choice = 'agree'
+        return correction_body(settings, reading, choice, accounts)
+
+    entry_id = reading['entry_id']
+    body = dict(version=reading['version'], receipt=dict(choice=choice))
+    result = apply(settings, entry_id, reading['operation_id'], body, drafts=drafts, actor='receipt reader',
+                   trailer=f'Added-by: {settings.adapter}/{settings.model} (receipt details for {entry_id})',
+                   prepare_receipt=prepare_receipt)
+    if result is None:
+        return draft
+    # Fetch the latest draft so a failed response cannot erase a retained answer.
+    draft=drafts.get(draft['id'],include_discarded=True);draft['receipt_reading'].pop('refusal',None);draft['receipt_reading'].update(state='done',choice=choice,result=result,message='Receipt details saved.' if choice!='keep' else 'Entry kept. Receipt notes saved.')
+    draft['waiting']=None
+    drafts.put(draft)
+    return draft
+
+
+def correction_body(settings, reading, choice, accounts):
     before=reading['entry'];answer=reading['answer'];proposal=wire_entry(settings,before);entry=proposal['entry']
     notes=list(entry['notes'])
     for note in [*(answer['notes'] or []), *(['Receipt payee: '+answer['payee']] if answer['payee'] else []), *(['Receipt payment time: '+answer['payment_datetime']] if answer['payment_datetime'] else [])]:
@@ -189,7 +259,7 @@ def choose(settings, drafts, draft, choice):
         entry['references']=group
     entry['notes']=notes
     if choice=='use':
-        accounts=load(settings.ledger)[settings.ledger/'data/accounts.json']['accounts'];payers=payment_rows(before,accounts)
+        payers=payment_rows(before,accounts)
         financial_change=answer['amount'] is not None and (len(payers)!=1 or Decimal(answer['amount'])!=-Decimal(payers[0]['amount'])) or answer['currency'] and any(p['commodity']!=answer['currency'] for p in payers) or answer['paying_account'] and {p['account'] for p in payers}!={answer['paying_account']}
         if financial_change and (len(entry['postings'])!=2 or len(payers)!=1 or any(p['cost'] for p in entry['postings']) or len({p['commodity'] for p in entry['postings']})!=1):
             raise ValueError('The receipt changes a split payment or currency conversion. Use Edit entry to allocate it, or Keep the entry.')
@@ -201,10 +271,4 @@ def choose(settings, drafts, draft, choice):
             for p in entry['postings']:
                 if p['account']==payers[0]['account']: p.update(account=account,amount='-'+value,commodity=code)
                 else: p.update(amount=value,commodity=code)
-    body=dict(version=reading['version'],proposal=proposal,sources=before['evidence'],reason='Receipt details',approved_accounts=[],receipt=dict(answer=answer,choice=choice,run=reading.get('run'),entry_totals=reading['entry_totals']))
-    result=apply(settings,before['id'],reading['operation_id'],body,drafts=drafts,actor='receipt reader',trailer=f'Added-by: {settings.adapter}/{settings.model} (receipt details for {before["id"]})')
-    # Fetch the latest draft so a failed response cannot erase a retained answer.
-    draft=drafts.get(draft['id'],include_discarded=True);draft['receipt_reading'].pop('refusal',None);draft['receipt_reading'].update(state='done',choice=choice,result=result,message='Receipt details saved.' if choice!='keep' else 'Entry kept. Receipt notes saved.')
-    draft['waiting']=None
-    drafts.put(draft)
-    return draft
+    return dict(version=reading['version'],proposal=proposal,sources=before['evidence'],reason='Receipt details',approved_accounts=[],receipt=dict(answer=answer,choice=choice,run=reading.get('run'),entry_totals=reading['entry_totals']))
