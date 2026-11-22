@@ -85,6 +85,10 @@ def _older_audit_view(record):
             record['rule_changes'] = [dict(id=record['rule_id'], **snapshots)]
     if kind == 'review' and record.get('verdict') == 'confirm':
         record['verdict'] = 'ok'
+    if kind == 'review' and record.get('verdict') == 'propose removal':
+        # The older app's reviewer proposed removing the added entry: an issue, with the original verdict kept.
+        legacy['verdict'] = record['verdict']
+        record['verdict'] = 'issue'
     if legacy:
         record['legacy'] = legacy
     return record

@@ -91,6 +91,7 @@ including its ID, timestamp, links and historical snapshots. In the read view:
   recorded before and after values, including `null` for an absent snapshot.
   Any recorded `operation_id` and `entry_id` remain historical identifiers.
 - Historical review verdicts of `confirm` appear as `ok` on the same reviewed line.
+- Historical review verdicts of `propose removal` appear as `issue`, with the original verdict under `legacy`.
 
 Historical corrections keep a request hash when one is recorded. Unavailable
 correction results and request identities are omitted. Correction recovery and

@@ -128,7 +128,8 @@ class MigrationTests(Repository0):
                       operation_id='f'*32, entry_id=before['id'])
                  for i, action, old, new in [(4, 'edited', made, advanced), (5, 'undone', None, None), (6, 'made', None, made)]]
         review = line(7, 'review', line_id=draft['id'], verdict='confirm', note='Checked', reviewer='Offline reviewer')
-        path = self.with_audit(draft, correction, hashed, *rules, review)
+        removal = line(8, 'review', line_id=draft['id'], verdict='propose removal', note='Fictional duplicate', reviewer='Offline reviewer')
+        path = self.with_audit(draft, correction, hashed, *rules, review, removal)
         raw = path.read_bytes()
 
         self.run_upgrade(dry_run=True)
@@ -136,7 +137,7 @@ class MigrationTests(Repository0):
         self.assertTrue(path.read_bytes().startswith(raw))
         rows = records(self.root)
         self.assertEqual([row['id'] for row in rows if row['kind'] != 'baseline'],
-                         [row['id'] for row in (draft, correction, hashed, *rules, review)])
+                         [row['id'] for row in (draft, correction, hashed, *rules, review, removal)])
         by_id = {row['id']: row for row in rows}
 
         def without_errors(run):
@@ -169,6 +170,7 @@ class MigrationTests(Repository0):
             self.assertEqual((new['operation_id'], new['entry_id']), (old['operation_id'], old['entry_id']))
             self.assertFalse({'request_id', 'request_hash'} & new.keys())
         self.assertEqual(by_id[review['id']], dict(review, verdict='ok'))
+        self.assertEqual(by_id[removal['id']], dict(removal, verdict='issue', legacy=dict(verdict='propose removal')))
         self.assertNotIn(draft['id'], [row['id'] for row in unreviewed(rows)])
         listed = self.cli('audit.py', 'list', '--since', '2026-01-01', '--json')
         self.assertEqual(json.loads(listed.stdout), rows)
