@@ -76,6 +76,25 @@ def update_name(settings, name):
     return update_settings(settings, changes, dict(name=name), 'Change ledger name')
 
 
+def update_weekly_review(settings, enabled, day, operation_id, today):
+    from ledger_manifest import manifest_schema, validate_manifest
+    path = settings.ledger / 'ledger.json'
+
+    def changes():
+        manifest = read_json(path)
+        modules = manifest.setdefault('modules', {})
+        if enabled and not modules.get('weeklyReview'):
+            modules['weeklyReviewEnabledOn'] = today()
+        if not enabled:
+            modules.pop('weeklyReviewEnabledOn', None)
+        modules.update(weeklyReview=enabled, weeklyReviewDay=day)
+        validate_manifest(manifest, manifest_schema())
+        return {path: manifest}
+
+    return update_settings(settings, changes, dict(enabled=enabled, day=day), 'Change weekly review schedule',
+                           operation_id, json.dumps(['weekly-review', enabled, day]))
+
+
 def account_details(settings, account):
     from store import load, entries
     documents = load(settings.ledger)

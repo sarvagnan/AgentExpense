@@ -9,6 +9,7 @@ from pathlib import Path
 import secrets
 import shutil
 import time
+from typing import Literal
 from urllib.parse import unquote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, Form, Body, Query
@@ -88,6 +89,21 @@ class AccountCurrencyChange(CurrencyChange):
 class NameChange(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str = Field(min_length=1, max_length=200)
+
+
+class WeeklyRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+
+
+class WeeklySchedule(WeeklyRequest):
+    enabled: bool = Field(strict=True)
+    day: Literal['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+
+class WeeklyAction(WeeklyRequest):
+    action: Literal['start', 'retry', 'close-partial']
+    run_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}$')
 
 
 class AccountCreate(CurrencyChange):
@@ -514,6 +530,18 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.post('/api/settings/weekly-review')
+    def weekly_schedule(body: WeeklySchedule):
+        from currency_settings import update_weekly_review
+        def apply():
+            result = update_weekly_review(settings, body.enabled, body.day, body.request_id, worker.weekly.today)
+            worker.weekly.next_check = 0
+            return result
+        try:
+            return worker.call(apply, kind='weekly-review-schedule')
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.get('/api/accounts/details')
     def account_details_read(account: str):
         from currency_settings import account_details
@@ -618,6 +646,20 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from ledger_lock import ledger_lock
         with ledger_lock(settings.ledger):
             return snapshot(settings.ledger, clock=review_clock)
+
+    @app.get('/api/review/weekly')
+    def weekly_status(offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+        try:
+            return worker.weekly.status(offset, limit)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/review/weekly')
+    def weekly_action(body: WeeklyAction):
+        try:
+            return worker.call(lambda: worker.weekly.action(body.action, body.request_id, body.run_id), kind='weekly-review')
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post('/api/review/import-preview')
     def review_import_preview(body: dict):

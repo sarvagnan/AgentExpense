@@ -47,6 +47,13 @@ uv run --locked --project review-dashboard/server python scripts/ledger/store_mo
 | `data/trash.json` | Optional: deleted entries that can still be restored |
 
 `ledger.json` (the manifest) keeps its own schema, `schema/ledger.schema.json`.
+
+`modules.weeklyReview` enables automatic runs. The optional
+`modules.weeklyReviewDay` accepts Monday through Sunday and defaults to Monday
+when omitted. `modules.weeklyReviewEnabledOn` holds the server-local date of the
+last enablement. Disabling the schedule removes that date and keeps the weekday.
+An older enabled manifest without an activation date is eligible for a catch-up.
+Both fields are additive in ledger format 2.
 The schema's `x-documents` names the definition that validates each file.
 
 The optional `auditStart` in the current `ledger.json` is

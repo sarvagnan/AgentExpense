@@ -575,6 +575,25 @@ merge); snapshot/recover/rollback remain the common mutation foundation. Human
 proposals follow the same worker and apply method. `finished_by` retains actor and
 reason; the commit trailer identifies the human. No agent runs for a human save.
 
+Weekly review takes idle FIFO turns. A readiness check, one reviewer attempt and
+publication each take separate turns. The worker services runnable Add,
+statement, receipt, ledger-check fix and human save jobs between those turns.
+Review has its own provider pause. Preparation and inference share a 180-second
+deadline or the configured timeout when lower. A deadline splits a multi-line
+batch into single lines, which get up to three consecutive deadline attempts.
+Publication waits for a clean ledger and takes the writer lock nonblocking.
+
+- `GET /api/review/weekly` accepts `offset` and `limit`. It returns the current
+  schedule, gate and pause, the active run with committed progress, and paged
+  finish records with any retained history diagnostics.
+- `POST /api/review/weekly` accepts `action` (`start`, `retry` or
+  `close-partial`) and a 32-hex `request_id`. Retry and close also take a
+  `run_id`. Start joins an active run or queues a manual run. After a reviewer
+  profile change, Retry continues the outstanding work in a new run.
+- `POST /api/settings/weekly-review` accepts `enabled`, `day` and a 32-hex
+  `request_id`. The schedule uses server-local dates. Disabling it keeps the
+  weekday, allows manual starts and leaves active work running.
+
 The FIFO worker also checks the dashboard's `meta.today` at startup and every
 30 seconds. A stale or missing date triggers the existing data-refresh path only
 when a nonblocking ledger lock is available and the ledger is clean. The worker

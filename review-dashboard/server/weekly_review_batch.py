@@ -65,12 +65,14 @@ def period(lines):
     return [min(lines, key=datetime.fromisoformat), max(lines, key=datetime.fromisoformat)] if lines else [None, None]
 
 
-def freeze_run(settings, *, trigger='manual', slot=None):
-    root, run = settings.ledger, secrets.token_hex(16)
+def freeze_run(settings, *, trigger='manual', slot=None, run=None, started=None):
+    root, run = settings.ledger, run or secrets.token_hex(16)
     folder = root / 'drafts' / 'weekly-review' / run
-    folder.mkdir(mode=0o700, parents=True)
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     revision = audit_changes.identity(root, 'main')['commit']
-    with TemporaryDirectory(dir=folder) as scratch:
+    for abandoned in folder.glob('work-*'):
+        shutil.rmtree(abandoned)
+    with TemporaryDirectory(dir=folder, prefix='work-') as scratch:
         snapshot = committed_snapshot(root, Path(scratch), revision)
         records = audit.records(snapshot)
         pending = sorted(audit.unreviewed(records), key=lambda r: (datetime.fromisoformat(r['time']), r['id']))
@@ -81,7 +83,7 @@ def freeze_run(settings, *, trigger='manual', slot=None):
         documents = load(snapshot)
         rules = documents[snapshot / 'data/forecast.json']
         entry_rules = {e['id']: e['rule']['id'] for e in entries(documents) if e['rule']}
-    plan = dict(run_id=run, trigger=trigger, slot=slot, started=audit.stamp(), period=period([r['time'] for r in pending]),
+    plan = dict(run_id=run, trigger=trigger, slot=slot, started=started or audit.stamp(), period=period([r['time'] for r in pending]),
                 missing_actors=[r['commit'] for r in history if not r.get('reason')],
                 history_errors=[r['reason'] for r in history if r.get('reason')], batches=list(batches(pending, rules, entry_rules)))
     save(folder / 'plan.json', plan)
@@ -90,7 +92,8 @@ def freeze_run(settings, *, trigger='manual', slot=None):
 
 def remaining(batch, records, rules, plan):
     pending = {r['id'] for r in audit.unreviewed(records)}
-    eligible = pending | {r['line_id'] for r in records if r['kind'] == 'review' and r.get('run_id') == plan['run_id']}
+    related = {plan['run_id'], *plan.get('previous_runs', [])}
+    eligible = pending | {r['line_id'] for r in records if r['kind'] == 'review' and r.get('run_id') in related}
     closed = {(r['rule_id'], source) for r in records if r['kind'] == 'rule-review' for source in r.get('rule_sources', [])}
     manual = {r['rule_id'] for r in records if r['kind'] == 'rule-review' and not r.get('run_id')
               and datetime.fromisoformat(r['time']) >= datetime.fromisoformat(plan['started'])}
@@ -179,11 +182,27 @@ def validate(raw, batch, review, needed, receipt_path):
     return answer
 
 
-def run_batch(settings, plan_path, batch_number):
+def run_batch(settings, plan_path, batch_number, *, batch=None, one_turn=False, cancel=None):
     """Run or recover one batch. The caller serializes runs for this ledger."""
+    attempt = plan_path.parent / str(batch_number) / 'attempt.json'
+    preparing = one_turn and not (attempt.exists() and read_json(attempt).get('answer'))
+    deadline = time.monotonic() + min(settings.timeout, 180)
+    token = audit_changes.read_deadline.set(deadline) if preparing else None
+    try:
+        return _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadline)
+    except audit_changes.HistoryUnavailable:
+        if preparing and time.monotonic() >= deadline:
+            raise AdapterError('Review preparation reached its deadline', kind='timeout') from None
+        raise
+    finally:
+        if token is not None:
+            audit_changes.read_deadline.reset(token)
+
+
+def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadline):
     from adapters import get_adapter
     root, plan = settings.ledger, read_json(plan_path)
-    batch = plan['batches'][batch_number - 1]
+    batch = batch if batch is not None else plan['batches'][batch_number - 1]
     folder = plan_path.parent / str(batch_number)
     folder.mkdir(mode=0o700, exist_ok=True)
     path = folder / 'attempt.json'
@@ -191,7 +210,6 @@ def run_batch(settings, plan_path, batch_number):
     tx = Transaction(settings, None, {'id': plan['run_id']}, journal=folder / 'transaction.json')
     reviewer = settings.for_role('review')
     timeout = min(reviewer.timeout, 180)
-    start = time.monotonic()
     for abandoned in folder.glob('work-*'):
         shutil.rmtree(abandoned)
     with TemporaryDirectory(dir=folder, prefix='work-') as scratch:
@@ -226,14 +244,19 @@ def run_batch(settings, plan_path, batch_number):
         if state.get('answer') and state['signature'] != signature:
             save(path, {})
             return dict(status='stale', remaining=len(selected['lines']))
-        error = ''
+        error = state.get('error', '') if one_turn and state.get('signature') == signature else ''
         if not state.get('answer'):
-            for retry in range(3):
+            failures = state.get('failures', 0) if error else 0
+            if failures >= 3:
+                return dict(status='failed', error=error)
+            for retry in range(1 if one_turn else 3):
                 with TemporaryDirectory(dir=work) as attempt:
                     attempt = Path(attempt)
-                    state = dict(signature=signature, started=audit.stamp(), attempt=state.get('attempt', 0) + 1)
+                    state = dict(signature=signature, started=audit.stamp(), attempt=state.get('attempt', 0) + 1,
+                                 error=error, failures=failures)
                     save(path, state)
-                    deadline = (time.monotonic() if retry else start) + timeout
+                    if retry:
+                        deadline = time.monotonic() + timeout
                     lookup = ReviewLookup(root, replace(review.grant, expires=time.time() + deadline - time.monotonic()), receipts=attempt / 'receipts.jsonl')
                     images = lookup.images(attempt)
                     unavailable, needed = set(), {line: list(calls) for line, calls in required.items()}
@@ -246,30 +269,40 @@ def run_batch(settings, plan_path, batch_number):
                     rules = {r: sources for r, sources in selected['rules'].items() if not unavailable.intersection(sources)}
                     effective = {**selected, 'rules': rules}
                     lookup.grant = replace(lookup.grant, rules=tuple(rules))
+                    if time.monotonic() >= deadline:
+                        raise AdapterError('Review preparation reached its deadline', kind='timeout')
                     if not any(effective.values()):
                         return dict(status='empty')
                     prompt = ('Review the committed batch. Use review_pending and inspect all required records and evidence. '
                               'Give verdicts only for these line IDs and rule IDs: '
                               + encode([selected['lines'], list(rules)]) + '. Other source lines are context. '
                               'Use question-only for issues and report any unavailable source. ' + error)
-                    task = review_task(settings, attempt, lookup.grant, prompt, SCHEMA, deadline, prepared=(lookup, images))
+                    task = review_task(settings, attempt, lookup.grant, prompt, SCHEMA, deadline,
+                                       prepared=(lookup, images), **({'cancel': cancel} if cancel is not None else {}))
                     try:
                         task.remaining()
                         result = get_adapter(reviewer).run(task)
                         task.remaining()
                         state.update(answer=validate(result.answer, effective, lookup, needed, lookup.receipts), rules=rules)
+                        task.remaining()
                         save(path, state)
+                        if one_turn:
+                            return dict(status='prepared')
                         break
                     except (ValueError, TypeError, RecursionError) as exc:
                         if isinstance(exc, AdapterError) and exc.kind != 'bad_answer':
                             raise
+                        task.remaining()
                         error = 'The previous answer failed the server checks. Check verdict coverage, evidence and field types.'
+                        failures += 1
             else:
-                save(path, {**state, 'error': error})
-                return dict(status='failed', error=error)
+                save(path, {**state, 'error': error, 'failures': failures})
+                return dict(status='failed' if failures >= 3 else 'retry', error=error)
         try:
             with ledger_lock(root, blocking=False) as fd:
                 current = audit_changes.identity(root, 'main')['commit']
+                if not clean(root) or audit_changes.identity(root, '@-')['commit'] != current:
+                    return dict(status='dirty')
                 if current != revision:
                     with TemporaryDirectory(dir=work) as latest:
                         latest = Path(latest)
@@ -278,8 +311,6 @@ def run_batch(settings, plan_path, batch_number):
                         if updated != selected or scope(root, latest, current, snap, updated)[2] != versions:
                             save(path, {})
                             return dict(status='stale', remaining=len(updated['lines']))
-                if not clean(root) or audit_changes.identity(root, '@-')['commit'] != current:
-                    return dict(status='dirty')
                 answer = state['answer']
                 marker = audit.event('weekly-review-run', **{k: plan[k] for k in ('run_id', 'trigger', 'slot', 'started')},
                                      batch=batch_number, status='batch', ended=audit.stamp(), adapter=reviewer.adapter,

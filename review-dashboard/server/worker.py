@@ -52,6 +52,8 @@ class Worker:
         self.pause = AgentPause(settings.ledger, settings=settings)
         self.review_pause = AgentPause(settings.ledger, settings=settings.for_role('review'))
         self.pause.on_finished = lambda: self.wake.set()
+        from weekly_review_service import WeeklyReview
+        self.weekly = WeeklyReview(settings, self.review_pause, self.stop_event, clock=lambda: self.clock())
 
     def call(self, operation, kind='call'):
         """Run a checked human operation on this ledger's FIFO worker.
@@ -86,7 +88,9 @@ class Worker:
             self.lease.close()
             raise RuntimeError('Another expense worker already owns this ledger')
         from corrections import recover_pending
-        try: recover_pending(self.settings,self.drafts)
+        try:
+            recover_pending(self.settings,self.drafts)
+            self.weekly.sweep_workspaces()
         except BaseException:
             self.lease.close()
             raise
@@ -172,6 +176,9 @@ class Worker:
             # Clear before inspecting work. A producer setting the event during
             # inspection is retained through wait; no poll and no lost wakeup.
             self.wake.clear()
+            if (weekly := getattr(self, 'weekly', None)) and not weekly.recover():
+                self.wake.wait(.5)
+                continue
             maintenance = self.clock() >= next_maintenance
             if maintenance:
                 next_maintenance = self.clock() + 30
@@ -257,7 +264,10 @@ class Worker:
                     draft.update(state='working', waiting=None)
                     self.drafts.put(draft)
             if not draft:
-                self.wake.wait(self.idle_delay(next_maintenance))
+                if weekly and weekly.tick():
+                    continue
+                delay = self.idle_delay(next_maintenance)
+                self.wake.wait(min(delay, weekly.delay()) if weekly else delay)
                 continue
             try:
                 kind='ledger-fix' if draft.get('ledger_fix') else 'bill' if draft.get('bill_request') else 'usual' if draft.get('usual_payment') else 'hand-add' if draft.get('finished_by') else 'add'

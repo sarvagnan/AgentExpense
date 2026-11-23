@@ -43,14 +43,15 @@ def git(root, *args, limit=SOURCE):
     return bounded_read(['git', '--git-dir=' + str(root / '.git'), '--literal-pathspecs', *args], root, limit)
 
 
-def committed_snapshot(root, work, revision):
+def committed_snapshot(root, work, revision, *, audit_only=False):
     target = work / 'snapshot'
     info = read_jj(root, 'log', '-r', revision + ' & ::main', '--no-graph', '-T', 'commit_id', limit=256)
     if info != revision:
         raise ValueError('revision_unavailable')
     target.mkdir()
     budget = 128 * 1024 * 1024
-    for row in git(root, 'ls-tree', '-rz', revision).split(b'\0'):
+    paths = ('--', 'data/additions', 'ledger.json') if audit_only else ()
+    for row in git(root, 'ls-tree', '-rz', revision, *paths).split(b'\0'):
         metadata, _, name = row.partition(b'\t')
         if not metadata.startswith((b'100644 blob ', b'100755 blob ')):
             continue
@@ -416,7 +417,12 @@ class ReviewLookup:
                             continue
                         with closing(pdf[0]) as first, closing(first.get_textpage()) as text:
                             default = [1] if text.get_text_bounded().strip() else range(1, len(pdf)+1)
-                        renders = [(i, render(pdf, i)) for i in source.get('pages', default)[:8-len(images)] if 1 <= i <= len(pdf)]
+                        renders = []
+                        for i in source.get('pages', default)[:8-len(images)]:
+                            if self.check():
+                                break
+                            if 1 <= i <= len(pdf):
+                                renders.append((i, render(pdf, i)))
                 else:
                     with Image.open(io.BytesIO(data), formats=['PNG', 'JPEG', 'WEBP']) as image:
                         if image.width * image.height > PIXELS:

@@ -19,6 +19,15 @@ POLICY_HASH = hashlib.sha256(Path(check.__file__).read_bytes()).hexdigest()
 ADAPTER_HASH = hashlib.sha256(b''.join(p.read_bytes() for p in sorted(Path(__file__).with_name('adapters').glob('*')) if p.suffix in ('.py','.mjs'))).hexdigest()
 
 
+class ReviewCheckBudget:
+    def __init__(self, stop, cancel, timeout):
+        self.stop, self.cancel = stop, cancel
+        self.deadline = time.monotonic() + min(timeout, 180)
+
+    def is_set(self):
+        return self.stop.is_set() or self.cancel.is_set() or time.monotonic() >= self.deadline
+
+
 def fingerprint(settings, version):
     from adapters import get_adapter, adapter_fingerprint
     adapter = get_adapter(settings)
@@ -140,7 +149,7 @@ class AgentGate:
             finally:
                 path.unlink(missing_ok=True)
 
-    def require_ready(self, *, force=False):
+    def require_ready(self, *, force=False, cancel=None):
         # The FIFO worker joins a startup check here. Version is read before each
         # run, even after a cached pass, so replacing the binary needs no restart.
         with self.status_lock:
@@ -159,7 +168,8 @@ class AgentGate:
                 raise ValueError(status['reason'])
             self.set_state('checking')
             try:
-                self._check(force=force)
+                self._check(force=force, stop=ReviewCheckBudget(self.stop, cancel, self.settings.timeout)
+                            if cancel is not None and self.settings.role == 'review' else self.stop)
             except check.OfflineFailure as exc:
                 if exc.signed_out:
                     reason = SIGNED_OUT + ('' if self.settings.adapter == 'codex' else ' ADAPTER=' + self.settings.adapter)
@@ -184,19 +194,19 @@ class AgentGate:
                 with self.status_lock:
                     self.generation += 1
 
-    def _check(self, *, force=False):
+    def _check(self, *, force=False, stop):
         settings = self.settings
         from adapters import get_adapter, require_isolation, adapter_version
         adapter = get_adapter(settings)
         require_isolation(adapter, settings)
         with tempfile.TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp'), prefix='expense-agent-gate-') as folder:
             work = Path(folder)
-            version = adapter_version(adapter, work, stop=self.stop)
+            version = adapter_version(adapter, work, stop=stop)
             values = fingerprint(settings, version)
             key = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
             cached = self.read_cache()
             if cached.get('key') == key and cached.get('state') in ('ready', 'paused') and not (force and cached.get('state')=='paused'):
-                if cached['state'] == 'ready' and not adapter.signed_in(work, stop=self.stop):
+                if cached['state'] == 'ready' and not adapter.signed_in(work, stop=stop):
                     raise check.OfflineFailure([], signed_out=True)
                 self.set_state(cached['state'], cached.get('reason'))
                 if cached['state'] == 'paused':
@@ -207,18 +217,18 @@ class AgentGate:
             fixture_settings = replace(settings, ledger=ledger, old_ledger=old if 'search_old_ledger' in lookup_names(settings) else None)
             fixture_adapter = get_adapter(fixture_settings)
             try:
-                check.check_review_transport(fixture_settings, work, stop=self.stop)
-                fixture_adapter.offline_check(work, stop=self.stop)
-                if not adapter.signed_in(work, stop=self.stop):
+                check.check_review_transport(fixture_settings, work, stop=stop)
+                fixture_adapter.offline_check(work, stop=stop)
+                if not adapter.signed_in(work, stop=stop):
                     raise check.OfflineFailure([], signed_out=True)
                 try:
-                    fixture_adapter.live_probe(work, account, stop=self.stop)
+                    fixture_adapter.live_probe(work, account, stop=stop)
                 except check.CheckCancelled:
                     raise
                 except Exception:
                     # Expired login during the probe is recoverable on the next
                     # draft, just like signing in after an empty-home check.
-                    if not adapter.signed_in(work, stop=self.stop):
+                    if not adapter.signed_in(work, stop=stop):
                         raise check.OfflineFailure([], signed_out=True) from None
                     raise
             except check.OfflineFailure as exc:
@@ -227,6 +237,8 @@ class AgentGate:
                 self.pause(key, values, changed, str(exc))
             except (check.PolicyFailure, AdapterPolicyError) as exc:
                 self.pause(key, values, changed, str(exc))
+            if stop.is_set():
+                raise check.CheckCancelled()
             self.save_cache({'key': key, 'inputs': values, 'state': 'ready', 'reason': None})
             self.set_state('ready')
 

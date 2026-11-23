@@ -1,6 +1,7 @@
 """Read a ledger's own jj diffs without snapshotting; build hand-change audit lines."""
 from __future__ import annotations
 
+from contextvars import ContextVar
 import json
 import os
 import select
@@ -16,6 +17,9 @@ class HistoryUnavailable(ValueError):
     pass
 
 
+read_deadline = ContextVar('audit_read_deadline', default=float('inf'))
+
+
 def require_repository(root):
     root = Path(root).resolve()
     if not (root / '.jj').is_dir() or (root / '.jj').is_symlink():
@@ -26,8 +30,8 @@ def read_jj(root, *args, limit=None):
     require_repository(root)
     try:
         command = ['jj', '--ignore-working-copy', '--no-pager', '--color=never', '-R', str(root), *args]
-        if limit is not None:
-            return bounded_read(command, root, limit).decode()
+        if limit is not None or read_deadline.get() != float('inf'):
+            return bounded_read(command, root, limit if limit is not None else 16 * 1024**2).decode()
         return subprocess.check_output(command, cwd=root, text=True, stderr=subprocess.PIPE)
     except (OSError, subprocess.CalledProcessError) as exc:
         raise HistoryUnavailable('Could not read the ledger jj history: ' +
@@ -35,7 +39,7 @@ def read_jj(root, *args, limit=None):
 
 
 def bounded_read(command, root, limit):
-    deadline = time.monotonic() + 12
+    deadline = min(time.monotonic() + 12, read_deadline.get())
     with subprocess.Popen(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
         output = bytearray()
         try:

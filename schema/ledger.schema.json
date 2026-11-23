@@ -78,6 +78,15 @@
         "weeklyReview": {
           "type": "boolean",
           "default": false
+        },
+        "weeklyReviewDay": {
+          "type": "string",
+          "enum": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+          "default": "Monday"
+        },
+        "weeklyReviewEnabledOn": {
+          "type": "string",
+          "format": "date"
         }
       }
     },

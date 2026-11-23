@@ -23,7 +23,8 @@ def ordered_manifest(value):
     result = arrange(value, ('format', 'id', 'name', 'defaultCurrency', 'locale',
                              'startDate', 'modules', 'extensions', 'review', 'auditStart'))
     if 'modules' in result:
-        result['modules'] = arrange(result['modules'], ('investments', 'history', 'weeklyReview'))
+        result['modules'] = arrange(result['modules'], ('investments', 'history', 'weeklyReview',
+                                                       'weeklyReviewDay', 'weeklyReviewEnabledOn'))
     if isinstance(result.get('extensions'), dict):
         result['extensions'] = {name: arrange(value, ('ask',)) if isinstance(value, dict) else value
                                 for name, value in result['extensions'].items()}
@@ -48,6 +49,8 @@ def validate_manifest(value, schema, field='ledger.json'):
     if types and kind not in types:
         raise ValueError(f'Invalid {field}: expected {" or ".join(types)}.')
     if 'const' in schema and (type(value) is not type(schema['const']) or value != schema['const']):
+        raise ValueError(f'Invalid {field}.')
+    if 'enum' in schema and value not in schema['enum']:
         raise ValueError(f'Invalid {field}.')
     if kind == 'string':
         if len(value) < schema.get('minLength', 0) or ('pattern' in schema and not re.search(schema['pattern'], value)):
@@ -118,7 +121,8 @@ def module_settings(manifest):
     return {'investments': False if value.get('investments') is False else
                 {'prices': value.get('investments', {}).get('prices')},
             'history': {'oldLedger': value.get('history', {}).get('oldLedger')},
-            'weeklyReview': value.get('weeklyReview', False)}
+            'weeklyReview': value.get('weeklyReview', False),
+            **{key: value[key] for key in ('weeklyReviewDay', 'weeklyReviewEnabledOn') if key in value}}
 
 
 def has_extension(manifest, name):

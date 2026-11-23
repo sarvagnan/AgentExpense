@@ -2,7 +2,9 @@
 export function moduleSettings(manifest) {
   const value = manifest?.modules || {};
   return {investments: value.investments === false ? false : {prices: value.investments?.prices ?? null},
-    history: {oldLedger: value.history?.oldLedger ?? null}, weeklyReview: value.weeklyReview ?? false};
+    history: {oldLedger: value.history?.oldLedger ?? null}, weeklyReview: value.weeklyReview ?? false,
+    ...Object.fromEntries(['weeklyReviewDay', 'weeklyReviewEnabledOn']
+      .filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]))};
 }
 /** Whether ledger.json lists an extension; fuel's screens switch on with the fuel extension. */
 export function hasExtension(manifest, name) {
