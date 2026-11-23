@@ -695,6 +695,31 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.post('/api/review/issues/{issue_id}/{action}/{operation_id}')
+    def review_message(issue_id: str, action: Literal['answer', 'explain', 'retry'], operation_id: str, body: dict):
+        from review_followup import owner_message, retry
+        text, draft_id = body.get('text', ''), body.get('draft_id')
+        if (set(body) - {'text', 'draft_id'} or not isinstance(text, str) or
+                draft_id is not None and (action != 'answer' or not isinstance(draft_id, str)) or action == 'retry' and body):
+            raise HTTPException(422, 'Supply optional text and an attachment draft for Answer')
+        def apply():
+            result = (retry(worker.weekly, issue_id, operation_id) if action == 'retry' else
+                      owner_message(settings, drafts, issue_id, operation_id, action, text, draft_id))
+            worker.weekly.next_check = 0
+            return result
+        try:
+            return worker.call(apply, kind='review-message')
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get('/api/entries/{entry_id}/review-history')
+    def entry_review_history(entry_id: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=50)):
+        from audit_changes import identity
+        from review_decisions import entry_issues, issue_history, published
+        root = settings.ledger
+        rows = published(root, identity(root, 'main')['commit'])
+        return issue_history(rows, entry_issues(rows).get(entry_id, set()), offset, limit)
+
     @app.post('/api/review/weekly')
     def weekly_action(body: WeeklyAction):
         try:
@@ -733,13 +758,16 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         return public(draft)
 
     @app.get('/api/drafts')
-    def list_drafts(include_added: bool = False, include_review: bool = False):
+    def list_drafts(include_added: bool = False, include_review: bool = False, review_issue_id: str | None = None,
+                    review_offset: int = Query(0, ge=0), review_limit: int = Query(20, ge=1, le=50)):
         drafts.purge()
         listed = sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added' or d.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question','failed')), key=lambda d: d['created_at'])
         if include_review:
             from audit_changes import identity
             from review_decisions import queue as review_queue_snapshot
-            return dict(drafts=listed, review=review_queue_snapshot(settings, identity(settings.ledger, 'main')['commit']))
+            from review_followup import queue
+            committed = review_queue_snapshot(settings, identity(settings.ledger, 'main')['commit'])
+            return dict(drafts=listed, review=queue(worker.weekly, committed, review_issue_id, review_offset, review_limit))
         return listed
 
     @app.get('/api/drafts/{identity}')

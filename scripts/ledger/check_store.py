@@ -3,6 +3,7 @@ card-statement membership and balance chains, fund-price coverage and the JSON s
 check (strict_check.py: what hledger's strict check finds, forecasts included).
 """
 from collections import defaultdict
+from hashlib import file_digest
 from pathlib import Path
 import shlex
 from decimal import Decimal
@@ -161,6 +162,24 @@ def check(root: Path = ROOT) -> None:
         _check(root)
 
 
+def review_file_digest(path):
+    with path.open('rb') as stream:
+        return file_digest(stream, 'sha256').hexdigest()
+
+
+def check_review_file(root, file, cache=None):
+    target = root / file['path']
+    if not target.is_file() or any(p.is_symlink() for p in [target, *target.parents] if p.is_relative_to(root)):
+        raise ValueError('Missing or unsafe weekly review evidence')
+    info = target.stat()
+    stamp = (file['digest'], info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino)
+    if info.st_size != file['size'] or ((cache is None or cache.get(target) != stamp)
+                                      and review_file_digest(target) != file['digest']):
+        raise ValueError('Missing or changed weekly review evidence')
+    if cache is not None:
+        cache[target] = stamp
+
+
 def _check(root: Path, *, loaded=None, strict_checker=None, membership_checker=None, canonical_cache=None, emit=print) -> None:
     print = emit
     from step_timings import timed
@@ -180,6 +199,13 @@ def _check(root: Path, *, loaded=None, strict_checker=None, membership_checker=N
     for line, identity in missing_entries(root, {e["id"] for e in entries(documents)}, lines=audit_records):
         print(f"WARNING: audit {line} references missing entry {identity}")
     evidence = set()
+    for row in audit_records:
+        for file in row.get('message_evidence', []):
+            folder = f"Bills/Reviews/{row['review_issue_id']}/{row['id']}/"
+            if not file['path'].startswith(folder) or file['path'] in evidence:
+                raise ValueError('Invalid weekly review evidence reference')
+            check_review_file(root, file, canonical_cache)
+            evidence.add(file['path'])
     for path, document in documents.items():
         raw = path.read_bytes()
         verdict = (type(parsed[path]), raw)

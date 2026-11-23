@@ -96,6 +96,7 @@ def commit(root, message, *, lock_fd=None, rollback_operation=None, index=None, 
     read_manifest(root)
     fast = carries_audit and validate_appends(root, rollback_operation, audit_receipts)
     additions, expected = None, [] if snapshot is not None else None
+    review_files = []
     operation = rollback_operation
     if audit_only and (not fast or snapshot is None):
         raise ValueError('Audit-only save lost its checked append receipts')
@@ -128,6 +129,10 @@ def commit(root, message, *, lock_fd=None, rollback_operation=None, index=None, 
             line = json.loads(receipt.data)
             if line['kind'] == 'change' and line.get('commit') is None:
                 expected = line['paths']
+            if audit_only:
+                review_files.extend(line.get('message_evidence', []))
+        if review_files:
+            expected = [dict(path=file['path'], status='added') for file in review_files]
     audit_before = dict(audit_before or {})
     if additions:
         path = log_path(root, additions)
@@ -153,8 +158,13 @@ def commit(root, message, *, lock_fd=None, rollback_operation=None, index=None, 
             for receipt in receipts_for_commit:
                 expected_audit[receipt.path] += receipt.data
             changed = read_jj(root, 'diff', '--from', snapshot['commit'], '--to', current['commit'], '--name-only').splitlines()
-            unexpected = [name for name in changed if name not in {str(path.relative_to(root)) for path in expected_audit}]
+            allowed = {str(path.relative_to(root)) for path in expected_audit} | {file['path'] for file in review_files}
+            unexpected = [name for name in changed if name not in allowed]
             unexpected += [str(path.relative_to(root)) for path, data in expected_audit.items() if path.read_bytes() != data]
+            if review_files:
+                from check_store import check_review_file
+                for file in review_files:
+                    check_review_file(root, file)
             actual = [row for row in paths(root, current['commit']) if not touches(row, audit_path)]
             if sorted(actual, key=lambda row: row['path']) != sorted(expected, key=lambda row: row['path']):
                 unexpected += [row['path'] for row in actual if row not in expected] + [row['path'] for row in expected if row not in actual]

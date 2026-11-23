@@ -31,7 +31,8 @@
         "change",
         "baseline",
         "weekly-review-run",
-        "review-resolution"
+        "review-resolution",
+        "review-message"
       ]
     },
     "time": {
@@ -62,6 +63,13 @@
                      "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}
     }},
     "review_issue_id": {"$ref": "#/properties/id"},
+    "reply_to": {"$ref": "#/properties/id"},
+    "message_evidence": {"type": "array", "minItems": 1, "maxItems": 50, "uniqueItems": true, "items": {
+      "type": "object", "required": ["path", "size", "digest"], "additionalProperties": false,
+      "properties": {"path": {"type": "string", "pattern": "^Bills/Reviews/[0-9a-f]{32}/[0-9a-f]{32}/[0-9a-f]{32}\\.(?:pdf|png|jpg|webp|csv|xls|xlsx)$"},
+                     "size": {"type": "integer", "minimum": 1, "maximum": 26214400},
+                     "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    }},
     "review_suggestion_id": {"$ref": "#/properties/id"},
     "review_suggestion_edited": {"type": "boolean"},
     "review_proposal_id": {"$ref": "#/properties/id"},
@@ -1254,6 +1262,20 @@
   },
   "allOf": [
     {
+      "if": {"anyOf": [{"required": ["reply_to"]}, {"required": ["message_evidence"]}]},
+      "then": {"properties": {"kind": {"const": "review-message"}}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "review-message"}}},
+      "then": {"required": ["operation_id", "review_issue_id", "actor", "reply_to", "text"],
+               "properties": {"actor": {"enum": ["user", "reviewer"]}, "text": {"maxLength": 2000}},
+               "propertyNames": {"enum": ["version", "id", "kind", "time", "operation_id", "review_issue_id", "actor",
+                                          "reply_to", "text", "request_hash", "draft_id", "message_evidence", "suggestion"]},
+               "if": {"properties": {"actor": {"const": "user"}}},
+               "then": {"required": ["request_hash"], "not": {"required": ["suggestion"]}},
+               "else": {"not": {"anyOf": [{"required": ["request_hash"]}, {"required": ["draft_id"]}, {"required": ["message_evidence"]}]}}}
+    },
+    {
       "if": {"properties": {"kind": {"const": "review-resolution"}}},
       "then": {"required": ["operation_id", "review_issue_id", "actor"],
                "properties": {"actor": {"const": "user"}, "note": {"maxLength": 2000}},
@@ -1261,7 +1283,7 @@
     },
     {
       "if": {"required": ["review_issue_id"]},
-      "then": {"properties": {"kind": {"enum": ["review-resolution", "correction", "rule"]}}}
+      "then": {"properties": {"kind": {"enum": ["review-message", "review-resolution", "correction", "rule"]}}}
     },
     {
       "if": {"required": ["evidence_refs"]},
@@ -1596,7 +1618,8 @@
             "baseline",
             "run_id", "batch", "trigger", "slot", "started", "ended", "adapter", "model", "effort",
             "period", "checked", "issues", "status", "rule_sources", "decide", "evidence", "choices", "suggestion", "evidence_refs",
-            "review_issue_id", "review_suggestion_id", "review_suggestion_edited", "review_proposal_id"
+            "review_issue_id", "review_suggestion_id", "review_suggestion_edited", "review_proposal_id",
+            "reply_to", "message_evidence"
           ]
         }
       }

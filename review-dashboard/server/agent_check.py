@@ -57,15 +57,18 @@ def check_review_transport(settings, work, *, stop=None):
         ('tools/list', {}),
         ('tools/call', {'name': 'review_pending'}),
         ('tools/call', {'name': 'review_evidence', 'arguments': {'evidence_id': '../ledger.json'}}),
+        ('tools/call', {'name': 'review_precedent', 'arguments': {'entry_id': 'f' * 16}}),
+        ('tools/call', {'name': 'review_period_checks'}),
         ('tools/call', {'name': 'read_file', 'arguments': {'path': '../ledger.json'}}),
     ]
     out = invoke(lookup.command, work, 20, environment=os.environ, stop=stop, data=''.join(
         json.dumps(dict(jsonrpc='2.0', id=i, method=method, params=params)) + '\n'
         for i, (method, params) in enumerate(requests)))
-    listed, pending, refused, unknown = [json.loads(line)['result'] for line in out.splitlines()]
+    listed, pending, *refused, unknown = [json.loads(line)['result'] for line in out.splitlines()]
     if (listed['tools'] != list(lookup.definitions) or {tool['name'] for tool in listed['tools']} != lookup_names(settings) or
             json.loads(pending['content'][0]['text']) != lookup.call('review_pending', {}) or
-            json.loads(refused['content'][0]['text']) != {'status': 'outside_grant'} or not unknown['isError']):
+            any(json.loads(item['content'][0]['text']) != {'status': 'outside_grant'} for item in refused)
+            or not unknown['isError']):
         raise PolicyFailure('Review lookup inventory or scope did not match the policy')
 
 

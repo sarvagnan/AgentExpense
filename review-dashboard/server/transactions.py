@@ -352,6 +352,11 @@ class Transaction:
             raise RuntimeError(refusal)
         for rel, original in journal['files'].items():
             path = self.root / rel
+            if rel in journal.get('audit_files', {}):
+                from check_store import check_review_file
+                if path.exists() or path.is_symlink():
+                    check_review_file(self.root, journal['audit_files'][rel])
+                continue
             before = base64.b64decode(original['bytes']) if original else b''
             suffix = journal.get('audit_suffix', {}).get(rel, '').encode()
             actual = path.read_bytes() if path.is_file() and not path.is_symlink() else b''
@@ -359,14 +364,21 @@ class Transaction:
                 raise RuntimeError(refusal)
         self.rollback(journal)
 
-    def publish_audit(self, additions, message, lock_fd):
+    def publish_audit(self, additions, message, lock_fd, *, uploads=None):
         from audit import append, audit_path, line_bytes, records
+        uploads = uploads or {}
         suffix = {}
         for row in additions:
             path = str(audit_path(self.root, row).relative_to(self.root))
             suffix[path] = suffix.get(path, '') + line_bytes(row).decode('ascii')
-        journal = self.snapshot([self.root / path for path in suffix])
+        files = {f['path']: f for row in additions for f in row.get('message_evidence', [])}
+        targets = [self.root / name for name in files]
+        if files.keys() != uploads.keys() or any(t.exists() or any(
+                p.is_symlink() for p in [t, *t.parents] if p.is_relative_to(self.root)) for t in targets):
+            raise ValueError('Unsafe review evidence destination')
+        journal = self.snapshot([self.root / path for path in suffix.keys() | files.keys()])
         journal['audit_suffix'] = suffix
+        journal['audit_files'] = files
         self.save_journal(journal)
         from audit_changes import identity
         baseline = identity(self.root, '@')
@@ -378,8 +390,17 @@ class Transaction:
         finally:
             os.close(directory)
         before = {self.root / rel: base64.b64decode(original['bytes']) if original else None
-                  for rel, original in journal['files'].items()}
+                  for rel, original in journal['files'].items() if rel in suffix}
         try:
+            staged = self.journal.with_suffix('.upload')
+            for name, source in uploads.items():
+                target = self.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with staged.open('wb') as output, source.open('rb') as stream:
+                    shutil.copyfileobj(stream, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+                staged.replace(target)
             current = records(self.root)
             for row in additions:
                 append(self.root, row, lines=current)
@@ -387,6 +408,9 @@ class Transaction:
         except Exception:
             self.recover_audit(identity(self.root, 'main')['commit'])
             raise
+        finally:
+            if uploads:
+                staged.unlink(missing_ok=True)
         self.finish_commit()
         return commit, [row['id'] for row in additions]
 

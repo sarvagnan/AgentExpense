@@ -95,10 +95,12 @@ class LookupStore:
         return self.tokens(' '.join(parts))
 
 
-    def search_entries(self, query, limit=8):
+    def search_entries(self, query, limit=8, *, candidates=None):
         wanted = self.tokens(query)
-        scored = [(len(wanted & self.haystack(e)), e['date'], e) for e in self.VISIBLE]
-        hits = sorted((s for s in scored if s[0]), key=lambda s: (s[0], s[1]), reverse=True)[:min(int(limit), 20)]
+        scored = [(len(wanted & self.haystack(e)), e['date'], e) for e in (self.VISIBLE if candidates is None else candidates)]
+        hits = sorted((s for s in scored if s[0] or candidates is not None), key=lambda s: (s[0], s[1]), reverse=True)
+        if limit is not None:
+            hits = hits[:min(int(limit), 20)]
         return [self.compact(e) for _, _, e in hits]
 
 
@@ -151,7 +153,7 @@ class LookupStore:
         if error := self.review.check():
             return error
         try:
-            result = method(**arguments)
+            result = method(self, **arguments) if name in ('review_precedent', 'review_period_checks') else method(**arguments)
             if isinstance(result, list):
                 bounded = []
                 for item in result:

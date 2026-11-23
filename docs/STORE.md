@@ -863,6 +863,14 @@ Rule removal dispositions can cite the exact proposal with `review_proposal_id`.
 Review resolutions stay out of the next review's backlog. Linked edits and
 hand changes attributed by the owner enter the backlog as ordinary audit lines.
 
+The `review-message` event records a dated owner (`user`) or reviewer turn, its
+issue, operation and reply-to IDs, and up to 2,000 characters of plain text.
+The first owner turn replies to the issue ID. Owner uploads are filed as
+`Bills/Reviews/<issue>/<message>/<upload>.<extension>` in the same commit.
+Each attachment records its relative path, size and SHA-256 digest. A reviewer
+turn can carry a checked replacement suggestion. Messages leave issues open and
+stay out of the backlog.
+
 Run markers record trigger, slot (or null for an unclaimed manual run), start and
 end, reviewer profile, checked-line and issue counts, and the oldest and newest
 checked audit times (both null for zero lines). A batch marker has status

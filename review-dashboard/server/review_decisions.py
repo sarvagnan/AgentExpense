@@ -36,7 +36,25 @@ def published(root, revision):
 
 def open_issues(rows):
     closed = {row.get('review_issue_id') for row in rows if row['kind'] in ('review-resolution', 'correction', 'rule')}
-    return {row['id']: row for row in rows if row['kind'] == 'review' and row['verdict'] == 'issue' and row['id'] not in closed}
+    updated = {row['review_issue_id']: row['suggestion'] for row in rows
+               if row['kind'] == 'review-message' and 'suggestion' in row}
+    return {row['id']: {**row, 'suggestion': updated[row['id']]} if row['id'] in updated else row
+            for row in rows if row['kind'] == 'review' and row['verdict'] == 'issue' and row['id'] not in closed}
+
+
+def issue_history(rows, issues, offset=0, limit=20):
+    history = [r for r in rows if r.get('review_issue_id') in issues]
+    end = offset + limit
+    return dict(items=history[offset:end], next_offset=end if end < len(history) else None)
+
+
+def entry_issues(rows):
+    issues, by_id = {}, {r['id']: r for r in rows}
+    for r in rows:
+        if r['kind'] == 'review' and r['verdict'] == 'issue':
+            for entry in targets(by_id.get(r['line_id'], {}))[0]:
+                issues.setdefault(entry, set()).add(r['id'])
+    return issues
 
 
 def current_suggestion(rows, link, *, kind=None, target=None):

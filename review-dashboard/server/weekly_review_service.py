@@ -204,7 +204,7 @@ class WeeklyReview:
         return True
 
     def sweep_workspaces(self):
-        for pattern in ('*/work-*', '*/*/work-*'):
+        for pattern in ('work-*', '*/work-*', '*/*/work-*'):
             for folder in self.folder.glob(pattern):
                 if folder.is_dir() and not folder.is_symlink():
                     shutil.rmtree(folder)
@@ -249,7 +249,19 @@ class WeeklyReview:
         return again
 
     def advance(self, state):
+        from review_followup import capped, job_for, pending, turn
+        from review_decisions import published
+
         run = state['active']
+        if (self.root / '.jj').is_dir() and (self.root / 'data/additions').is_dir():
+            pinned = identity(self.root, 'main')['commit']
+            audit_rows = published(self.root, pinned)
+            ready = [row for issue, row in pending(audit_rows).items()
+                     if not job_for(state, row).get('error') and not capped(audit_rows, issue, self.today())]
+            owner = min(ready, key=lambda row: datetime.fromisoformat(row['time']), default=None)
+            if owner and (not run or run.get('error') or datetime.fromisoformat(owner['time']) <=
+                          datetime.fromisoformat(run.get('queued_at', run['started']))):
+                return turn(self, state, pinned, audit_rows, owner)
         if not run and (not (self.root / 'ledger.json').is_file() or
                         not read_manifest(self.root)['modules']['weeklyReview']):
             return False
@@ -320,6 +332,7 @@ class WeeklyReview:
             agent_timeouts.reset(run)
             if status['status'] in ('committed', 'empty'):
                 run['index'] += 1
+                run['queued_at'] = audit.stamp()
             if status['status'] == 'failed':
                 run['error'] = status['error']
         self.write(state)

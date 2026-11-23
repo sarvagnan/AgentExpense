@@ -30,6 +30,8 @@ TOOLS = {
     'statement': ('Read a linked filed statement', 'statement_id', None),
     'revision': ('Inspect a selected audit revision and parent diff', 'line_id', 'parent_index'),
     'evidence': ('Read evidence by its issued ID', 'evidence_id', 'page'),
+    'precedent': ('Find earlier payee or account examples and owner decisions', None, None),
+    'period_checks': ('Check duplicates, balances and statements for the pinned period', None, None),
 }
 NAMES = {'review_' + name for name in TOOLS}
 
@@ -56,7 +58,7 @@ def committed_snapshot(root, work, revision, *, audit_only=False):
         if not metadata.startswith((b'100644 blob ', b'100755 blob ')):
             continue
         path = name.decode()
-        if path not in ('ledger.json', 'AGENTS.md') and not re.fullmatch(
+        if path not in ('ledger.json', 'AGENTS.md', 'data/prices/mutual-funds.prices') and not re.fullmatch(
                 r'(?:data/(?:expenses/|statements/)?[^/]+|extensions/[^/]+)\.json|data/additions/\d{4}\.jsonl', path):
             continue
         data = git(root, 'cat-file', 'blob', metadata.split()[2].decode(), limit=budget)
@@ -169,6 +171,11 @@ class ReviewLookup:
     def documents(self):
         return load(self.ledger)
 
+    @cached_property
+    def source_entries(self):
+        from review_decisions import targets
+        return set().union(*(targets(line)[0] for line in self.lines.values()))
+
     def registry(self):
         tools = {}
         for name, (description, identity, option) in TOOLS.items():
@@ -177,8 +184,103 @@ class ReviewLookup:
                 args[identity] = {'type': 'string'}
             if option:
                 args[option] = {'type': 'integer'}
+            if name == 'precedent':
+                args.update({key: {'type': 'string'} for key in ('entry_id', 'payee', 'account')})
             tools['review_' + name] = (getattr(self, name), description, args, [identity] if identity else [])
         return tools
+
+    def precedent(self, store, entry_id=None, payee=None, account=None, cursor=None):
+        from review_decisions import entry_issues
+
+        def normalized(name):
+            return re.sub(r'[^\w]+', ' ', name.casefold()).strip()
+
+        def merchant(entry):
+            return re.split(r'\s+[—–·]\s+', entry['description'], maxsplit=1)[0]
+
+        if entry_id and entry_id not in self.source_entries | self.discovered:
+            return {'status': 'outside_grant'}
+        actual = {e['id']: e for e in store.VISIBLE}
+        entry_id = entry_id or (next(iter(self.source_entries)) if len(self.source_entries) == 1 else None)
+        anchor = actual.get(entry_id)
+        if not payee and not account and anchor:
+            payee = merchant(anchor)
+        if not (payee or account) or account and account not in store.DECLARED:
+            return {'status': 'invalid_arguments'}
+        candidates = [e for e in actual.values() if e['id'] != entry_id and (not anchor or e['date'] <= anchor['date'])
+                      and (not payee or normalized(merchant(e)) == normalized(payee))
+                      and (not account or any(p['account'] == account for p in e['postings']))]
+        ranked = store.search_entries(' '.join(filter(None, [payee, account])), limit=None, candidates=candidates)
+        rows = records(self.ledger)
+        by_entry, outcomes, matches, evidence = entry_issues(rows), {}, [], {}
+        for row in rows:
+            if 'review_issue_id' in row:
+                outcomes.setdefault(row['review_issue_id'], []).append(row)
+        for entry in ranked:
+            history = []
+            related = (r for issue in by_entry.get(entry['id'], ()) for r in outcomes.get(issue, ()))
+            for row in sorted(related, key=lambda r: (r['time'], r['id'])):
+                if row['kind'] == 'review-message' and row['actor'] != 'user':
+                    continue
+                item = {k: row[k] for k in ('id', 'kind', 'time', 'text', 'note', 'entry_id', 'rule_id') if k in row}
+                item['evidence_ids'] = []
+                for file in row.get('message_evidence', []):
+                    handle = hashlib.sha256(file['path'].encode()).hexdigest()[:32]
+                    evidence[handle] = file
+                    item['evidence_ids'].append(handle)
+                history.append(item)
+            matches.append(dict(entry=entry, history=history))
+        days = [e['date'] for e in ranked]
+        result = self.page('precedent', [entry_id, payee, account],
+                           dict(matches=matches, oldest=min(days, default=None), newest=max(days, default=None)), cursor)
+        if result['status'] == 'available':
+            self.discovered.update(e['id'] for e in ranked)
+            self.grant.evidence.update(evidence)
+        return result
+
+    def period_checks(self, store, cursor=None):
+        from check_store import check_card_statements
+        from review import snapshot
+        from strict_check import StrictCheckError, check
+        if not self.lines:
+            return {'status': 'outside_grant'}
+        if not hasattr(self, '_period_report'):
+            selected = [e for e in store.VISIBLE if e['id'] in self.source_entries]
+            days = [e['date'] for e in selected] + [row['statement']['periodEnd'] for row in self.lines.values()
+                    if row['kind'] == 'statement' and (row.get('statement') or {}).get('periodEnd')]
+            days = days or [row['time'][:10] for row in self.lines.values()]
+            start, end = min(days), max(days)
+            mismatches, duplicates = [], {}
+
+            def failure(kind, day, **details):
+                where = 'period' if day and start <= day <= end else 'outside_period' if day else 'unknown'
+                mismatches.append(dict(check=kind, scope=where, date=day, **details))
+
+            try:
+                check(self.documents, self.ledger)
+            except StrictCheckError as exc:
+                failure(exc.kind, (exc.refusal or {}).get('date'), balance=exc.refusal)
+            try:
+                statements = check_card_statements(self.documents, self.ledger)['statements']
+            except ValueError as exc:
+                days_in_error = re.findall(r'\b\d{4}-\d{2}-\d{2}\b', str(exc))
+                failure('statement_membership_or_balance', next(iter(days_in_error), None))
+                statements = []
+            state = snapshot(self.ledger, documents=self.documents, lines=records(self.ledger))
+            for pair in state['items']:
+                if pair['kind'] == 'duplicate' and any(start <= e['date'] <= end for e in pair['entries']):
+                    ids = tuple(sorted(e['id'] for e in pair['entries']))
+                    duplicates[ids] = pair['machineReason']
+            for entry in selected:
+                amount = state['entries'][entry['id']]['amount']
+                for other in store.entries_near(entry['date'], amount=amount):
+                    if other['id'] != entry['id']:
+                        same_ref = bool(entry['references'] and entry['references'] == other.get('references'))
+                        duplicates.setdefault(tuple(sorted((entry['id'], other['id']))),
+                                              'matching_reference' if same_ref else 'matching_amount_near_date')
+            self._period_report = dict(period=[start, end], mismatches=mismatches, statements=statements,
+                                       suspected_duplicates=[dict(entries=ids, reason=why) for ids, why in sorted(duplicates.items())])
+        return self.page('period_checks', [], self._period_report, cursor)
 
     def check(self):
         return {'status': 'expired_grant'} if time.time() >= self.grant.expires else None

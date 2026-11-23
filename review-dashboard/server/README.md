@@ -606,6 +606,13 @@ Publication waits for a clean ledger and takes the writer lock nonblocking.
 - `POST /api/review/issues/{issue_id}/keep/{operation_id}` accepts an optional
   `note` up to 2,000 characters. `POST /api/review/unattributed/{commit}` accepts
   `actor` as `user` or `agent` for an eligible full commit ID.
+- `POST /api/review/issues/{issue_id}/{answer|explain}/{operation_id}` accepts
+  `text` up to 2,000 characters. Answer also accepts an editable upload
+  `draft_id`. Retry posts an empty object to `/api/review/issues/{issue_id}/retry/{reply_id}`.
+  A waiting reply counts as in progress. A failed reply returns to Needs you.
+- Add `review_issue_id`, `review_offset` and `review_limit` to the Queue read for
+  issue history. `GET /api/entries/{entry_id}/review-history` accepts `offset`
+  and `limit` and returns messages, resolutions and linked saves.
 
 The FIFO worker also checks the dashboard's `meta.today` at startup and every
 30 seconds. A stale or missing date triggers the existing data-refresh path only
