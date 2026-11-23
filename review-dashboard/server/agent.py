@@ -29,6 +29,9 @@ def lookup_names(settings):
     names = {'search_entries', 'entries_near', 'list_accounts'}
     if old_ledger_path(settings.ledger, fallback=settings.old_ledger):
         names.add('search_old_ledger')
+    if settings.role == 'review':
+        from review_lookup import NAMES
+        names.update(NAMES)
     return names
 
 
@@ -302,16 +305,21 @@ def codex_environment(settings):
     return environment
 
 
-def command_for(settings, prompt, images):
+def command_for(settings, prompt, images, *, lookups=None):
     old = old_ledger_path(settings.ledger, fallback=settings.old_ledger)
     lookup_args = [str(Path(__file__).with_name('lookup_server.py')), '--ledger', str(settings.ledger),
                    *(['--old-ledger', str(old)] if old else [])]
+    lookup_python = 'python3'
+    if settings.role == 'review':
+        from adapters.base import LookupTools
+        lookups = lookups or LookupTools.for_settings(settings, probe=True)
+        lookup_python, *lookup_args = lookups.command
     return [settings.codex, 'exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only',
             '--disable', 'shell_tool',  # Remove the legacy shell tool.
             '--disable', 'unified_exec',  # Remove shell/PTY execution tools.
             '--json', *ISOLATION_FLAGS, '-m', settings.model,
             '-c', 'model_reasoning_effort=' + json.dumps(settings.effort),
-            '-c', 'mcp_servers.ledger.command="python3"',
+            '-c', 'mcp_servers.ledger.command=' + json.dumps(lookup_python),
             '-c', 'mcp_servers.ledger.args=' + json.dumps(lookup_args),
             '-c', 'mcp_servers.ledger.startup_timeout_sec=20',
             '-c', 'mcp_servers.ledger.default_tools_approval_mode="approve"',

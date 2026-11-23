@@ -7,10 +7,11 @@ from ledger_manifest import read_manifest, old_ledger_path
 
 
 class LookupStore:
-    def __init__(self, ledger, old=None, cutoff='9999-12-31', exclude=()):
-        self.ledger = ledger
-        self.manifest = read_manifest(ledger)
-        self.old_path = old_ledger_path(ledger, fallback=old)
+    def __init__(self, ledger, old=None, cutoff='9999-12-31', exclude=(), *, review=None):
+        self.review = review
+        self.ledger = review.ledger if review else ledger
+        self.manifest = read_manifest(self.ledger)
+        self.old_path = old if review else old_ledger_path(ledger, fallback=old)
         self.ALL = [e for f in sorted((self.ledger / 'data/expenses').glob('*.json')) for e in json.loads(f.read_text())]
         self.VISIBLE = [e for e in self.ALL if (e['date'] < cutoff or e['date'] == cutoff) and e['id'] not in exclude]
         self.USED_ANYWHERE = {p['account'] for e in self.ALL for p in e['postings']}
@@ -37,6 +38,8 @@ class LookupStore:
 
         if not self.old_path:
             del self.tools['search_old_ledger']
+        if review:
+            self.tools.update(review.registry())
 
     def agent_fields(self):
         """The agent's fields of each extension ledger.json asks for (lookups show only those)."""
@@ -63,6 +66,8 @@ class LookupStore:
     def compact(self, e):
         out = {'date': e['date'], 'status': e['status'], 'description': e['description'],
                'postings': [self.posting_text(p) for p in e['postings']]}
+        if self.review:
+            out['id'] = e['id']
         for k in ('references', 'classification', 'original-amount'):
             if e.get(k) is not None:
                 out[k] = e[k]
@@ -132,10 +137,29 @@ class LookupStore:
                 for name, (_, desc, props, req) in self.tools.items()]
 
     def call(self, name, arguments):
-        from jsonschema import validate
-        definition = next((d for d in self.definitions() if d['name'] == name), None)
-        if definition is None:
+        if name not in self.tools:
             raise ValueError('Tool outside lookup allow-list')
-        validate(arguments, definition['inputSchema'])
-        read_manifest(self.ledger)
-        return self.tools[name][0](**arguments)
+        method, _, properties, required = self.tools[name]
+        types = {'integer': int, 'string': str}
+        if (not isinstance(arguments, dict) or not set(required) <= arguments.keys() <= properties.keys()
+                or any(type(v) is not types[properties[k]['type']] for k, v in arguments.items())):
+            raise ValueError('Invalid lookup arguments')
+        if not self.review:
+            read_manifest(self.ledger)
+            return method(**arguments)
+        from review_lookup import PAGE
+        if error := self.review.check():
+            return error
+        try:
+            result = method(**arguments)
+            if isinstance(result, list):
+                bounded = []
+                for item in result:
+                    if len(json.dumps([*bounded, item]).encode()) > PAGE:
+                        break
+                    bounded.append(item)
+                self.review.discovered.update(item['id'] for item in bounded if isinstance(item, dict) and 'id' in item)
+                return bounded
+            return result
+        except (ValueError, OSError, KeyError, OverflowError, TypeError):
+            return {'status': 'source_unavailable'}

@@ -118,6 +118,24 @@ def extract_rows(root: Path, end: str, account: str | None = None) -> tuple[list
     return validate_rows(rows), dict(source=statement['sourceFile'], start=statement['periodStart'][:10], identifier=statement.get('card_last4'), account=account)
 
 
+def filed_details(root, documents, summary):
+    end = summary['end']
+    month=datetime.fromisoformat(end).strftime('%B%Y')
+    path=reconciliation_path(root,end,summary['account'],documents[root/'data/accounts.json']['accounts'][summary['account']])
+    legacy=root/f'data/statements/{month}-card-reconciliation.json'
+    if not path.is_file() and legacy.is_file():
+        path=legacy
+    if path.is_file():
+        rows=read_json(path)['rows']
+    else:
+        rows,_=extract_rows(root,end,summary['account'])
+    members = {(e['statement'] or {}).get('serial'): e for e in entries(documents) if (e['statement'] or {}).get('end') == end and any(p['account'] == summary['account'] for p in e['postings'])}
+    if summary.get('kind') == 'bank':
+        actual = {e['id']:e for e in entries(documents)}
+        membership = {m['serial']:m for m in summary['members']}
+        return dict(summary=summary, rows=[{**r, 'disposition':membership[r['serial']]['disposition'], **({'entry_id':membership[r['serial']]['entry-id'], 'entry_description':actual[membership[r['serial']]['entry-id']]['description']} if membership[r['serial']].get('entry-id') else {})} for r in rows])
+    return dict(summary=summary, rows=[{**r, 'entry_id': members[r['serial']]['id'], 'entry_description': members[r['serial']]['description'], 'conversion_notes': [n for n in members[r['serial']].get('notes', []) if 'replaces' in n and 'statement charge:' in n]} if r['serial'] in members else r for r in rows])
+
 def card_amount(entry: dict, account: str) -> Decimal | None:
     postings = [p for p in entry['postings'] if p['account'] == account]
     if not postings:

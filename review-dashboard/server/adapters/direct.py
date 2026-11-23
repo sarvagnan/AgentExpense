@@ -68,8 +68,9 @@ class DirectAPI:
 
     def offline_check(self,work,*,stop=None):
         from .cli import inspect_inventory
-        lookups=LookupTools.for_settings(self.settings)
-        allowed={'search_entries','entries_near','list_accounts','search_old_ledger'}
+        lookups=LookupTools.for_settings(self.settings, probe=True)
+        from agent import lookup_names
+        allowed=lookup_names(self.settings)
         expected=self.inventory(lookups)
         expected['tools']=sorted(d['name'] for d in lookups.definitions if d['name'] in allowed)
         inspect_inventory(self.inventory(lookups),expected)
@@ -198,10 +199,11 @@ class DirectAPI:
             raise AdapterError('API response or lookup validation failed; contents withheld',usage=usage,lookups=lookups) from None
 
     def live_probe(self,work,account,*,stop=None):
-        from agent_check import PROBE_PROMPT,PROBE_SCHEMA,DiagnosticUnavailable
-        task=Task(PROBE_PROMPT,(),LookupTools.for_settings(self.settings),PROBE_SCHEMA,
-                  time.monotonic()+self.settings.timeout,stop or threading.Event(),work)
+        from agent_check import probe_prompt, check_review_calls, PROBE_SCHEMA, DiagnosticUnavailable
+        task=Task(probe_prompt(self.settings),(),LookupTools.for_settings(self.settings, probe=True),PROBE_SCHEMA,
+                  time.monotonic()+(min(self.settings.timeout, 180) if self.settings.role == 'review' else self.settings.timeout),stop or threading.Event(),work)
         result=self.run(task)
+        check_review_calls(self.settings, result.lookups)
         if result.answer!={'account':account,'shell_unavailable':True} or not any(
                 c['tool']=='list_accounts' and account in json.dumps(c.get('result')) for c in result.lookups):
             raise DiagnosticUnavailable('Probe account, shell refusal, or lookup evidence failed')

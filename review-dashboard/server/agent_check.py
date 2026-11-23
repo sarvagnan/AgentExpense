@@ -19,7 +19,7 @@ import uuid
 from jsonschema import ValidationError, validate
 
 from agent import codex_environment, command_for, lookup_names
-from settings import Settings
+from settings import Settings, command_settings
 
 LOOKUPS = {'search_entries', 'entries_near', 'list_accounts', 'search_old_ledger'}
 NESTED_TOOLS = {'apply_patch', 'list_mcp_resource_templates', 'list_mcp_resources',
@@ -39,6 +39,43 @@ PROBE_PROMPT = (
     'whether execution was refused. Do not claim a command ran without a tool '
     'result. Return only the JSON object required by the schema.'
 )
+
+
+def probe_prompt(settings):
+    if settings.role != 'review':
+        return PROBE_PROMPT
+    return (PROBE_PROMPT + ' Also call review_pending with no arguments, and call review_evidence '
+            'with evidence_id="../ledger.json" to check that the requested file is outside the grant.')
+
+
+def check_review_transport(settings, work, *, stop=None):
+    if settings.role != 'review':
+        return
+    from adapters.base import LookupTools
+    lookup = LookupTools.for_settings(settings, probe=True)
+    requests = [
+        ('tools/list', {}),
+        ('tools/call', {'name': 'review_pending'}),
+        ('tools/call', {'name': 'review_evidence', 'arguments': {'evidence_id': '../ledger.json'}}),
+        ('tools/call', {'name': 'read_file', 'arguments': {'path': '../ledger.json'}}),
+    ]
+    out = invoke(lookup.command, work, 20, environment=os.environ, stop=stop, data=''.join(
+        json.dumps(dict(jsonrpc='2.0', id=i, method=method, params=params)) + '\n'
+        for i, (method, params) in enumerate(requests)))
+    listed, pending, refused, unknown = [json.loads(line)['result'] for line in out.splitlines()]
+    if (listed['tools'] != list(lookup.definitions) or {tool['name'] for tool in listed['tools']} != lookup_names(settings) or
+            json.loads(pending['content'][0]['text']) != lookup.call('review_pending', {}) or
+            json.loads(refused['content'][0]['text']) != {'status': 'outside_grant'} or not unknown['isError']):
+        raise PolicyFailure('Review lookup inventory or scope did not match the policy')
+
+
+def check_review_calls(settings, calls):
+    if settings.role == 'review':
+        names = {call['tool'] for call in calls}
+        refused = any(call['tool'] == 'review_evidence' and 'outside_grant' in json.dumps(call.get('result'))
+                      for call in calls)
+        if 'review_pending' not in names or not refused:
+            raise DiagnosticUnavailable('Probe did not check the review grant boundary')
 
 
 class OfflineFailure(ValueError):
@@ -326,9 +363,12 @@ def inspect_events(log, lookups=None):
 def check_live(settings, work, account, *, stop=None):
     (work / 'schema.json').write_text(json.dumps(PROBE_SCHEMA))
     # Production model/effort/timeout are unchanged. Only this probe uses low.
-    command = command_for(replace(settings, effort='low'), PROBE_PROMPT, [])
-    log = invoke(command, work, settings.timeout, environment=codex_environment(settings), stop=stop, data=PROBE_PROMPT)
+    prompt = probe_prompt(settings)
+    command = command_for(replace(settings, effort='low'), prompt, [])
+    log = invoke(command, work, min(settings.timeout, 180) if settings.role == 'review' else settings.timeout,
+                 environment=codex_environment(settings), stop=stop, data=prompt)
     calls = inspect_events(log, lookup_names(settings))
+    check_review_calls(settings, calls)
     answer = json.loads((work / 'answer.json').read_text())
     validate(answer, PROBE_SCHEMA)
     if answer != {'account': account, 'shell_unavailable': True}:
@@ -405,9 +445,11 @@ def check_offline(settings, work, *, stop=None):
 def main():
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     try:
-        settings = Settings.from_env()
-        from adapters import get_adapter
+        settings = command_settings()
+        from adapters import get_adapter, require_isolation
         adapter = get_adapter(settings)
+        if settings.role == 'review':
+            require_isolation(adapter, settings)
         if settings.adapter == 'codex':
             require_codex(settings)
         if os.getenv('LIVE') == '1':
@@ -424,6 +466,7 @@ def main():
             ledger, old, account = fixture(work)
             settings = replace(settings, ledger=ledger, old_ledger=old if 'search_old_ledger' in lookup_names(settings) else None)
             adapter = get_adapter(settings)
+            check_review_transport(settings, work)
             adapter.offline_check(work)
     except (OSError, ValueError, KeyError, TypeError, ValidationError) as exc:
         # JSON/schema diagnostics may quote model or host contents; don't echo.

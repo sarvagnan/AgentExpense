@@ -15,6 +15,9 @@ def pinned_version(settings, package):
 
 
 def get_adapter(settings):
+    if settings.role == 'review' and settings.adapter not in (*PACKAGES, 'openai', 'anthropic'):
+        from agent_check import PolicyFailure
+        raise PolicyFailure('This adapter cannot enforce weekly review isolation.')
     if settings.adapter == 'codex':
         from .codex import Codex
         adapter = Codex(settings)
@@ -49,6 +52,8 @@ def get_adapter(settings):
 
 def require_isolation(adapter, settings):
     from agent_check import PolicyFailure
+    if settings.role == 'review' and not adapter.describe().isolation:
+        raise PolicyFailure('This adapter cannot enforce weekly review isolation.')
     if not adapter.describe().isolation and not settings.allow_unisolated:
         raise PolicyFailure('This adapter cannot enforce full isolation. Set agent.allowUnisolated=true in local.json to opt in.')
 
@@ -59,9 +64,11 @@ def status_details(settings):
     except ValueError:
         name={'openai':'OpenAI-compatible API','anthropic':'Anthropic API'}.get(settings.adapter,settings.adapter)
         description = asdict(Description(settings.adapter,name,'unavailable',settings.adapter in ('openai','anthropic'),'Adapter configuration is unavailable; see readiness reason.'))
+    review = settings.role == 'review'
+    login_selector = ' ROLE=review' if review else '' if settings.adapter == 'codex' else ' ADAPTER=' + settings.adapter
     return dict(adapter=description, model=settings.model, effort=settings.effort,
-                login_command='make agent-login' + ('' if settings.adapter == 'codex' else ' ADAPTER=' + settings.adapter),
-                isolation_warning=(None if description['isolation'] else 'Full agent isolation is not enforced; machine opt-in is enabled.' if settings.allow_unisolated else 'Full agent isolation is not enforced. This adapter is disabled until you explicitly opt in.'))
+                login_command='make agent-login' + login_selector,
+                isolation_warning=(None if description['isolation'] else 'Full agent isolation is not enforced; machine opt-in is enabled.' if settings.allow_unisolated and not review else 'Full agent isolation is required for weekly review.' if review else 'Full agent isolation is not enforced. This adapter is disabled until you explicitly opt in.'))
 
 
 def adapter_version(adapter, work, *, stop=None):

@@ -273,3 +273,17 @@ discarded. Failed receipt Dismiss keeps the payment and filed evidence and recor
 only an audit outcome; saved payments do not count towards Needs you totals. Receipt
 Retry takes a fresh FIFO timestamp. Add and receipt diagnostics retain the latest 50
 runs; a failed receipt audit includes only its current retry attempt’s runs.
+
+### Weekly reviewer profile
+
+Set `reviewAgent` in the application’s `local.json` to select a separate weekly
+review adapter, model or effort. It accepts the same fields and uses the same
+defaults as `agent`. When omitted it inherits the resolved Add profile, including
+its environment settings. An explicit profile selects its own values. Its
+`api.keyEnv` or `api.keyFile` selects the API credential source.
+
+CLI profiles on the same adapter share its dedicated home. Run
+`make agent-login ROLE=review` to sign in and `make agent-check ROLE=review`
+for the offline isolation check. Both commands reject combining `ROLE=review`
+with `ADAPTER`. Review requires an adapter that enforces its read-only policy.
+Restart the server after changing machine settings.

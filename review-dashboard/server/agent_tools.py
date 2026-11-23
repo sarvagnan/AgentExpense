@@ -9,7 +9,7 @@ import tempfile
 
 from agent import codex_environment
 from agent_check import OfflineFailure, check_offline, fixture, require_codex
-from settings import Settings
+from settings import Settings, command_settings
 from node_toolchain import node_environment
 from adapters import get_adapter, PACKAGES, login_environment
 
@@ -18,7 +18,8 @@ def login(settings):
     adapter = get_adapter(settings)
     command = adapter.login_command()
     if not command:
-        print('Set the API key environment variable or dedicated keyFile configured in local.json; then run make agent-check LIVE=1 ADAPTER=' + settings.adapter)
+        print('Set the API key environment variable or dedicated keyFile configured in local.json, then run make agent-check LIVE=1'
+              + (' ROLE=review' if settings.role == 'review' else ' ADAPTER=' + settings.adapter))
         return 0
     return subprocess.call(command, env=login_environment(adapter, settings))
 
@@ -73,11 +74,10 @@ def upgrade(settings, version='', *, dry_run=False):
 
 def main():
     try:
-        settings = Settings.from_env()
         if sys.argv[1:] == ['login']:
-            return login(settings)
+            return login(command_settings())
         if sys.argv[1:] == ['upgrade']:
-            return upgrade(settings, os.getenv('VERSION', ''), dry_run=os.getenv('DRY_RUN') == '1')
+            return upgrade(Settings.from_env(), os.getenv('VERSION', ''), dry_run=os.getenv('DRY_RUN') == '1')
         raise ValueError('Use login or upgrade')
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print('FAIL: ' + (str(exc) if isinstance(exc, ValueError) else type(exc).__name__))

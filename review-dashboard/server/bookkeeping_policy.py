@@ -6,6 +6,7 @@ import re
 
 GENERAL = Path('policy/BOOKKEEPING.md')
 ADD = Path('policy/ADD-AGENT.md')
+REVIEW = Path('policy/WEEKLY-REVIEW-AGENT.md')
 ENTRY_RULES_HEADING = '## Rules for entries'
 ENTRY_RULES_SECTION = re.compile(r'(?ms)^' + ENTRY_RULES_HEADING + r'[ \t]*$\n?(.*?)(?=^#{1,2} |\Z)')
 FUEL_SECTION = re.compile(r'(?ms)^#{2,3} Fuel log[ \t]*$\n?.*?(?=^#{1,3} |\Z)')
@@ -33,3 +34,8 @@ def personal_rules(settings, *, fuel: bool) -> str:
     if section is None:
         return text.strip()
     return (section if fuel else FUEL_SECTION.sub('', section)).strip()
+
+
+def review_policy(settings, *, fuel):
+    return ((settings.application / REVIEW).read_text(), (settings.application / GENERAL).read_text(),
+            personal_rules(settings, fuel=fuel))

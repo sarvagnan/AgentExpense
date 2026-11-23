@@ -40,18 +40,25 @@ def fingerprint(settings, version):
                   'lookups': sorted(lookup_names(settings)), 'policy': POLICY_HASH}
     # Hash source for all adapter modules, so parser/transport/extension changes
     # invalidate a cached probe even when the package version stays fixed.
-    source = Path(__file__).with_name('adapters')
     values.update(adapter=settings.adapter, pinned_version=description.pinned_version,
                   interface_version=description.interface_version, model=settings.model, effort=settings.effort,
                   isolation=description.isolation, opt_in=settings.allow_unisolated,
                   adapter_sources=ADAPTER_HASH)
+    if settings.role == 'review':
+        from adapters.base import LookupTools
+        from bookkeeping_policy import GENERAL, REVIEW
+        inventory = list(LookupTools.for_settings(settings, probe=True).definitions)
+        sources = [settings.application / path for path in (GENERAL, REVIEW)]
+        sources.extend(Path(__file__).with_name(name) for name in ('review_lookup.py', 'lookups.py', 'lookup_server.py'))
+        values.update(role='review', review_inventory=inventory,
+                      review_policy=hashlib.sha256(b''.join(path.read_bytes() for path in sources)).hexdigest())
     return values
-
 
 
 class AgentGate:
     def __init__(self, settings):
         self.settings = settings
+        self.cache_path = settings.state_dir / ('agent-check-review.json' if settings.role == 'review' else 'agent-check.json')
         self.lock = threading.Lock()
         self.status_lock = threading.Lock()
         self.stop = threading.Event()
@@ -59,7 +66,7 @@ class AgentGate:
         self.login_thread = None
         self.generation = 0
         self.login_poll_seconds = 30
-        self.state = {'state': 'checking', 'reason': None}
+        self.state = {'state': 'unchecked' if settings.role == 'review' else 'checking', 'reason': None}
 
     def status(self):
         with self.status_lock:
@@ -108,7 +115,7 @@ class AgentGate:
 
     def read_cache(self):
         try:
-            value = json.loads((self.settings.state_dir / 'agent-check.json').read_text())
+            value = json.loads(self.cache_path.read_text())
             return value if isinstance(value, dict) else {}
         except (OSError, ValueError):
             return {}
@@ -129,7 +136,7 @@ class AgentGate:
             try:
                 json.dump(value, handle, sort_keys=True)
                 handle.flush()
-                path.replace(self.settings.state_dir / 'agent-check.json')
+                path.replace(self.cache_path)
             finally:
                 path.unlink(missing_ok=True)
 
@@ -156,6 +163,8 @@ class AgentGate:
             except check.OfflineFailure as exc:
                 if exc.signed_out:
                     reason = SIGNED_OUT + ('' if self.settings.adapter == 'codex' else ' ADAPTER=' + self.settings.adapter)
+                    if self.settings.role == 'review':
+                        reason = SIGNED_OUT + ' ROLE=review'
                     if self.settings.adapter in ('openai', 'anthropic'):
                         reason = 'The API key is not configured. Set the key environment variable or keyFile named in local.json.'
                     self.set_state('signed out', reason)
@@ -198,6 +207,7 @@ class AgentGate:
             fixture_settings = replace(settings, ledger=ledger, old_ledger=old if 'search_old_ledger' in lookup_names(settings) else None)
             fixture_adapter = get_adapter(fixture_settings)
             try:
+                check.check_review_transport(fixture_settings, work, stop=self.stop)
                 fixture_adapter.offline_check(work, stop=self.stop)
                 if not adapter.signed_in(work, stop=self.stop):
                     raise check.OfflineFailure([], signed_out=True)

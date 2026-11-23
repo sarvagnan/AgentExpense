@@ -1,6 +1,8 @@
 """Environment settings. Ledger selection is shared with the application CLIs."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import os
+import hashlib
+import re
 import json
 import math
 from pathlib import Path
@@ -42,11 +44,25 @@ class Settings:
     allow_unisolated: bool = False
     custom_adapter: str | None = None
     api_options: str = '{}'  # Canonical JSON keeps Settings hashable; never contains a key.
+    role: str = 'add'
+    review_profile: tuple | None = field(default=None, compare=False, repr=False)
     update_notice: bool = False  # local.json updates.notice; off unless turned on.
     update_remote: str = 'origin'
     # hledger's background second check of each commit (ledger_check.py); it runs only when
     # hledger is installed. The offline tests turn it on where they test it.
     ledger_check: bool = True
+
+    def for_role(self, role):
+        if role == self.role:
+            return self
+        if role != 'review':
+            raise ValueError('ROLE must be add or review')
+        return replace(self, role=role, **dict(self.review_profile or ()))
+
+    def pause_key(self):
+        values = (self.role, self.adapter, self.model, self.effort, self.allow_unisolated,
+                  self.custom_adapter, self.api_options, str(self.agent_home))
+        return hashlib.sha256(json.dumps(values).encode()).hexdigest()
 
     @property
     def agent_home(self):
@@ -89,21 +105,7 @@ class Settings:
         agent = local.get('agent', {})
         from local_settings import update_settings
         updates = update_settings(local)
-        adapter = os.getenv('EXPENSES_AGENT') or os.getenv('ADAPTER') or agent.get('adapter', 'codex')
-        if not isinstance(adapter, str) or not __import__('re').fullmatch(r'[a-z][a-z0-9-]*', adapter):
-            raise ValueError('Invalid agent adapter id')
-        defaults = {'codex': 'gpt-6.1-terra', 'claude': 'claude-opus-5-5',
-                    'pi': 'anthropic/claude-opus-5-5', 'opencode': 'anthropic/claude-opus-5-5',
-                    'anthropic': 'claude-opus-5-5'}
-        if set(agent) - {'adapter','model','effort','allowUnisolated','module','api'}:
-            raise ValueError('Unknown agent machine setting')
-        if any(key in agent and (not isinstance(agent[key], str) or not agent[key].strip()) for key in ('model','effort','module')):
-            raise ValueError('Agent model, effort and module must be nonblank strings')
-        api = agent.get('api', {})
-        if not isinstance(api, dict) or set(api) - {'baseUrl','keyEnv','keyFile','structuredOutput','sendEffort','maxTurns','maxTools','maxTokens','maxOutputTokens','retries'}:
-            raise ValueError('Invalid agent API settings (keys belong in an environment variable or key file)')
-        if 'allowUnisolated' in agent and type(agent['allowUnisolated']) is not bool:
-            raise ValueError('agent.allowUnisolated must be boolean')
+        review = parse_profile(local['reviewAgent']) if 'reviewAgent' in local else None
         port = int(os.getenv('EXPENSES_PORT', '8701'))
         timeout = float(os.getenv('EXPENSES_AGENT_TIMEOUT', '600'))
         if not 1 <= port <= 65535 or not math.isfinite(timeout) or timeout <= 0:
@@ -115,9 +117,39 @@ class Settings:
                    state_dir=state_directory(),
                    codex_home=(Path(os.environ['EXPENSES_CODEX_HOME']).expanduser().resolve()
                                if os.getenv('EXPENSES_CODEX_HOME') else None),
-                   model=os.getenv('EXPENSES_AGENT_MODEL') or agent.get('model') or defaults.get(adapter, ''),
-                   effort=os.getenv('EXPENSES_AGENT_EFFORT') or agent.get('effort') or ('xhigh' if adapter == 'codex' else 'high'),
-                   timeout=timeout, adapter=adapter, agent_binary=os.getenv('EXPENSES_AGENT_BINARY'),
-                   allow_unisolated=agent.get('allowUnisolated', False), custom_adapter=agent.get('module'),
-                   api_options=json.dumps(api, sort_keys=True),
+                   timeout=timeout, agent_binary=os.getenv('EXPENSES_AGENT_BINARY'),
+                   review_profile=tuple(review.items()) if review else None,
+                   **parse_profile(agent, environ=os.environ),
                    update_notice=updates['notice'], update_remote=updates['remote'])
+
+
+def parse_profile(agent, *, environ=None):
+    environ = environ or {}
+    if not isinstance(agent, dict):
+        raise ValueError('Agent profile must be an object')
+    adapter = environ.get('EXPENSES_AGENT') or environ.get('ADAPTER') or agent.get('adapter', 'codex')
+    if not isinstance(adapter, str) or not re.fullmatch(r'[a-z][a-z0-9-]*', adapter):
+        raise ValueError('Invalid agent adapter id')
+    defaults = {'codex': 'gpt-6.1-terra', 'claude': 'claude-opus-5-5',
+                'pi': 'anthropic/claude-opus-5-5', 'opencode': 'anthropic/claude-opus-5-5',
+                'anthropic': 'claude-opus-5-5'}
+    if set(agent) - {'adapter','model','effort','allowUnisolated','module','api'}:
+        raise ValueError('Unknown agent machine setting')
+    if any(key in agent and (not isinstance(agent[key], str) or not agent[key].strip()) for key in ('model','effort','module')):
+        raise ValueError('Agent model, effort and module must be nonblank strings')
+    api = agent.get('api', {})
+    if not isinstance(api, dict) or set(api) - {'baseUrl','keyEnv','keyFile','structuredOutput','sendEffort','maxTurns','maxTools','maxTokens','maxOutputTokens','retries'}:
+        raise ValueError('Invalid agent API settings (keys belong in an environment variable or key file)')
+    if 'allowUnisolated' in agent and type(agent['allowUnisolated']) is not bool:
+        raise ValueError('agent.allowUnisolated must be boolean')
+    return dict(adapter=adapter, model=environ.get('EXPENSES_AGENT_MODEL') or agent.get('model') or defaults.get(adapter, ''),
+                effort=environ.get('EXPENSES_AGENT_EFFORT') or agent.get('effort') or ('xhigh' if adapter == 'codex' else 'high'),
+                allow_unisolated=agent.get('allowUnisolated', False), custom_adapter=agent.get('module'),
+                api_options=json.dumps(api, sort_keys=True))
+
+
+def command_settings():
+    role = os.getenv('ROLE') or 'add'
+    if role == 'review' and os.getenv('ADAPTER'):
+        raise ValueError('ROLE=review cannot be combined with ADAPTER')
+    return Settings.from_env().for_role(role)

@@ -1009,3 +1009,14 @@ see [SAVES](../../docs/SAVES.md) for covered paths and rollback, and
 [weekly review](WEEKLY-REVIEW.md#hand-changes) for review.
 `audit.py record --changes FILE` accepts a JSON list of `{commit, actor, note?}`
 and records it oldest first in one record-only commit. Declaration is in-process only; terminal writers cannot declare an audit line.
+
+### Reviewer isolation
+
+The optional `reviewAgent` machine profile inherits Add when omitted. Review has
+its own isolation cache (`agent-check-review.json` in the state directory) and
+ledger-local pause (`drafts/weekly-review/agent-pause.json`). The reviewer
+descriptor and pause are under `reviewer` in `GET /api/agent-status`.
+`make agent-check ROLE=review` uses a fictional ledger and no model by default.
+`make agent-login ROLE=review` selects the same profile. The
+[adapter guide](../../docs/ADAPTERS.md#weekly-reviewer-profile) describes the
+shared homes and configuration.

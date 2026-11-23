@@ -183,7 +183,7 @@ class CLI:
         # Work/ledger paths are intentionally absent; their offered names are hashed by the gate.
         return {'launch policy':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 'extension':hashlib.sha256((HERE/'pi-lookup.mjs').read_bytes()).hexdigest() if self.id=='pi' else None,
-                'inventory':self.expected_inventory(LookupTools.for_settings(self.settings))}
+                'inventory':self.expected_inventory(LookupTools.for_settings(self.settings, probe=True))}
 
     def offline_check(self, work, *, stop=None):
         from agent_check import OfflineFailure, invoke, OFFLINE_PROMPT
@@ -196,7 +196,7 @@ class CLI:
                      Path('/etc/claude-code/managed-settings.json')]
             if any(path.exists() for path in managed):
                 raise OfflineFailure(['Managed Claude settings require an isolation policy review'])
-        lookups=LookupTools.for_settings(self.settings)
+        lookups=LookupTools.for_settings(self.settings, probe=True)
         task=Task(OFFLINE_PROMPT,(),lookups,{'type':'object'},time.monotonic()+self.settings.timeout,
                   stop or threading.Event(),work)
         command,env,_=self.launch(task)
@@ -459,10 +459,11 @@ class CLI:
         return Result(answer,usage,calls)
 
     def live_probe(self,work,account,*,stop=None):
-        from agent_check import PROBE_PROMPT,PROBE_SCHEMA,DiagnosticUnavailable
-        task=Task(PROBE_PROMPT,(),LookupTools.for_settings(self.settings),PROBE_SCHEMA,
-                  time.monotonic()+self.settings.timeout,stop or threading.Event(),work)
+        from agent_check import probe_prompt, check_review_calls, PROBE_SCHEMA, DiagnosticUnavailable
+        task=Task(probe_prompt(self.settings),(),LookupTools.for_settings(self.settings, probe=True),PROBE_SCHEMA,
+                  time.monotonic()+(min(self.settings.timeout, 180) if self.settings.role == 'review' else self.settings.timeout),stop or threading.Event(),work)
         result=CLI(replace(self.settings,effort='low')).run(task)
+        check_review_calls(self.settings, result.lookups)
         if result.answer!={'account':account,'shell_unavailable':True} or not any(
                 c['tool']=='list_accounts' and account in json.dumps(c.get('result')) for c in result.lookups):
             raise DiagnosticUnavailable('Probe account, shell refusal, or lookup evidence failed')

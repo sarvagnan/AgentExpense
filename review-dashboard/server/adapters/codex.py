@@ -44,7 +44,8 @@ class Codex:
         started = time.monotonic()
         task.remaining()
         (task.work / 'schema.json').write_text(json.dumps(task.schema))
-        process = subprocess.Popen(agent.command_for(self.settings, task.prompt, task.images), cwd=task.work,
+        config = {'lookups': task.lookups} if self.settings.role == 'review' else {}
+        process = subprocess.Popen(agent.command_for(self.settings, task.prompt, task.images, **config), cwd=task.work,
                                    env=self.environment(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, start_new_session=True)
         log = ''

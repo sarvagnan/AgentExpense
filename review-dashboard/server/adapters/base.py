@@ -1,6 +1,7 @@
 """Adapter interface v1. Adapters propose JSON; the server owns validation/writes."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import sys
 import base64
 import json
 import mimetypes
@@ -28,17 +29,32 @@ class LookupTools:
     command: tuple[str, ...]
     definitions: tuple[dict, ...]
     call: object
+    images: tuple[Path, ...] = ()
 
     @classmethod
-    def for_settings(cls, settings):
+    def for_settings(cls, settings, *, grant=None, work=None, probe=False):
         from lookups import LookupStore
         from ledger_manifest import old_ledger_path
         old = old_ledger_path(settings.ledger, fallback=settings.old_ledger)
-        store = LookupStore(settings.ledger, old)
-        # Preserve the approved Codex MCP command. Other adapters use this too.
+        # Preserve the approved Add command. Review needs the server interpreter.
         command = ('python3', str(Path(__file__).resolve().parents[1] / 'lookup_server.py'),
                    '--ledger', str(settings.ledger), *(['--old-ledger', str(old)] if old else []))
-        return cls(command, tuple(store.definitions()), store.call)
+        if settings.role != 'review':
+            store = LookupStore(settings.ledger, old)
+            return cls(command, tuple(store.definitions()), store.call)
+        from review_lookup import ReviewLookup, probe_grant
+        if grant is None and not probe:
+            raise ValueError('A review lookup requires a batch grant')
+        review = ReviewLookup(settings.ledger, grant or probe_grant(settings.ledger))
+        options, images = ('--review-probe',), ()
+        if grant is not None:
+            images = review.images(work)
+            config = work / 'review-grant.json'
+            config.touch(mode=0o600, exist_ok=False)
+            config.write_text(json.dumps(dict(grant=asdict(grant), visuals=review.visuals)))
+            options = ('--review-grant', str(config))
+        store = LookupStore(settings.ledger, old, review=review)
+        return cls((sys.executable, *command[1:], *options), tuple(store.definitions()), store.call, images)
 
 
 @dataclass(frozen=True)

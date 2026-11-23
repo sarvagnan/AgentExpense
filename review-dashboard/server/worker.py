@@ -49,7 +49,8 @@ class Worker:
         self.retry_interval = 30
         self.daily_refresh = DailyRefresh(settings)
         from agent_pause import AgentPause
-        self.pause = AgentPause(settings.ledger)
+        self.pause = AgentPause(settings.ledger, settings=settings)
+        self.review_pause = AgentPause(settings.ledger, settings=settings.for_role('review'))
         self.pause.on_finished = lambda: self.wake.set()
 
     def call(self, operation, kind='call'):

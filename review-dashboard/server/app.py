@@ -168,6 +168,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     if agent_clock: worker.pause.clock = agent_clock
     statements.agent_pause = worker.pause
     gate = get_gate(settings)
+    reviewer = settings.for_role('review')
+    review_gate = get_gate(reviewer)
+    if agent_clock: worker.review_pause.clock = agent_clock
     from update_notice import UpdateNotice
     update_notice = UpdateNotice(settings)
     worker.update_notice = update_notice
@@ -206,7 +209,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     app.state.retention = retention
     app.state.settings, app.state.drafts, app.state.worker = settings, drafts, worker
     app.state.statements = statements
-    app.state.agent_gate = gate
+    app.state.agent_gate, app.state.review_gate = gate, review_gate
     app.state.update_notice = update_notice
     app.state.ledger_check = ledger_check
     app.state.saves, app.state.data_refresh = saves, data_refresh
@@ -490,7 +493,10 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def agent_status():
         # Reading status must never start a check or run an agent.
         from adapters import status_details
-        return {**gate.status(), **status_details(settings), 'agent_pause': worker.pause.status()}
+        return {**gate.status(), **status_details(settings), 'agent_pause': worker.pause.status(),
+                'reviewer': {**review_gate.status(), **status_details(reviewer),
+                             'inherited': settings.review_profile is None,
+                             'agent_pause': worker.review_pause.status()}}
 
     @app.get('/api/settings')
     def committed_settings(account: str | None = None):
@@ -1259,24 +1265,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         summary = matches[0] if matches else None
         if not summary:
             raise HTTPException(404,'Unknown filed statement')
-        month=datetime.fromisoformat(end).strftime('%B%Y')
-        from reconcile_statement import reconciliation_path
-        path=reconciliation_path(settings.ledger,end,summary['account'],documents[settings.ledger/'data/accounts.json']['accounts'][summary['account']])
-        legacy=settings.ledger/f'data/statements/{month}-card-reconciliation.json'
-        if not path.is_file() and legacy.is_file():
-            path=legacy
-        if path.is_file():
-            rows=json.loads(path.read_text())['rows']
-        else:
-            from reconcile_statement import extract_rows
-            rows,_=extract_rows(settings.ledger,end,summary['account'])
-        from store import entries
-        members = {(e['statement'] or {}).get('serial'): e for e in entries(load(settings.ledger)) if (e['statement'] or {}).get('end') == end and any(p['account'] == summary['account'] for p in e['postings'])}
-        if summary.get('kind') == 'bank':
-            actual = {e['id']:e for e in entries(documents)}
-            membership = {m['serial']:m for m in summary['members']}
-            return dict(summary=summary, rows=[{**r, 'disposition':membership[r['serial']]['disposition'], **({'entry_id':membership[r['serial']]['entry-id'], 'entry_description':actual[membership[r['serial']]['entry-id']]['description']} if membership[r['serial']].get('entry-id') else {})} for r in rows])
-        return dict(summary=summary, rows=[{**r, 'entry_id': members[r['serial']]['id'], 'entry_description': members[r['serial']]['description'], 'conversion_notes': [n for n in members[r['serial']].get('notes', []) if 'replaces' in n and 'statement charge:' in n]} if r['serial'] in members else r for r in rows])
+        from reconcile_statement import filed_details
+        return filed_details(settings.ledger, documents, summary)
 
     @app.post('/api/statements',status_code=201)
     def create_statement(file: UploadFile=File(...), upload_id: str=Form(''),

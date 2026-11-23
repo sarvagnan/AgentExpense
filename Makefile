@@ -63,10 +63,10 @@ test-server-inside: node-modules
 	HLEDGER_BIN="$(HLEDGER)" uv run --locked --directory review-dashboard/server python tests/run_tests.py
 
 agent-check: node-modules
-	@PYTHONDONTWRITEBYTECODE=1 LIVE="$(LIVE)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_check.py
+	@PYTHONDONTWRITEBYTECODE=1 LIVE="$(LIVE)" ROLE="$(ROLE)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_check.py
 
 agent-login: node-modules
-	ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_tools.py login
+	ROLE="$(ROLE)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_tools.py login
 
 agent-upgrade: node-modules
 	VERSION="$(VERSION)" DRY_RUN="$(DRY_RUN)" ADAPTER="$(ADAPTER)" uv run --locked --directory review-dashboard/server python agent_tools.py upgrade

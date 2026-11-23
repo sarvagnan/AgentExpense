@@ -6,20 +6,25 @@ import threading
 
 
 class AgentPause:
-    def __init__(self, root, clock=None):
-        self.path = root / 'drafts/agent-pause.json'
+    def __init__(self, root, clock=None, *, settings=None):
+        review = settings is not None and settings.role == 'review'
+        self.path = root / 'drafts' / ('weekly-review/agent-pause.json' if review else 'agent-pause.json')
+        self.profile = settings.pause_key() if settings else None
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.mutex = threading.RLock()
         self.check_thread = None
         self.on_finished = lambda: None
         try: self.value = json.loads(self.path.read_text())
         except FileNotFoundError: self.value = {}
+        if self.profile and self.value.get('profile', None if review else self.profile) != self.profile:
+            self.value = {}
 
     def write(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix('.tmp')
         with temp.open('w') as handle:
-            json.dump(self.value, handle);handle.flush();os.fsync(handle.fileno())
+            value = {**self.value, 'profile': self.profile} if self.profile else self.value
+            json.dump(value, handle);handle.flush();os.fsync(handle.fileno())
         temp.replace(self.path)
 
     def status(self):

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+import select
+import time
 from pathlib import Path
 import re
 import subprocess
@@ -19,14 +22,36 @@ def require_repository(root):
         raise HistoryUnavailable(f'No own jj repository at {root}; initialize the ledger separately (an enclosing repository is never used).')
 
 
-def read_jj(root, *args):
+def read_jj(root, *args, limit=None):
     require_repository(root)
     try:
-        return subprocess.check_output(['jj', '--ignore-working-copy', '--no-pager', '--color=never',
-                                        '-R', str(root), *args], cwd=root, text=True, stderr=subprocess.PIPE)
+        command = ['jj', '--ignore-working-copy', '--no-pager', '--color=never', '-R', str(root), *args]
+        if limit is not None:
+            return bounded_read(command, root, limit).decode()
+        return subprocess.check_output(command, cwd=root, text=True, stderr=subprocess.PIPE)
     except (OSError, subprocess.CalledProcessError) as exc:
         raise HistoryUnavailable('Could not read the ledger jj history: ' +
                                  (getattr(exc, 'stderr', None) or str(exc)).strip()) from exc
+
+
+def bounded_read(command, root, limit):
+    deadline = time.monotonic() + 12
+    with subprocess.Popen(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+        output = bytearray()
+        try:
+            while len(output) <= limit and select.select([process.stdout], [], [], max(0, deadline-time.monotonic()))[0]:
+                block = os.read(process.stdout.fileno(), min(65536, limit + 1 - len(output)))
+                if not block:
+                    if process.wait(timeout=max(0, deadline-time.monotonic())) == 0:
+                        return bytes(output)
+                    raise HistoryUnavailable('history_unavailable')
+                output.extend(block)
+            raise HistoryUnavailable('history_limit')
+        except subprocess.TimeoutExpired:
+            raise HistoryUnavailable('history_limit') from None
+        finally:
+            if process.poll() is None:
+                process.kill()
 
 
 IDENTITY = ('json({"commit" => commit_id, "change_id" => change_id, "message" => description, '
