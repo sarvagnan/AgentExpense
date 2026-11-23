@@ -1,6 +1,6 @@
 """Server-issued capability for a committed review batch."""
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 import hashlib
 import hmac
@@ -79,21 +79,20 @@ class ReviewGrant:
     key: str
 
 
-def issue_grant(root, work, revision, lines, evidence=None, *, rules=(), timeout=180):
+def issue_grant(root, work, revision, lines, evidence=None, *, rules=(), timeout=180, snapshot=None):
     if not re.fullmatch(COMMIT, revision):
         raise ValueError('invalid_revision')
     if max(len(lines), len(rules)) > 3:
         raise ValueError('batch_limit')
     expires = time.time() + min(timeout, 180)
-    snapshot = committed_snapshot(root, work, revision)
+    snapshot = snapshot or committed_snapshot(root, work, revision)
     evidence = json.loads(encode(evidence or {}))
     scoped = {row['id']: row for row in records(snapshot) if row['id'] in lines}
     if len(scoped) != len(lines):
         raise ValueError('invalid_batch_lines')
     for row in scoped.values():
-        paths = {p for key in ('filed_path', 'source') for p in identifiers(source_records(row), key) if p.startswith('Bills/')}
-        paths.update(p for key in ('evidence', 'sources') for p in identifiers(source_records(row), key, many=True) if p.startswith('Bills/'))
-        sources = {path: revision for path in paths}
+        paths = evidence_paths(row)
+        sources = {path: revision for path in sorted(paths)}
         if row['kind'] == 'change' and (info := recorded_revision(root, revision, row)):
             for change in row['paths']:
                 if change['path'].startswith('Bills/'):
@@ -101,8 +100,8 @@ def issue_grant(root, work, revision, lines, evidence=None, *, rules=(), timeout
                 if change.get('source', '').startswith('Bills/'):
                     sources[change['source']] = info['parents'][0]
         for path, commit in sources.items():
-            if not any(s['path'] == path and s.get('revision', revision) == commit for s in evidence.values()):
-                evidence[secrets.token_hex(16)] = {'path': path, 'line': row['id'], 'revision': commit}
+            handle = hashlib.sha256(encode([row['id'], path]).encode()).hexdigest()[:32]
+            evidence.setdefault(handle, {'path': path, 'line': row['id'], 'revision': commit})
     for source in evidence.values():
         evidence_path(source['path'])
         historical = source.get('revision', revision)
@@ -129,6 +128,12 @@ def source_records(line):
     return [line[key] for key in fields if key in line]
 
 
+def evidence_paths(row):
+    value = source_records(row)
+    return {path for key, many in [('filed_path', False), ('source', False), ('evidence', True), ('sources', True)]
+            for path in identifiers(value, key, many=many) if path.startswith('Bills/')}
+
+
 def identifiers(value, key, *, many=False):
     if isinstance(value, dict):
         for name, child in value.items():
@@ -144,11 +149,13 @@ def identifiers(value, key, *, many=False):
 
 
 class ReviewLookup:
-    def __init__(self, root, grant, visuals=None):
+    def __init__(self, root, grant, visuals=None, receipts=None):
         self.root, self.grant = root, grant
         self.ledger = Path(grant.snapshot)
         self.visuals = visuals or {}
         self.discovered = set()
+        self.receipts = receipts
+        self.version = None
 
     @cached_property
     def lines(self):
@@ -192,6 +199,7 @@ class ReviewLookup:
     def page(self, tool, args, value, cursor=None):
         # Chunk serialized JSON so even an oversized individual field can be read.
         raw = encode(value)
+        self.version = hashlib.sha256(raw.encode()).hexdigest()
         try:
             offset, token = self.continuation(tool, args, value, cursor)
         except ValueError:
@@ -199,6 +207,9 @@ class ReviewLookup:
         end = min(len(raw), offset + PAGE // 2)
         while len(json.dumps(raw[offset:end]).encode()) > PAGE - 256:
             end = offset + (end - offset) * 3 // 4
+        if self.receipts and end == len(raw):
+            with self.receipts.open('a') as output:
+                output.write(encode([tool, args]) + '\n')
         return {'status': 'available', 'data': raw[offset:end], 'next': token(end) if end < len(raw) else None}
 
     def pending(self, cursor=None, limit=3):
@@ -328,6 +339,29 @@ class ReviewLookup:
             data = git(self.root, 'cat-file', 'blob', row[2].decode()) if int(row[3]) <= SOURCE else None
         return data if data is not None and len(data) <= SOURCE else None
 
+    def evidence_pages(self, identity):
+        """Available required pages, or None if any page cannot be supplied."""
+        import pypdfium2 as pdfium
+        source = self.grant.evidence[identity]
+        visuals = {v['page'] for v in self.visuals.get(identity, [])}
+        try:
+            data = self.source(source['path'], source.get('revision', self.grant.revision))
+            if data and data.startswith(b'%PDF'):
+                with pdfium.PdfDocument(data) as pdf:
+                    pages = source.get('pages', range(1, len(pdf)+1))
+                    if not 0 < len(pdf) <= 100 or not pages:
+                        return None
+                    for index in set(pages) - visuals:
+                        if not 1 <= index <= len(pdf):
+                            return None
+                        with closing(pdf[index-1]) as item, closing(item.get_textpage()) as text:
+                            if not text.get_text_bounded().strip():
+                                return None
+                    return set(pages) - visuals
+            return set() if visuals else None
+        except (OSError, ValueError, pdfium.PdfiumError):
+            return None
+
     def evidence(self, evidence_id, page=1, cursor=None):
         if evidence_id not in self.grant.evidence:
             return {'status': 'outside_grant'}
@@ -343,7 +377,7 @@ class ReviewLookup:
             result = dict(label=label, required=source.get('pages', 'all'), visuals=self.visuals.get(evidence_id, []))
             if data.startswith(b'%PDF'):
                 with pdfium.PdfDocument(data) as pdf:
-                    if len(pdf) > 100:
+                    if not 0 < len(pdf) <= 100:
                         return {'status': 'oversized', 'label': label}
                     if not 1 <= page <= len(pdf):
                         return {'status': 'invalid_page'}
@@ -378,7 +412,7 @@ class ReviewLookup:
                     continue
                 if data.startswith(b'%PDF'):
                     with pdfium.PdfDocument(data) as pdf:
-                        if len(pdf) > 100:
+                        if not 0 < len(pdf) <= 100:
                             continue
                         with closing(pdf[0]) as first, closing(first.get_textpage()) as text:
                             default = [1] if text.get_text_bounded().strip() else range(1, len(pdf)+1)
@@ -397,7 +431,7 @@ class ReviewLookup:
                     total += len(content)
                     images.append(target)
                     self.visuals.setdefault(identity, []).append(dict(page=page, image=len(images)))
-            except (ValueError, OSError, pdfium.PdfiumError, Image.DecompressionBombError):
+            except (ValueError, OSError, SyntaxError, pdfium.PdfiumError, Image.DecompressionBombError):
                 continue
         return tuple(images)
 
@@ -426,13 +460,14 @@ def render(pdf, index):
     return output.getvalue(), 'png'
 
 
-def review_task(settings, work, grant, prompt, schema, deadline, **options):
+def review_task(settings, work, grant, prompt, schema, deadline, *, prepared=None, **options):
     from adapters import get_adapter, require_isolation
     from adapters.base import LookupTools, Task
     from bookkeeping_policy import review_policy
     from ledger_manifest import read_manifest
     reviewer = settings.for_role('review')
     require_isolation(get_adapter(reviewer), reviewer)
-    lookups = LookupTools.for_settings(reviewer, grant=grant, work=work)
-    policy = review_policy(reviewer, fuel='fuel' in read_manifest(Path(grant.snapshot)).get('extensions', {}))
+    lookups = LookupTools.for_settings(reviewer, grant=grant, work=work, prepared=prepared)
+    snapshot = Path(grant.snapshot)
+    policy = review_policy(replace(reviewer, ledger=snapshot), fuel='fuel' in read_manifest(snapshot).get('extensions', {}))
     return Task('\n\n'.join((prompt, *policy)), lookups.images, lookups, schema, deadline, work=work, **options)

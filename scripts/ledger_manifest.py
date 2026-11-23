@@ -142,10 +142,10 @@ def deprecated_old_ledger():
     return value
 
 
-def old_ledger_path(root, *, fallback=None):
+def old_ledger_path(root, *, fallback=None, manifest_root=None):
     """Only advertise readable history, resolving ledger-relative and home paths."""
     import os
-    value = module_settings(read_manifest(root))['history']['oldLedger']
+    value = module_settings(read_manifest(manifest_root or root))['history']['oldLedger']
     value = value or fallback or deprecated_old_ledger()
     if not value:
         return None

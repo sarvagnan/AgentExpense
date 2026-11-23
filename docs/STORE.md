@@ -835,6 +835,28 @@ rule's `before` and `after`, a paid bill) converts it on read
 (`scripts/ledger/format1.py`). New lines carry format 2 snapshots, and the
 answers they record use the kebab-case envelope.
 
+### Weekly review audit
+
+A weekly review batch appends its `review` and `rule-review` verdicts and one
+`weekly-review-run` marker in the same verified audit-only commit. Each verdict
+links to the marker by `run_id` and one-based `batch`. Line IDs can receive a
+verdict once. Rule verdicts list their originating audit IDs in `rule_sources`.
+An in-app `issue` includes `decide`, issued evidence IDs and a
+`{"kind":"question-only"}` suggestion, with an optional pair of choices.
+
+Run markers record trigger, slot (or null for an unclaimed manual run), start and
+end, reviewer profile, checked-line and issue counts, and the oldest and newest
+checked audit times (both null for zero lines). A batch marker has status
+`batch`. Finish markers omit the batch number and use `completed`, `empty` or
+`partial`. Verdicts and run markers stay out of the review backlog. Older verdicts
+have no run linkage or rule-source IDs. A legacy issue without `decide` asks
+the owner to review its cited record. The ledger format is unchanged.
+
+Pending plans and validated answers live under `drafts/weekly-review/`. On
+recovery, a batch marker on committed `main` establishes completion. Otherwise
+the transaction can roll back its own interrupted append. A conflicting edit
+leaves the transaction journal available for manual reconciliation.
+
 ### What the migration converts, refuses and declares
 
 The migration converts every other shape mechanically and prints counts only

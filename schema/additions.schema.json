@@ -29,13 +29,34 @@
         "correction",
         "retention",
         "change",
-        "baseline"
+        "baseline",
+        "weekly-review-run"
       ]
     },
     "time": {
       "type": "string",
       "format": "date-time"
     },
+    "run_id": {"$ref": "#/properties/id"},
+    "batch": {"type": "integer", "minimum": 1},
+    "trigger": {"enum": ["manual", "scheduled"]},
+    "slot": {"type": ["string", "null"], "format": "date"},
+    "started": {"$ref": "#/properties/time"},
+    "ended": {"$ref": "#/properties/time"},
+    "adapter": {"type": "string", "minLength": 1},
+    "model": {"type": "string", "minLength": 1},
+    "effort": {"type": "string", "minLength": 1},
+    "period": {"type": "array", "minItems": 2, "maxItems": 2,
+               "items": {"type": ["string", "null"], "format": "date-time"}},
+    "checked": {"type": "integer", "minimum": 0},
+    "issues": {"type": "integer", "minimum": 0},
+    "status": {"enum": ["batch", "completed", "empty", "partial"]},
+    "rule_sources": {"type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true,
+                     "items": {"$ref": "#/properties/id"}},
+    "decide": {"$ref": "#/$defs/reviewText"},
+    "evidence": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/properties/id"}},
+    "choices": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/reviewText"}},
+    "suggestion": {"const": {"kind": "question-only"}},
     "draft_id": {
       "type": "string"
     },
@@ -1216,6 +1237,29 @@
   },
   "allOf": [
     {
+      "if": {"properties": {"kind": {"const": "weekly-review-run"}}},
+      "then": {
+        "required": ["run_id", "trigger", "slot", "started", "ended", "adapter", "model", "effort",
+                     "period", "checked", "issues", "status"],
+        "if": {"properties": {"status": {"const": "batch"}}},
+        "then": {"required": ["batch"]},
+        "else": {"not": {"required": ["batch"]}}
+      }
+    },
+    {
+      "if": {"required": ["run_id"], "properties": {"kind": {"enum": ["review", "rule-review"]}}},
+      "then": {
+        "required": ["batch"],
+        "if": {"properties": {"kind": {"const": "rule-review"}}},
+        "then": {"required": ["rule_sources"], "properties": {"reason": {"$ref": "#/$defs/reviewText"}}},
+        "else": {
+          "properties": {"note": {"$ref": "#/$defs/reviewText"}},
+          "if": {"properties": {"verdict": {"const": "issue"}}},
+          "then": {"required": ["decide", "evidence", "suggestion"]}
+        }
+      }
+    },
+    {
       "if": {
         "properties": {
           "kind": {
@@ -1507,7 +1551,9 @@
             "details",
             "message",
             "legacy",
-            "baseline"
+            "baseline",
+            "run_id", "batch", "trigger", "slot", "started", "ended", "adapter", "model", "effort",
+            "period", "checked", "issues", "status", "rule_sources", "decide", "evidence", "choices", "suggestion"
           ]
         }
       }
@@ -1601,6 +1647,7 @@
     ]
   },
   "$defs": {
+    "reviewText": {"type": "string", "minLength": 1, "maxLength": 600},
     "reason": {
       "enum": [
         "amount-date-gap",

@@ -75,7 +75,7 @@ def rollback_commit(root, operation):
 
 def commit(root, message, *, lock_fd=None, rollback_operation=None, index=None, canonical_cache=None,
            emit=print, hledger_mode=None, before_commit=None, after_commit=None,
-           actor=None, carries_audit=False, audit_receipts=(), snapshot=None, audit_before=None):
+           actor=None, carries_audit=False, audit_receipts=(), snapshot=None, audit_before=None, audit_only=False):
     import json
     from audit import append, audit_path as log_path, reset_appends, validate_appends
     from audit_changes import require_repository, identity, paths, touches, covered, audit_path, change_line, read_jj
@@ -92,11 +92,13 @@ def commit(root, message, *, lock_fd=None, rollback_operation=None, index=None, 
                           canonical_cache=canonical_cache, emit=emit, hledger_mode=hledger_mode,
                           before_commit=before_commit, after_commit=after_commit,
                           actor=actor, carries_audit=carries_audit, audit_receipts=audit_receipts,
-                          snapshot=snapshot, audit_before=audit_before)
+                          snapshot=snapshot, audit_before=audit_before, audit_only=audit_only)
     read_manifest(root)
     fast = carries_audit and validate_appends(root, rollback_operation, audit_receipts)
     additions, expected = None, [] if snapshot is not None else None
     operation = rollback_operation
+    if audit_only and (not fast or snapshot is None):
+        raise ValueError('Audit-only save lost its checked append receipts')
     if not fast:
         jj(root, 'status')
         operation = operation or jj(root, 'op', 'log', '--limit', '1', '--no-graph', '-T', 'id')
@@ -192,7 +194,7 @@ def commit(root, message, *, lock_fd=None, rollback_operation=None, index=None, 
             # Published with its line; callback failure only delays cached/page data.
             if result is not None: return result['commit']
             raise
-        for path, before in audit_before.items():
+        for path, before in (() if audit_only else audit_before.items()):
             if before is None: path.unlink(missing_ok=True)
             else: path.write_bytes(before)
         if journal_before is None: journal.unlink(missing_ok=True)

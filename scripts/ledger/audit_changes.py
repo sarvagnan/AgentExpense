@@ -192,9 +192,9 @@ HISTORY = ('commit_id ++ " " ++ change_id ++ " " ++ json({"commit" => commit_id,
            '"audit_patch" => stringify(self.diff("glob:data/additions/**").git(0))}) ++ "\\n"')
 
 
-def batched_history(root):
+def batched_history(root, revision='main'):
     rows = []
-    for raw in read_jj(root, 'log', '-r', '::main', '--no-graph', '-T', HISTORY).splitlines():
+    for raw in read_jj(root, 'log', '-r', '::' + revision, '--no-graph', '-T', HISTORY).splitlines():
         prefix = re.match(r'^([0-9a-f]{40}) ([k-z]{32}) (.*)$', raw)
         if not prefix:
             if rows and rows[-1].get('reason'):
@@ -228,12 +228,12 @@ def _audit_additions(patch):
             if line.startswith('+') and not line.startswith('+++ ')]
 
 
-def unrecorded(root, lines):
+def unrecorded(root, lines, *, snapshot=None, revision='main'):
     from ledger_manifest import read_manifest
-    start = read_manifest(root).get('auditStart')
+    start = read_manifest(snapshot or root).get('auditStart')
     if start is None:
         raise HistoryUnavailable('No auditStart in ledger.json; run make upgrade-ledger to start checking hand changes.')
-    history = batched_history(root)
+    history = batched_history(root, revision) if revision != 'main' else batched_history(root)
     after = start['after']
     if after is not None and after not in {row['commit'] for row in history}:
         raise HistoryUnavailable('auditStart.after is not on main; inspect the boundary and ledger history.')

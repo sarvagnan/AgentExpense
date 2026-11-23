@@ -12,6 +12,7 @@ from typing import Protocol
 from run_events import RunEvents
 
 INTERFACE_VERSION = 1
+REVIEW_ANSWER_BYTES = 128 * 1024
 
 
 @dataclass(frozen=True)
@@ -32,10 +33,11 @@ class LookupTools:
     images: tuple[Path, ...] = ()
 
     @classmethod
-    def for_settings(cls, settings, *, grant=None, work=None, probe=False):
+    def for_settings(cls, settings, *, grant=None, work=None, probe=False, prepared=None):
         from lookups import LookupStore
         from ledger_manifest import old_ledger_path
-        old = old_ledger_path(settings.ledger, fallback=settings.old_ledger)
+        old = old_ledger_path(settings.ledger, fallback=settings.old_ledger,
+                              manifest_root=Path(grant.snapshot) if grant else None)
         # Preserve the approved Add command. Review needs the server interpreter.
         command = ('python3', str(Path(__file__).resolve().parents[1] / 'lookup_server.py'),
                    '--ledger', str(settings.ledger), *(['--old-ledger', str(old)] if old else []))
@@ -48,10 +50,10 @@ class LookupTools:
         review = ReviewLookup(settings.ledger, grant or probe_grant(settings.ledger))
         options, images = ('--review-probe',), ()
         if grant is not None:
-            images = review.images(work)
+            review, images = prepared or (review, review.images(work))
             config = work / 'review-grant.json'
             config.touch(mode=0o600, exist_ok=False)
-            config.write_text(json.dumps(dict(grant=asdict(grant), visuals=review.visuals)))
+            config.write_text(json.dumps(dict(grant=asdict(grant), visuals=review.visuals, receipts=str(review.receipts) if review.receipts else None)))
             options = ('--review-grant', str(config))
         store = LookupStore(settings.ledger, old, review=review)
         return cls((sys.executable, *command[1:], *options), tuple(store.definitions()), store.call, images)
@@ -124,3 +126,11 @@ def image_content(path):
 def strict_json(text):
     # No fenced/explanatory fallback: final text must be one complete JSON value.
     return json.loads(text)
+
+
+def review_json(raw):
+    from store import _unique_object
+    raw = raw.encode() if isinstance(raw, str) else raw
+    if len(raw) > REVIEW_ANSWER_BYTES:
+        raise ValueError('Weekly review answer exceeds 128 KiB')
+    return json.loads(raw, object_pairs_hook=_unique_object)

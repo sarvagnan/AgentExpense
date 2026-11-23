@@ -120,19 +120,19 @@ def step(name):
         timing.add(name, time.perf_counter() - start)
 
 
-def make_commit(application, env, lock_fd):
+def make_commit(application, env, lock_fd, **audit_options):
     """Call the shared locked verifier and commit in this long-lived process.
 
     Request the independent hledger check after success; never wait for it.
     """
-    completed = _make_commit(application, env, lock_fd)
+    completed = _make_commit(application, env, lock_fd, **audit_options)
     if completed.returncode == 0 and env.get('LEDGER_DIR'):
         import ledger_check
         ledger_check.committed(env['LEDGER_DIR'])
     return completed
 
 
-def _make_commit(application, env, lock_fd):
+def _make_commit(application, env, lock_fd, **audit_options):
     from pathlib import Path
     import commit as ledger_commit
     from save_service import get
@@ -165,7 +165,7 @@ def _make_commit(application, env, lock_fd):
             emit=lambda *args: output.append(' '.join(map(str, args))),
             hledger_mode=env.get('EXPENSES_HLEDGER_CHECK'),
             before_commit=prepare_data if data else None,
-            after_commit=accepted, carries_audit=True, audit_receipts=receipts)
+            after_commit=accepted, carries_audit=True, audit_receipts=receipts, **audit_options)
         completed = subprocess.CompletedProcess(['in-process', 'commit'], 0, identity+'\n', '')
         completed.data_candidate = candidate
         return completed

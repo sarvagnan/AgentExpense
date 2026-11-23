@@ -247,10 +247,10 @@ def message_for(settings, draft, entry, new, answer, *, accounts=None):
 
 
 class Transaction:
-    def __init__(self, settings, drafts, draft):
+    def __init__(self, settings, drafts, draft, *, journal=None):
         self.settings, self.drafts, self.draft = settings, drafts, draft
         self.root = settings.ledger
-        self.journal = drafts.folder(draft['id']) / 'transaction.json'
+        self.journal = journal or drafts.folder(draft['id']) / 'transaction.json'
         self.marker = 'Draft: ' + draft['id']
         self.data_candidate = None
 
@@ -339,11 +339,62 @@ class Transaction:
         self.rollback(journal)
         return None
 
-    def verified_commit(self, lock_fd, message):
+    def recover_audit(self, main):
+        """Roll back append-only work after verifying that its bytes are still ours."""
+        journal = json.loads(self.journal.read_text())
+        refusal = 'Interrupted weekly review has conflicting ledger edits. Preserve transaction.json and reconcile manually.'
+        from audit_changes import identity
+        working = identity(self.root, '@')
+        parent = identity(self.root, '@-')
+        if (main != journal['parent'] or
+                (working['change_id'] != journal['change_id'] and parent['change_id'] != journal['change_id']) or
+                set(jj(self.root, 'diff', '--from', main, '--to', '@', '--name-only').splitlines()) - journal['files'].keys()):
+            raise RuntimeError(refusal)
+        for rel, original in journal['files'].items():
+            path = self.root / rel
+            before = base64.b64decode(original['bytes']) if original else b''
+            suffix = journal.get('audit_suffix', {}).get(rel, '').encode()
+            actual = path.read_bytes() if path.is_file() and not path.is_symlink() else b''
+            if path.is_symlink() or not actual.startswith(before) or not suffix.startswith(actual[len(before):]):
+                raise RuntimeError(refusal)
+        self.rollback(journal)
+
+    def publish_audit(self, additions, message, lock_fd):
+        from audit import append, audit_path, line_bytes, records
+        suffix = {}
+        for row in additions:
+            path = str(audit_path(self.root, row).relative_to(self.root))
+            suffix[path] = suffix.get(path, '') + line_bytes(row).decode('ascii')
+        journal = self.snapshot([self.root / path for path in suffix])
+        journal['audit_suffix'] = suffix
+        self.save_journal(journal)
+        from audit_changes import identity
+        baseline = identity(self.root, '@')
+        if jj(self.root, 'diff', '--summary'):
+            raise RuntimeError('Working copy changed before the audit append')
+        directory = os.open(self.journal.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        before = {self.root / rel: base64.b64decode(original['bytes']) if original else None
+                  for rel, original in journal['files'].items()}
+        try:
+            current = records(self.root)
+            for row in additions:
+                append(self.root, row, lines=current)
+            commit = self.verified_commit(lock_fd, message, audit_only=True, snapshot=baseline, audit_before=before)
+        except Exception:
+            self.recover_audit(identity(self.root, 'main')['commit'])
+            raise
+        self.finish_commit()
+        return commit, [row['id'] for row in additions]
+
+    def verified_commit(self, lock_fd, message, **audit_options):
         """Caller owns lock and rollback snapshot; strict verification is mandatory."""
         env = {**os.environ, 'LEDGER_DIR': str(self.root), LOCK_FD_ENV: str(lock_fd),
                'EXPENSES_COMMIT_MESSAGE': message}
-        completed = save_timing.make_commit(self.settings.application, env, lock_fd)
+        completed = save_timing.make_commit(self.settings.application, env, lock_fd, **audit_options)
         if completed.returncode:
             raise RuntimeError('Ledger commit failed verification: ' + (completed.stdout+completed.stderr)[-5000:])
         self.data_candidate = getattr(completed, 'data_candidate', None)

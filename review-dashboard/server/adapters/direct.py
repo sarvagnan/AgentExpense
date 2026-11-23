@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 from jsonschema import validate
 from .failures import http_reset, diagnostic
-from .base import AdapterError, AdapterPolicyError, Description, LookupTools, Result, Task, image_content, strict_json
+from .base import AdapterError, AdapterPolicyError, Description, LookupTools, Result, Task, image_content, review_json, strict_json
 
 
 class DirectAPI:
@@ -174,7 +174,7 @@ class DirectAPI:
                         text=message.get('content') or ''
                         messages.append({k:v for k,v in message.items() if k in ('role','content','tool_calls')})
                     if not calls:
-                        answer=strict_json(text);validate(answer,task.schema)
+                        answer=(review_json if self.settings.role == 'review' else strict_json)(text);validate(answer,task.schema)
                         return Result(answer,usage,lookups,duration=time.monotonic()-started)
                     if len(lookups)+len(calls)>self.limits['maxTools']:raise AdapterError('API tool-call limit reached')
                     results=[]

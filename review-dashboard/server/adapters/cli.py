@@ -12,7 +12,7 @@ import time
 
 from jsonschema import validate, ValidationError
 from . import PACKAGES, pinned_version
-from .base import AdapterError, AdapterPolicyError, Description, LookupTools, Result, Task, image_content, strict_json
+from .base import AdapterError, AdapterPolicyError, Description, LookupTools, Result, REVIEW_ANSWER_BYTES, Task, image_content, review_json, strict_json
 from .process import communicate, kill
 from .failures import event_failure, diagnostic
 
@@ -377,6 +377,7 @@ class CLI:
     def parse(self, output, task):
         usage,calls,text={},[],[];answer=None;finished=False;pending={}
         probe = task.schema.get('required') == ['account', 'shell_unavailable']
+        parse_answer = review_json if self.settings.role == 'review' else strict_json
         message_texts={};final_message=None
         allowed={d['name'] for d in task.lookups.definitions}
         def call(name,args=None,result=None,failed=False):
@@ -389,6 +390,9 @@ class CLI:
                 if isinstance(value,(int,float)):usage[key]=usage.get(key,0)+value
         failures=[]
         for line in output.splitlines():
+            if (self.id == 'claude' and self.settings.role == 'review' and re.search(r'"structured_output"\s*:', line)
+                    and len(line.encode()) > REVIEW_ANSWER_BYTES):
+                raise AdapterError('Weekly review structured response exceeds 128 KiB')
             try: event=json.loads(line)
             except ValueError: continue
             kind=event.get('type')
@@ -397,7 +401,12 @@ class CLI:
                 failures.append(event)
         for line in output.split('\n'):
             if not line.strip():continue
-            event=json.loads(line);kind=event.get('type')
+            if self.settings.role == 'review':
+                from store import _unique_object
+                event=json.loads(line, object_pairs_hook=_unique_object)
+            else:
+                event=json.loads(line)
+            kind=event.get('type')
             if kind=='error':continue
             if self.id=='claude':
                 if kind=='system' and event.get('subtype')=='init':
@@ -422,7 +431,7 @@ class CLI:
                     if event.get('is_error') or event.get('subtype')!='success':
                         usage={};add_usage(event.get('usage'));continue
                     answer=event.get('structured_output')
-                    if answer is None:answer=strict_json(event.get('result',''))
+                    if answer is None:answer=parse_answer(event.get('result',''))
                     # result.usage is the authoritative total, not another turn.
                     usage={};add_usage(event.get('usage'));finished=True
             elif self.id=='pi':
@@ -455,7 +464,7 @@ class CLI:
             # Validate only the final message, retaining all of its text parts.
             text=list(message_texts.get(final_message or next(reversed(message_texts)),{}).values())
         if not finished or pending:raise AdapterError('Agent final response or tool results missing',usage=usage,lookups=calls)
-        if answer is None:answer=strict_json(''.join(text))
+        if answer is None:answer=parse_answer(''.join(text))
         return Result(answer,usage,calls)
 
     def live_probe(self,work,account,*,stop=None):

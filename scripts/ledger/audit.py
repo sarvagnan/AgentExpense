@@ -146,6 +146,10 @@ def audit_path(root, record):
     return root / 'data/additions' / (record['time'][:4] + '.jsonl')
 
 
+def line_bytes(record):
+    return (json.dumps(record, ensure_ascii=True, allow_nan=False, separators=(',', ':')) + '\n').encode()
+
+
 def append(root, record, *, lines=None):
     """Caller holds the lock; optional lines are its current locked audit snapshot."""
     if isinstance(record, dict) and 'legacy' in record:
@@ -167,7 +171,7 @@ def append(root, record, *, lines=None):
         raise ValueError('Audit log must not be a symlink')
     if path.exists() and path.stat().st_size and not path.read_bytes().endswith(b'\n'):
         raise ValueError('Audit log has an incomplete final line')
-    data = (json.dumps(record, ensure_ascii=True, allow_nan=False, separators=(',', ':')) + '\n').encode()
+    data = line_bytes(record)
     offset = path.stat().st_size if path.exists() else 0
     with path.open('ab') as handle:
         handle.write(data)
@@ -239,9 +243,13 @@ def missing_entries(root, entry_ids, *, lines=None):
             ([r['entry_id']] if r['kind'] == 'draft' and r.get('entry_id') else r.get('entry_ids', []) if r['kind'] == 'statement' else []) if identity not in entry_ids]
 
 
+REVIEW_INTERNAL = {'review', 'rule-review', 'weekly-review-run', 'weekly-review-summary',
+                   'review-message', 'review-carry-over', 'review-resolution'}
+
+
 def unreviewed(lines):
     reviewed = {r['line_id'] for r in lines if r['kind'] == 'review'}
-    return [r for r in lines if r['kind'] not in ('review','rule-review') and r['id'] not in reviewed]
+    return [r for r in lines if r['kind'] not in REVIEW_INTERNAL and r['id'] not in reviewed]
 
 
 def ledger_clean(root):
@@ -335,46 +343,58 @@ def warn_unrecorded(root, lines):
               f"scripts/ledger/audit.py --root {shlex.quote(str(root))} record --commit {info['commit']} --actor user", file=sys.stderr)
 
 
-def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make_commit):
-    """Append one verdict per line and commit them as one ledger change; on any failure change nothing.
-
-    A half-written review would leave the ledger dirty, and the live server waits for a clean one.
-    """
-    with ledger_lock(root) as lock_fd:
-        lines = {r['id']: r for r in records(root)}
-        if not verdicts:
-            raise ValueError('No verdicts given')
-        if not reviewer.strip():
-            raise ValueError('The reviewer must be named')
-        additions, seen = [], set()
-        for item in verdicts:
-            if isinstance(item,dict) and set(item)=={'rule','verdict','reason'}:
-                rule_id=item['rule']
-                if not isinstance(rule_id,str) or not re.fullmatch('[0-9a-f]{16}',rule_id) or not any(r['id']==rule_id for r in read_json(root/'data/forecast.json')):
-                    raise ValueError('A rule verdict must identify an existing rule')
-                if ('rule',rule_id) in seen: raise ValueError('A rule has a verdict more than once: '+rule_id)
-                if item['verdict'] not in ('confirm','propose-removal'): raise ValueError('A rule verdict must be confirm or propose-removal')
-                if not isinstance(item['reason'],str) or not item['reason'].strip(): raise ValueError('A rule verdict needs a concrete reason')
-                seen.add(('rule',rule_id))
-                additions.append(event('rule-review',rule_id=rule_id,rule_verdict=item['verdict'],reason=item['reason'],reviewer=reviewer))
-                continue
-            if not isinstance(item, dict) or set(item) != {'line', 'verdict', 'note'}:
-                raise ValueError('Each outcome verdict needs exactly line, verdict and note; a rule verdict needs rule, verdict and reason')
-            line = lines.get(item['line']) if isinstance(item['line'], str) else None
-            if not line or line['kind'] in ('review','rule-review'):
-                raise ValueError('--line must identify a draft or statement audit line, or a rule operation: ' + str(item['line']))
-            if item['line'] in seen:
-                raise ValueError('A line has a verdict more than once: ' + item['line'])
-            if item['verdict'] not in ('ok', 'issue'):
-                raise ValueError('A verdict must be ok or issue')
-            if not isinstance(item['note'], str) or not item['note'].strip():
-                raise ValueError('Each verdict needs a note')
-            seen.add(item['line'])
-            additions.append(event('review', line_id=item['line'], verdict=item['verdict'], note=item['note'], reviewer=reviewer))
-        if not clean(root):
-            from audit_changes import audit_restore_hint
-            raise ValueError('The ledger has uncommitted changes; review requires a clean working copy.' + audit_restore_hint(root))
-        return _append_commit(root, additions, message, lock_fd, commit)
+def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make_commit,
+           lock_fd=None, marker=None, rule_sources=None, publish=None):
+    """Validate verdicts, using the caller's audit-only transaction for weekly batches."""
+    if lock_fd is None:
+        with ledger_lock(root) as fd:
+            return review(root, verdicts, reviewer, message, clean=clean, commit=commit, lock_fd=fd)
+    if marker:
+        held, expected = os.fstat(lock_fd), (root / '.lock').stat()
+        if (held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino) or publish is None:
+            raise ValueError('Weekly review requires the held ledger lock and an audit transaction')
+    if not verdicts:
+        raise ValueError('No verdicts given')
+    if not reviewer.strip():
+        raise ValueError('The reviewer must be named')
+    lines = records(root)
+    sources = {r['id'] for r in lines if r['kind'] not in REVIEW_INTERNAL}
+    additions, seen = [], set()
+    linkage = {key: marker[key] for key in ('run_id', 'batch')} if marker else {}
+    for item in verdicts:
+        if isinstance(item,dict) and set(item)=={'rule','verdict','reason'}:
+            rule_id=item['rule']
+            if not isinstance(rule_id,str) or not re.fullmatch('[0-9a-f]{16}',rule_id) or not any(r['id']==rule_id for r in read_json(root/'data/forecast.json')):
+                raise ValueError('A rule verdict must identify an existing rule')
+            if ('rule',rule_id) in seen: raise ValueError('A rule has a verdict more than once: '+rule_id)
+            if item['verdict'] not in ('confirm','propose-removal'): raise ValueError('A rule verdict must be confirm or propose-removal')
+            if not isinstance(item['reason'],str) or not item['reason'].strip(): raise ValueError('A rule verdict needs a concrete reason')
+            seen.add(('rule',rule_id))
+            additions.append(event('rule-review',rule_id=rule_id,rule_verdict=item['verdict'],reason=item['reason'],reviewer=reviewer,
+                               **(dict(rule_sources=rule_sources[rule_id]) if marker else {}), **linkage))
+            continue
+        details = {k: item[k] for k in ('decide', 'evidence', 'choices', 'suggestion') if marker and isinstance(item, dict) and k in item}
+        if not isinstance(item, dict) or item.keys() - details.keys() != {'line', 'verdict', 'note'}:
+            raise ValueError('Each outcome verdict needs exactly line, verdict and note; a rule verdict needs rule, verdict and reason')
+        if not isinstance(item['line'], str) or item['line'] not in sources:
+            raise ValueError('--line must identify a draft or statement audit line, or a rule operation: ' + str(item['line']))
+        if item['line'] in seen:
+            raise ValueError('A line has a verdict more than once: ' + item['line'])
+        if item['verdict'] not in ('ok', 'issue'):
+            raise ValueError('A verdict must be ok or issue')
+        if not isinstance(item['note'], str) or not item['note'].strip():
+            raise ValueError('Each verdict needs a note')
+        seen.add(item['line'])
+        additions.append(event('review', line_id=item['line'], verdict=item['verdict'], note=item['note'], reviewer=reviewer, **details, **linkage))
+    if not clean(root):
+        from audit_changes import audit_restore_hint
+        raise ValueError('The ledger has uncommitted changes; review requires a clean working copy.' + audit_restore_hint(root))
+    if any(row['kind'] == 'review' and row['line_id'] in seen for row in lines):
+        raise ValueError('The audit line already has a verdict')
+    if marker:
+        additions.append(marker)
+        return publish(additions, message, lock_fd)
+    return _append_commit(root, additions, message, lock_fd, commit)
 
 
 def since_time(value, at=None):

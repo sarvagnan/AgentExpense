@@ -6,7 +6,7 @@ from pathlib import Path
 import signal
 import subprocess
 import time
-from .base import AdapterError, Description, Result
+from .base import AdapterError, Description, Result, REVIEW_ANSWER_BYTES, review_json
 from .failures import event_failure, diagnostic
 from run_events import codex_reconnect
 
@@ -66,7 +66,9 @@ class Codex:
                 raise event_failure(events, usage=usage, lookups=calls)
             if process.returncode:
                 raise AdapterError(f'Agent exited {process.returncode}; output withheld', usage=usage, lookups=calls)
-            return Result(json.loads((task.work / 'answer.json').read_text()), usage, calls,
+            with (task.work / 'answer.json').open('rb') as answer_file:
+                answer = review_json(answer_file.read(REVIEW_ANSWER_BYTES + 1)) if config else json.load(answer_file)
+            return Result(answer, usage, calls,
                           duration=time.monotonic() - started, stderr_tail=diagnostic(err))
         except subprocess.TimeoutExpired as exc:
             raise AdapterError(f'Agent timed out after {self.settings.timeout}s', kind='timeout',stderr_tail=diagnostic(exc.stderr or '')) from None

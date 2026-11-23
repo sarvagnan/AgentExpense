@@ -236,8 +236,12 @@ class HandChangeTests(Fixture):
         for verdict in ('confirm','propose-removal'):
             with self.assertRaisesRegex(ValueError,'ok or issue'):
                 review(self.root,[dict(line=line['id'],verdict=verdict,note='Reviewed')],'Offline test','Review')
-        for verdict in ('ok','issue'):
-            review(self.root,[dict(line=line['id'],verdict=verdict,note='Checked full change')],'Offline test','Review')
+        review(self.root,[dict(line=line['id'],verdict='ok',note='Checked full change')],'Offline test','Review')
+        with self.assertRaisesRegex(ValueError,'already has a verdict'):
+            review(self.root,[dict(line=line['id'],verdict='issue',note='Checked full change')],'Offline test','Review')
+        dump(self.year,[entry(description='Changed again')]);self.save()
+        next_line, = unreviewed(records(self.root))
+        review(self.root,[dict(line=next_line['id'],verdict='issue',note='Checked another change')],'Offline test','Review')
         self.assertEqual(unreviewed(records(self.root)),[])
 
     def test_schema_snapshot_and_field_variants(self):
