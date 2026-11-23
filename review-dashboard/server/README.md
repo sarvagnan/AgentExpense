@@ -593,6 +593,19 @@ Publication waits for a clean ledger and takes the writer lock nonblocking.
 - `POST /api/settings/weekly-review` accepts `enabled`, `day` and a 32-hex
   `request_id`. The schedule uses server-local dates. Disabling it keeps the
   weekday, allows manual starts and leaves active work running.
+- `GET /api/drafts?include_review=true` returns `drafts` and `review`. Use the
+  committed `review.revision`, `review.items` and `review.needs_you` for the
+  Queue list and badge. Each finding has a committed audit source at its
+  `source_href` (`GET /api/review/sources/{id}`).
+- `GET /api/review/issues/{issue_id}/suggestion/{suggestion_id}` returns the checked
+  prefill, target version and saved baseline. For entries, the existing
+  correction-form POST accepts both IDs and opens the prefilled draft. Pass
+  `review_issue_id` and `review_suggestion_id` with the version when saving in the
+  normal entry or rule editor. Pass `review_proposal_id` to the rule operation
+  when keeping or removing a rule with a weekly removal proposal.
+- `POST /api/review/issues/{issue_id}/keep/{operation_id}` accepts an optional
+  `note` up to 2,000 characters. `POST /api/review/unattributed/{commit}` accepts
+  `actor` as `user` or `agent` for an eligible full commit ID.
 
 The FIFO worker also checks the dashboard's `meta.today` at startup and every
 30 seconds. A stale or missing date triggers the existing data-refresh path only

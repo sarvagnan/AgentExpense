@@ -30,7 +30,8 @@
         "retention",
         "change",
         "baseline",
-        "weekly-review-run"
+        "weekly-review-run",
+        "review-resolution"
       ]
     },
     "time": {
@@ -55,8 +56,24 @@
                      "items": {"$ref": "#/properties/id"}},
     "decide": {"$ref": "#/$defs/reviewText"},
     "evidence": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/properties/id"}},
+    "evidence_refs": {"type": "array", "uniqueItems": true, "items": {
+      "type": "object", "required": ["id", "path", "revision"], "additionalProperties": false,
+      "properties": {"id": {"$ref": "#/properties/id"}, "path": {"type": "string", "pattern": "^Bills/"},
+                     "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}
+    }},
+    "review_issue_id": {"$ref": "#/properties/id"},
+    "review_suggestion_id": {"$ref": "#/properties/id"},
+    "review_suggestion_edited": {"type": "boolean"},
+    "review_proposal_id": {"$ref": "#/properties/id"},
     "choices": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/reviewText"}},
-    "suggestion": {"const": {"kind": "question-only"}},
+    "suggestion": {"oneOf": [
+      {"type": "object", "required": ["kind"], "additionalProperties": false,
+       "properties": {"kind": {"const": "question-only"}, "reason": {"$ref": "#/$defs/reviewText"}}},
+      {"type": "object", "required": ["kind", "id", "target", "version", "form"], "additionalProperties": false,
+       "properties": {"kind": {"enum": ["entry", "rule"]}, "id": {"$ref": "#/properties/id"},
+                      "target": {"$ref": "#/properties/rule_id"}, "version": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                      "form": {"type": "object"}}}
+    ]},
     "draft_id": {
       "type": "string"
     },
@@ -1237,6 +1254,31 @@
   },
   "allOf": [
     {
+      "if": {"properties": {"kind": {"const": "review-resolution"}}},
+      "then": {"required": ["operation_id", "review_issue_id", "actor"],
+               "properties": {"actor": {"const": "user"}, "note": {"maxLength": 2000}},
+               "propertyNames": {"enum": ["version", "id", "kind", "time", "operation_id", "review_issue_id", "actor", "note"]}}
+    },
+    {
+      "if": {"required": ["review_issue_id"]},
+      "then": {"properties": {"kind": {"enum": ["review-resolution", "correction", "rule"]}}}
+    },
+    {
+      "if": {"required": ["evidence_refs"]},
+      "then": {"required": ["evidence", "run_id"], "properties": {"kind": {"const": "review"}, "verdict": {"const": "issue"}}}
+    },
+    {
+      "if": {"anyOf": [{"required": ["review_suggestion_id"]}, {"required": ["review_suggestion_edited"]},
+                       {"required": ["review_issue_id"], "properties": {"kind": {"enum": ["correction", "rule"]}}}]},
+      "then": {"required": ["review_issue_id", "review_suggestion_id", "review_suggestion_edited"],
+               "properties": {"kind": {"enum": ["correction", "rule"]}}}
+    },
+    {
+      "if": {"required": ["review_proposal_id"]},
+      "then": {"required": ["rule_id", "rule_action"],
+               "properties": {"kind": {"const": "rule"}, "rule_action": {"enum": ["removed", "kept"]}}}
+    },
+    {
       "if": {"properties": {"kind": {"const": "weekly-review-run"}}},
       "then": {
         "required": ["run_id", "trigger", "slot", "started", "ended", "adapter", "model", "effort",
@@ -1553,7 +1595,8 @@
             "legacy",
             "baseline",
             "run_id", "batch", "trigger", "slot", "started", "ended", "adapter", "model", "effort",
-            "period", "checked", "issues", "status", "rule_sources", "decide", "evidence", "choices", "suggestion"
+            "period", "checked", "issues", "status", "rule_sources", "decide", "evidence", "choices", "suggestion", "evidence_refs",
+            "review_issue_id", "review_suggestion_id", "review_suggestion_edited", "review_proposal_id"
           ]
         }
       }

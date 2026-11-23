@@ -1,4 +1,5 @@
 """Frozen weekly review plans and one synchronous, restartable batch."""
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
 import json
@@ -17,7 +18,8 @@ import audit_changes
 from ledger_lock import ledger_lock
 from review_lookup import (ReviewLookup, committed_snapshot, encode, evidence_paths,
                            git, issue_grant, recorded_revision, review_task)
-from store import entries, load, read_json
+from review_decisions import QUESTION, check_suggestion, rule_form_schema, suggestions_current
+from store import entries, ledger_models, load, read_json
 
 
 def save(path, value):
@@ -139,15 +141,31 @@ def object_schema(**properties):
 
 TEXT = dict(type='string', minLength=1, maxLength=600)
 ID = dict(type='string', pattern='^[0-9a-f]{32}$')
+TARGET = dict(type='string', pattern='^[0-9a-f]{16}$')
+SUGGESTION = dict(anyOf=[{'const': QUESTION},
+                        object_schema(kind={'const': 'entry'}, target=TARGET, answer={'type': 'object'}),
+                        object_schema(kind={'const': 'rule'}, target=TARGET, form={'type': 'object'})])
 LINE = object_schema(line=ID, verdict={'const': 'ok'}, note=TEXT)
 ISSUE = object_schema(line=ID, verdict={'const': 'issue'}, note=TEXT, decide=TEXT,
-                      evidence=dict(type='array', items=ID, uniqueItems=True), suggestion={'const': {'kind': 'question-only'}},
-                      choices=dict(type='array', items=TEXT, minItems=2, maxItems=2))
+                      evidence=dict(type='array', items=ID, uniqueItems=True), suggestion=SUGGESTION,
+                      choices=dict(anyOf=[dict(type='array', items=TEXT, minItems=2, maxItems=2), {'type': 'null'}]))
 ISSUE['required'].remove('choices')
 SCHEMA = object_schema(lines=dict(type='array', maxItems=3, items=dict(anyOf=[LINE, ISSUE])),
                        rules=dict(type='array', maxItems=3, items=object_schema(
                            rule=dict(type='string', pattern='^[0-9a-f]{16}$'),
                            verdict={'enum': ['confirm', 'propose-removal']}, reason=TEXT)))
+
+
+def output_schema(root):
+    schema = deepcopy(SCHEMA)
+    issue = schema['properties']['lines']['items']['anyOf'][1]
+    issue['required'].append('choices')
+    _, entry, rule = issue['properties']['suggestion']['anyOf']
+    answer, form = ledger_models(root).answer_schema(), rule_form_schema()
+    schema['$defs'] = {**answer.pop('$defs', {}), **form.pop('$defs')}
+    answer.pop('$schema')
+    entry['properties']['answer'], rule['properties']['form'] = answer, form
+    return schema
 
 
 def validate(raw, batch, review, needed, receipt_path):
@@ -167,7 +185,9 @@ def validate(raw, batch, review, needed, receipt_path):
                 item[key] = item[key].strip()
                 if not item[key]:
                     raise ValueError('Notes, reasons and questions need concrete text')
-            if 'choices' in item:
+            if item.get('choices') is None:
+                item.pop('choices', None)
+            else:
                 item['choices'] = [choice.strip() for choice in item['choices']]
                 if not all(item['choices']):
                     raise ValueError('Both offered choices need text')
@@ -241,7 +261,8 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
             return dict(status='empty')
         review, required, versions = scope(root, work, revision, snapshot, selected)
         signature = dict(selected=selected, versions=versions, profile=[reviewer.adapter, reviewer.model, reviewer.effort])
-        if state.get('answer') and state['signature'] != signature:
+        if state.get('answer') and (state['signature'] != signature or
+                                    state.get('revision') != revision and not suggestions_current(settings, review, state['answer'])):
             save(path, {})
             return dict(status='stale', remaining=len(selected['lines']))
         error = state.get('error', '') if one_turn and state.get('signature') == signature else ''
@@ -276,14 +297,22 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                     prompt = ('Review the committed batch. Use review_pending and inspect all required records and evidence. '
                               'Give verdicts only for these line IDs and rule IDs: '
                               + encode([selected['lines'], list(rules)]) + '. Other source lines are context. '
-                              'Use question-only for issues and report any unavailable source. ' + error)
-                    task = review_task(settings, attempt, lookup.grant, prompt, SCHEMA, deadline,
+                              'For issues, propose a complete ready entry answer or a complete rule form '
+                              '(description, date, status, postings, schedule, amount, notes) only for a target from that source. '
+                              'Use question-only when unsure and report any unavailable source. ' + error)
+                    task = review_task(settings, attempt, lookup.grant, prompt, output_schema(snapshot), deadline,
                                        prepared=(lookup, images), **({'cancel': cancel} if cancel is not None else {}))
                     try:
                         task.remaining()
                         result = get_adapter(reviewer).run(task)
                         task.remaining()
-                        state.update(answer=validate(result.answer, effective, lookup, needed, lookup.receipts), rules=rules)
+                        answer = validate(result.answer, effective, lookup, needed, lookup.receipts)
+                        for item in answer['lines']:
+                            if item['verdict'] == 'issue':
+                                item['suggestion'] = check_suggestion(settings, lookup, item)
+                                item['evidence_refs'] = [dict(id=handle, **{k: lookup.grant.evidence[handle][k]
+                                                          for k in ('path', 'revision')}) for handle in item['evidence']]
+                        state.update(answer=answer, rules=rules, revision=revision)
                         task.remaining()
                         save(path, state)
                         if one_turn:
@@ -308,7 +337,9 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                         latest = Path(latest)
                         snap = committed_snapshot(root, latest, current)
                         updated = remaining(batch, audit.records(snap), load(snap)[snap/'data/forecast.json'], plan)
-                        if updated != selected or scope(root, latest, current, snap, updated)[2] != versions:
+                        latest_review, _, latest_versions = (scope(root, latest, current, snap, updated)
+                                                              if updated == selected else (None, None, None))
+                        if latest_versions != versions or not suggestions_current(settings, latest_review, state['answer']):
                             save(path, {})
                             return dict(status='stale', remaining=len(updated['lines']))
                 answer = state['answer']

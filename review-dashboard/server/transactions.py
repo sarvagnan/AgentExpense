@@ -407,7 +407,7 @@ class Transaction:
         if job := get(self.root):
             job.activate(getattr(completed, 'data_candidate', self.data_candidate))
 
-    def prepare(self, answer, *, person=None):
+    def prepare(self, answer, *, person=None, check_source=None):
         """Pure preview: schema, conversion, declarations, the JSON strict check in scratch.
 
         Caller holds the draft mutex when retaining the result. Apply repeats this
@@ -417,9 +417,9 @@ class Transaction:
         finished the draft. Agent answers are always checked with the answer model.
         """
         with save_timing.step('prepare'):
-            return self._prepare(answer, bool(self.draft.get('finished_by')) if person is None else person)
+            return self._prepare(answer, bool(self.draft.get('finished_by')) if person is None else person, check_source)
 
-    def _prepare(self, answer, form):
+    def _prepare(self, answer, form, check_source):
         from answers import AnswerError, check as check_answer
         from proposal_consent import proposal_hash
         from answers import person_amounts
@@ -435,8 +435,8 @@ class Transaction:
         documents = load(self.root)
         entry, declarations, new = to_store(checked, self.root, len(self.draft['files']), documents=documents)
         if self.draft.get('correction'):
-            from corrections import prepare_replacement
-            prepare_replacement(self.settings, self.draft, entry, declarations)
+            from corrections import prepare_replacement, safe_evidence
+            prepare_replacement(self.settings, self.draft, entry, declarations, check_source=check_source or safe_evidence)
         else:
             check(entry, declarations, self.root, documents=documents)
         existing = documents[self.root/'data/accounts.json']['accounts']

@@ -88,7 +88,12 @@ class Worker:
             self.lease.close()
             raise RuntimeError('Another expense worker already owns this ledger')
         from corrections import recover_pending
+        from review_decisions import owner_transaction, recover_owner
         try:
+            owner = owner_transaction(self.settings)
+            if owner.journal.exists():
+                with ledger_lock(owner.root):
+                    recover_owner(owner)
             recover_pending(self.settings,self.drafts)
             self.weekly.sweep_workspaces()
         except BaseException:

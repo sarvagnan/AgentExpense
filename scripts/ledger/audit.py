@@ -289,10 +289,19 @@ def _append_commit(root, additions, message, fd, callback):
         raise
 
 
-def record(root, changes, *, commit=make_commit):
+def require_lock(root, fd):
+    held, expected = os.fstat(fd), (root / '.lock').stat()
+    if (held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino):
+        raise ValueError('This operation requires the held ledger lock')
+
+
+def record(root, changes, *, commit=make_commit, lock_fd=None, publish=None):
     """Backfill one or more ancestors of main as one atomic, record-only commit."""
+    from contextlib import nullcontext
     from audit_changes import identity, main_history, change_line, own_lines, audit_restore_hint
-    with ledger_lock(root) as fd:
+    with (ledger_lock(root) if lock_fd is None else nullcontext(lock_fd)) as fd:
+        if lock_fd is not None:
+            require_lock(root, fd)
         if not isinstance(changes, list) or not changes:
             raise ValueError('Changes must be a nonempty JSON list of {commit, actor, note?}.')
         lines = records(root)
@@ -321,6 +330,8 @@ def record(root, changes, *, commit=make_commit):
             additions.append(line)
             known_changes.add(info['change_id']); known_commits.add(info['commit'])
         additions.sort(key=lambda r: order[r['commit']])
+        if publish:
+            return publish(additions, 'Record earlier hand changes in the audit log', fd)
         return _append_commit(root, additions, 'Record earlier hand changes in the audit log', fd, commit)
 
 
@@ -350,8 +361,8 @@ def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make
         with ledger_lock(root) as fd:
             return review(root, verdicts, reviewer, message, clean=clean, commit=commit, lock_fd=fd)
     if marker:
-        held, expected = os.fstat(lock_fd), (root / '.lock').stat()
-        if (held.st_dev, held.st_ino) != (expected.st_dev, expected.st_ino) or publish is None:
+        require_lock(root, lock_fd)
+        if publish is None:
             raise ValueError('Weekly review requires the held ledger lock and an audit transaction')
     if not verdicts:
         raise ValueError('No verdicts given')
@@ -373,7 +384,8 @@ def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make
             additions.append(event('rule-review',rule_id=rule_id,rule_verdict=item['verdict'],reason=item['reason'],reviewer=reviewer,
                                **(dict(rule_sources=rule_sources[rule_id]) if marker else {}), **linkage))
             continue
-        details = {k: item[k] for k in ('decide', 'evidence', 'choices', 'suggestion') if marker and isinstance(item, dict) and k in item}
+        details = {k: item[k] for k in ('decide', 'evidence', 'evidence_refs', 'choices', 'suggestion')
+                   if marker and isinstance(item, dict) and k in item}
         if not isinstance(item, dict) or item.keys() - details.keys() != {'line', 'verdict', 'note'}:
             raise ValueError('Each outcome verdict needs exactly line, verdict and note; a rule verdict needs rule, verdict and reason')
         if not isinstance(item['line'], str) or item['line'] not in sources:

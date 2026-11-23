@@ -15,6 +15,7 @@ that fails and keep its output.
 - Added a separate weekly reviewer profile (`reviewAgent` in `local.json`, defaulting to `agent`), its isolation check (`make agent-check ROLE=review`) and scoped read-only ledger tools.
 - Weekly review validates evidence coverage and commits each batch of verdicts in one recoverable audit transaction; a second verdict for the same audit line is refused.
 - Weekly review runs on demand or on a selected weekday (`modules.weeklyReviewDay`, Monday by default), waits for Add and other foreground work between batches, and resumes from committed progress.
+- Weekly review records checked suggestions and open findings, and its Queue API supports verified owner saves, Keep as is and attribution of hand changes.
 - A receipt with a time zone or UTC offset uses the payment date in the recorded time zone for the item.
 - If a payment changes while its receipt question is waiting, the dashboard checks the receipt against the edited payment and asks again if the details still differ.
 - New subscription rules use the billing period printed on the receipt when available. The saved card shows the period beside Edit rule.

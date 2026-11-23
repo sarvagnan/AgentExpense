@@ -426,10 +426,12 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
             return public(draft)
 
     @app.post('/api/entries/{entry_id}/correction-form')
-    def correction_form(entry_id: str):
+    def correction_form(entry_id: str, body: dict | None = None):
         from corrections import open_form
-        try: return public(open_form(settings,drafts,entry_id))
-        except ValueError as exc: raise HTTPException(409,str(exc)) from exc
+        if body and set(body) != {'review_issue_id', 'review_suggestion_id'}:
+            raise HTTPException(422, 'Supply the review issue and suggestion IDs')
+        try: return public(open_form(settings,drafts,entry_id,review=body))
+        except (ValueError, TypeError) as exc: raise HTTPException(409,str(exc)) from exc
 
     @app.post('/api/entries/{entry_id}/corrections/{operation_id}')
     def correct_entry(entry_id: str, operation_id: str, body: dict):
@@ -654,6 +656,45 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.get('/api/review/issues/{issue_id}/suggestion/{suggestion_id}')
+    def review_suggestion(issue_id: str, suggestion_id: str):
+        from review_decisions import open_suggestion
+        try:
+            with ledger_lock(settings.ledger):
+                return open_suggestion(settings, dict(review_issue_id=issue_id, review_suggestion_id=suggestion_id))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get('/api/review/sources/{identity}')
+    def review_source(identity: str):
+        from audit_changes import identity as revision
+        from review_decisions import published
+        rows = published(settings.ledger, revision(settings.ledger, 'main')['commit'])
+        if row := next((r for r in rows if r['id'] == identity), None):
+            return row
+        raise HTTPException(404, 'Unknown review source')
+
+    @app.post('/api/review/issues/{issue_id}/keep/{operation_id}')
+    def keep_review_issue(issue_id: str, operation_id: str, body: dict):
+        from review_decisions import keep
+        note = body.get('note', '')
+        if set(body) - {'note'} or not isinstance(note, str):
+            raise HTTPException(422, 'Supply an optional note')
+        try:
+            return worker.call(lambda: keep(settings, issue_id, operation_id, note), kind='review-keep')
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/review/unattributed/{commit}')
+    def attribute_review_commit(commit: str, body: dict):
+        from review_decisions import attribute
+        if set(body) != {'actor'} or body['actor'] not in ('user', 'agent'):
+            raise HTTPException(422, 'Choose You or An agent')
+        try:
+            return worker.call(lambda: attribute(settings, commit, body['actor']), kind='review-attribute')
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.post('/api/review/weekly')
     def weekly_action(body: WeeklyAction):
         try:
@@ -692,9 +733,14 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         return public(draft)
 
     @app.get('/api/drafts')
-    def list_drafts(include_added: bool = False):
+    def list_drafts(include_added: bool = False, include_review: bool = False):
         drafts.purge()
-        return sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added' or d.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question','failed')), key=lambda d: d['created_at'])
+        listed = sorted(public_many(d for d in drafts.all() if include_added or d['state'] != 'added' or d.get('receipt_reading',{}).get('state') in ('queued','reading','ready','question','failed')), key=lambda d: d['created_at'])
+        if include_review:
+            from audit_changes import identity
+            from review_decisions import queue as review_queue_snapshot
+            return dict(drafts=listed, review=review_queue_snapshot(settings, identity(settings.ledger, 'main')['commit']))
+        return listed
 
     @app.get('/api/drafts/{identity}')
     def read(identity: str):

@@ -15,12 +15,12 @@ from transactions import Transaction
 class WeeklyReviewBatchTests(Fixture):
     clock = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
-    def add(self, *, files=(), **fields):
+    def add(self, *, files=(), entry_id=None, **fields):
         row = audit.event('draft', draft_id='f' * 32, outcome='failed', text='Fictional expense',
                           saved_at=None, pieces=None, files=list(files), questions=[], runs=[], proposal=None,
                           doubts=[], check_errors=[], error=None, **fields)
         self.clock += timedelta(seconds=1)
-        row.update(time=self.clock.isoformat(), entry_id=None)
+        row.update(time=self.clock.isoformat(), entry_id=entry_id)
         audit.append(self.ledger, row)
         return row['id']
 

@@ -76,7 +76,7 @@ class WeeklyReview:
             snapshot = committed_snapshot(self.root, Path(folder), revision, audit_only=True)
             modules, rows = read_manifest(snapshot)['modules'], audit.records(snapshot)
         published = revision, modules, [r for r in rows if r['kind'] == 'weekly-review-run' or
-                                        r['kind'] == 'rule-review' and r.get('run_id') and r['verdict'] == 'propose-removal']
+                                        r['kind'] == 'rule-review' and r.get('run_id') and r['rule_verdict'] == 'propose-removal']
         self.cached = published
         return published
 

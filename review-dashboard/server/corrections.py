@@ -87,8 +87,11 @@ def wire_entry(settings, entry):
     return {'status':'ready','question':None,'entry':a,'new-accounts':[],'doubts':[],'attachment-names':[],'explanation':None}
 
 
-def open_form(settings, drafts, entry_id):
+def open_form(settings, drafts, entry_id, *, review=None):
     with ledger_lock(settings.ledger):
+        if review:
+            from review_decisions import open_suggestion
+            suggestion = open_suggestion(settings, review, kind='entry', target=entry_id)
         documents=load(settings.ledger)
         entry=next((e for e in entries(documents) if e['id']==entry_id),None)
         if not entry: raise ValueError('Unknown entry')
@@ -97,11 +100,14 @@ def open_form(settings, drafts, entry_id):
         draft=drafts.create('')
         draft.update(state='question',correction=dict(entry_id=entry_id,version=entry_hash(entry),before=deepcopy(entry),sources=entry['evidence'],locked=card_member,balance_locks=locks),hand_form=wire_entry(settings,entry),hand_reason='correction')
         draft['correction']['original_form']=deepcopy(draft['hand_form'])
+        if review:
+            draft['hand_form'] = suggestion['form']
+            draft['correction'].update(review)
         drafts.put(draft)
         return draft
 
 
-def prepare_replacement(settings, draft, editable, declarations):
+def prepare_replacement(settings, draft, editable, declarations, *, check_source=safe_evidence):
     root=settings.ledger; documents=load(root);info=draft['correction']
     before=next((e for e in entries(documents) if e['id']==info['entry_id']),None)
     require_version(before,info['version'])
@@ -121,7 +127,7 @@ def prepare_replacement(settings, draft, editable, declarations):
     if not isinstance(sources,list) or any(s not in before['evidence'] for s in sources) or len(set(sources))!=len(sources):
         raise ValueError('Choose sources already attached to this entry, or upload more attachments')
     for source in sources:
-        if source.startswith('Bills/'): safe_evidence(root,source)
+        if source.startswith('Bills/'): check_source(root,source)
     required_sources={s['source'] for s in documents[root/'data/card-statements.json'] if ((before['statement'] or {}).get('end')==s['end'] and any(p['account']==s['account'] for p in before['postings'])) or any(m.get('entry-id')==before['id'] for m in s.get('members',[]))}
     if required_sources-set(sources): raise ValueError('Keep the filed statement source attached to this entry')
     after['evidence']=list(sources)
@@ -134,7 +140,7 @@ def prepare_replacement(settings, draft, editable, declarations):
 
 def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer=None, prepare_receipt=None):
     if not re.fullmatch('[0-9a-f]{32}',op_id) or not re.fullmatch('[0-9a-f]{16}',entry_id): raise ValueError('Invalid correction identity')
-    allowed={'version','proposal','sources','reason','approved_accounts','draft_id','receipt'}
+    allowed={'version','proposal','sources','reason','approved_accounts','draft_id','receipt','review_issue_id','review_suggestion_id'}
     if not isinstance(body,dict) or set(body)-allowed: raise ValueError('Unknown correction field')
     if not isinstance(body.get('reason',''),str) or len(body.get('reason',''))>10000: raise ValueError('Enter a short correction reason')
     root=settings.ledger;store=CorrectionRecords(root)
@@ -143,7 +149,8 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
         for folder in store.root.iterdir():
             if (folder/'transaction.json').exists():
                 record=json.loads((folder/'record.json').read_text());tx=Transaction(settings,store,record);tx.recover()
-        prior=next((r for r in records(root) if r['kind']=='correction' and r['operation_id']==op_id),None)
+        lines=records(root)
+        prior=next((r for r in lines if r['kind']=='correction' and r['operation_id']==op_id),None)
         if prior:
             if prepare_receipt:
                 matches = (prior['entry_id'] == entry_id and
@@ -160,6 +167,9 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
             if body is None:
                 return None
         request_hash=digest(dict(entry_id=entry_id,body=body))
+        from review_decisions import STALE, save_link
+        link = save_link(lines, body, 'entry', entry_id, entry_hash(before) if before else None, body.get('proposal'),
+                         extras=bool(before and body.get('sources', before['evidence']) != before['evidence']))
         require_version(before,body.get('version'))
         draft=dict(id=op_id,files=[],hand_form=body.get('proposal'),correction=dict(entry_id=entry_id,version=body['version'],sources=body.get('sources',before['evidence'])))
         if body.get('draft_id'):
@@ -167,6 +177,9 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
             uploaded=drafts.get(body['draft_id'])
             editable_states=('question','failed') if uploaded.get('ledger_fix') else ('question',)
             if uploaded.get('correction',{}).get('entry_id')!=entry_id or uploaded['state'] not in editable_states: raise ValueError('This correction draft cannot be used')
+            if any(k in uploaded['correction'] and uploaded['correction'][k] != link.get(k)
+                   for k in ('review_issue_id', 'review_suggestion_id')):
+                raise ValueError(STALE)
             draft['files']=deepcopy(uploaded['files'])
         draft['finished_by']=dict(actor='user',reason='correction')
         tx=Transaction(settings,store,draft)
@@ -178,10 +191,10 @@ def apply(settings, entry_id, op_id, body, *, drafts=None, actor='user', trailer
         moves=move_evidence(docs,root,before,after)
         changed=[key for key in sorted(before.keys()|after.keys()) if before.get(key)!=after.get(key)]
         # Receipt answers may audit a no-change choice; ordinary untouched forms stay neutral.
-        if not changed and not body.get('receipt'): raise ValueError('No changes yet')
+        if not changed and (link or not body.get('receipt')): raise ValueError('No changes yet')
         before_rules=documents[root/'data/forecast.json']
         result=dict(entry_id=entry_id,description=after['description'],sources=after['evidence'],rule=rule_result,changed=changed)
-        record=event('correction',entry_id=entry_id,operation_id=op_id,request_hash=request_hash,before=before,after=after,changed_fields=changed,reason=body.get('reason',''),actor=actor,result=deepcopy(result),rule_changes=rule_changes(before_rules,docs[root/'data/forecast.json']),**({'receipt':body['receipt']} if body.get('receipt') else {}))
+        record=event('correction',entry_id=entry_id,operation_id=op_id,request_hash=request_hash,before=before,after=after,changed_fields=changed,reason=body.get('reason',''),actor=actor,result=deepcopy(result),rule_changes=rule_changes(before_rules,docs[root/'data/forecast.json']),**({'receipt':body['receipt']} if body.get('receipt') else {}),**link)
         if prepared['new_accounts']:
             record['proposal']=deepcopy(body['proposal'])
             record['account_consent']=dict(proposal_hash=prepared['proposal_hash'],accounts=prepared['new_accounts'],method='hand-ticks')

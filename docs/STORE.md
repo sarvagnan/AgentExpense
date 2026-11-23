@@ -848,8 +848,20 @@ A weekly review batch appends its `review` and `rule-review` verdicts and one
 `weekly-review-run` marker in the same verified audit-only commit. Each verdict
 links to the marker by `run_id` and one-based `batch`. Line IDs can receive a
 verdict once. Rule verdicts list their originating audit IDs in `rule_sources`.
-An in-app `issue` includes `decide`, issued evidence IDs and a
-`{"kind":"question-only"}` suggestion, with an optional pair of choices.
+An in-app `issue` includes `decide`, issued evidence IDs, a typed suggestion and
+an optional pair of choices. New records also keep `evidence_refs` with the
+server-issued ID, relative evidence path and pinned revision for each citation.
+An entry or rule suggestion holds its server-assigned ID, target ID, target
+version and checked editor form. A question-only suggestion may include a reason
+why its proposed form could not be used.
+
+The owner can close an issue with a verified `review-resolution` record holding
+the issue ID, `user` actor, operation ID and optional note. A linked `correction`
+or `rule` edit closes it in the same commit as the financial change and records
+`review_issue_id`, `review_suggestion_id` and `review_suggestion_edited`.
+Rule removal dispositions can cite the exact proposal with `review_proposal_id`.
+Review resolutions stay out of the next review's backlog. Linked edits and
+hand changes attributed by the owner enter the backlog as ordinary audit lines.
 
 Run markers record trigger, slot (or null for an unclaimed manual run), start and
 end, reviewer profile, checked-line and issue counts, and the oldest and newest

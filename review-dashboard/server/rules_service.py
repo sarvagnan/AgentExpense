@@ -493,21 +493,32 @@ class RuleRecords(SettingsRecords):
         self.root.mkdir(parents=True,exist_ok=True)
 
 
+def review_proposals(lines):
+    proposals, review_states, seen = {}, {}, set()
+    for line in lines:
+        if line['kind']=='rule-review':
+            identity, verdict = line['rule_id'], line['rule_verdict']
+            sources = {(identity, source) for source in line.get('rule_sources', [])}
+            if proposals.get(identity, {}).get('rule_verdict') != 'propose-removal' and (
+                    verdict == 'confirm' or not sources or sources - seen):
+                proposals[identity], review_states[identity] = line, verdict
+            if verdict == 'propose-removal':
+                seen.update(sources)
+        elif line['kind']=='rule' and line['rule_action'] in ('removed','kept'):
+            for identity in {line.get('rule_id'),*[c['id'] for c in line['rule_changes']]} - {None}:
+                if line.get('review_proposal_id') and line['review_proposal_id'] != proposals.get(identity, {}).get('id'):
+                    continue
+                proposals.pop(identity, None)
+                review_states[identity] = 'owner-kept' if line['rule_action']=='kept' else 'owner-removed'
+    return proposals, review_states
+
+
 def snapshot(settings, clock=None):
     root=settings.ledger; documents=load(root); lines=records(root); accounts=documents[root/'data/accounts.json']['accounts']
     ignored=ignored_entries(lines)
     actual=[e for e in entries(documents) if e['id'] not in ignored]
     rules=documents[root/'data/forecast.json']; stale={r['id'] for r,e in stale_rules(actual,rules,accounts)}
-    proposals={}; review_states={}
-    for line in lines:
-        if line['kind']=='rule-review':
-            proposals[line['rule_id']]=line
-            review_states[line['rule_id']]=line['rule_verdict']
-        if line['kind']=='rule' and line['rule_action'] in ('removed','kept'):
-            for change in line['rule_changes']: proposals.pop(change['id'],None)
-            proposals.pop(line.get('rule_id'),None)
-            for identity in {line.get('rule_id'),*[c['id'] for c in line['rule_changes']]} - {None}:
-                review_states[identity] = 'owner-kept' if line['rule_action']=='kept' else 'owner-removed'
+    proposals, review_states = review_proposals(lines)
     _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
     public=[]
     for rule in rules:
@@ -540,10 +551,37 @@ def from_entry(settings,identity):
     return dict(rule=advance(rule,entry['date']),entry_id=identity)
 
 
+EDIT_FIELDS = {'description', 'postings', 'schedule', 'date', 'status', 'amount', 'notes'}
+
+
+def prepare_edit(documents, root, rule, form, actual, accounts):
+    """Apply the editor's fields to an in-memory rule and check the resulting forecast."""
+    patch=deepcopy(form)
+    if not isinstance(patch,dict) or set(patch)-EDIT_FIELDS:
+        raise ValueError('Edit description, postings, schedule, date, status, amount or notes')
+    if patch.get('amount','varies') in (None,'fixed'):
+        if rule['bill']: raise ValueError('Remove the saved bill before making the amount fixed')
+        patch['amount']='fixed'
+    if 'schedule' in patch and isinstance(patch['schedule'],dict):
+        patch['schedule']={'every':patch['schedule'].get('every'),'from':patch['schedule'].get('from'),
+                           'interval':patch['schedule'].get('interval') or 1,'anchor-day':patch['schedule'].get('anchor-day')}
+    if 'postings' in patch and isinstance(patch['postings'],list):
+        patch['postings']=[complete_posting(p) for p in patch['postings']]
+    rule.update(patch)
+    if 'schedule' in patch: rule['date']=rule['schedule']['from']
+    elif 'date' in patch: rule['schedule']['from']=rule['date']
+    recompute_estimate(rule,actual,accounts)
+    from store import commodities
+    from strict_check import check_forecast
+    validate(documents, root)
+    check_forecast([rule], set(accounts), commodities(documents[root / 'data/accounts.json']))
+
+
 def operate(settings, op_id, body, *, clock=None):
     if not re.fullmatch(r'[0-9a-f]{32}',op_id): raise ValueError('Use a unique 32-hex operation id')
     if not isinstance(body,dict): raise ValueError('Supply an operation object')
-    allowed={'action','rule_id','rule','version','entry_id','client_time','client_zone','bill','text','draft_id','amount_anyway'}
+    allowed={'action','rule_id','rule','version','entry_id','client_time','client_zone','bill','text','draft_id','amount_anyway',
+             'review_issue_id','review_suggestion_id','review_proposal_id'}
     if set(body)-allowed: raise ValueError('Unknown rule operation field')
     if 'amount_anyway' in body and type(body['amount_anyway']) is not bool: raise ValueError('amount_anyway must be boolean')
     from draft_time import client_context
@@ -576,6 +614,17 @@ def operate(settings, op_id, body, *, clock=None):
         ignored=ignored_entries(lines)
         actual=[e for e in entries(documents) if e['id'] not in ignored]
         accounts=documents[root/'data/accounts.json']['accounts']; action=body.get('action');rule=next((r for r in rules if r['id']==body.get('rule_id')),None)
+        from review_decisions import STALE, save_link
+        link = save_link(lines, body, 'rule', body.get('rule_id'), digest(rule) if rule else None, body.get('rule'))
+        if link and action != 'edited':
+            raise ValueError(STALE)
+        if action in ('removed', 'kept') or 'review_proposal_id' in body:
+            proposal = review_proposals(lines)[0].get(body.get('rule_id'), {})
+            pin = body.get('review_proposal_id')
+            if 'review_proposal_id' in body or proposal.get('run_id') and proposal['rule_verdict'] == 'propose-removal':
+                if action not in ('removed', 'kept') or proposal.get('rule_verdict') != 'propose-removal' or pin != proposal['id']:
+                    raise ValueError('The rule removal proposal changed; reload rules')
+                link['review_proposal_id'] = pin
         if body.get('version') and (not rule or digest(rule)!=body['version']): raise ValueError('The rule changed; reload it')
         bill_draft=None;copies=[];check=None;bill_record=None
         if action=='made':
@@ -646,21 +695,7 @@ def operate(settings, op_id, body, *, clock=None):
                             bill['evidence']=[str(p.relative_to(root)) for p in targets]
                     rule['bill']=bill;bill_record=bill
             elif action=='edited':
-                patch=deepcopy(body.get('rule'))
-                if not isinstance(patch,dict) or set(patch)-{'description','postings','schedule','date','status','amount','notes'}:
-                    raise ValueError('Edit description, postings, schedule, date, status, amount or notes')
-                if patch.get('amount','varies') in (None,'fixed'):
-                    if rule['bill']: raise ValueError('Remove the saved bill before making the amount fixed')
-                    patch['amount']='fixed'
-                if 'schedule' in patch and isinstance(patch['schedule'],dict):
-                    patch['schedule']={'every':patch['schedule'].get('every'),'from':patch['schedule'].get('from'),
-                                       'interval':patch['schedule'].get('interval') or 1,'anchor-day':patch['schedule'].get('anchor-day')}
-                if 'postings' in patch and isinstance(patch['postings'],list):
-                    patch['postings']=[complete_posting(p) for p in patch['postings']]
-                rule.update(patch)
-                if 'schedule' in patch: rule['date']=rule['schedule']['from']
-                elif 'date' in patch: rule['schedule']['from']=rule['date']
-                recompute_estimate(rule,actual,accounts)
+                prepare_edit(documents, root, rule, body.get('rule'), actual, accounts)
             elif action=='removed':
                 evidence = {e['id'] for e in actual if same_payment(e,rule,accounts)} | set((rule['origin'] or {}).get('entry-ids',[]))
                 rule.update(lifecycle='removed',removal={'date':action_day,'entry-ids':sorted(evidence)})
@@ -671,10 +706,11 @@ def operate(settings, op_id, body, *, clock=None):
                 allowed_lives,target=transitions[action]
                 if life not in allowed_lives: raise ValueError('This operation does not apply to the rule lifecycle')
                 rule['lifecycle']=target
-        validate(documents,root)
+        if action != 'edited': validate(documents,root)
         changes=rule_changes(before,rules)
+        if link.get('review_issue_id') and not changes: raise ValueError('No changes yet')
         record=event('rule',rule_action=action,request_id=op_id,request_hash=request_hash,rule_changes=changes,
-                     **context,
+                     **context, **link,
                      **({'rule_id':rule['id']} if rule else {}),
                      )
         if bill_record is not None:
