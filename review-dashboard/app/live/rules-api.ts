@@ -17,12 +17,20 @@ export const rulesApi={
 };
 export function useRules(online:boolean|null) {
   const [data,setData]=useState<RuleData>({rules:[],suggestions:[]}),[error,setError]=useState(''),[ready,setReady]=useState(false);
-  const receivedLive=useRef(false),generation=useRef(0);
-  const refresh=useCallback(async()=>{if(online!==true)return;const run=++generation.current;try{const value=await rulesApi.list();if(run!==generation.current)return;receivedLive.current=true;setData(value);setError('');setReady(true);}catch(e){if(run===generation.current){setError((e as Error).message);setReady(false);}}},[online]);
-  useEffect(()=>{void refresh();},[refresh]);
+  const receivedLive=useRef(false),connection=useRef<{started:number;published:number}|null>(null);
+  const refresh=useCallback(async()=>{
+    const live=connection.current;if(!live)return;
+    const run=++live.started;
+    try {
+      const value=await rulesApi.list();
+      // A later read in flight cannot prevent a Save refresh from publishing.
+      if(connection.current!==live||run<live.published)return;
+      live.published=run;receivedLive.current=true;setData(value);setError('');setReady(true);
+    }catch(e){if(connection.current===live&&run===live.started){setError((e as Error).message);setReady(false);}}
+  },[]);
   // The built snapshot belongs to this mount; connection changes refresh only live data.
   useEffect(()=>{let alive=true;void fetchGzipJson<{rules?:Rule[]}>('add-patterns').then(value=>{if(alive&&!receivedLive.current)setData(old=>({...old,rules:value.rules||[]}));},()=>{});return()=>{alive=false;};},[]);
-  useEffect(()=>{if(online!==true){setReady(false);return;}const run=()=>void refresh();window.addEventListener('drafts-changed',run);const timer=setInterval(run,30000);return()=>{generation.current++;window.removeEventListener('drafts-changed',run);clearInterval(timer);};},[online,refresh]);
+  useEffect(()=>{if(online!==true){setReady(false);return;}connection.current={started:0,published:0};const run=()=>void refresh();run();window.addEventListener('drafts-changed',run);const timer=setInterval(run,30000);return()=>{connection.current=null;window.removeEventListener('drafts-changed',run);clearInterval(timer);};},[online,refresh]);
   return {data,error,ready,refresh};
 }
 /** Preserve operation identity after an uncertain response; a changed payload gets a new identity. */
@@ -41,8 +49,10 @@ export function useRuleOperation(onSaved?:()=>void|Promise<void>,resource='page'
     try {
       const result=await request<{data_stale?:boolean;data_pending?:boolean}>('rules/operations/'+retry.current.id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(retry.current.body),writeOwner:owner,clearRetained},120000);
       if(retry.current?.signature===signature)retry.current=null;
-      try {await reloadData();await onSaved?.();}
-      catch {setError('Saved. The dashboard could not refresh; use Refresh rules to load the saved change.');}
+      let refreshFailed=false;
+      try {await reloadData();} catch {refreshFailed=true;}
+      try {await onSaved?.();} catch {refreshFailed=true;}
+      if(refreshFailed)setError('Saved. The dashboard could not refresh; use Refresh rules to load the saved change.');
       draftsChanged();
       if(result.data_stale&&!result.data_pending)setError('Saved. Dashboard refresh is still needed.');
       return true;

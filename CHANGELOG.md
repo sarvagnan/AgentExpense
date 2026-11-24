@@ -20,6 +20,7 @@ that fails and keep its output.
 - Weekly review carries open findings forward and records numbered run reports that can be retried independently of the checked batches.
 - The dashboard shows the weekly review schedule, run reports and owner decisions, with checked suggestions and follow-ups in Queue.
 - Retired the external weekly review job. Agent pin upgrades check both tool profiles before changing the pin.
+- Rules shows the saved details after an edit even when a background refresh is still running. The Usual payment panel keeps the chosen paying account during a refresh.
 - A receipt with a time zone or UTC offset uses the payment date in the recorded time zone for the item.
 - If a payment changes while its receipt question is waiting, the dashboard checks the receipt against the edited payment and asks again if the details still differ.
 - New subscription rules use the billing period printed on the receipt when available. The saved card shows the period beside Edit rule.

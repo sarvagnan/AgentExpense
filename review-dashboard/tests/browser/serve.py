@@ -24,8 +24,15 @@ assert settings.ledger.resolve().is_relative_to(Path('/tmp').resolve())
 assert settings.state_dir.is_relative_to(Path('/tmp').resolve())
 assert settings.codex_home.is_relative_to(Path('/tmp').resolve())
 assert Path(settings.codex).name == 'fake-agent'
-add_clock_shift=0
-app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=lambda: datetime.now(timezone.utc)+timedelta(seconds=add_clock_shift))
+add_clock_shift = 0
+fixed_add_time = None
+
+
+def add_time():
+    return (fixed_add_time or datetime.now(timezone.utc)) + timedelta(seconds=add_clock_shift)
+
+
+app = create_app(settings, review_clock=lambda: datetime(2026,11,1,12,tzinfo=timezone.utc), agent_clock=add_time)
 from fastapi.responses import Response
 
 
@@ -244,9 +251,10 @@ def add_statement_state(body: dict):
 
 @app.post('/__test/add-clock')
 def add_clock(body: dict):
-    global add_clock_shift
+    global add_clock_shift, fixed_add_time
     add_clock_shift=body.get('seconds',0)
     assert add_clock_shift in (0,1860)
+    fixed_add_time = datetime(2026, 11, 2, 12, tzinfo=timezone.utc) if body.get('fixed') else None
     return dict(ok=True)
 
 

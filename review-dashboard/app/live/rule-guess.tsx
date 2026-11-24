@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {dashboard} from '../data';
 import {localDate} from '../date-time';
 import {dayLabel,money,monthLong} from '../ui';
@@ -58,6 +58,8 @@ function FixedRuleChoice({rule,match,text,initialDate,disabled,onAdd,onDecline}:
   const typed=Object.keys(amounts).length===1&&(!explicit.length?code===dashboard.meta.ledger.defaultCurrency:explicit.includes(code))?quantities[0]:undefined;
   const different=typed!==undefined&&typed>0&&Math.abs(typed-value)>1e-9;
   const [date,setDate]=useState(initialDate||localDate()),[account,setAccount]=useState(''),[remember,setRemember]=useState(false),[another,setAnother]=useState(false);
+  // A live render during native input propagation can write the old value back.
+  const capturedAccount=useRef<string|null>(null);
   useEffect(()=>{setDate(initialDate||localDate());setAnother(false);},[initialDate]);
   const relative=date===localDate()?'today':date===new Date(Date.parse(localDate())-86400000).toISOString().slice(0,10)?'yesterday':'';
   const paid=paymentInPeriod(rule,date),available=Object.entries(accounts).filter(([,m])=>['bank','card','cash','wallet'].includes(m.kind||'')&&m.currency===(pay?.commodity||rule.postings.find(p=>Number(p.amount)<0)?.commodity));
@@ -66,7 +68,7 @@ function FixedRuleChoice({rule,match,text,initialDate,disabled,onAdd,onDecline}:
   return <><h3>{rule.description}</h3><p className="rule-match-reason">Matched {match.matched_words.map(w=>`‘${w}’`).join(', ')}{match.matched_amounts.length>0&&<> and {match.matched_amounts.map(a=>money(Number(a.amount),a.currency)).join(', ')}</>}{match.matched_alias&&<> · {match.matched_alias}</>}</p><div className="rule-summary"><RuleSummary rule={rule}/></div><p className="live-hint">Next due {dayLabel(another?(rule.next_due||rule.date):nextDueForPayment(rule,date,reanchor))}</p>
     <p className="live-hint">Adds {date?dayLabel(date):'on the chosen payment date'}{relative?` (${relative})`:''}</p><label><span className="field-label">Payment date</span><input type="date" className="field" value={date} required onChange={e=>{setDate(e.target.value);setAnother(false);}}/></label>
     {control}
-    {!pay&&<><label><span className="field-label">Paying account</span><select aria-label="Paying account" className="field" value={account} onChange={e=>setAccount(e.target.value)}><option value="">Choose an account</option>{available.map(([a,m])=><option key={a} value={a}>{m.label||a} · {m.currency}</option>)}</select></label><label className="rule-check"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Use this account from now on</label></>}
+    {!pay&&<><label><span className="field-label">Paying account</span><select aria-label="Paying account" className="field" value={account} onInputCapture={e=>{capturedAccount.current=e.currentTarget.value;}} onInput={e=>{setAccount(capturedAccount.current??e.currentTarget.value);capturedAccount.current=null;}}><option value="">Choose an account</option>{available.map(([a,m])=><option key={a} value={a}>{m.label||a} · {m.currency}</option>)}</select></label><label className="rule-check"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Use this account from now on</label></>}
     {conversions.length>0&&<p className="rule-conversion">Planned conversion: {conversions.map(p=>`${money(Number(p.amount),p.commodity)} at ${money(Number(p.cost!.amount),p.cost!.commodity)} ${p.cost!.per==='total'?'total':'per unit'}`).join('; ')}. Statement reconciliation will correct it.</p>}
     <div className="rule-actions"><button className="button primary" aria-describedby={paid?`rule-paid-${rule.id}`:undefined} disabled={disabled||awaiting||!date||!pay&&!account||!!paid&&!another} onClick={()=>void onAdd({rule_id:rule.id,version:rule.version,date,update_rule:update,...(different?{amount:String(typed)}:{}),...(!pay?{account,remember_account:remember}:{}),another_anyway:another})}>Add as usual</button><button className="button" onClick={onDecline}>Not this</button></div>
     {paid&&<div className="rule-already" id={`rule-paid-${rule.id}`}><p>Already added for {monthLong(periodFor(rule,date))} on {dayLabel(paid.date)}.</p><a className="button" href={entryHref(paid.id)}>View entry</a><label className="rule-check"><input type="checkbox" checked={another} onChange={e=>setAnother(e.target.checked)}/>Add another anyway</label></div>}

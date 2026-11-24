@@ -34,7 +34,13 @@ export async function openLiveRules({page,base,expect}) {
   await expect(page.getByRole('article',{name:'Birch rent',exact:true})).toBeVisible();
 }
 
-export async function runRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}) {
+export async function runRules(args) {
+  await args.control('add-clock',{fixed:true});
+  try {await checkRules(args);}
+  finally {await args.control('add-clock',{});}
+}
+
+async function checkRules({page,base,persona,engine,theme,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}) {
   await page.clock.setFixedTime(new Date('2026-11-02T12:00:00Z'));
   const submitted=new Set();
   const get=async path=>{const response=await fetch(base+'api/'+path);assert.ok(response.ok,await response.clone().text());return response.json();};
@@ -108,7 +114,7 @@ export async function runRules({page,base,persona,engine,theme,width,stage,expec
   await add('Fable support 15 '+seed.currency,async()=>{await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeDisabled();await guess().getByLabel('Paying account',{exact:true}).selectOption(seed.pay);await expect(guess().getByRole('button',{name:'Add as usual',exact:true})).toBeEnabled();await guess().getByLabel('Use this account from now on',{exact:true}).check();await settled();await snap('rule-missing-payer');});
   assert.equal((await byName('Fable support')).postings.at(-1).account,seed.pay);
   const converted=await add('Lantern journal 10 '+seed.foreign,async()=>{await expect(guess()).toContainText('Planned conversion');await expect(guess()).toContainText('Statement reconciliation will correct it');await settled();await snap('rule-other-currency');});
-  assert.equal(converted.result.usual_payment.estimated,true);await expect(saved()).toContainText('Added at the planned conversion');
+  assert.equal(converted.result.usual_payment.estimated,true);await expect(page.locator(`.just-added-row[data-result-id="${converted.id}"]`).getByRole('article',{name:'Added payment'})).toContainText('Added at the planned conversion');
   assert.equal(await fakeCount(),beforeFake,'Every usual addition bypasses the agent');
   record('6c2 missing payer with remember choice and other-currency planned conversion');
   // Normal fake-agent additions expose automatically made and paused follow-ups.

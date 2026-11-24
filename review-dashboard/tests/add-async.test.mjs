@@ -2,6 +2,7 @@ import './test-isolation.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {deferred,hookHarness} from './hook-harness.mjs';
+import * as recurring from '../scripts/recurring-ui.mjs';
 
 const id='a'.repeat(32),file={id:'receipt',original_name:'Fictional-receipt.png',media_type:'image/png',size:20};
 class ApiError extends Error{constructor(status,message,body){super(message);this.status=status;this.refusal=body?.detail;}}
@@ -91,6 +92,30 @@ test('Live rule refresh waits 30s and rejects an older held snapshot after a new
  try{
   h.render(m=>m.useRules(true));requests[0].resolve({rules:[{id:'first'}]});await h.settle();await h.advance(29999);assert.equal(requests.length,1);await h.advance(1);assert.equal(requests.length,2);
   const next=h.current.refresh();requests[2].resolve({rules:[{id:'new'}]});await next;await h.settle();requests[1].resolve({rules:[{id:'old'}]});await h.settle();assert.equal(h.current.data.rules[0].id,'new','A poll cannot undo a newer rule action');
+  const disconnected=h.current.refresh();h.render(m=>m.useRules(false));await h.settle();assert.equal(h.current.ready,false);
+  h.render(m=>m.useRules(true));requests[4].resolve({rules:[{id:'reconnected'}]});await h.settle();
+  requests[3].resolve({rules:[{id:'old connection'}]});await disconnected;await h.settle();
+  assert.equal(h.current.data.rules[0].id,'reconnected','An earlier connection cannot publish after reconnect');
+ }finally{h.close();}
+});
+
+test('Successful rule operation publishes the saved rule before a later held read releases',async()=>{
+ const reads=[],post=deferred(),snapshot=description=>({rules:[{id:'dues',description}],suggestions:[]});
+ const h=hookHarness('../app/live/rules-api.ts',{
+  '../data':{reloadData:async()=>{},fetchGzipJson:async()=>({rules:[]})},'../date-time':{clientTime:()=>({})},'./use-drafts':{draftsChanged(){}},
+  './api':{request(path){if(path!=='rules')return post.promise;const hold=deferred();reads.push(hold);return hold.promise;}},
+ });
+ try{
+  h.render(m=>{const view=m.useRules(true);return {view,op:m.useRuleOperation(view.refresh)};});
+  reads[0].resolve(snapshot('Hawthorn dues'));await h.settle();
+  h.events.dispatchEvent(new Event('drafts-changed')); // Pre-commit read, answered late.
+  const saving=h.current.op.operate({action:'edited',rule_id:'dues'});
+  post.resolve({});await h.settle();assert.equal(reads.length,3);
+  h.events.dispatchEvent(new Event('drafts-changed')); // Newer background read starts before Save finishes.
+  reads[2].resolve(snapshot('Hawthorn annual dues'));assert.equal(await saving,true);await h.settle();
+  assert.equal(h.current.view.data.rules[0].description,'Hawthorn annual dues','Closing the editor can now release the saved Rules view');
+  reads[3].resolve(snapshot('Hawthorn annual dues'));reads[1].resolve(snapshot('Hawthorn dues'));await h.settle();
+  assert.equal(h.current.view.data.rules[0].description,'Hawthorn annual dues','A late pre-commit read cannot bring the old card back');
  }finally{h.close();}
 });
 
@@ -164,6 +189,40 @@ test('A rule match answered after its request was aborted cannot replace the new
  }finally{h.close();}
 });
 
+test('Usual payment keeps the native payer and amount choice through a rule refresh',async()=>{
+ const read=deferred(),pay='Assets:Bank:Willow',sent=[];
+ const dashboard={meta:{ledger:{defaultCurrency:'EUR',locale:'en-GB'},accounts:{[pay]:{kind:'bank',currency:'GBP'}}}};
+ const match={matched_words:['fable'],matched_amounts:[]};
+ const rule={id:'fable',description:'Fable support',date:'2026-11-02',schedule:{every:'month',from:'2026-11-02'},postings:[
+  {account:'Expenses:Fable support',amount:'15.00',commodity:'EUR',cost:{amount:'12.00',commodity:'GBP',per:'total'}},
+  {account:'Equity:Rule Unassigned',amount:'-12.00',commodity:'GBP'},
+ ]};
+ const props={rule,match,text:'Fable support 16 EUR',onAdd:body=>sent.push(body),onDecline(){}};
+ const element=(type,props)=>({type,props});
+ const h=hookHarness('../app/live/rule-guess.tsx',{
+  '../data':{dashboard},'../date-time':{localDate:()=> '2026-11-02'},'../ui':{dayLabel:day=>day,money:(n,c)=>`${n} ${c}`},'../rules':{},'./builder':{},
+  '../../scripts/recurring-ui.mjs':recurring,'./rules-api':{},'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'},
+ });
+ const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
+ const find=predicate=>nodes(h.current).find(predicate),select=()=>find(n=>n.type==='select'),button=()=>find(n=>n.type==='button'&&n.props.children==='Add as usual');
+ try{
+  h.render(m=>{const choice=m.RuleGuessChoice(props);return choice.type(choice.props);});
+  const refresh=read.promise.then(rule=>{props.rule=rule;h.render();});
+  find(n=>n.props.type==='radio').props.onChange();await h.settle();
+  assert.equal(button().props.disabled,true);
+  const input={value:pay},event={target:input,currentTarget:input};
+  select().props.onInputCapture?.(event);
+  read.resolve({...rule,version:'live'});await refresh;
+  input.value=select().props.value; // Replay controlled writeback before the bubbling input or change.
+  (select().props.onInput||select().props.onChange)(event);await h.settle();
+  assert.equal(select().props.value,pay);
+  assert.equal(find(n=>n.props.type==='radio').props.checked,true);
+  assert.match(nodes(h.current).find(n=>n.props.className==='rule-conversion').props.children.join(''),/Planned conversion: 15 EUR at 12 GBP/);
+  assert.equal(button().props.disabled,false);button().props.onClick();
+  assert.equal(sent[0].account,pay);assert.equal(sent[0].amount,'16');assert.equal(sent[0].update_rule,false);assert.equal(sent[0].version,'live');
+ }finally{h.close();}
+});
+
 test('Just added ignores held lookups after a newer visit or removal',async()=>{
  let ids=[{id,type:'draft'}],removed=false;const requests=[];
  const h=hookHarness('../app/live/add-results.tsx',{
@@ -174,6 +233,22 @@ test('Just added ignores held lookups after a newer visit or removal',async()=>{
  try{
   render();ids=[];h.events.dispatchEvent(new Event('add-results-changed'));await h.settle();requests[0].resolve({id,state:'working'});await h.settle();assert.equal(h.current.length,0);
   ids=[{id,type:'draft'}];h.events.dispatchEvent(new Event('add-results-changed'));await h.settle();removed=true;requests[1].resolve({id,state:'question'});await h.settle();render();assert.equal(h.current.length,0,'Removed rows cannot reappear from a late get');
+ }finally{h.close();}
+});
+
+test('A saved usual payment receipt stays visible while Queue and draft reads still show it working',async()=>{
+ const working={id,state:'working',text:'Lantern journal'},added={...working,state:'added',result:{audit_id:id,usual_payment:{estimated:true}}};
+ const read=deferred(),live={drafts:[working],statements:[]};
+ const h=hookHarness('../app/live/add-results.tsx',{
+  '../data':{dashboard:{transactions:[]}},'../ui':{announce(){}},'./api':{isRemoved:()=>false,api:{get:()=>read.promise}},'./statements-api':{},
+  './add-visit':{readVisit:()=>[{id,type:'draft'}]},'./rule-saved':{},'./receipt-reading':{},'../dashboard':{},'../first-run':{},'../rules':{},'react/jsx-runtime':{},
+ });
+ try{
+  h.render(m=>m.useAddResults(live));assert.equal(h.current[0].value.state,'working');
+  h.events.dispatchEvent(new CustomEvent('direct-write-saved',{detail:{path:`drafts/${id}/usual`,result:added}}));await h.settle();
+  assert.equal(h.current[0].value.result?.usual_payment?.estimated,true,'The acknowledged receipt is ready before either read returns');
+  read.resolve(working);await h.settle();
+  assert.equal(h.current[0].value.result?.usual_payment?.estimated,true,'An older read cannot hide the conversion notice');
  }finally{h.close();}
 });
 

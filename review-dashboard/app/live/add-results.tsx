@@ -15,9 +15,31 @@ export function statementStatus(s:StatementSession){return s.state==='applied'?'
 export function useAddResults(live:LiveDrafts){
  const [ids,setIds]=useState(readVisit),[saved,setSaved]=useState<Record<string,Draft|StatementSession>>({});
  const statuses=useRef<Record<string,string>>({}),initialIds=useRef(new Set(ids.map(x=>x.id)));
- useEffect(()=>{const update=()=>setIds(readVisit());window.addEventListener('add-results-changed',update);return()=>window.removeEventListener('add-results-changed',update);},[]);
- useEffect(()=>{let alive=true;void Promise.all(ids.filter(item=>!isRemoved(item.id)&&!live.drafts.some(d=>d.id===item.id&&d.trashed_at)).map(async item=>{try{return [item.id,item.type==='draft'?await api.get(item.id):await statementsApi.get(item.id)] as const;}catch{return null;}})).then(rows=>{if(alive)setSaved(old=>({...old,...Object.fromEntries(rows.filter(x=>x!==null))}));});return()=>{alive=false;};},[ids,live.drafts,live.statements]);
- const rows=ids.map(item=>({...item,value:item.type==='draft'?live.drafts.find(d=>d.id===item.id)||saved[item.id]:live.statements.find(s=>s.id===item.id)||saved[item.id]})).filter((item):item is VisitResult&{value:Draft|StatementSession}=>!!item.value);
+ useEffect(()=>{
+  const update=()=>setIds(readVisit());
+  const acknowledge=(event:Event)=>{
+   const detail=(event as CustomEvent<{path:string;result?:Draft}>).detail,draft=detail?.result;
+   if(draft?.state==='added'&&detail.path===`drafts/${draft.id}/usual`)setSaved(old=>({...old,[draft.id]:draft}));
+  };
+  window.addEventListener('add-results-changed',update);window.addEventListener('direct-write-saved',acknowledge);
+  return()=>{window.removeEventListener('add-results-changed',update);window.removeEventListener('direct-write-saved',acknowledge);};
+ },[]);
+ useEffect(()=>{
+  let alive=true;
+  const visible=ids.filter(item=>!isRemoved(item.id)&&!live.drafts.some(d=>d.id===item.id&&d.trashed_at));
+  void Promise.all(visible.map(async item=>{try{return [item.id,item.type==='draft'?await api.get(item.id):await statementsApi.get(item.id)] as const;}catch{return null;}})).then(rows=>{
+   if(alive)setSaved(old=>({...old,...Object.fromEntries(rows.filter(row=>row!==null)
+    .filter(([id,value])=>!hasUsualReceipt(old[id])||value.state==='added'))}));
+  });
+  return()=>{alive=false;};
+ },[ids,live.drafts,live.statements]);
+ const rows=ids.map(item=>{
+  const found=saved[item.id];
+  if(item.type==='statement')return {...item,value:live.statements.find(s=>s.id===item.id)||found};
+  const listed=live.drafts.find(d=>d.id===item.id);
+  // The Queue list may still show the draft before its save was acknowledged.
+  return {...item,value:hasUsualReceipt(found)&&listed?.state!=='added'&&!listed?.trashed_at?found:listed||found};
+ }).filter((item):item is VisitResult&{value:Draft|StatementSession}=>!!item.value);
  useEffect(()=>{for(const row of rows){const status=row.type==='draft'?draftStatus(row.value as Draft):statementStatus(row.value as StatementSession);const old=statuses.current[row.id];if((old&&old!==status)||(!old&&!initialIds.current.has(row.id)&&['Added','Applied','Needs an answer','Needs decisions'].includes(status)))announce(`${status}: ${row.type==='draft'?(row.value as Draft).result?.description||(row.value as Draft).text:(row.value as StatementSession).original_name}`);statuses.current[row.id]=status;}},[rows]);
  return rows.filter(row=>{
   if(isRemoved(row.id)||(row.value as Draft).trashed_at)return false;
@@ -25,6 +47,7 @@ export function useAddResults(live:LiveDrafts){
   return !entryId||dataStatus?.data_stale||!dashboard?.transactions||dashboard.transactions.some(entry=>entry.storeId===entryId||entry.id===entryId);
  });
 }
+const hasUsualReceipt=(value:Draft|StatementSession|undefined)=>value?.state==='added'&&!!value.result?.usual_payment;
 export function AddResults({live,rows}:{live:LiveDrafts;rows:ReturnType<typeof useAddResults>}){
  const [selected,setSelected]=useQueryState('entry','');
  const entry=dashboard.transactions.find(e=>e.id===selected||e.storeId===selected);
