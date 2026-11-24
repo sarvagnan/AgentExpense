@@ -12,10 +12,10 @@ inputs:
     default: "f76a2e4088e162b7658e43077502569d5a6fdacd219b19bfb9aab6588b69643a" # pragma: allowlist secret (public release digest)
   jj-version:
     description: Exact Jujutsu version
-    default: "0.46.0"
+    default: "0.47.1"
   jj-sha256:
     description: SHA-256 of that version's x86_64-unknown-linux-musl archive, from its GitHub release
-    default: "fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08" # pragma: allowlist secret (public release digest)
+    default: "d4b657f622ee50929c8916466dfa3d6a6c17a0a32b50e7b2c793707ec9ebcad7" # pragma: allowlist secret (public release digest)
 runs:
   using: composite
   steps:
