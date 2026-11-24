@@ -20,6 +20,7 @@ from review_lookup import (ReviewLookup, committed_snapshot, encode, evidence_pa
                            git, issue_grant, recorded_revision, review_task)
 from review_decisions import QUESTION, check_suggestion, rule_form_schema, suggestions_current
 from store import entries, ledger_models, load, read_json
+from weekly_review_report import carry_answers, carry_events, carry_plan, carry_scope, reject_repeated_finding, CARRY_SCHEMA
 
 
 def save(path, value):
@@ -87,7 +88,8 @@ def freeze_run(settings, *, trigger='manual', slot=None, run=None, started=None)
         entry_rules = {e['id']: e['rule']['id'] for e in entries(documents) if e['rule']}
     plan = dict(run_id=run, trigger=trigger, slot=slot, started=started or audit.stamp(), period=period([r['time'] for r in pending]),
                 missing_actors=[r['commit'] for r in history if not r.get('reason')],
-                history_errors=[r['reason'] for r in history if r.get('reason')], batches=list(batches(pending, rules, entry_rules)))
+                history_errors=[r['reason'] for r in history if r.get('reason')],
+                batches=carry_plan(list(batches(pending, rules, entry_rules)), records, revision))
     save(folder / 'plan.json', plan)
     return folder / 'plan.json'
 
@@ -102,7 +104,12 @@ def remaining(batch, records, rules, plan):
     active = {r['id'] for r in rules if r['lifecycle'] != 'removed'} - manual
     sources = {rule: [line for line in lines if line in eligible and (rule, line) not in closed]
                for rule, lines in batch['rules'].items() if rule in active}
-    return dict(lines=[line for line in batch['lines'] if line in pending], rules={r: s for r, s in sources.items() if s})
+    selected = dict(lines=[line for line in batch['lines'] if line in pending], rules={r: s for r, s in sources.items() if s})
+    if batch.get('carry'):
+        from review_decisions import open_issues
+        active_issues = open_issues(records)
+        selected['carry'] = [item for item in batch['carry'] if item['id'] in active_issues]
+    return selected
 
 
 def scope(root, work, revision, snapshot, batch):
@@ -172,6 +179,7 @@ def validate(raw, batch, review, needed, receipt_path):
     from jsonschema import Draft202012Validator
     answer = review_json(encode(raw) if isinstance(raw, dict) else raw)
     reject_invisible(answer)
+    carry = carry_answers(answer, batch.get('carry', []))
     if not Draft202012Validator(SCHEMA).is_valid(answer):
         raise ValueError('Use only the fields and verdicts in the review schema')
     seen = set(receipt_path.read_text().splitlines()) if receipt_path.exists() else set()
@@ -193,13 +201,14 @@ def validate(raw, batch, review, needed, receipt_path):
                     raise ValueError('Both offered choices need text')
             identity = item[identifier]
             if item['verdict'] == 'issue':
+                reject_repeated_finding(item, batch.get('carry', []))
                 allowed = {e for e, source in review.grant.evidence.items() if source.get('line') == identity}
                 if set(item['evidence']) - allowed or (allowed and not item['evidence']):
                     raise ValueError('Cite evidence IDs issued for that audit line')
             elif item['verdict'] == 'ok' and identity in uncovered or item['verdict'] == 'confirm' and (
                     encode(['rule', [identity]]) not in seen or uncovered.intersection(expected[identity])):
                 raise ValueError('Check all required records and evidence, or report an issue')
-    return answer
+    return {**answer, 'carry': carry}
 
 
 def run_batch(settings, plan_path, batch_number, *, batch=None, one_turn=False, cancel=None):
@@ -279,10 +288,13 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                     if retry:
                         deadline = time.monotonic() + timeout
                     lookup = ReviewLookup(root, replace(review.grant, expires=time.time() + deadline - time.monotonic()), receipts=attempt / 'receipts.jsonl')
+                    context = carry_scope(lookup, selected.get('carry', []))
                     images = lookup.images(attempt)
                     unavailable, needed = set(), {line: list(calls) for line, calls in required.items()}
                     for handle, source in lookup.grant.evidence.items():
                         line = source['line']
+                        if line not in needed:
+                            continue
                         pages = lookup.evidence_pages(handle)
                         if pages is None:
                             unavailable.add(line)
@@ -300,7 +312,12 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                               'For issues, propose a complete ready entry answer or a complete rule form '
                               '(description, date, status, postings, schedule, amount, notes) only for a target from that source. '
                               'Use question-only when unsure and report any unavailable source. ' + error)
-                    task = review_task(settings, attempt, lookup.grant, prompt, output_schema(snapshot), deadline,
+                    schema = output_schema(snapshot)
+                    if effective.get('carry'):
+                        prompt += context
+                        schema['properties']['carry'] = CARRY_SCHEMA
+                        schema['required'].append('carry')
+                    task = review_task(settings, attempt, lookup.grant, prompt, schema, deadline,
                                        prepared=(lookup, images), **({'cancel': cancel} if cancel is not None else {}))
                     try:
                         task.remaining()
@@ -349,7 +366,8 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                                      period=period([review.lines[line]['time'] for line in selected['lines']]),
                                      checked=len(answer['lines']), issues=sum(r['verdict'] == 'issue' for r in answer['lines']))
                 audit.review(root, answer['lines'] + answer['rules'], f'{reviewer.adapter}/{reviewer.model}', 'Weekly review batch',
-                             lock_fd=fd, marker=marker, rule_sources=state['rules'], publish=tx.publish_audit)
+                             lock_fd=fd, marker=marker, rule_sources=state['rules'], publish=tx.publish_audit,
+                             carry=carry_events(plan['run_id'], selected.get('carry', []), answer.get('carry', [])))
         except BlockingIOError:
             return dict(status='busy')
     return dict(status='committed', marker=marker)

@@ -83,14 +83,8 @@ def command_failure(exc):
 
 
 def reject_invisible(value, field='answer'):
-    if isinstance(value, str) and any(unicodedata.category(c) in ('Cc', 'Cf') for c in value):
-        raise ProposalError(f'{field}: invisible or control character')
-    if isinstance(value, dict):
-        for key, item in value.items():
-            reject_invisible(item, f'{field}.{key}')
-    elif isinstance(value, list):
-        for item in value:
-            reject_invisible(item, field)
+    from audit import reject_invisible as check_text
+    check_text(value, field, error=ProposalError)
 
 
 def to_store(answer, root, file_count, *, documents=None):

@@ -1,6 +1,7 @@
 """Controlled calendar and FIFO tests for scheduled weekly review."""
 from dataclasses import replace
 from datetime import timedelta
+import json
 from threading import Event, Thread
 import time
 from unittest.mock import Mock, patch
@@ -33,6 +34,11 @@ class WeeklyReviewTests(Fixture):
             time.sleep(.02)
 
     def review(self, task):
+        if 'fine' in task.schema['properties']:
+            notes = json.loads(task.lookups.call('review_run_facts', {})['data'])
+            checked = [row['line_id'] for row in notes['verdicts'] if row.get('verdict') == 'ok']
+            return Result(dict(fine=[dict(lines=checked, reason='Checked fictional records')] if checked else [],
+                               decisions=[row['id'] for row in notes['decisions']], patterns=[]))
         lines = []
         for row in task.lookups.call('review_pending', {})['items']:
             task.lookups.call('review_audit_line', {'line_id': row['id']})
@@ -141,7 +147,7 @@ class WeeklyReviewTests(Fixture):
                 publish.set()
                 worker.close()
         self.assertEqual(observed, [0, 0])
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)
         self.assertEqual([row['line_id'] for row in audit.records(self.ledger) if row['kind'] == 'review'], lines)
         finish = worker.weekly.status(0, 20)['history'][0]
         self.assertEqual((finish['run_id'], finish['status'], finish['checked']), (run_id, 'partial', 2))
@@ -205,7 +211,7 @@ class WeeklyReviewTests(Fixture):
             tick += 30
             while worker.weekly.tick():
                 pass
-            self.assertEqual(adapter.run.call_count, calls)
+            self.assertEqual(adapter.run.call_count, calls + 1)
             self.assertEqual(worker.weekly.status(0, 20)['history'][0]['checked'], 1)
             self.assertIsNone(worker.review_pause.status())
             self.assertEqual(worker.pause.status()['kind'], 'usage_limit')

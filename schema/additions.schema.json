@@ -32,7 +32,9 @@
         "baseline",
         "weekly-review-run",
         "review-resolution",
-        "review-message"
+        "review-message",
+        "review-carry-over",
+        "weekly-review-summary"
       ]
     },
     "time": {
@@ -40,6 +42,8 @@
       "format": "date-time"
     },
     "run_id": {"$ref": "#/properties/id"},
+    "prior_turns": {"type": "array", "maxItems": 6, "uniqueItems": true, "items": {"$ref": "#/properties/id"}},
+    "report": {"$ref": "#/$defs/weeklyReport"},
     "batch": {"type": "integer", "minimum": 1},
     "trigger": {"enum": ["manual", "scheduled"]},
     "slot": {"type": ["string", "null"], "format": "date"},
@@ -1262,6 +1266,24 @@
   },
   "allOf": [
     {
+      "if": {"properties": {"kind": {"const": "review-carry-over"}}},
+      "then": {"required": ["run_id", "review_issue_id", "decide", "prior_turns"],
+               "propertyNames": {"enum": ["version", "id", "kind", "time", "run_id", "review_issue_id", "decide", "prior_turns"]}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "weekly-review-summary"}}},
+      "then": {"required": ["run_id", "report"],
+               "propertyNames": {"enum": ["version", "id", "kind", "time", "run_id", "report"]}}
+    },
+    {
+      "if": {"required": ["prior_turns"]},
+      "then": {"properties": {"kind": {"const": "review-carry-over"}}}
+    },
+    {
+      "if": {"required": ["report"]},
+      "then": {"properties": {"kind": {"const": "weekly-review-summary"}}}
+    },
+    {
       "if": {"anyOf": [{"required": ["reply_to"]}, {"required": ["message_evidence"]}]},
       "then": {"properties": {"kind": {"const": "review-message"}}}
     },
@@ -1283,7 +1305,7 @@
     },
     {
       "if": {"required": ["review_issue_id"]},
-      "then": {"properties": {"kind": {"enum": ["review-message", "review-resolution", "correction", "rule"]}}}
+      "then": {"properties": {"kind": {"enum": ["review-message", "review-carry-over", "review-resolution", "correction", "rule"]}}}
     },
     {
       "if": {"required": ["evidence_refs"]},
@@ -1619,7 +1641,7 @@
             "run_id", "batch", "trigger", "slot", "started", "ended", "adapter", "model", "effort",
             "period", "checked", "issues", "status", "rule_sources", "decide", "evidence", "choices", "suggestion", "evidence_refs",
             "review_issue_id", "review_suggestion_id", "review_suggestion_edited", "review_proposal_id",
-            "reply_to", "message_evidence"
+            "reply_to", "message_evidence", "prior_turns", "report"
           ]
         }
       }
@@ -1714,6 +1736,19 @@
   },
   "$defs": {
     "reviewText": {"type": "string", "minLength": 1, "maxLength": 600},
+    "reviewRefs": {"type": "array", "maxItems": 3200, "uniqueItems": true,
+                   "items": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
+    "weeklyReport": {"type": "object", "additionalProperties": false, "required": ["fine", "decisions", "patterns"],
+      "properties": {
+        "fine": {"type": "array", "maxItems": 200, "items": {"type": "object", "additionalProperties": false,
+          "required": ["reason", "lines"], "properties": {"reason": {"$ref": "#/$defs/reviewText"},
+            "lines": {"$ref": "#/$defs/reviewRefs", "minItems": 1}}}},
+        "decisions": {"$ref": "#/$defs/reviewRefs"},
+        "patterns": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": false,
+          "required": ["note", "citations", "suggested_change"], "properties": {"note": {"$ref": "#/$defs/reviewText"},
+            "citations": {"$ref": "#/$defs/reviewRefs", "minItems": 1, "maxItems": 20},
+            "suggested_change": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/reviewText"}]}}}}
+      }},
     "reason": {
       "enum": [
         "amount-date-gap",

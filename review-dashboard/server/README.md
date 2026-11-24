@@ -585,11 +585,16 @@ Publication waits for a clean ledger and takes the writer lock nonblocking.
 
 - `GET /api/review/weekly` accepts `offset` and `limit`. It returns the current
   schedule, gate and pause, the active run with committed progress, and paged
-  finish records with any retained history diagnostics.
-- `POST /api/review/weekly` accepts `action` (`start`, `retry` or
+  finish records with history diagnostics and their committed numbered reports.
+  Carried findings keep their Queue identity and first-raised date. Report
+  decisions include the current resolution when one has been recorded.
+- `POST /api/review/weekly` accepts `action` (`start`, `retry`, `retry-summary` or
   `close-partial`) and a 32-hex `request_id`. Retry and close also take a
   `run_id`. Start joins an active run or queues a manual run. After a reviewer
-  profile change, Retry continues the outstanding work in a new run.
+  profile change, Retry continues the outstanding work in a new run. The
+  summary runs after the final batch in its own idle turn. The active run then
+  shows `stage: "summary"` and can return `retry_action: "retry-summary"`
+  after a failure. Retry resumes summary work from the committed verdicts.
 - `POST /api/settings/weekly-review` accepts `enabled`, `day` and a 32-hex
   `request_id`. The schedule uses server-local dates. Disabling it keeps the
   weekday, allows manual starts and leaves active work running.

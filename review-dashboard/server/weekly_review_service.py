@@ -19,10 +19,12 @@ from review_lookup import committed_snapshot
 from store import read_json
 from transactions import Transaction, clean
 from weekly_review_batch import freeze_run, period, run_batch, save
+from weekly_review_report import display_report, report_input, summarize
 
 
 DAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
 WAITING = 'Waiting for a clean ledger'
+FINISHED = ('completed', 'empty', 'partial')
 
 
 def due_slot(modules, today, satisfied):
@@ -38,9 +40,12 @@ def due_slot(modules, today, satisfied):
 
 def split(batch):
     """Keep each shared rule with the last of its source lines."""
-    return [dict(lines=[line], rules={rule: sources for rule, sources in batch['rules'].items()
-                                     if line == next(s for s in reversed(batch['lines']) if s in sources)})
-            for line in batch['lines']]
+    singles = [dict(lines=[line], rules={rule: sources for rule, sources in batch['rules'].items()
+                                        if line == next(s for s in reversed(batch['lines']) if s in sources)})
+               for line in batch['lines']]
+    if not singles and batch['rules']:
+        singles.append(dict(lines=[], rules=batch['rules']))
+    return singles + [dict(lines=[], rules={}, carry=[item]) for item in batch.get('carry', [])]
 
 
 class WeeklyReview:
@@ -75,8 +80,7 @@ class WeeklyReview:
         with TemporaryDirectory(dir=os.environ.get('EXPENSES_TEST_TMP', '/tmp')) as folder:
             snapshot = committed_snapshot(self.root, Path(folder), revision, audit_only=True)
             modules, rows = read_manifest(snapshot)['modules'], audit.records(snapshot)
-        published = revision, modules, [r for r in rows if r['kind'] == 'weekly-review-run' or
-                                        r['kind'] == 'rule-review' and r.get('run_id') and r['rule_verdict'] == 'propose-removal']
+        published = revision, modules, rows
         self.cached = published
         return published
 
@@ -90,30 +94,40 @@ class WeeklyReview:
 
     @staticmethod
     def progress(run, rows):
-        markers = [row for row in rows if row.get('run_id') == run['run_id'] and row.get('status') == 'batch']
+        markers = [row for row in rows if row['kind'] == 'weekly-review-run' and
+                   row['run_id'] == run['run_id'] and row['status'] == 'batch']
         return dict(checked=sum(row['checked'] for row in markers), issues=sum(row['issues'] for row in markers),
                     period=period([t for row in markers for t in row['period'] if t is not None]))
 
     def status(self, offset, limit):
         run = self.state()['active']
         _, modules, rows = self.published()
-        history = sorted((row for row in rows if row.get('status') in ('completed', 'empty', 'partial')),
+        history = sorted((row for row in rows if row['kind'] == 'weekly-review-run' and row['status'] in FINISHED),
                          key=lambda row: (datetime.fromisoformat(row['ended']), row['id']), reverse=True)
-        proposals = Counter(row['run_id'] for row in rows if row['kind'] == 'rule-review')
+        proposals = Counter(row['run_id'] for row in rows if row['kind'] == 'rule-review' and
+                            row.get('run_id') and row['rule_verdict'] == 'propose-removal')
+        carried = Counter(row['run_id'] for row in rows if row['kind'] == 'review-carry-over')
+        reports = {row['run_id']: row['report'] for row in rows if row['kind'] == 'weekly-review-summary'}
         if run and not any(row['run_id'] == run['run_id'] for row in history):
             active = {key: run[key] for key in ('run_id', 'trigger', 'slot', 'started', *self.reviewer)}
             active.update(self.progress(run, rows), **self.diagnostics(run), batch_count=len(run.get('batches', [])),
-                          committed_batches=sum(row['run_id'] == run['run_id'] and row.get('status') == 'batch' for row in rows),
-                          rule_proposals=proposals[run['run_id']],
+                          committed_batches=sum(row['kind'] == 'weekly-review-run' and row['run_id'] == run['run_id']
+                                                and row['status'] == 'batch' for row in rows),
+                          rule_proposals=proposals[run['run_id']], carried=carried[run['run_id']],
                           state='failed' if run.get('error') else 'closing' if run.get('closing') else
+                          'report-pending' if run.get('report_pending') else
                           'waiting' if self.waiting or self.pause.blocked() else 'running',
                           reason=run.get('error') or self.waiting)
+            if run.get('report_pending'):
+                active.update(stage='summary', retry_action='retry-summary' if run.get('error') else None)
         else:
             active = None
         return dict(enabled=modules['weeklyReview'], day=modules.get('weeklyReviewDay', 'Monday'),
                     enabled_on=modules.get('weeklyReviewEnabledOn'), active=active,
                     agent_pause=self.pause.status(), gate=self.gate.status(),
-                    history=[{**row, **self.diagnostics(row), 'rule_proposals': proposals[row['run_id']]}
+                    history=[{**row, **self.diagnostics(row), 'rule_proposals': proposals[row['run_id']], 'carried': carried[row['run_id']],
+                              'report': display_report(reports[row['run_id']], rows, self.settings.base_path)
+                              if row['run_id'] in reports else None}
                              for row in history[offset:offset + limit]],
                     next_offset=offset + limit if offset + limit < len(history) else None)
 
@@ -123,7 +137,7 @@ class WeeklyReview:
                     **self.reviewer, profile=self.profile, index=0)
 
     def slot(self, modules, rows):
-        satisfied = max((row['slot'] for row in rows if row.get('status') in ('completed', 'empty', 'partial')
+        satisfied = max((row['slot'] for row in rows if row['kind'] == 'weekly-review-run' and row['status'] in FINISHED
                          and row['slot']), default=None)
         return due_slot(modules, self.today(), satisfied)
 
@@ -157,7 +171,9 @@ class WeeklyReview:
             state.pop('replaced')
         elif not run or run_id != run['run_id']:
             raise ValueError('This weekly review run has changed')
-        elif action == 'retry':
+        elif action in ('retry', 'retry-summary'):
+            if action == 'retry-summary' and not run.get('report_pending'):
+                raise ValueError('This weekly review is not preparing a report')
             if run.get('closing') and not run.get('error'):
                 raise ValueError('This weekly review is closing')
             attempt = self.transaction(run).journal.with_name('attempt.json')
@@ -165,9 +181,10 @@ class WeeklyReview:
                 value = read_json(attempt)
                 save(attempt, {**value, 'error': '', 'failures': 0})
             run.pop('error', None)
+            run.pop('invalid_reports', None)
             agent_timeouts.reset(run)
         elif action == 'close-partial':
-            if self.transaction(run).journal.exists():
+            if any(self.transaction(run, finish=finish).journal.exists() for finish in (False, True)):
                 raise ValueError('Recover the interrupted weekly review batch first')
             run.update(closing=True, error=None)
         self.next_check, self.waiting = 0, None
@@ -209,10 +226,11 @@ class WeeklyReview:
                 if folder.is_dir() and not folder.is_symlink():
                     shutil.rmtree(folder)
 
-    def finish(self, run, rows, revision):
+    def finish(self, run, rows, revision, report=None):
         summary = self.progress(run, rows)
         diagnostics = self.diagnostics(run)
-        reviewed = any(row['run_id'] == run['run_id'] and row.get('status') == 'batch' for row in rows)
+        reviewed = any(row['kind'] == 'weekly-review-run' and row['run_id'] == run['run_id']
+                       and row['status'] == 'batch' for row in rows)
         status = 'partial' if run.get('closing') or any(diagnostics.values()) else 'completed' if reviewed else 'empty'
         with ledger_lock(self.root, blocking=False) as fd:
             if not clean(self.root) or identity(self.root, '@-')['commit'] != revision:
@@ -222,8 +240,39 @@ class WeeklyReview:
             tx.journal.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             fields = {key: run[key] for key in ('run_id', 'trigger', 'slot', 'started', *self.reviewer)}
             marker = audit.event('weekly-review-run', **fields, **summary, ended=audit.stamp(), status=status)
-            tx.publish_audit([marker], 'Finish weekly review', fd)
+            events = [] if report is None else [audit.event('weekly-review-summary', run_id=run['run_id'], report=report)]
+            tx.publish_audit([*events, marker], 'Finish weekly review', fd)
         return True
+
+    def report_turn(self, state, run, rows, revision, verdicts, decisions):
+        if not self.can_call():
+            return False
+        self.waiting = None
+        counts = {key: value for key, value in self.progress(run, rows).items() if key != 'period'}
+        counts.update(rule_proposals=sum(r.get('rule_verdict') == 'propose-removal' for r in verdicts),
+                      carried=sum(r['kind'] == 'review-carry-over' for r in verdicts))
+        try:
+            run['report_answer'] = summarize(self, revision, counts, verdicts, decisions)
+            run['report_decisions'] = [r['id'] for r in decisions]
+            agent_timeouts.reset(run)
+            self.pause.success()
+        except AdapterError as exc:
+            if self.stop.is_set():
+                return False
+            if agent_timeouts.failed(run, exc.kind):
+                run['error'] = 'The reviewer reached its deadline three times. Retry summary.'
+            elif exc.kind == 'bad_answer':
+                run['invalid_reports'] = run.get('invalid_reports', 0) + 1
+            elif exc.kind != 'timeout':
+                self.pause.fail(exc.kind, exc.reset_at)
+                self.ready = False
+        except (ValueError, TypeError, RecursionError):
+            agent_timeouts.reset(run)
+            run['invalid_reports'] = run.get('invalid_reports', 0) + 1
+        if run.get('invalid_reports', 0) >= 3:
+            run['error'] = 'The reviewer could not produce a checked report. Retry summary.'
+        self.write(state)
+        return not run.get('error')
 
     def delay(self):
         return max(0, self.next_check - self.clock())
@@ -266,7 +315,7 @@ class WeeklyReview:
                         not read_manifest(self.root)['modules']['weeklyReview']):
             return False
         revision, modules, rows = self.published()
-        finished = [row for row in rows if row.get('status') in ('completed', 'empty', 'partial')]
+        finished = [row for row in rows if row['kind'] == 'weekly-review-run' and row['status'] in FINISHED]
         if not run:
             if not (slot := self.slot(modules, finished)):
                 return False
@@ -282,8 +331,21 @@ class WeeklyReview:
         recorded = any(row['run_id'] == run['run_id'] for row in finished)
         exhausted = 'batches' in run and run['index'] == len(run['batches'])
         if recorded or run.get('closing') or exhausted:
-            if not recorded and (run.get('error') or not self.finish(run, rows, revision)):
-                return False
+            if not recorded:
+                if run.get('error'):
+                    return False
+                verdicts, decisions = report_input(run['run_id'], rows, self.root, revision)
+                if exhausted and not run.get('closing') and verdicts:
+                    if not run.get('report_pending'):
+                        run['report_pending'] = True
+                        self.write(state)
+                        return True
+                    if not run.get('report_answer') or run['report_decisions'] != [r['id'] for r in decisions]:
+                        return self.report_turn(state, run, rows, revision, verdicts, decisions)
+                    if not self.finish(run, rows, revision, run['report_answer']):
+                        return False
+                elif not self.finish(run, rows, revision):
+                    return False
             state['active'] = None
             self.waiting = None
             self.write(state)
@@ -317,7 +379,7 @@ class WeeklyReview:
                 agent_timeouts.reset(run)
                 self.pause.fail(exc.kind, exc.reset_at)
                 self.ready = False
-            elif len(batch['lines']) > 1:
+            elif len(batch['lines']) + bool(batch['rules'] and not batch['lines']) + len(batch.get('carry', [])) > 1:
                 run['batches'][run['index']:run['index']+1] = split(batch)
                 agent_timeouts.reset(run)
             elif agent_timeouts.failed(run, exc.kind):

@@ -59,6 +59,7 @@ def check_review_transport(settings, work, *, stop=None):
         ('tools/call', {'name': 'review_evidence', 'arguments': {'evidence_id': '../ledger.json'}}),
         ('tools/call', {'name': 'review_precedent', 'arguments': {'entry_id': 'f' * 16}}),
         ('tools/call', {'name': 'review_period_checks'}),
+        ('tools/call', {'name': 'review_run_facts'}),
         ('tools/call', {'name': 'read_file', 'arguments': {'path': '../ledger.json'}}),
     ]
     out = invoke(lookup.command, work, 20, environment=os.environ, stop=stop, data=''.join(

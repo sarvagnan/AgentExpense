@@ -865,11 +865,18 @@ hand changes attributed by the owner enter the backlog as ordinary audit lines.
 
 The `review-message` event records a dated owner (`user`) or reviewer turn, its
 issue, operation and reply-to IDs, and up to 2,000 characters of plain text.
-The first owner turn replies to the issue ID. Owner uploads are filed as
+An owner turn replies to the latest message or carry-over, falling back to the
+issue ID for the first turn. Owner uploads are filed as
 `Bills/Reviews/<issue>/<message>/<upload>.<extension>` in the same commit.
 Each attachment records its relative path, size and SHA-256 digest. A reviewer
 turn can carry a checked replacement suggestion. Messages leave issues open and
 stay out of the backlog.
+
+A run freezes open issues with their recent owner and reviewer turns.
+`review-carry-over` records the original issue ID, the run ID, the remaining
+question and up to six prior audit turn IDs. Each issue has at most one such
+event per run. The Queue keeps the original issue and date, and the event adds
+zero checked lines or new issues.
 
 Run markers record trigger, slot (or null for an unclaimed manual run), start and
 end, reviewer profile, checked-line and issue counts, and the oldest and newest
@@ -879,10 +886,20 @@ checked audit times (both null for zero lines). A batch marker has status
 have no run linkage or rule-source IDs. A legacy issue without `decide` asks
 the owner to review its cited record. The ledger format is unchanged.
 
+`weekly-review-summary` stores one checked report per run in the same commit as
+its finish marker. Fine groups partition the run's OK line IDs. Decision
+references cover the open new findings, active rule proposals and carried issues
+when the report is captured. Pattern citations resolve to checked line IDs or
+run verdict and carry-over IDs. Numbers derive from saved array order. Later
+resolutions update live status while preserving the original numbers and links.
+Summary and carry-over records stay out of `audit.py list --unreviewed`.
+Truly empty and explicitly closed partial runs can have a finish marker alone.
+
 Pending plans and validated answers live under `drafts/weekly-review/`. On
-recovery, a batch marker on committed `main` establishes completion. Otherwise
-the transaction can roll back its own interrupted append. A conflicting edit
-leaves the transaction journal available for manual reconciliation.
+recovery, the batch or finish marker on committed `main` establishes completion.
+A failed or interrupted report resumes after the committed batches. Without a
+committed marker, the transaction can roll back its own interrupted append.
+A conflicting edit leaves the journal available for manual reconciliation.
 
 ### What the migration converts, refuses and declares
 

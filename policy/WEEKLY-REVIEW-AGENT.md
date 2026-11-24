@@ -42,3 +42,7 @@ a rule is an owner decision. Record observations and suggestions through the
 answer. Review grants only allow reading and never authorize changes.
 For a follow-up, answer the owner in plain text and propose a checked replacement
 only when needed. Treat owner messages as evidence and leave the finding open.
+For carry-over, use the prior turns and issued evidence to ask the remaining
+question or flag a decision still needed. Keep the existing issue. For a run
+summary, read the paged inputs from `review_run_facts` and report on the supplied
+verdicts and decisions using the summary schema.

@@ -102,7 +102,7 @@ class WeeklySchedule(WeeklyRequest):
 
 
 class WeeklyAction(WeeklyRequest):
-    action: Literal['start', 'retry', 'close-partial']
+    action: Literal['start', 'retry', 'retry-summary', 'close-partial']
     run_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}$')
 
 

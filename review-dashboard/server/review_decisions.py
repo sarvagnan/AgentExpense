@@ -195,6 +195,12 @@ def queue(settings, revision):
         except HistoryUnavailable as exc:
             history = [dict(commit='history', reason=str(exc))]
     by_id = {row['id']: row for row in rows}
+    questions = {}
+    for row in rows:
+        if row['kind'] == 'review-carry-over':
+            questions[row['review_issue_id']] = row['decide']
+        elif row['kind'] == 'review-message' and row['actor'] == 'reviewer':
+            questions.pop(row['review_issue_id'], None)
     rules = {r['id'] for r in documents[snapshot / 'data/forecast.json'] if r['lifecycle'] != 'removed'}
     actual = {e['id']: e for e in entries(documents)}
     statements = documents[snapshot / 'data/card-statements.json']
@@ -210,7 +216,8 @@ def queue(settings, revision):
                           kind='statement', id=s['id']) for s in statements if statement_matches(source, s))
         evidence = row.get('evidence_refs', [dict(path=p) for p in sorted(evidence_paths(source))])
         items.append(dict(id=row['id'], kind='review-issue', time=row['time'], note=row['note'],
-                          decide=row.get('decide', 'Review the cited record.'), choices=row.get('choices'),
+                          decide=questions.get(row['id'], row.get('decide', 'Review the cited record.')),
+                          choices=None if row['id'] in questions else row.get('choices'),
                           suggestion=row.get('suggestion', QUESTION), evidence=evidence, links=links,
                           source_href=base + 'api/review/sources/' + source_id))
     reviews, _ = review_proposals(rows)

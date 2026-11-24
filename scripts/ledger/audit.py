@@ -10,6 +10,7 @@ import re
 import secrets
 import subprocess
 import sys
+import unicodedata
 from contextvars import ContextVar
 from dataclasses import dataclass
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
@@ -38,6 +39,24 @@ def stamp():
 
 def event(kind, **fields):
     return dict(version=1, id=secrets.token_hex(16), kind=kind, time=stamp(), **fields)
+
+
+def reject_invisible(value, field='answer', *, error=ValueError):
+    if isinstance(value, str) and any(unicodedata.category(c) in ('Cc', 'Cf') for c in value):
+        raise error(f'{field}: invisible or control character')
+    if isinstance(value, dict):
+        for key, item in value.items():
+            reject_invisible(item, f'{field}.{key}', error=error)
+    elif isinstance(value, list):
+        for item in value:
+            reject_invisible(item, field, error=error)
+
+
+def validate_event(validator, record):
+    validator.validate(record)
+    validate_consent(record)
+    if record['kind'] in ('review-carry-over', 'weekly-review-summary'):
+        reject_invisible(record, record['kind'])
 
 
 class UnknownAuditField(ValueError):
@@ -114,8 +133,7 @@ def records(root=ROOT):
                     with memo.lock: checked = key in memo.audit_lines
                 else: checked = False
                 if not checked:
-                    validator.validate(record)
-                    validate_consent(record)
+                    validate_event(validator, record)
                     if memo is not None:
                         with memo.lock:
                             if len(memo.audit_lines) > 100000: memo.audit_lines.clear()
@@ -154,8 +172,7 @@ def append(root, record, *, lines=None):
     """Caller holds the lock; optional lines are its current locked audit snapshot."""
     if isinstance(record, dict) and 'legacy' in record:
         raise ValidationError("'legacy' is reserved for the older audit read view")
-    Draft202012Validator(read_json(SCHEMA), format_checker=FORMATS).validate(record)
-    validate_consent(record)
+    validate_event(Draft202012Validator(read_json(SCHEMA), format_checker=FORMATS), record)
     current = records(root) if lines is None else lines
     if record['kind'] == 'change' and any(r['kind'] == 'change' and r['id'] != record['id'] and
             (r['change_id'] == record['change_id'] or record['commit'] and r['commit'] == record['commit']) for r in current):
@@ -355,7 +372,7 @@ def warn_unrecorded(root, lines):
 
 
 def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make_commit,
-           lock_fd=None, marker=None, rule_sources=None, publish=None):
+           lock_fd=None, marker=None, rule_sources=None, publish=None, carry=()):
     """Validate verdicts, using the caller's audit-only transaction for weekly batches."""
     if lock_fd is None:
         with ledger_lock(root) as fd:
@@ -364,7 +381,7 @@ def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make
         require_lock(root, lock_fd)
         if publish is None:
             raise ValueError('Weekly review requires the held ledger lock and an audit transaction')
-    if not verdicts:
+    if not verdicts and not (marker and carry):
         raise ValueError('No verdicts given')
     if not reviewer.strip():
         raise ValueError('The reviewer must be named')
@@ -404,8 +421,7 @@ def review(root, verdicts, reviewer, message, *, clean=ledger_clean, commit=make
     if any(row['kind'] == 'review' and row['line_id'] in seen for row in lines):
         raise ValueError('The audit line already has a verdict')
     if marker:
-        additions.append(marker)
-        return publish(additions, message, lock_fd)
+        return publish([*additions, *carry, marker], message, lock_fd)
     return _append_commit(root, additions, message, lock_fd, commit)
 
 

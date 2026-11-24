@@ -23,7 +23,7 @@ from store import entries, load
 PAGE, SOURCE, PIXELS = 24 * 1024, 16 * 1024 * 1024, 4_000_000
 COMMIT = r'[0-9a-f]{40}'
 TOOLS = {
-    'pending': ('List the selected audit lines and rule obligations', None, 'limit'),
+    'pending': ('List the selected audit lines, rule obligations and carry-over questions', None, 'limit'),
     'audit_line': ('Read a selected audit record', 'line_id', None),
     'entry': ('Read a linked or discovered entry', 'entry_id', None),
     'rule': ('Read a linked rule and payment history', 'rule_id', None),
@@ -32,6 +32,7 @@ TOOLS = {
     'evidence': ('Read evidence by its issued ID', 'evidence_id', 'page'),
     'precedent': ('Find earlier payee or account examples and owner decisions', None, None),
     'period_checks': ('Check duplicates, balances and statements for the pinned period', None, None),
+    'run_facts': ('Read the current run verdicts, decisions, counts and period checks for its summary', None, None),
 }
 NAMES = {'review_' + name for name in TOOLS}
 
@@ -80,6 +81,8 @@ class ReviewGrant:
     evidence: dict
     expires: float
     key: str
+    carry: tuple = ()
+    report: dict | None = None
 
 
 def issue_grant(root, work, revision, lines, evidence=None, *, rules=(), timeout=180, snapshot=None):
@@ -105,13 +108,17 @@ def issue_grant(root, work, revision, lines, evidence=None, *, rules=(), timeout
         for path, commit in sources.items():
             handle = hashlib.sha256(encode([row['id'], path]).encode()).hexdigest()[:32]
             evidence.setdefault(handle, {'path': path, 'line': row['id'], 'revision': commit})
-    for source in evidence.values():
+    validate_evidence(root, revision, evidence.values())
+    return ReviewGrant(str(snapshot), revision, tuple(lines), tuple(rules), evidence, expires, secrets.token_hex(32))
+
+
+def validate_evidence(root, revision, sources):
+    for source in sources:
         evidence_path(source['path'])
         historical = source.get('revision', revision)
         if historical and (not re.fullmatch(COMMIT, historical) or read_jj(
                 root, 'log', '-r', f'{historical} & ::{revision}', '--no-graph', '-T', 'commit_id', limit=256) != historical):
             raise ValueError('invalid_evidence_revision')
-    return ReviewGrant(str(snapshot), revision, tuple(lines), tuple(rules), evidence, expires, secrets.token_hex(32))
 
 
 def probe_grant(root):
@@ -239,11 +246,15 @@ class ReviewLookup:
         return result
 
     def period_checks(self, store, cursor=None):
+        report = self.period_report(store)
+        return self.page('period_checks', [], report, cursor) if report is not None else {'status': 'outside_grant'}
+
+    def period_report(self, store):
         from check_store import check_card_statements
         from review import snapshot
         from strict_check import StrictCheckError, check
         if not self.lines:
-            return {'status': 'outside_grant'}
+            return None
         if not hasattr(self, '_period_report'):
             selected = [e for e in store.VISIBLE if e['id'] in self.source_entries]
             days = [e['date'] for e in selected] + [row['statement']['periodEnd'] for row in self.lines.values()
@@ -280,7 +291,7 @@ class ReviewLookup:
                                               'matching_reference' if same_ref else 'matching_amount_near_date')
             self._period_report = dict(period=[start, end], mismatches=mismatches, statements=statements,
                                        suspected_duplicates=[dict(entries=ids, reason=why) for ids, why in sorted(duplicates.items())])
-        return self.page('period_checks', [], self._period_report, cursor)
+        return self._period_report
 
     def check(self):
         return {'status': 'expired_grant'} if time.time() >= self.grant.expires else None
@@ -335,10 +346,17 @@ class ReviewLookup:
         end = offset + limit
         result = {'items': rows[offset:end], 'rules': list(self.grant.rules),
                   'next': token(end) if end < len(rows) else None}
+        if self.grant.carry:
+            result['carry'] = list(self.grant.carry)
         if len(encode(result).encode()) > PAGE:
             return {'status': 'page_limit', 'note': 'Read individual audit lines for all source handles.',
-                    'items': [{'id': row['id']} for row in rows[offset:end]], 'next': result['next']}
+                    **result, 'items': [{'id': row['id']} for row in rows[offset:end]]}
         return result
+
+    def run_facts(self, cursor=None):
+        if self.grant.report is None:
+            return {'status': 'outside_grant'}
+        return self.page('run_facts', [], self.grant.report, cursor)
 
     def evidence_handles(self, value):
         return {identity: {'label': source.get('label') or Path(source['path']).name, 'pages': source.get('pages')}
