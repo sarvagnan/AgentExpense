@@ -1,6 +1,0 @@
-[Unit]
-Description=Expense ledger weekly review
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh /path/to/private/run-weekly-review.sh

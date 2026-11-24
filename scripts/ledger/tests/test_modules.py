@@ -15,7 +15,6 @@ from generate_ledger import render
 from check_store import check, check_price_coverage
 from ledger_manifest import read_manifest, module_settings, old_ledger_path, deprecated_old_ledger
 from project_paths import APPLICATION_ROOT
-from weekly_review import summary
 
 spec = importlib.util.spec_from_file_location('price_dispatch', APPLICATION_ROOT / 'scripts/prices/fetch_fund_navs.py')
 prices = importlib.util.module_from_spec(spec)
@@ -59,7 +58,6 @@ class ModuleTests(Fixture):
             check(self.root)
             self.assertNotIn('include data/prices', render(documents, self.root))
             self.assertFalse(prices.update(self.root))
-            self.assertIn('off', summary(self.root))
         self.assertIn('does not list the fuel extension', output.getvalue())
 
     def test_manual_prices_preserve_journal_without_a_fetch_source(self):
@@ -97,15 +95,11 @@ class ModuleTests(Fixture):
         with redirect_stdout(io.StringIO()):
             check(self.root)
 
-    def test_weekly_off_reads_no_audit_and_on_counts_all_outcomes(self):
-        with patch('weekly_review.records', side_effect=AssertionError('off read')):
-            self.assertIn('off', summary(self.root))
-        self.modules(weeklyReview=True)
-        events = [{'kind': 'draft', 'id': 'a'}, {'kind': 'statement', 'id': 'b'}, {'kind': 'review', 'line_id': 'a'}]
-        with patch('weekly_review.records', return_value=events):
-            text = summary(self.root)
-        self.assertIn('Unreviewed: 1', text)
-        self.assertIn(str(APPLICATION_ROOT / 'review-dashboard/server/WEEKLY-REVIEW.md'), text)
+    def test_weekly_review_schedule_survives_when_automatic_runs_are_off(self):
+        self.modules(weeklyReview=False, weeklyReviewDay='Wednesday')
+        modules = module_settings(read_manifest(self.root))
+        self.assertFalse(modules['weeklyReview'])
+        self.assertEqual(modules['weeklyReviewDay'], 'Wednesday')
 
     def test_history_resolution_and_deprecated_fallback(self):
         old = self.root / 'archive/old.ledger'

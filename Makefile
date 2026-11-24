@@ -168,10 +168,6 @@ set-account-currency:
 set-default-currency:
 	$(LEDGER_PYTHON) scripts/ledger/set_default_currency.py $(ARGS)
 
-.PHONY: weekly-review
-weekly-review:
-	$(LEDGER_PYTHON) scripts/ledger/weekly_review.py
-
 .PHONY: browser-tests browser-capture browser-flows browser-flows-inside
 # Maintainer-only remote runner; its unit tests are entirely offline. make test runs the
 # quick packaging, refusal, image-hash and parsing tests; test-browser-box adds the slower

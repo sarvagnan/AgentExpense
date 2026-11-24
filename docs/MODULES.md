@@ -59,8 +59,8 @@ has no path: it is read once per process with a warning. Move its value into the
 manifest and remove it from service configuration. The isolation cache includes
 the offered tool set and checks it against the matching allow-list.
 
-Enable `weeklyReview` for `make weekly-review` to print the procedure path,
-unreviewed outcome count and resolved history path. Off prints only the disabled
-message, without opening audit records. The command never runs an agent or changes
-the ledger. The dashboard and server add no weekly jobs or controls.
-[Scheduler templates](scheduling/README.md) let the operator choose an agent CLI.
+Set the automatic schedule in **Settings › Weekly review**. The server stores it
+in `modules.weeklyReview` and `modules.weeklyReviewDay`. An existing enabled
+setting defaults to Monday if no weekday was saved, with no ledger migration.
+The server uses its local day and starts when its worker is idle. **Review now**
+is available even with the schedule off. See [weekly review help](../review-dashboard/server/WEEKLY-REVIEW.md).

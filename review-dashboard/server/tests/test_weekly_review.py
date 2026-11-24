@@ -2,6 +2,8 @@
 from dataclasses import replace
 from datetime import timedelta
 import json
+from pathlib import Path
+import re
 from threading import Event, Thread
 import time
 from unittest.mock import Mock, patch
@@ -9,9 +11,10 @@ from unittest.mock import Mock, patch
 from support import Fixture
 import test_weekly_review_batch as batch_tests
 import audit
-from adapters.base import AdapterError, Result
+from adapters.base import AdapterError, LookupTools, Result
 from drafts import Drafts
 from ledger_lock import ledger_lock
+from settings import APPLICATION
 from store import dump, read_json
 from worker import Worker
 
@@ -50,6 +53,50 @@ class WeeklyReviewTests(Fixture):
 
     def state(self, weekly):
         return weekly.state()['active']
+
+    def test_existing_weekly_review_true_enables_monday_without_migration(self):
+        manifest = self.ledger / 'ledger.json'
+        dump(manifest, {**read_json(manifest), 'modules': {'weeklyReview': True}})
+        reviewed, flagged, pending = [self.add() for _ in range(3)]
+        for line, verdict in ((reviewed, 'confirm'), (flagged, 'propose removal')):
+            row = audit.event('review', line_id=line, verdict=verdict, note='Checked fictional record', reviewer='Offline')
+            with audit.audit_path(self.ledger, row).open('a') as stream:
+                stream.write(json.dumps(row) + '\n')
+        self.checkpoint('Legacy fictional settings and verdicts')
+        before = {path: path.read_bytes() for path in [manifest, *self.ledger.glob('data/additions/*.jsonl')]}
+
+        weekly = self.worker(today='2026-11-24').weekly
+        status = weekly.status(0, 1)
+        self.assertEqual((status['enabled'], status['day'], status['enabled_on']), (True, 'Monday', None))
+        self.assertTrue(weekly.tick())
+        run = self.state(weekly)
+        self.assertEqual((run['trigger'], run['slot']), ('scheduled', '2026-11-23'))
+        self.assertTrue(weekly.tick())
+        batches = read_json(weekly.plan_path(run))['batches']
+        self.assertEqual([line for batch in batches for line in batch['lines']], [pending])
+        self.assertEqual([item['line'] for batch in batches for item in batch.get('carry', [])], [flagged])
+        self.assertEqual({row['line_id']: row['verdict'] for row in audit.records(self.ledger) if row['kind'] == 'review'},
+                         {reviewed: 'ok', flagged: 'issue'})
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
+
+    def test_review_policy_names_only_review_tools(self):
+        old = self.ledger / 'fictional-old.ledger'
+        old.touch()
+        reviewer = replace(self.settings, old_ledger=old).for_role('review')
+        inventory = {tool['name'] for tool in LookupTools.for_settings(reviewer, probe=True).definitions}
+        policy = APPLICATION / 'policy/WEEKLY-REVIEW-AGENT.md'
+        self.assertEqual(set(re.findall(r'`([a-z_]+)`', policy.read_text())), inventory)
+
+        retired = ('make weekly-review', 'weekly_review.py', 'scheduling/', 'run-weekly-review.sh',
+                   'weekly-review.cron', 'weekly-review.service', 'weekly-review.timer', 'org.example.expense-weekly.plist')
+        docs = [APPLICATION / name for name in ('AGENTS.md', 'README.md', 'SETUP.md')]
+        docs.extend((APPLICATION / 'review-dashboard/server').glob('*.md'))
+        for root in ('docs', 'policy'):
+            docs.extend((APPLICATION / root).rglob('*.md'))
+        for path in docs:
+            with self.subTest(path=path.relative_to(APPLICATION)):
+                content = path.read_text()
+                self.assertFalse([name for name in retired if name in content])
 
     def test_weekly_slot_clock_handles_missed_weeks(self):
         from weekly_review_service import due_slot

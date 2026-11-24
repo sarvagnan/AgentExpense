@@ -229,7 +229,7 @@ Optional modules and extensions are set in the ledger's `ledger.json`
 | `extensions.fuel` | not listed | Do they log fuel fills (litres, distance)? If so, list `"fuel": {"ask": true}` |
 | `investments` | on, no price source | Do they hold funds? A price source fetches prices; without one, holdings show their cost |
 | `history.oldLedger` | none | Do they have an older hledger journal the agent may search for precedent? |
-| `weeklyReview` | off | Do they want a weekly review procedure for an agent to run? |
+| `weeklyReview` | off | Do they want the server to review the ledger every week? Set the day in Settings › Weekly review (default Monday). |
 
 If they record something on every entry that the core doesn't hold (the client a work
 expense was for, say), a ledger extension can hold it; [docs/EXTENSIONS.md](docs/EXTENSIONS.md)
@@ -267,8 +267,12 @@ with a new adapter, model or effort (it answers one fictional account lookup), s
 first `make serve` after sign-in also runs a model once; ask before it. A passing
 probe is remembered. Until the person signs in, Add shows a notice with the
 `make agent-login` command and built-in statement readers still work.
-The server reads `local.json` when it starts: restart it after changing the agent.
-[docs/ADAPTERS.md](docs/ADAPTERS.md) has every option.
+Weekly review inherits the resolved `agent` profile by default. Set `reviewAgent`
+in `local.json` for a separate adapter, model or effort. For the reviewer, use
+`make agent-login ROLE=review` when it needs its own CLI login and
+`make agent-check ROLE=review` for the offline check. Profiles using the same CLI
+adapter share its login. The server reads these settings at startup. Restart it
+after changing either profile. See the [adapter guide](docs/ADAPTERS.md#weekly-reviewer-profile).
 
 ## 7. Verify, build and start
 
@@ -289,7 +293,8 @@ reload the page. Show the person around:
 - **Queue**: items waiting for the agent or for an answer. A pending item is not an
   expense. Discarded items go to the Queue's Trash.
 - **Review**: a count of everything waiting, red when something is important, such
-  as a possible duplicate.
+  as a possible duplicate. **Review › Weekly review** has on-demand runs and reports.
+  Findings that need a decision appear in **Queue › Needs you**. See [weekly review help](review-dashboard/server/WEEKLY-REVIEW.md).
 - **Edit and Delete** on saved entries. Edit keeps the entry's identity; to reverse an
   edit, edit again (there is no Undo). Delete is offered only within the Delete time
   limit and while no filed statement covers the entry; deleted entries wait in Trash.

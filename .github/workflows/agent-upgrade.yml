@@ -46,7 +46,8 @@ jobs:
           title: Pin the ${{ matrix.adapter }} agent CLI to its newest release
           body: |
             The scheduled upgrade job installed the newest `${{ matrix.adapter }}` CLI release in a
-            temporary folder and its offline allow-list checks passed (`make agent-upgrade DRY_RUN=1`).
+            temporary folder and checked both tool profiles offline
+            (`make agent-upgrade ADAPTER=${{ matrix.adapter }} DRY_RUN=1`).
             This pull request changes only the exact npm pin.
 
             CI never signs in or runs a model. Before merging, on the computer that runs AgentExpense:

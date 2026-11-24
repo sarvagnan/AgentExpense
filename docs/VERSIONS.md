@@ -82,7 +82,7 @@ to update personal readers.
 
 Adapters declare `interface_version=1` ([docs/ADAPTERS.md](ADAPTERS.md)). The same
 rules apply as for readers. Each shipped CLI adapter also pins its CLI version in
-`review-dashboard/package.json`; changing a pin goes through `make agent-upgrade`
+`review-dashboard/package.json`; changing a pin goes through `make agent-upgrade ADAPTER=<id>`
 and the offline allow-list checks, and is a patch or minor change of its own.
 
 ## Audit lines

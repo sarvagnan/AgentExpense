@@ -216,8 +216,8 @@ The defaults remain Codex when ADAPTER is omitted. Pi login opens its isolated C
 the owner types `/login` then exits. Direct API login prints key-configuration
 instructions. Never copy authentication. Maintainers move exact CLI pins with
 `make agent-upgrade ADAPTER=claude VERSION=x.y.z` (`DRY_RUN=1` checks without changing
-the pin). The candidate's home is under `/tmp`; this command never signs in or runs
-a model. Review any widened allow-list before shipping.
+the pin). It checks both tool profiles in a disposable home under `/tmp`.
+The command never signs in or runs a model. Review any widened allow-list before shipping.
 
 Codex retains its established read-only sandbox, disabled shell features,
 `--ignore-user-config`, `--ignore-rules`, disabled skills/plugins/hooks/apps and
@@ -319,7 +319,9 @@ outcomes get record-only commits; a discarded draft is recorded after its
 Trash lifetime, before its record is purged. These commits wait for a clean
 ledger and use the same lock and rollback journal. Failed audit commits remain
 pending in the draft, with `audit_error`, for the worker to retry. See
-[WEEKLY-REVIEW.md](WEEKLY-REVIEW.md) for exact reviewer commands.
+[weekly review help](WEEKLY-REVIEW.md) for the schedule, reports and owner actions.
+`audit.py list --unreviewed`, `record` and `review` remain available for diagnostics,
+backfill and recovery.
 
 Statement Apply links only entries it creates to their unique recurring
 rule, including investment contributions, and advances it within the same locked,
@@ -412,7 +414,8 @@ and recorded notes establish them; no historical matching rule is inferred.
 
 The currency endpoints, opening-balance lock rules and generated amount contracts are documented in [Account currencies](../../docs/CURRENCIES.md). Both settings writes use the existing write-access checks and the locked, verified commit path.
 
-Optional fuel fields, investment price sources, history tools and weekly review follow the selected manifest. See [module settings](../../docs/MODULES.md) and [scheduling examples](../../docs/scheduling/README.md).
+Optional fuel fields, investment price sources, history tools and the weekly review
+schedule follow the selected manifest. See [module settings](../../docs/MODULES.md).
 
 
 ## Shell and Settings

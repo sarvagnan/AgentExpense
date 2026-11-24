@@ -169,11 +169,14 @@ make agent-upgrade ADAPTER=claude VERSION=x.y.z DRY_RUN=1
 make agent-upgrade ADAPTER=claude VERSION=x.y.z
 ```
 
-Omit VERSION to query npm's candidate version. A candidate is installed/checked
-under `/tmp`; no model or login is run, and the only tolerated Codex failure is an
-empty-home login. A successful non-dry run updates the exact npm manifest/lock pin;
-a failure preserves both. Review any allow-list widening, then have the owner
-rerun the live check. Host/global CLI updates never change the application pin.
+Omit `VERSION` to query npm's candidate version. `ADAPTER` selects the pinned CLI
+independently of the server's profiles. The candidate is installed under `/tmp`
+and checked once with the Add tools and once with the Review tools in a disposable
+home. These checks run no model and never sign in. The only tolerated Codex
+failure is an empty-home sign-in status. A successful non-dry run updates the
+exact npm manifest and lock pin. A failure preserves both. Review any allow-list
+widening, then have the owner rerun the live check for profiles using that pin.
+Host/global CLI updates never change the application pin.
 
 Offline evidence does **not** establish subscription/model entitlement, live image
 interpretation, provider schema compatibility or runtime tool removal. Those are
@@ -286,4 +289,5 @@ CLI profiles on the same adapter share its dedicated home. Run
 `make agent-login ROLE=review` to sign in and `make agent-check ROLE=review`
 for the offline isolation check. Both commands reject combining `ROLE=review`
 with `ADAPTER`. Review requires an adapter that enforces its read-only policy.
-Restart the server after changing machine settings.
+Use `make agent-check LIVE=1 ROLE=review` for the owner-run live fixture probe.
+Restart the server after changing either machine profile.

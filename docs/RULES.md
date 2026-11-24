@@ -175,7 +175,10 @@ scope, missing payer, remembering that payer, duplicate-period override, receipt
 and planned conversion. Completed draft receipts supply next due, automatic-rule removal/editing and paused-match choices. These cards are
 independent of Add's current two-panel layout.
 
-`audit.py review --verdicts FILE --reviewer NAME` accepts outcome verdicts
+Weekly review shows rule-removal proposals under **Queue › Needs you**. Open the
+linked rule and choose **Remove** or **Keep**. See [weekly review help](../review-dashboard/server/WEEKLY-REVIEW.md#needs-you).
+
+For recovery, `audit.py review --verdicts FILE --reviewer NAME` accepts outcome verdicts
 `{line, verdict: ok|issue, note}` and rule verdicts
 `{rule, verdict: confirm|propose-removal, reason}` in one batch. Every rule verdict
 names an existing rule and needs a concrete reason. The single locked, verified

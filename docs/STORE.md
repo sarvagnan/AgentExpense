@@ -50,7 +50,9 @@ uv run --locked --project review-dashboard/server python scripts/ledger/store_mo
 
 `modules.weeklyReview` enables automatic runs. The optional
 `modules.weeklyReviewDay` accepts Monday through Sunday and defaults to Monday
-when omitted. `modules.weeklyReviewEnabledOn` holds the server-local date of the
+when omitted, including for a ledger with an existing `weeklyReview: true`.
+The app reads that setting without a ledger migration or manifest rewrite.
+`modules.weeklyReviewEnabledOn` holds the server-local date of the
 last enablement. Disabling the schedule removes that date and keeps the weekday.
 An older enabled manifest without an activation date is eligible for a catch-up.
 Both fields are additive in ledger format 2.
@@ -843,6 +845,10 @@ rule's `before` and `after`, a paid bill) converts it on read
 answers they record use the kebab-case envelope.
 
 ### Weekly review audit
+
+Existing verdicts still count, and their source lines stay out of the new backlog.
+Older records without run or batch links remain readable as stored. Historical
+`confirm` and `propose removal` line verdicts read as `ok` and `issue` respectively.
 
 A weekly review batch appends its `review` and `rule-review` verdicts and one
 `weekly-review-run` marker in the same verified audit-only commit. Each verdict

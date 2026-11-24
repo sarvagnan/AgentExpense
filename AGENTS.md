@@ -70,7 +70,7 @@ Each Add agent run reads `policy/ADD-AGENT.md` and the ledger's `## Rules for en
 
 Statements reconciles card statement PDFs using the example layout in `scripts/statements/README.md`: passwords stay in memory, PDFium extracts text and printed totals must agree before rules run. `statement_rules.py` settles safe matches; users decide the remainder. Apply files the PDF, membership, summary and rows, appends an audit line and commits through `make commit`, including membership checks. Manual reconciliation follows the selected ledger's policy.
 
-Follow `review-dashboard/server/WEEKLY-REVIEW.md` for periodic reviews. Record verdicts with `audit.py review` as one locked, verified commit, or change nothing. Corrections require user agreement.
+The server runs weekly reviews. See [owner help](review-dashboard/server/WEEKLY-REVIEW.md) for the schedule, reports and Queue actions, and [reviewer policy](policy/WEEKLY-REVIEW-AGENT.md) for the review checks. Keep `audit.py list --unreviewed`, `record` and `review` for diagnostics, backfill and recovery. The owner saves corrections through the usual checked operation.
 
 ## Varying recurring rules and bills (6f B)
 

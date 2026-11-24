@@ -1,188 +1,45 @@
-# Weekly audit review
+# Weekly review
 
-Enable `modules.weeklyReview` in `ledger.json`, then run `make weekly-review` from the application root with `LEDGER_DIR` set for another ledger, or use the default `ledger/`. Scheduling is external to the application. Review every unreviewed outcome and report findings to the user. Read first, then record all verdicts in one command. Corrections to entries or evidence require user agreement. Keep the ledger clean on failure.
+In **Settings › Weekly review**, turn on **Run a review every week** and choose a
+weekday. The default is Monday. The server uses its own local calendar and starts
+when the worker is idle. If it misses a week, it catches up on the latest due week.
+Add and other work take priority between review steps. You can select **Review now**
+in **Review › Weekly review** even with the schedule off. If a run stops, use its
+**Retry** or **Retry summary** button to continue from saved progress.
 
-1. Read the current policy (the general policy, then the ledger's personal rules) and
-   every line still waiting for a verdict:
+Settings shows the reviewer’s adapter, model and effort. By default it uses the
+same profile as Add. For a separate profile, set `reviewAgent` in the server’s
+`local.json` and restart. For setup and sign-in, see the [adapter guide](../../docs/ADAPTERS.md#weekly-reviewer-profile).
 
-   ```sh
-   export LEDGER_DIR="${LEDGER_DIR:-$PWD/ledger}"
-   cat policy/BOOKKEEPING.md "$LEDGER_DIR/AGENTS.md"
-   uv run --locked --project review-dashboard/server python scripts/ledger/audit.py list --unreviewed
-   uv run --locked --project review-dashboard/server python scripts/ledger/audit.py list --unreviewed --json
-   ```
+## Needs you
 
-   `--unreviewed` lists every draft, statement, correction, hand-change and rule-operation line without a verdict, whatever
-   its age, so a skipped week is covered by the next run. Report every stderr
-   warning about an unrecorded commit and ask the owner who made it: only the
-   owner can identify the actor for `audit.py record --commit C --actor user`
-   (or `--actor agent`). Report inability to check history too, even when no
-   lines await review. If it lists nothing, say so
-   in one line, name the model you are running as, and stop. Otherwise read every
-   line, including failed, discarded and not-expense outcomes. Review and rule-review lines record
-   earlier verdicts; do not review either kind of review line. Record the period covered.
+Open a finding in **Queue › Needs you** to see the concern, its source and what
+the reviewer is asking you to decide.
 
-2. For each added draft, find its permanent entry ID and read its evidence, the
-   typed words, manual pieces, questions/answers, final proposal, doubts and runs.
-   Check duplicate merchants/order IDs/references/amounts, established account
-   naming and posting structure, printed dates, original currency and the actual
-   payment account. Use the readable path configured by `modules.history.oldLedger` when the policy requires it. Relative paths resolve from the ledger root and `~` expands to the user home. These commands
-   locate an entry, its cited evidence and a merchant precedent (substitute the
-   actual ID, path or merchant):
+- **Apply suggestion** opens the normal entry or rule editor with the proposed
+  changes. You can edit them first. The finding closes when you save a change.
+- **Keep as is** closes the finding and lets you record a note.
+- **Answer** sends text, a supporting file or both. The finding stays open for
+  your decision and moves to **In progress** while the reviewer prepares a reply.
+- **Explain more** asks the reviewer for more detail. Use it to request a fresh
+  suggestion if the old one is out of date.
 
-   ```sh
-   uv run python -c 'import json,pathlib; wanted="ENTRY_ID"; print(json.dumps([e for p in (pathlib.Path(__import__("os").environ["LEDGER_DIR"])/"data/expenses").glob("*.json") for e in json.loads(p.read_text()) if e["id"]==wanted],ensure_ascii=False,indent=2))'
-   ls -l -- "$LEDGER_DIR"/Bills/YYYY-MM-DD/EVIDENCE.pdf
-   uv run python -c 'import sys; sys.path.insert(0,"scripts"); from project_paths import ledger_root; from ledger_manifest import old_ledger_path; p=old_ledger_path(ledger_root()); print("\n".join(line for line in p.read_text().splitlines() if "MERCHANT".casefold() in line.casefold()) if p else "Old ledger not configured or unreadable")'
-   ```
+For a proposed rule removal, open **Rules** from the item and choose **Remove**
+or **Keep**. A review verdict by itself makes no financial change.
 
-   Open receipts, PDFs and images directly with your file-reading tool and look at
-   them; keep the originals in Bills. When a PDF's text matters and does not come
-   through, extract it with the server's dependencies. Do not infer classifications
-   from an amount alone.
+## Reports
 
-   ```sh
-   uv run --locked --directory review-dashboard/server python -c 'import pypdfium2 as p; pdf=p.PdfDocument(str(__import__("pathlib").Path(__import__("os").environ["LEDGER_DIR"])/"Bills/YYYY-MM-DD/EVIDENCE.pdf")); print("\n\f\n".join(page.get_textpage().get_text_range() for page in pdf))'
-   ```
-
-3. For each statement line, read the stored reconciliation, summary and affected
-   entries. Check every serial/page/date/source membership, signed amounts,
-   original-currency conversions (including provisional values replaced), new
-   entries and user decisions. Confirm the four summary checks and chain. Replace the
-   reconciliation filename with the actual month and year:
-
-   ```sh
-   cat "$LEDGER_DIR/data/card-statements.json" "$LEDGER_DIR"/data/statements/MonthYYYY-card-reconciliation.json
-   uv run python scripts/ledger/ledger_lock.py -- make verify
-   ```
-
-   Verification is a safety net; it does not prove the classification is right.
-
-4. Review every made rule and every rule-linked addition. Read `data/forecast.json`,
-   `data/recurring-settings.json` (when present), each rule's origin/evidence and
-   the complete balanced payment. The account prefixes in `never-automatic` are
-   the owner's settings. A fee, tax, discount or rounding line alone must not
-   justify a rule, and a payment already covered by a rule never justifies a
-   second rule. Check amount/currency, planned costs, payment account, schedule
-   anchor and next date against the full payment. Read duplicate-period overrides,
-   historical reversals (including reversing entries), suppression evidence and paused matches.
-   Check that a paused payment offered the owner Resume / Keep paused; review
-   never chooses for them.
-
-   Record `confirm` or `propose-removal` for each rule checked, with a concrete
-   reason. A proposal asks the owner: never remove, pause or resume a rule, and
-   never change an entry. Remove / Keep on Forecast → Rules is the owner's
-   separate audited answer. `audit.py list` includes rule operations and rule
-   verdicts; `list --unreviewed` excludes verdict lines themselves. Give the
-   originating operation/addition its ordinary line verdict as well.
-
-5. Review every correction's before/after entry, changed fields, reason, actor and
-   operation ID. Check retained identity, statement membership and locked postings,
-   rule links/next date, and every added or moved evidence path. For receipt details,
-   read the extracted answer and the owner's Use / Keep choice. Review records
-   verdicts only: never edit an entry, move evidence or apply another correction.
-
-6. Look for recurring failed checks, retries, questions, discards, misleading
-   suggestions and missing evidence. Distinguish a Queue item moved to Trash from deletion of an expense: a Queue item was never in the ledger.
-
-7. Give every listed line one verdict: `ok` when checked, or `issue` with the
-   concrete concern and what the user must decide. Write them all to
-   `/tmp/expense-weekly-verdicts.json`, using actual 32-hex audit-line IDs and 16-hex rule IDs:
-
-   ```json
-   [
-     {"line": "LINE_ID", "verdict": "ok", "note": "Checked entry and evidence against policy"},
-     {"line": "LINE_ID", "verdict": "issue", "note": "The exact unresolved fact, and what the user must decide"},
-     {"rule": "RULE_ID", "verdict": "confirm", "reason": "Two complete monthly payments match this balanced rule"},
-     {"rule": "ANOTHER_RULE_ID", "verdict": "propose-removal", "reason": "The cited payment is already covered by another active rule"}
-   ]
-   ```
-
-   Then record them in one step, naming the model you are running as:
-
-   ```sh
-   uv run --locked --project review-dashboard/server python scripts/ledger/audit.py review --verdicts /tmp/expense-weekly-verdicts.json --reviewer "MODEL"
-   ```
-
-   `review` holds the ledger lock throughout. It refuses a ledger with uncommitted
-   changes (report them; never commit someone else's work), appends one review line
-   per verdict, verifies and commits them as one ledger commit, and prints the commit
-   ID. If anything fails it restores the log exactly and changes nothing, so the live
-   page never waits on a half-written review; report the failure rather than working
-   around it. Never rewrite earlier lines.
-
-7. Report in the thread: the model you ran as, the period and number of lines
-   reviewed, what was fine, each issue needing the user with what you suggest,
-   recurring patterns, the verdict commit ID and the verification result. Clearly
-   name unavailable evidence.
-
-## Varying recurring rules and bills (6f B)
-
-Review `bill-saved`, `bill-removed` and `bill-paid` rule events with their typed
-words, evidence and amount-check doubts. A saved bill is unpaid and contributes
-only to forecasts. Verify its payment retains its sources and clears the bill in
-the same commit. Check the estimate against the latest three payments including
-outliers, and accepted unusual amounts against the latest six. Record a verdict
-or propose a rule change; a verdict authorizes no entry or bill correction.
-
-## Delete, Trash and retention
-
-Review every retention event: deleted, restored, restore-refused,
-removed-for-good, queue-trashed, queue-restored and settings-changed. Read the
-selected IDs, reasons, entry snapshots, moved/shared evidence and rule changes.
-Check addition time, first-commit protection, the Delete window and statement
-coverage. Verify restored files use their original Bills paths and that a linked
-rule/bill and its median agree with the final actual payments. A restore refusal
-must retain its reason and record-only commit. Check settings before/after and
-immediate expiry effects. Permanent removal retains a version-history copy.
-Record a verdict only; review never authorizes an edit, deletion or restore.
-
+**Review › Weekly review** shows progress, the period checked, the reviewer and
+past runs. A completed report groups what checked out, decisions still needed
+and patterns the reviewer noticed. Use the numbered links to open the relevant
+items. Questions from earlier weeks keep their original Queue items and history.
+Share a pattern from the report with whoever maintains your app or bookkeeping
+policy if you want to follow up on it.
 
 ## Hand changes
 
-Review every unreviewed `change` line. Read its revision using read-only jj
-commands, substituting its `commit` when present, otherwise its `change_id`.
-A change-id lookup shows today's revision; compare the recorded snapshots with
-its evidence and policy. Terminal writers check prepared content at commit time.
-Settings and first-run saves refuse unexpected paths; other operation lines may
-include extra paths without a complete inventory. Page rollback keeps files
-outside its own before-images but cannot protect concurrent edits to its own paths.
-Merges need separate inspection. Raw jj during a save can change descriptions or
-defeat rollback; raw history/audit edits can forge attribution.
-Do not edit `auditStart` or rewrite `main`; doing so deliberately can hide a commit from this check.
-The generated expense_ledger.ledger must stay ignored (see docs/SAVES.md).
-
-Commands use the default ledger when unset:
-
-```sh
-export LEDGER_DIR="${LEDGER_DIR:-$PWD/ledger}"
-```
-
-Then read the revision:
-
-```sh
-jj --ignore-working-copy -R "$LEDGER_DIR" show -r REVISION
-jj --ignore-working-copy -R "$LEDGER_DIR" diff -r REVISION --git
-jj --ignore-working-copy -R "$LEDGER_DIR" file show -r REVISION Bills/PATH
-jj --ignore-working-copy -R "$LEDGER_DIR" file show -r 'REVISION-' data/expenses/YEAR.json
-```
-
-Judge the change as it stood when committed against its evidence and policy,
-and separately name anything still wrong today. Check added entries in full;
-every changed field and complete before/after value; statement membership and
-paying accounts; rule dates, origin and links; and cited, moved or removed evidence.
-A removed entry must have been intended to go (Delete in the page is the normal
-route); removed evidence must have no remaining citations. Read historical
-evidence from the named revision when necessary.
-
-Give each change line only `ok` or `issue`, even when it made a rule. Do not use
-`confirm` or `propose-removal` for a change line; `audit.py review` enforces this.
-A verdict never authorizes a correction, removal or rule operation.
-
-
-Review compact `baseline` migration records by their from/to format, checkpoint
-and paths, and the upgrade's verification/comparison output. Do not ask for a
-hand diff of every converted entry. Boundary-removal/movement and unknown-history
-warnings always need reporting; editing the working `auditStart` cannot dismiss
-them. An uncommitted terminal audit line causes the next hand commit to refuse
-with its exact audit-only restore command; follow that refusal before retrying. No review verdict authorizes history rewriting.
+**Who made this change?** in **Queue › Needs you** asks about a terminal change
+whose author was never recorded. Open the change and choose **You** or **An agent**
+based on who made it. The dashboard records your answer in Change history and
+includes the change in the next review. If history needs checking, the Queue item
+shows the problem it found.

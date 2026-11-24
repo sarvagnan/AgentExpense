@@ -7,9 +7,8 @@ import subprocess
 import sys
 import tempfile
 
-from agent import codex_environment
-from agent_check import OfflineFailure, check_offline, fixture, require_codex
-from settings import Settings, command_settings
+from agent_check import OfflineFailure, check_offline, check_review_transport, fixture
+from settings import Settings, command_settings, parse_profile
 from node_toolchain import node_environment
 from adapters import get_adapter, PACKAGES, login_environment
 
@@ -45,15 +44,19 @@ def upgrade(settings, version='', *, dry_run=False):
         candidate = replace(settings, codex=str(work / 'node_modules/.bin' / binary),
                             agent_binary=str(work / 'node_modules/.bin' / binary),
                             codex_home=work / 'codex-home', state_dir=work / 'state', ledger=ledger, old_ledger=old)
-        try:
-            if settings.adapter == 'codex':
-                check_offline(candidate, work)
-            else:
-                get_adapter(candidate).offline_check(work)
-        except OfflineFailure as exc:
-            if exc.issues:
-                raise
-            print('Expected empty-home login failure; all isolation checks passed')
+        for role in ('add', 'review'):
+            profile = replace(candidate, role=role)
+            print('Checking ' + role.capitalize() + ' tool profile', flush=True)
+            check_review_transport(profile, work)
+            try:
+                if profile.adapter == 'codex':
+                    check_offline(profile, work)
+                else:
+                    get_adapter(profile).offline_check(work)
+            except OfflineFailure as exc:
+                if exc.issues or not exc.signed_out:
+                    raise
+                print('Expected empty-home login failure; all isolation checks passed')
         if dry_run:
             print('PASS dry check; pin unchanged')
             return 0
@@ -77,7 +80,11 @@ def main():
         if sys.argv[1:] == ['login']:
             return login(command_settings())
         if sys.argv[1:] == ['upgrade']:
-            return upgrade(Settings.from_env(), os.getenv('VERSION', ''), dry_run=os.getenv('DRY_RUN') == '1')
+            adapter = os.getenv('ADAPTER')
+            if not adapter:
+                raise ValueError('Choose a pinned CLI with make agent-upgrade ADAPTER=<id>')
+            settings = Settings(**parse_profile({'adapter': adapter}))
+            return upgrade(settings, os.getenv('VERSION', ''), dry_run=os.getenv('DRY_RUN') == '1')
         raise ValueError('Use login or upgrade')
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print('FAIL: ' + (str(exc) if isinstance(exc, ValueError) else type(exc).__name__))

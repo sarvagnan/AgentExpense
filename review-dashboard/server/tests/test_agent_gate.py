@@ -583,6 +583,32 @@ class GateTests(unittest.TestCase):
         self.assertEqual(call.call_args.args[0], [self.settings.codex, 'login', '--device-auth'])
         self.assertEqual(call.call_args.kwargs['env']['CODEX_HOME'], str(self.settings.codex_home))
 
+    def test_agent_pin_candidate_checks_both_roles_once(self):
+        from agent_tools import main
+
+        self.configure(signed_out=True)
+
+        def npm(command, **kwargs):
+            self.assertEqual(command[-1], '@openai/codex@0.166.0')
+            binary = Path(command[3]) / 'node_modules/.bin/codex'
+            binary.parent.mkdir(parents=True)
+            binary.symlink_to(self.settings.codex)
+
+        with patch.dict(os.environ, {'ADAPTER': 'codex', 'EXPENSES_AGENT': 'pi',
+                                     'VERSION': '0.166.0', 'DRY_RUN': '1'}), \
+                patch.object(sys, 'argv', ['agent_tools.py', 'upgrade']), \
+                patch('agent_tools.node_environment', return_value=dict(os.environ)), \
+                patch('agent_tools.subprocess.run', side_effect=npm) as install, redirect_stdout(io.StringIO()):
+            self.assertEqual(main(), 0)
+        install.assert_called_once()
+        checks = self.checks(['debug'])
+        self.assertEqual(['--review-probe' in ' '.join(check['argv']) for check in checks], [False, True])
+        self.assertEqual(self.checks(['exec']), [])
+        for check in checks:
+            home = Path(check['home'])
+            self.assertTrue(home.is_relative_to(Path(os.environ['EXPENSES_TEST_TMP'])))
+            self.assertFalse(home.exists())
+
     def test_upgrade_expected_login_and_rejection_leave_manifests_untouched(self):
         application = self.work / 'application'
         dashboard = application / 'review-dashboard'
@@ -591,9 +617,10 @@ class GateTests(unittest.TestCase):
             (dashboard / name).write_text('original ' + name)
         settings = replace(self.settings, application=application)
         self.enterContext(patch('agent_tools.node_environment', return_value={**os.environ,'npm_config_update_notifier':'false'}))
-        for error, succeeds in [(OfflineFailure([], signed_out=True), True),
-                                (OfflineFailure(['tools: future_tool'], signed_out=True), False)]:
-            with patch('agent_tools.subprocess.run') as npm, patch('agent_tools.check_offline', side_effect=error), \
+        signed_out = OfflineFailure([], signed_out=True)
+        unsafe = OfflineFailure(['tools: future_tool'], signed_out=True)
+        for errors, succeeds in [([signed_out, signed_out], True), ([unsafe], False), ([signed_out, unsafe], False)]:
+            with patch('agent_tools.subprocess.run') as npm, patch('agent_tools.check_offline', side_effect=errors), \
                     redirect_stdout(io.StringIO()):
                 if succeeds:
                     self.assertEqual(upgrade(settings, '0.166.0', dry_run=True), 0)
@@ -605,7 +632,7 @@ class GateTests(unittest.TestCase):
             self.assertTrue(npm.call_args.args[0][3].startswith(str(Path(os.environ['EXPENSES_TEST_TMP'])/'expense-agent-upgrade-')))
             self.assertEqual((dashboard / 'package.json').read_text(), 'original package.json')
             self.assertEqual((dashboard / 'package-lock.json').read_text(), 'original package-lock.json')
-        with patch('agent_tools.subprocess.run') as npm, patch('agent_tools.check_offline', side_effect=OfflineFailure([], signed_out=True)), \
+        with patch('agent_tools.subprocess.run') as npm, patch('agent_tools.check_offline', side_effect=[signed_out, signed_out]), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(upgrade(settings, '0.166.0'), 0)
         self.assertEqual(npm.call_count, 2)

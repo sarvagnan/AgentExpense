@@ -136,8 +136,8 @@ up the release's commit SHA or archive digest and change both together.
   browser cleanup probe, which must not be skipped there. To check a change before a
   release, run it by hand from the Actions tab.
 - **Agent CLI upgrades** (`agent-upgrade.yml`), weekly: for each pinned CLI adapter,
-  `make agent-upgrade DRY_RUN=1` installs the newest release in a temporary folder and
-  runs the offline allow-list checks; when they pass, the job pins it and opens a pull
-  request. CI never signs in or runs a model: the owner runs
+  `make agent-upgrade ADAPTER=<adapter> DRY_RUN=1` installs the newest release in a
+  temporary folder and checks both tool profiles offline. When they pass, the job
+  pins it and opens a pull request. CI never signs in or runs a model. The owner runs
   `make agent-check LIVE=1 ADAPTER=<adapter>` on their own machine before merging.
 - **Release** (`release.yml`), on a `v*` tag: see step 8 above.
