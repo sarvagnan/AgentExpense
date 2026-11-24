@@ -97,7 +97,7 @@ test('Live rule refresh waits 30s and rejects an older held snapshot after a new
 test('Add health/draft polling uses 30s idle and 3s active, coalesces held reads, and reloads additions',async()=>{
  let drafts=[],healthCount=0,reloads=0,healthHold=null,listHold=null;
  const h=hookHarness('../app/live/use-drafts.ts',{'../data':{reloadData:async()=>{reloads++;}},'./api':{
-  api:{health:()=>{healthCount++;return healthHold?.promise||Promise.resolve({ok:true});},list:()=>listHold?.promise||Promise.resolve(drafts)},isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:{state:'ready'},
+  api:{health:()=>{healthCount++;return healthHold?.promise||Promise.resolve({ok:true});},queue:async()=>({drafts:await (listHold?.promise||Promise.resolve(drafts)),review:{revision:'fixture',items:[],needs_you:0}})},isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:{state:'ready'},
  },'./statements-api':{statementsApi:{list:async()=>({sessions:[]})}}});
  try{
   h.render(m=>m.useDrafts());await h.settle();assert.equal(h.current.online,true);await h.advance(29999);assert.equal(healthCount,1);await h.advance(1);assert.equal(healthCount,2);

@@ -27,15 +27,16 @@ function component(file,name,dependencies={}){
  return {window,react,exports,timers,render(value=props){props=value;return render();},all,async settle(){for(let n=0;n<12;n++){await new Promise(r=>setImmediate(r));if(dirty)render();}},unmount(){slots.forEach(s=>s?.cleanup?.());}};
 }
 const walkText=node=>node==null||node===false?'':typeof node!=='object'?String(node):Array.isArray(node)?node.map(walkText).join(''):walkText(node.props?.children);
+const weeklyStatus={enabled:false,day:'Monday'};
 const item={id:'a'.repeat(32),kind:'entry',description:'Willow lunch',removed_at:'2026-11-04',expires_at:'2026-11-11',files:[]};
 const ui={PageHeader:'header',Icon:'icon',Dialog:'dialog',plural:(n,one,many=one+'s')=>`${n} ${n===1?one:many}`};
 test('Failed Settings, Cancel, reopen and slot Retry sends the exact failed job, never the current form',async()=>{
  const direct=hookHarness('../app/live/direct-writes.ts',{}, {Error,location:{pathname:'/',search:''},sessionStorage:{getItem:()=>null,setItem(){}}}).exports;
  const sent=[],announcements=[];let fail=true;
  const dependencies={
-  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Original',defaultCurrency:'INR'},accounts:{}}},reloadData:async()=>{}},
+  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Original',defaultCurrency:'INR',modules:{}},accounts:{}}},reloadData:async()=>{}},
   './live/direct-writes':direct,
-  './live/api':{request:async(path,options={})=>path==='settings/retention'?{delete_days:7,trash_days:7,saved_hours:24}:direct.enqueueWrite(path,options,async()=>{sent.push(options.body);if(fail)throw Error('Fictional refused save');return {commit_id:'committed'};})},
+  './live/api':{request:async(path,options={})=>path==='review/weekly?limit=1'?weeklyStatus:path==='settings/retention'?{delete_days:7,trash_days:7,saved_hours:24}:direct.enqueueWrite(path,options,async()=>{sent.push(options.body);if(fail)throw Error('Fictional refused save');return {commit_id:'committed'};})},
   './ui':{Dialog:'dialog',Icon:'icon',useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce:text=>announcements.push(text),plural:(n,word)=>`${n} ${word}`},
   './live/retention':{},'./live/agent-status':{AgentNotice:'notice',agentIdentity:()=>''},'./live/update-notice':{UpdateNotice:'update',knownUpdateStatus:()=>({}),refreshUpdateStatus:async()=>{}},
  };
@@ -48,7 +49,7 @@ const button=(h,text)=>buttons(h).find(n=>n.props.children===text);
 test('Rule slot Retry replays the failed job and keeps a separate newer description open',async()=>{
  let closed=0,retried=0,rebuilt=0;const job={id:'failed-rule',state:'failed',body:JSON.stringify({action:'edited',rule:{description:'Failed original'}})};
  const h=component('../app/rule-editor.tsx','RuleEditor',{
-  './data':{dashboard:{meta:{ledger:{defaultCurrency:'EUR'},accounts:{'Assets:Bank:Willow':{kind:'bank',currency:'EUR'},'Expenses:Classes':{}}},transactions:[]}},
+  './data':{dashboard:{meta:{ledger:{defaultCurrency:'EUR',modules:{}},accounts:{'Assets:Bank:Willow':{kind:'bank',currency:'EUR'},'Expenses:Classes':{}}},transactions:[]}},
   './ui':{Dialog:'dialog',useDocumentScrollLock(){},money:()=>'',dayLabel:x=>x,monthLong:x=>x},'./date-time':{localDate:()=>'2026-11-01'},'./account-labels':{accountFieldLabel:x=>x},
   '../scripts/recurring-ui.mjs':{complexRule:()=>false,mainPostings:()=>[{amount:'20.00',account:'Expenses:Classes'}],payer:()=>({account:'Assets:Bank:Willow'}),varyingDetails:()=>({history:[]}),ruleDestinations:accounts=>Object.keys(accounts).filter(a=>a.startsWith('Expenses:'))},
   './live/rules-api':{useRuleOperation:()=>({owner:{id:'owner'},busy:false,error:'Failed',operate:async()=>{rebuilt++;return true;}})},
@@ -124,7 +125,7 @@ test('A committed retention result with stale dashboard data waits for an idempo
 });
 test('Retention preview ignores older replies while edits and the save remain intact',async()=>{
  const previews=[],saved=deferred(),limits={delete_days:7,trash_days:7,saved_hours:24};let closed=0,body;
- const h=component('../app/settings-dialog.tsx','SettingsDialog',{'../../schema/currencies.json':{default:[]},'../scripts/formatting.mjs':{isCurrency:()=>true},'./data':{dashboard:{meta:{ledger:{name:'Willow',defaultCurrency:'EUR'},accounts:{}}},reloadData:async()=>{}},'./ui':{...ui,useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce(){},plural:(n,word)=>`${n} ${word}`},'./live/agent-status':{AgentNotice:'agent',agentIdentity:()=>''},'./live/update-notice':{UpdateNotice:'update-notice',knownUpdateStatus:()=>null,refreshUpdateStatus:async()=>{}},'./live/api':{request:async path=>{if(path==='settings/retention')return limits;const p=deferred();previews.push(p);return p.promise;}},'./live/retention':{retentionOperation:async value=>{body=value;return saved.promise;}}});
+ const h=component('../app/settings-dialog.tsx','SettingsDialog',{'../../schema/currencies.json':{default:[]},'../scripts/formatting.mjs':{isCurrency:()=>true},'./data':{dashboard:{meta:{ledger:{name:'Willow',defaultCurrency:'EUR',modules:{}},accounts:{}}},reloadData:async()=>{}},'./ui':{...ui,useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce(){},plural:(n,word)=>`${n} ${word}`},'./live/agent-status':{AgentNotice:'agent',agentIdentity:()=>''},'./live/update-notice':{UpdateNotice:'update-notice',knownUpdateStatus:()=>null,refreshUpdateStatus:async()=>{}},'./live/api':{request:async path=>{if(path==='settings/retention')return limits;if(path==='review/weekly?limit=1')return weeklyStatus;const p=deferred();previews.push(p);return p.promise;}},'./live/retention':{retentionOperation:async value=>{body=value;return saved.promise;}}});
  h.render({onClose:()=>closed++,agent:{state:'ready'}});await h.settle();
  const select=label=>h.all().find(n=>n.type==='select'&&n.props['aria-label']===label);
  select('Delete an entry').props.onChange({target:{value:'14'}});await h.settle();select('Keep in Trash').props.onChange({target:{value:'3'}});await h.settle();
@@ -139,8 +140,8 @@ test('Retention preview ignores older replies while edits and the save remain in
 test('Settings sends an explicit edit back to the published value while an earlier commit is not published',async()=>{
  const first=deferred(),sent=[],limits={delete_days:7,trash_days:7,saved_hours:24};let closed=0;
  const h=component('../app/settings-dialog.tsx','SettingsDialog',{
-  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Published name',defaultCurrency:'INR'},accounts:{}}},reloadData:async()=>{}},
-  './live/api':{request:async(path,options)=>{if(path==='settings/retention')return limits;if(path==='settings/name'){sent.push(JSON.parse(options.body).name);if(sent.length===1)return first.promise;return {};}return {};}},
+  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Published name',defaultCurrency:'INR',modules:{}},accounts:{}}},reloadData:async()=>{}},
+  './live/api':{request:async(path,options)=>{if(path==='settings/retention')return limits;if(path==='review/weekly?limit=1')return weeklyStatus;if(path==='settings/name'){sent.push(JSON.parse(options.body).name);if(sent.length===1)return first.promise;return {};}return {};}},
   './ui':{Dialog:'dialog',Icon:'icon',useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce(){},plural:(n,word)=>`${n} ${word}`},
   './live/retention':{},'./live/agent-status':{AgentNotice:'notice',agentIdentity:()=>''},'./live/update-notice':{UpdateNotice:'update',knownUpdateStatus:()=>({}),refreshUpdateStatus:async()=>{}},
  });
@@ -152,8 +153,8 @@ test('Settings sends an explicit edit back to the published value while an earli
 test('A Settings shelf retry clears only the acknowledged edit and keeps newer words dirty',async()=>{
  const sent=[],limits={delete_days:7,trash_days:7,saved_hours:24};let fail=true;
  const h=component('../app/settings-dialog.tsx','SettingsDialog',{
-  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Original',defaultCurrency:'INR'},accounts:{}}},reloadData:async()=>{}},
-  './live/api':{request:async(path,options)=>{if(path==='settings/retention')return limits;if(path==='settings/name'){sent.push(JSON.parse(options.body).name);if(fail)throw Error('Fictional lost reply');}return {};}},
+  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Original',defaultCurrency:'INR',modules:{}},accounts:{}}},reloadData:async()=>{}},
+  './live/api':{request:async(path,options)=>{if(path==='settings/retention')return limits;if(path==='review/weekly?limit=1')return weeklyStatus;if(path==='settings/name'){sent.push(JSON.parse(options.body).name);if(fail)throw Error('Fictional lost reply');}return {};}},
   './ui':{Dialog:'dialog',Icon:'icon',useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce(){},plural:(n,word)=>`${n} ${word}`},
   './live/retention':{},'./live/agent-status':{AgentNotice:'notice',agentIdentity:()=>''},'./live/update-notice':{UpdateNotice:'update',knownUpdateStatus:()=>({}),refreshUpdateStatus:async()=>{}},
  });
@@ -169,8 +170,8 @@ test('A Settings shelf retry clears only the acknowledged edit and keeps newer w
 test('Settings submits every edited field into the FIFO before a later action can overtake it',async()=>{
  const held=deferred(),sent=[],limits={delete_days:7,trash_days:7,saved_hours:24};
  const h=component('../app/settings-dialog.tsx','SettingsDialog',{
-  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Original',defaultCurrency:'INR'},accounts:{}}},reloadData:async()=>{}},
-  './live/api':{request:async(path)=>{if(path==='settings/retention')return limits;sent.push(path);if(path==='settings/name')return held.promise;return {};}},
+  './data':{dashboard:{meta:{ledger:{id:'fictional',name:'Original',defaultCurrency:'INR',modules:{}},accounts:{}}},reloadData:async()=>{}},
+  './live/api':{request:async(path)=>{if(path==='settings/retention')return limits;if(path==='review/weekly?limit=1')return weeklyStatus;sent.push(path);if(path==='settings/name')return held.promise;return {};}},
   './ui':{Dialog:'dialog',Icon:'icon',useDocumentScrollLock(){},useAppearance:()=>['light',()=>{}],announce(){},plural:(n,word)=>`${n} ${word}`},
   './live/retention':{},'./live/agent-status':{AgentNotice:'notice',agentIdentity:()=>''},'./live/update-notice':{UpdateNotice:'update',knownUpdateStatus:()=>({}),refreshUpdateStatus:async()=>{}},
  });

@@ -1,3 +1,4 @@
+import {runWeeklyReview,runWeeklyReviewIssue} from './weekly-review.mjs';
 import {runChartSizing} from './chart-sizing.mjs';
 import {runCaptureInterference} from './capture-interference.mjs';
 import {runIdentityPublication} from './identity-publication.mjs';
@@ -86,7 +87,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       const before=commits(),started=performance.now();
       try{return await run();}finally{console.log('SUITE_TIMING '+JSON.stringify({persona,engine,theme,width,name,seconds:(performance.now()-started)/1000,commits:commits()-before}));}
     };
-    const snap=(state,options={})=>capture(page,{state,theme,width,height,...options});
+    const snap=(state,{target=page,...options}={})=>capture(target,{state,theme,width,height,...options});
     const directObserver=await observeDirectWrites({page,base,snap,record});
     const go=async(route)=>{await page.waitForLoadState('networkidle');await page.goto(base+route);await page.locator('.content h1').first().waitFor();await expect(page.locator('.loading-state')).toHaveCount(0);await page.waitForLoadState('networkidle');};
     const overflow=async(label)=>{
@@ -153,6 +154,11 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         }
         await runDataDeparture({page,base,expect,control,go,record,snap});await runImmediateActions({page,base,persona,expect,control,go,quiesce,snap,record,errors});await runLightSave({page,base,persona,expect,control,go,refresh,record,quiesce,snap});await runRetention({page,base,persona,width,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});await runRetentionTiming({page,base,persona,expect,control,go,refresh,snap,record,quiesce,resetDrafts});await runViewTiming({page,base,persona,expect,control,go,refresh,record,quiesce,resetDrafts});await runAccountGroups({page,base,persona,width,stage,expect,control,go,refresh,overflow,snap,record,quiesce,money});await runVarying({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts});await runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce,consoleErrors:errors});if(['post-add','post-ledger-check'].includes(process.env.BROWSER_FOCUS)){console.log('ACTION_COVERAGE_COMPLETE '+JSON.stringify(assertActionCoverage(page)));record('resumed post-Add suites have complete action-table evidence');}await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
+      if(process.env.BROWSER_FOCUS==='weekly-review') {
+        await runWeeklyReview({page,base,persona,theme,expect,record,snap});
+        await runWeeklyReviewIssue({page,base,expect,go,control,refresh,record,snap,quiesce});
+        await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
+      }
       if(process.env.BROWSER_FOCUS==='review-round') {
         await runAccountCreate({page,base,persona,expect,control,go,quiesce,snap,record});await runDirectStates({page,base,persona,stage,expect,control,go,quiesce,snap,record,errors});await runDataDeparture({page,base,expect,control,go,record,snap});await runImmediateActions({page,base,persona,expect,control,go,quiesce,snap,record,errors});await runFirstRun({page,base,persona,width,expect,control,overflow,snap,record,quiesce,consoleErrors:errors});console.log('ACTION_COVERAGE_COMPLETE '+JSON.stringify(assertActionCoverage(page)));await directObserver.close();assert.deepEqual(errors,[]);await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
       }
@@ -218,7 +224,8 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
         await context.tracing.stop();await context.close();await checkpoint();continue;
       }
       if(process.env.BROWSER_FOCUS==='workflows') {
-        await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
+        await timed('runWeeklyReview',async()=>{await runWeeklyReview({page,base,persona,theme,expect,record,snap});await runWeeklyReviewIssue({page,base,expect,go,control,refresh,record,snap,quiesce});});
+      await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
         await directObserver.close();
       assert.deepEqual(errors,[],'No browser console errors or uncaught page errors');
         await context.tracing.stop({path:join(stage.root,`${engine}-${theme}-${width}.zip`)});await context.close();await checkpoint();continue;
@@ -749,6 +756,7 @@ export async function runSuite({browser,engine,stage,expect,results,capture,chec
       } else if(process.env.BROWSER_FOCUS!=='shell') {
       await timed('runViewCaptures',()=>runViewCaptures({page,persona,width,height,expect,go,snap,overflow,record}));
       await timed('runReview',()=>runReview({browser,context,page,base,persona,engine,theme,width,height,stage,expect,control,go,overflow,snap,record,quiesce}));
+      await timed('runWeeklyReview',async()=>{await runWeeklyReview({page,base,persona,theme,expect,record,snap});await runWeeklyReviewIssue({page,base,expect,go,control,refresh,record,snap,quiesce});});
       await timed('runWorkflows',()=>runWorkflows({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runFinish',()=>runFinish({page,base,persona,engine,theme,width,height,stage,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}));
       await timed('runFixtureIsolation',()=>runFixtureIsolation({page,base,persona,stage,expect,control,go,quiesce,record}));

@@ -16,7 +16,7 @@ const hooks={
  useEffect(fn,deps){const i=index++;if(!slots[i]||changed(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,cleanup:null};effects.push(()=>{old?.cleanup?.();slots[i].cleanup=fn();});}},
 };
 const exports={};
-const api={health:async()=>{healthCalls++;if(health==='timeout')throw new DOMException('The operation was aborted.','AbortError');if(health==='down')throw new Error('Failed to fetch');return {ok:true};},list:async()=>listHold?listHold.promise:[]};
+const api={health:async()=>{healthCalls++;if(health==='timeout')throw new DOMException('The operation was aborted.','AbortError');if(health==='down')throw new Error('Failed to fetch');return {ok:true};},queue:async()=>({drafts:listHold?await listHold.promise:[],review:{revision:'fixture',items:[],needs_you:0}})};
 vm.runInNewContext(source,{exports,window,document,Event,DOMException,AbortController,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),require:name=>name==='react'?hooks:name==='../data'?{reloadData:async()=>{}}:name==='./statements-api'?{statementsApi:{list:async()=>({sessions:[]})}}:{isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:({state:'ready',reason:null}),api}});
 const render=()=>{index=0;dirty=false;current=exports.useDrafts();while(effects.length)effects.shift()();};
 async function settle(){for(let n=0;n<8;n++){await new Promise(r=>setImmediate(r));if(dirty)render();}}

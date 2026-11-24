@@ -949,3 +949,23 @@ and `BROWSER_VENV` point the shared runner at those read-only inputs.
 ```sh
 ENGINES=chromium PERSONA=asha THEMES=light FLOWS=add-expense make browser-flows
 ```
+
+
+### Weekly review dashboard
+
+`BROWSER_FOCUS=weekly-review make browser-tests` runs the same four cases
+included in the default suites, in Light and Dark at 1440px and 412px:
+
+- `weekly-review-settings-and-wait-states` saves the schedule and exercises
+  inherited and separate reviewer profiles, wait states and summary retry.
+- `weekly-review-issue-editor-and-attachment` opens a checked entry suggestion,
+  sends a file through the normal intake, reads the owner history and saves the
+  linked correction explicitly.
+- `weekly-review-poll-preserves-open-form` holds a Queue response while the
+  owner types and checks that the newer form and the Send answer target stay put.
+- `weekly-review-report-links-carry-over` checks stable numbering, the carried
+  issue link, plain-text report content and the layout at both widths.
+
+The schedule and report cases use fictional HTTP responses to control the
+reviewer state. The finding case seeds a checked proposal in the disposable
+ledger and uses the ordinary write endpoints with the fake adapter.

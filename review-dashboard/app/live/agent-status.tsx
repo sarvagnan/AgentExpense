@@ -2,7 +2,7 @@ import type {ReactNode} from 'react';
 import type {AgentPause} from './api';
 import {formatTimestamp} from '../date-time';
 import { Icon } from '../ui';
-export type AgentStatus = {agent_pause?:AgentPause|null;state: 'checking' | 'ready' | 'signed out' | 'paused' | 'unavailable'; reason: string | null; adapter?: {id:string;display_name:string;pinned_version:string;isolation:boolean}; model?:string; effort?:string; login_command?:string; isolation_warning?:string|null};
+export type AgentStatus = {profile_overrides?:string[];reviewer?:AgentStatus & {inherited:boolean};agent_pause?:AgentPause|null;state: 'unchecked' | 'checking' | 'ready' | 'signed out' | 'paused' | 'unavailable'; reason: string | null; adapter?: {id:string;display_name:string;pinned_version:string;isolation:boolean}; model?:string; effort?:string; login_command?:string; isolation_warning?:string|null};
 export const agentBlocked = (status?: AgentStatus) => status?.state === 'signed out' || status?.state === 'paused';
 /** Where a notice appears: Add keeps the typed words and still reads built-in statements. */
 export type NoticePlace = 'add' | 'queue' | 'settings';

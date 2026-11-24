@@ -71,6 +71,9 @@ async function staging(persona) {
   if(process.env.BROWSER_LARGE==='1')await run(python,[join(source,'scripts/fixtures/generate_large.py'),'--dir',ledger,'--no-repository'],{cwd:app,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},log:join(root,'large.log')});
   else await cp(join(source,'fixtures/ledgers',persona),ledger,{recursive:true,filter,preserveTimestamps:true});
   await readFile(join(ledger,'AGENTS.md'),'utf8');
+  const manifestPath=join(ledger,'ledger.json'),fixtureManifest=JSON.parse(await readFile(manifestPath,'utf8'));
+  fixtureManifest.auditStart={after:null};
+  await writeFile(manifestPath,JSON.stringify(fixtureManifest,null,2)+'\n');
   await writeFile(join(ledger,'.gitignore'),'/drafts/\n/.lock\n/expense_ledger.ledger\n');
   const jjConfig=join(root,'jj.toml');await writeFile(jjConfig,'[user]\nname = "Browser Fixture"\nemail = "browser@example.invalid"\n');
   const fake=join(root,'fake-agent');await writeFile(fake,`#!${python}\n`+(await readFile(join(source,'review-dashboard/server/tests/fake_agent.py'),'utf8')).split('\n').slice(1).join('\n'),{mode:0o755});

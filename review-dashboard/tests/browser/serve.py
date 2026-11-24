@@ -436,12 +436,17 @@ def scenario(body: dict):
 @app.post('/__test/reset-workflows')
 def reset_workflows():
     clear_workflow_folders()
-    return update_settings(settings,lambda:original,dict(reset=True),'Restore browser workflow baseline')
+    manifest=settings.ledger/'ledger.json'
+    def restored():
+        # Keep the current audit boundary: an older one would turn earlier fixture resets into unattributed hand changes.
+        current=read_json(manifest).get('auditStart')
+        return {**original,manifest:{**original[manifest],**({'auditStart':current} if current is not None else {})}}
+    return update_settings(settings,restored,dict(reset=True),'Restore browser workflow baseline')
 
 
 @app.post('/__test/reset-review')
 def reset_review():
-    from store import dump
+    from store import dump, read_json
     from transactions import jj
     # Test-only reset in a disposable repository. Production audit is append-only;
     # tests restore the complete seed before exercising the next matrix case.
@@ -456,6 +461,11 @@ def reset_review():
         for path,document in original.items():
             dump(path,document)
         jj(settings.ledger,'commit','-m','Restore fictional browser review baseline')
+        manifest = settings.ledger/'ledger.json'
+        boundary = jj(settings.ledger,'log','-r','@-','--no-graph','-T','commit_id').strip()
+        if boundary:
+            dump(manifest, {**read_json(manifest), 'auditStart': {'after': boundary}})
+            jj(settings.ledger,'commit','-m','Set fictional browser audit boundary')
         jj(settings.ledger,'bookmark','set','main','-r','@-')
     return fixture_refresh(dict(reset=True))
 
@@ -992,6 +1002,10 @@ def first_run_fixture(body: dict):
         subprocess.run([sys.executable, str(settings.application / 'scripts/ledger/generate_ledger.py')], cwd=settings.application,
                        env={**os.environ, 'LEDGER_DIR': str(root), LOCK_FD_ENV: str(fd)}, pass_fds=(fd,), check=True, capture_output=True)
         jj(root, 'commit', '-m', message)
+        # Like a new ledger, check hand changes only after this fixture's own commit.
+        boundary = jj(root, 'log', '-r', '@-', '--no-graph', '-T', 'commit_id').strip()
+        dump(root / 'ledger.json', ordered_manifest({**read_json(root / 'ledger.json'), 'auditStart': {'after': boundary}}))
+        jj(root, 'commit', '-m', 'Set fictional browser audit boundary')
         jj(root, 'bookmark', 'set', 'main', '-r', '@-')
     restored = bool(body.get('restore'))
     if not restored:
@@ -1160,5 +1174,32 @@ def review_action_scenario():
     actual={entry['id']:entry for entry in made};link_pair(actual,ids[0],ids[1],'dissimilar-name')
     documents.setdefault(root/'data/expenses/2026.json',[]).extend(made);documents[root/'data/expenses/2026.json'].sort(key=lambda entry:entry['date'])
     return dict(ids=ids,category=category,**update_settings(settings,lambda:documents,dict(seeded=True),'Fictional review action cases'))
+
+@app.post('/__test/weekly-review-issue')
+def weekly_review_issue():
+    from audit import event
+    from corrections import wire_entry
+    from ledger_lock import ledger_lock
+    from replacements import entry_hash
+    from review_decisions import owner_transaction
+    from store import entries, load
+
+    entry_id = review_action_scenario()['ids'][0]
+    entry = next(row for row in entries(load(settings.ledger)) if row['id'] == entry_id)
+    baseline = wire_entry(settings, entry)
+    form = wire_entry(settings, entry)
+    form['entry']['description'] = 'Paper Kite Workshop'
+    source = event('draft', draft_id=secrets.token_hex(16), outcome='failed', entry_id=entry_id,
+                   text='Meadow receipt', saved_at=None, pieces=None, files=[], questions=[],
+                   runs=[], proposal=None, doubts=[], check_errors=[], error=None)
+    suggestion = dict(kind='entry', id=secrets.token_hex(16), target=entry_id, version=entry_hash(entry), form=form)
+    finding = event('review', line_id=source['id'], verdict='issue', reviewer='Offline fixture reviewer',
+                    note='Confirm the shop on the receipt.', decide='Which shop was this?', suggestion=suggestion)
+    tx = owner_transaction(settings)
+    with ledger_lock(settings.ledger) as fd:
+        tx.journal.parent.mkdir(parents=True, exist_ok=True)
+        tx.publish_audit([source, finding], 'Fictional weekly review finding', fd)
+    return fixture_refresh(dict(id=finding['id'], entry_id=entry_id, suggestion_id=suggestion['id'], saved=baseline['entry']['description']))
+
 
 uvicorn.run(app,host='127.0.0.1',port=settings.port,log_level='warning',timeout_keep_alive=900)

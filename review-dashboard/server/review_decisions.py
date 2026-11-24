@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 import json
 import re
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from audit_changes import HistoryUnavailable, identity, unrecorded
 from corrections import wire_entry
@@ -42,10 +42,30 @@ def open_issues(rows):
             for row in rows if row['kind'] == 'review' and row['verdict'] == 'issue' and row['id'] not in closed}
 
 
-def issue_history(rows, issues, offset=0, limit=20):
+def display_evidence(files, base):
+    return [dict(file, href=base + 'bills/' + quote(file['path'][len('Bills/'):])) if file['path'].startswith('Bills/')
+            else file for file in files]
+
+
+def source_title(row):
+    return (row.get('description') or (row.get('result') or {}).get('description') or
+            (row.get('after') or {}).get('description') or row.get('text'))
+
+
+def display_event(row, base):
+    if row['kind'] == 'review-message':
+        return dict(row, message_evidence=display_evidence(row.get('message_evidence', []), base))
+    if row['kind'] in ('review-resolution', 'correction', 'rule'):
+        return dict(row, title=source_title(row), source_href=base + 'api/review/sources/' + row['id'])
+    return row
+
+
+def issue_history(rows, issues, offset=0, limit=20, *, base=None):
     history = [r for r in rows if r.get('review_issue_id') in issues]
     end = offset + limit
-    return dict(items=history[offset:end], next_offset=end if end < len(history) else None)
+    page = history[offset:end]
+    return dict(items=[display_event(row, base) for row in page] if base else page,
+                next_offset=end if end < len(history) else None)
 
 
 def entry_issues(rows):
@@ -195,13 +215,14 @@ def queue(settings, revision):
         except HistoryUnavailable as exc:
             history = [dict(commit='history', reason=str(exc))]
     by_id = {row['id']: row for row in rows}
-    questions = {}
+    questions, carried = {}, set()
     for row in rows:
         if row['kind'] == 'review-carry-over':
             questions[row['review_issue_id']] = row['decide']
+            carried.add(row['review_issue_id'])
         elif row['kind'] == 'review-message' and row['actor'] == 'reviewer':
             questions.pop(row['review_issue_id'], None)
-    rules = {r['id'] for r in documents[snapshot / 'data/forecast.json'] if r['lifecycle'] != 'removed'}
+    rules = {r['id']: r for r in documents[snapshot / 'data/forecast.json'] if r['lifecycle'] != 'removed'}
     actual = {e['id']: e for e in entries(documents)}
     statements = documents[snapshot / 'data/card-statements.json']
     items = []
@@ -211,18 +232,22 @@ def queue(settings, revision):
         entry_ids, rule_ids = targets(source)
         links = [dict(href=base + 'explorer/?' + urlencode(dict(month=actual[i]['date'][:7], entry=i)),
                       kind='entry', id=i) for i in sorted(entry_ids & actual.keys())]
-        links.extend(dict(href=base + 'rules/#rule-' + i, kind='rule', id=i) for i in sorted(rule_ids & rules))
+        links.extend(dict(href=base + 'forecast/?section=rules#rule-' + i, kind='rule', id=i) for i in sorted(rule_ids & rules.keys()))
         links.extend(dict(href=base + 'queue/?' + urlencode(dict(filed=s['end'], account=s['account'])),
                           kind='statement', id=s['id']) for s in statements if statement_matches(source, s))
         evidence = row.get('evidence_refs', [dict(path=p) for p in sorted(evidence_paths(source))])
+        title = next((actual[i]['description'] for i in sorted(entry_ids & actual.keys())), None)
+        title = title or next((rules[i]['description'] for i in sorted(rule_ids & rules.keys())), None)
         items.append(dict(id=row['id'], kind='review-issue', time=row['time'], note=row['note'],
+                          title=title or source_title(source), first_raised=row['time'] if row['id'] in carried else None,
                           decide=questions.get(row['id'], row.get('decide', 'Review the cited record.')),
                           choices=None if row['id'] in questions else row.get('choices'),
-                          suggestion=row.get('suggestion', QUESTION), evidence=evidence, links=links,
+                          suggestion=row.get('suggestion', QUESTION), evidence=display_evidence(evidence, base), links=links,
                           source_href=base + 'api/review/sources/' + source_id))
     reviews, _ = review_proposals(rows)
     items.extend(dict(id=row['id'], kind='rule-removal', time=row['time'], rule_id=rule, note=row['reason'],
-                      href=base + 'rules/#rule-' + rule, source_href=base + 'api/review/sources/' + row['id'])
+                      title=rules[rule]['description'],
+                      href=base + 'forecast/?section=rules#rule-' + rule, source_href=base + 'api/review/sources/' + row['id'])
                  for rule, row in reviews.items() if rule in rules and row['rule_verdict'] == 'propose-removal')
     for row in history:
         if row.get('reason'):

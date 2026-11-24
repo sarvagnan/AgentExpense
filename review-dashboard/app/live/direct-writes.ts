@@ -29,7 +29,7 @@ export function writeDescription(path:string,method:string,body=''):{scope:strin
  if(path==='review/actions')return {scope:'review',label:'Review decision'};
  if(['setup/accounts','accounts'].includes(path)){let name='',currency='';try{const value=JSON.parse(body);name=typeof (value.label||value.name)==='string'?(value.label||value.name).trim():'';currency=typeof value.currency==='string'?value.currency:'';}catch{}return {scope:path==='accounts'?'settings':'setup',label:name?`Account · ${name}${currency?' ('+currency+')':''}`:'Account'};}
  if(/^setup\/(about|opening|import)$/.test(path))return {scope:'setup',label:'Setup'};
- if(/^settings\/(name|default-currency)$/.test(path)||path==='accounts/currency')return {scope:'settings',label:'Settings'};
+ if(/^settings\/(name|default-currency|weekly-review)$/.test(path)||path==='accounts/currency')return {scope:'settings',label:'Settings'};
  return null;
 }
 const active=(state:WriteState)=>['queued','saving','waiting'].includes(state);
@@ -60,7 +60,7 @@ export function enqueueWrite<T>(path:string,options:WriteOptions,send:(retry?:bo
  const replaces=(item:Job)=>{
   if(item.path!==path||item.method!==method||!['failed','interrupted'].includes(item.state))return false;
   if(/^drafts\/[^/]+\/(hand-add|usual|bill|approve-accounts|receipt-choice)$/.test(path))return true;
-  if(['settings/name','settings/default-currency','setup/about'].includes(path))return true;
+  if(['settings/name','settings/default-currency','settings/weekly-review','setup/about'].includes(path))return true;
   if(path==='accounts/currency')try{return JSON.parse(item.body).account===JSON.parse(body).account;}catch{}
   return false;
  };

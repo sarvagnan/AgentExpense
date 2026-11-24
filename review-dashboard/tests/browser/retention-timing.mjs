@@ -14,7 +14,7 @@ export async function runRetentionTiming({page,base,persona,expect,control,go,re
  await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});await control('add-pause',{enabled:true});
  const queue=await control('retention-queue',{});await go('queue/?draft='+queue.editing);
  const detail=page.getByRole('article',{name:'Item details'}),words=detail.getByRole('textbox',{name:'Your words',exact:true}),discard=detail.getByRole('button',{name:'Discard',exact:true});
- const poll=await hold(page,base+'api/drafts?include_added=true'),autosave=await hold(page,base+'api/drafts/'+queue.editing,'PATCH');
+ const poll=await hold(page,base+'api/drafts?include_added=true&include_review=true'),autosave=await hold(page,base+'api/drafts/'+queue.editing,'PATCH');
  try{
   await refresh();await poll.ready;await words.fill('Willow words kept during held autosave 37');await autosave.ready;
   await discard.hover();const box=await discard.boundingBox();await poll.release();await unchanged(discard,box,expect);await expect(words).toHaveValue('Willow words kept during held autosave 37');
@@ -24,7 +24,7 @@ export async function runRetentionTiming({page,base,persona,expect,control,go,re
  record('6f C timing: Queue poll and held autosave preserve words, pointer target and Discard');
  await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('add-pause',{enabled:false});const seed=await control('retention',{});
  await go('explorer/?month=2026-11&entry='+seed.plain);const inspector=page.locator('#transaction-inspector');await expect(inspector.getByRole('button',{name:'Delete',exact:true})).toBeVisible();
- const receiptPoll=await hold(page,base+'api/drafts?include_added=true','GET',rows=>rows.map(d=>d.id!==seed.added?d:{...d,receipt_reading:{state:'question',answer:{date:'2026-11-02',amount:'31.00',currency:seed.currency},entry:{date:'2026-11-01'},entry_totals:{[seed.currency]:'30.00'}}}));
+ const receiptPoll=await hold(page,base+'api/drafts?include_added=true&include_review=true','GET',value=>({...value,drafts:value.drafts.map(d=>d.id!==seed.added?d:{...d,receipt_reading:{state:'question',answer:{date:'2026-11-02',amount:'31.00',currency:seed.currency},entry:{date:'2026-11-01'},entry_totals:{[seed.currency]:'30.00'}}})}));
  try{
   await refresh();await receiptPoll.ready;await inspector.getByRole('button',{name:'Delete',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Move this entry to Trash?',exact:true}),move=dialog.getByRole('button',{name:'Move to Trash',exact:true});
   await move.hover();const box=await move.boundingBox();await receiptPoll.release();await expect(inspector.getByRole('region',{name:'Receipt reading'})).toContainText('The receipt says');await unchanged(move,box,expect);

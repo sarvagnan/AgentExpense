@@ -77,11 +77,17 @@ class WeeklyReviewReportTests(Fixture):
             self.assertEqual(audit.unreviewed(rows), [])
             item, = [row for row in client.get('/api/drafts?include_review=true').json()['review']['items']
                      if row['kind'] == 'review-issue']
-            self.assertEqual((item['id'], item['time'], item['decide']), (issue['id'], issue['time'], question))
+            self.assertEqual((item['id'], item['first_raised'], item['decide']), (issue['id'], issue['time'], question))
             run = client.get(self.url).json()['history'][0]
             self.assertEqual((run['status'], run['checked'], run['issues']), ('completed', 0, 0))
             decision, = run['report']['decisions']
             self.assertEqual((decision['number'], decision['issue_id'], decision['decide']), (1, issue['id'], question))
+
+            self.assertEqual(decision['first_raised'], issue['time'])
+            self.assertEqual(client.get(decision['source_href']).json()['id'], source)
+            owner_items = client.get(f'/api/entries/{entry_id}/review-history').json()['items']
+            answer = next(row for row in owner_items if row['id'] == answer_id)
+            self.assertTrue(answer['message_evidence'][0]['href'].endswith(answer['message_evidence'][0]['path'][6:]))
 
             linked = self.add(entry_id=entry_id)
             self.checkpoint('Fictional new audit line for the same entry')
@@ -207,5 +213,7 @@ class WeeklyReviewReportTests(Fixture):
             self.assertEqual((resolved['number'], resolved['href'], resolved['status']),
                              (decision['number'], decision['href'], 'resolved'))
             self.assertEqual(resolved['resolution_id'], response.json()['audit_id'])
+            change, = client.get('/api/review').json()['weekly_history']
+            self.assertEqual(change['source_href'], resolved['resolution_href'])
             self.assertEqual(unchanged_proposal, proposal)
             self.assertFalse(audit.unreviewed(audit.records(self.ledger)))

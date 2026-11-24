@@ -28,7 +28,7 @@ export async function runViewTiming({page,base,persona,expect,control,go,refresh
  }finally{await page.unroute(dataUrl,broken);}
  record('views timing: a held Retry after an unreadable first load lands once and focuses the view');
  // Reload while the poll's addition is held, so each case controls when the new snapshot lands.
- async function reloadHeld(id,change){const data=await holdData(page,base,change),poll=await hold(page,base+'api/drafts?include_added=true','GET',addition(id));await refresh();await poll.ready;await poll.release();await data.ready;return data;}
+ async function reloadHeld(id,change){const data=await holdData(page,base,change),poll=await hold(page,base+'api/drafts?include_added=true&include_review=true','GET',value=>({...value,drafts:addition(id)(value.drafts)}));await refresh();await poll.ready;await poll.release();await data.ready;return data;}
 
  await go('explorer/?month=2026-11&entry='+seed.plain);
  const inspector=page.locator('#transaction-inspector'),edit=inspector.getByRole('button',{name:'Edit',exact:true}),title=inspector.locator('#entry-title');

@@ -8,16 +8,17 @@ import {localDate} from './date-time';
 import {Dialog, money, dayLabel, monthLong, useDocumentScrollLock} from './ui';
 import {complexRule, mainPostings, payer, varyingDetails, ruleDestinations} from '../scripts/recurring-ui.mjs';
 import {type Rule,useRuleOperation} from './live/rules-api';
+import type {ReviewLink} from './review/weekly-api';
 import {accountFieldLabel} from './account-labels';
 const metadata=()=>dashboard.meta.accounts;
 // Match the store check's Unicode word boundaries and case folding.
 const nextOccurrenceNote=/(?<![\p{L}\p{N}_])(?:next (?:forecast )?(?:payment|renewal|contribution|due)|forecast starts)(?![\p{L}\p{N}_])/iu;
-export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;onSaved:(unchanged?:()=>boolean)=>void|Promise<void>}) {
+export function RuleEditor({rule,onClose,onSaved,review}:{rule?:Rule;review?:{link:ReviewLink;baseline:Rule;form:Rule;explain:()=>Promise<boolean>};onClose:()=>void;onSaved:(unchanged?:()=>boolean)=>void|Promise<void>}) {
   useDocumentScrollLock();
   const guard=useActionGuard();
   const accounts=metadata(),payments=Object.keys(accounts).filter(a=>['bank','card','cash','wallet'].includes(accounts[a].kind||'')),categories=ruleDestinations(accounts);
   const complex=!!rule&&complexRule(rule,accounts),main=rule?mainPostings(rule,accounts)[0]:null,pay=rule?payer(rule,accounts):null;
-  const formKey=`rule-${rule?.id||'new'}-`;
+  const formKey=`rule-${rule?.id||'new'}-${review?review.link.review_suggestion_id+'-':''}`;
   const [description,setDescription]=useRetainedState(formKey+'description',rule?.description||''),[amount,setAmount]=useRetainedState(formKey+'amount',main?.amount||''),[account,setAccount]=useRetainedState(formKey+'account',pay?.account||''),[category,setCategory]=useRetainedState(formKey+'category',main?.account||''),[every,setEvery]=useRetainedState<'month'|'year'>(formKey+'every',rule?.schedule.every||'month'),[interval,setInterval]=useRetainedState(formKey+'interval',rule?.schedule.interval||1),[date,setDate]=useRetainedState(formKey+'date',rule?.date||localDate()),[anchor,setAnchor]=useRetainedState(formKey+'anchor',rule?.schedule['anchor-day']||Number((rule?.date||localDate()).slice(8)));
   const [mode,setMode]=useRetainedState<'fixed'|'varies'>(formKey+'mode',rule?.amount==='varies'?'varies':'fixed');
   const originalNotes=rule?.notes?.join('\n')??'';
@@ -26,6 +27,7 @@ export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;o
   const invalidNote=nextOccurrenceNote.test(notes.replace(/[İı]/g,'i'));
   const fields=['description','amount','account','category','every','interval','date','anchor','mode','notes','version'].map(key=>formKey+key);
   const [baseVersion,setBaseVersion]=useRetainedState<string|null>(formKey+'version',rule?.version||null);
+  const [explanation,setExplanation]=useState('');
   const [keptOnOpen,setKeptOnOpen]=useState(()=>hasRetained(fields));
   const stale=!!rule&&!!baseVersion&&baseVersion!==rule.version;
   const close=()=>{clearRetained(fields);onClose();};
@@ -45,7 +47,10 @@ export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;o
     const quantity=String(amount).includes('.')?String(amount):String(amount)+'.00';
     const postings=complex?rule!.postings:[{account:category,amount:quantity,commodity:currency},{account,amount:'-'+quantity,commodity:currency}];
     const patch={amount:mode==='varies'?'varies' as const:'fixed' as const,description:description.trim(),postings,schedule:{every,interval,from:date,'anchor-day':anchor},date,notes:noteLines};
-    const body=rule?{action:'edited',rule_id:rule.id,version:baseVersion||rule.version,rule:patch}:{action:'made',rule:{...patch,status:'confirmed'}};
+    const reviewed=review&&rule&&JSON.stringify([rule.description,main?.amount||'',pay?.account||'',main?.account||'',
+      rule.schedule.every,rule.schedule.interval||1,rule.date,rule.schedule['anchor-day']||Number(rule.date.slice(8)),
+      rule.amount==='varies'?'varies':'fixed',originalNotes])===submitted;
+    const body=rule?{action:'edited',rule_id:rule.id,version:baseVersion||rule.version,rule:reviewed?review.form:review?{...patch,status:rule.status}:patch,...review?.link}:{action:'made',rule:{...patch,status:'confirmed'}};
     if(await op.operate(body,retainedSnapshot(fields))&&guard.unchanged(ticket)&&latest.current===submitted){clearRetained(fields);onClose();}
   }
   async function retry(item:DirectWrite){
@@ -56,7 +61,11 @@ export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;o
     if(writeSnapshot().find(value=>value.id===item.id)?.state==='saved'){await onSaved(()=>matches&&matchesNotes&&guard.unchanged(ticket));if(matches&&matchesNotes&&guard.unchanged(ticket))onClose();}
   }
   return <Dialog title={rule?'Edit rule':'New rule'} labelId="rule-editor-title" onClose={close} initialFocus="#rule-description"><form onChangeCapture={()=>setBaseVersion(baseVersion)} {...guard.interaction} className="settings-form rule-editor" onSubmit={e=>{e.preventDefault();void save();}} aria-busy={op.busy}>
-    <div className="settings-body">{(stale||keptOnOpen)&&<div className="live-notice" role="status"><div>{stale&&<><strong>The saved rule changed</strong><p>Your kept edits are still below. Compare or copy them before starting from the current saved rule.</p></>}<button type="button" className="button" onClick={discard}>Discard kept edits</button></div></div>}<label><span className="field-label">Description</span><input data-testid="rule-description" id="rule-description" className="field" value={description} onChange={e=>setDescription(e.target.value)} required/></label>
+    <div className="settings-body">{(stale||keptOnOpen)&&<div className="live-notice" role="status"><div>{stale&&<><strong>The saved rule changed</strong><p>Your kept edits are still below. Compare or copy them before starting from the current saved rule.</p></>}<button type="button" className="button" onClick={discard}>Discard kept edits</button></div></div>}{review&&<section className="live-notice"><div><h3>Weekly review suggestion</h3>
+      <p>Saved description · {review.baseline.description}</p>
+      <p>Saved postings · {review.baseline.postings.map(p=>accountFieldLabel(p.account,accounts)+' '+p.amount+' '+p.commodity).join(' · ')}</p>
+      <p>Saved next date · {dayLabel(review.baseline.date)}</p>
+    </div></section>}<label><span className="field-label">Description</span><input data-testid="rule-description" id="rule-description" className="field" value={description} onChange={e=>setDescription(e.target.value)} required/></label>
       <fieldset className="rule-amount-choice"><legend className="field-label">Amount</legend><label><input type="radio" name="rule-amount-mode" checked={mode==='fixed'} onChange={()=>setMode('fixed')} disabled={!!rule?.bill}/>Same each time</label><label><input type="radio" name="rule-amount-mode" checked={mode==='varies'} onChange={()=>setMode('varies')} disabled={complex}/>Varies</label></fieldset>
       {mode==='varies'&&rule&&<section className="rule-estimate-block" aria-label="Estimate"><h3>Estimate · {money(preview,main?.commodity)}</h3><p className="live-hint">Median of the last 3 payments. With fewer payments, the median of those available.</p><PaymentBars rule={chartRule!}/></section>}
       {rule?.bill&&<section className="rule-bill-block" aria-label="Saved bill"><h3>{monthLong(rule.bill.occurrence)} bill · {money(Number(rule.bill.amount),main?.commodity)}</h3><p>Received {dayLabel(rule.bill.received)} · Pay by {dayLabel(rule.bill['pay-by']||rule.bill.occurrence)}</p><p className="live-hint">{rule.bill.evidence.length} filed {rule.bill.evidence.length===1?'file':'files'}</p><button type="button" className="button destructive" disabled={op.busy} onClick={()=>{const ticket=guard.begin();saveTicket.current=ticket;void op.operate({action:'bill-removed',rule_id:rule.id,version:rule.version}).then(ok=>{if(ok&&guard.unchanged(ticket))onClose();});}}>Remove {monthLong(rule.bill.occurrence)} bill</button></section>}
@@ -68,7 +77,11 @@ export function RuleEditor({rule,onClose,onSaved}:{rule?:Rule;onClose:()=>void;o
       <label><span className="field-label">Next date</span><input className="field" type="date" value={date} required disabled={!!rule?.bill} onChange={e=>{setDate(e.target.value);setAnchor(Number(e.target.value.slice(8)));}}/></label><label><span className="field-label">Day of month</span><input className="field" type="number" min={1} max={31} value={anchor} onChange={e=>setAnchor(Number(e.target.value))}/></label></div><p className="live-hint">The day clamps to month end in shorter months.</p>
       <label><span className="field-label">Notes</span><textarea id="rule-notes" className="field" value={notes} onChange={e=>{guard.touch();setNotes(e.target.value);}} aria-invalid={invalidNote} aria-describedby={invalidNote?'rule-notes-error':undefined}/></label>
       {invalidNote&&<p id="rule-notes-error" className="live-error" role="alert">Use Next date and Schedule for the next occurrence.</p>}
-      <div className="action-error-slot">{op.error&&<p role="alert" className="live-error">{op.error}</p>}</div></div><ActionFeedback owner={op.owner} scope="rules" resource={rule?.id||'new'} onRetry={item=>void retry(item)}/><footer className="dialog-footer"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={op.busy||!valid||stale}>{op.busy?'Saving…':'Save rule'}</button></footer>
+      <div className="action-error-slot">{op.error&&<p role="alert" className="live-error">{op.error}</p>}{review&&op.error==='Suggestion is out of date'&&<>
+        <button type="button" className="button" disabled={['Requesting…','Explanation requested.'].includes(explanation)} onClick={async()=>{
+          setExplanation('Requesting…');setExplanation(await review.explain()?'Explanation requested.':'Could not request an explanation. Try again.');
+        }}>Explain more</button><p role="status">{explanation}</p>
+      </>}</div></div><ActionFeedback owner={op.owner} scope="rules" resource={rule?.id||'new'} onRetry={item=>void retry(item)}/><footer className="dialog-footer"><button type="button" className="button" onClick={close}>Cancel</button><button className="button primary" disabled={op.busy||!valid||stale}>{op.busy?'Saving…':'Save rule'}</button></footer>
   </form></Dialog>;
 }
 

@@ -10,3 +10,25 @@
 .server-review .review-notice{border-color:var(--separator)}
 /* Kept-edit and saved instructions share space while a decision commits. */
 .review-server-form>.live-hint{min-block-size:3lh}
+
+.weekly-status { display:flex; justify-content:space-between; align-items:flex-start; gap:var(--space-3); flex-wrap:wrap; }
+.weekly-status progress { max-width:100%; accent-color:var(--accent); }
+.weekly-facts, .weekly-history > li { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr)); gap:var(--space-3); }
+.weekly-facts { margin:0; }
+.weekly-facts dt { color:var(--text-secondary); }
+.weekly-facts dd { margin:var(--space-1) 0 0; font-weight:600; }
+.weekly-history, .weekly-thread, .weekly-evidence { margin:0; padding:0; list-style:none; }
+.weekly-history > li, .weekly-thread > li { padding-block:var(--space-2); }
+.weekly-history > li+li, .weekly-thread > li+li { border-top:1px solid var(--separator); }
+.weekly-report-grid { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:var(--space-4); align-items:start; }
+.weekly-report-side, .weekly-activity { display:grid; gap:var(--space-3); }
+.weekly-report-list { margin:0; padding-inline-start:var(--space-5); }
+.weekly-report-list > li+li { margin-top:var(--space-3); }
+.weekly-report-list h3, .weekly-issue h3 { margin:0 0 var(--space-1); }
+.weekly-activity p, .weekly-history p { margin:var(--space-1) 0; }
+.weekly-review, .weekly-activity, .weekly-issue { overflow-wrap:anywhere; }
+.weekly-activity textarea { display:block; width:100%; min-height:5rem; margin-top:var(--space-1); }
+@media (max-width:760px) { .weekly-report-grid { grid-template-columns:minmax(0,1fr); } }
+.weekly-review .server-review-content { display:grid; gap:var(--space-4); }
+.weekly-review .server-review-content > button { justify-self:start; }
+.weekly-status > .review-action-row, .weekly-activity .review-action-row { padding:0; }

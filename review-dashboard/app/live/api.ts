@@ -1,6 +1,7 @@
 import {markApplyCancellation,committedResult,enqueueWrite,writeSnapshot,type WriteOptions} from './direct-writes';
 import type {BalanceRefusal,BalanceLock} from './balance-refusal';
 import type { Piece } from './builder';
+import type {ReviewLink,ReviewQueue} from '../review/weekly-api';
 import {clientTime} from '../date-time';
 export type Attachment = { id: string; original_name: string; media_type: string; size: number };
 /** The hand form (and Edit entry): the agent's answer shape, kebab-case, with every extension's fields (docs/STORE.md). */
@@ -9,7 +10,7 @@ export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;re
 export type HandChecks = {refusal?:BalanceRefusal;unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
 export type Draft = {correction_save?:string;hand_form?:Proposal|null;proposal?:Proposal|null;trashed_at?:string|null;refusal?:BalanceRefusal;
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
-  correction?:{original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;version?:string;reask?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
+  correction?:{review_issue_id?:string;review_suggestion_id?:string;original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;version?:string;reask?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
   rule_question?:{id:string;index:number};
   ledger_fix?:{entry_id?:string;state:'queued'|'working'|'ready'|'question'|'failed'|'resolved';title:string;summary:string;question?:string|null;message?:string|null;doubts?:string[]};
@@ -160,12 +161,16 @@ export const removedItem = <T,>(id:string) => removed.get(id) as T|undefined;
 export function rememberRemoved<T extends {id:string;trashed_at?:string|null}>(item:T) { removed.set(item.id,{...item,trashed_at:item.trashed_at||new Date().toISOString()}); }
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}) });
 export const api = {
-  correctionForm:(id:string)=>request<Draft>(`entries/${id}/correction-form`,json('POST')),
+  correctionForm:(id:string,review?:ReviewLink)=>request<Draft>(`entries/${id}/correction-form`,json('POST',review)),
   correct:(id:string,op:string,body:object,options:WriteOptions={})=>request<CorrectionResult>(`entries/${id}/corrections/${op}`,{...json('POST',body),...options},120000),
   receiptDismiss:(id:string)=>request<Draft>(`drafts/${id}/receipt-dismiss`,json('POST',{})),
   receiptChoice:(id:string,choice:'use'|'keep',version:string|undefined,options:WriteOptions={})=>request<Draft>(`drafts/${id}/receipt-choice`,{...json('POST',{choice,version}),...options},120000),
   health: (signal?: AbortSignal) => request<{ok: boolean;data?:import('../data').DataStatus}>('health', {signal, keepalive:true}, 5000),
   list: async(signal?:AbortSignal)=>keepPendingItems('drafts',await request<Draft[]>('drafts?include_added=true',{signal})),
+  queue: async(signal?:AbortSignal)=>{
+    const value=await request<{drafts:Draft[];review:ReviewQueue}>('drafts?include_added=true&include_review=true',{signal});
+    return {...value,drafts:keepPendingItems('drafts',value.drafts)};
+  },
   get: async (id: string) => {
     if(removed.has(id))return removedItem<Draft>(id)!;
     const pending=pendingRemovalItem<Draft>(id);if(pending)return pending;

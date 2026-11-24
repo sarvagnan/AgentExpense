@@ -99,7 +99,7 @@ def statement_members(documents, root):
     return {m['entry-id'] for s in documents[root/'data/card-statements.json'] for m in s.get('members',[]) if m.get('entry-id')}
 
 
-def snapshot(root, *, clock=None, documents=None, lines=None):
+def snapshot(root, *, clock=None, documents=None, lines=None, base=None):
     documents = load(root) if documents is None else documents
     actual = entries(documents)
     lines = records(root) if lines is None else lines
@@ -145,7 +145,17 @@ def snapshot(root, *, clock=None, documents=None, lines=None):
             if change.get('original') and change['entry_id'] not in originals:
                 originals[change['entry_id']] = change['original']
     export_entries.update({identity:original for identity, original in originals.items() if identity in public})
-    return dict(export_entries=export_entries, count=len(items), important=sum(i['important'] for i in items), items=items, decisions=decisions,
+    weekly_history = []
+    if base:
+        from review_decisions import display_event, source_title
+        by_id = {line['id']: line for line in lines}
+        for line in reversed(lines):
+            if line.get('review_issue_id') and line['kind'] in ('review-resolution', 'correction', 'rule'):
+                issue = by_id.get(line['review_issue_id'], {})
+                history_item = display_event(line, base)
+                history_item['title'] = history_item['title'] or source_title(by_id.get(issue.get('line_id'), {}))
+                weekly_history.append(history_item)
+    return dict(weekly_history=weekly_history, export_entries=export_entries, count=len(items), important=sum(i['important'] for i in items), items=items, decisions=decisions,
                 entries=public, accounts=list(accounts), history=list(reversed(history)))
 
 

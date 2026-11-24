@@ -128,7 +128,9 @@ test('Review and investment sections render only when enabled; unpriced units re
     return renderToStaticMarkup(createElement(view,view===Review?{live:{data:{export_entries:{},count:0,important:0,items:[],entries:{},decisions:{},accounts:[],history:[]},error:'',refresh:async()=>null}}:{}));
   };
   assert.match(show({fuel:true,investments:{prices:'mutual-fund-nav'}},Review),/Fuel Log/);
-  assert.doesNotMatch(show({fuel:false,investments:false,weeklyReview:false},Review),/Fuel Log|fuel-log|weekly.review/i);
+  const reviewOff=show({fuel:false,investments:false,weeklyReview:false},Review);
+  assert.doesNotMatch(reviewOff,/Fuel Log|fuel-log/i);
+  assert.match(reviewOff,/Weekly review/,'Manual review stays available with its schedule off.');
   assert.match(show({investments:{prices:'mutual-fund-nav'}},Accounts),/Investments/);
   assert.equal(show({investments:{prices:null}},Accounts),show({investments:{prices:'mutual-fund-nav'}},Accounts));
   const disabled = show({investments:false},Accounts);

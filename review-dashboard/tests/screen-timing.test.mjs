@@ -337,6 +337,8 @@ test('Queue polls every 3 seconds while a statement is read, waits for the agent
  for(const state of ['review','found','applied','failed'])assert.equal(pollDelay([],[{state}]),30000,state);
  assert.equal(pollDelay([{state:'added',receipt_reading:{state:'reading'}}],[]),3000,'A receipt being read after a save keeps the fast poll');
  assert.equal(pollDelay([{state:'added',receipt_reading:{state:'question'}}],[]),30000);
+ assert.equal(pollDelay([],[],null,{items:[{followup:'waiting'}]}),3000);
+ assert.equal(pollDelay([],[],null,{items:[{followup:'failed'}]}),30000);
 });
 
 test('A held correction form that arrives after Back is not shown',async()=>{
@@ -668,4 +670,22 @@ test('An unmounted successful claim keeps its recovery token until release is ac
   assert.equal(g.stored.get('hand-claim-fixture-'+'d'.repeat(32)),token);
   g.holds.release[0].reject(Error('Release reply lost'));await g.h.settle();assert.equal(g.stored.get('hand-claim-fixture-'+'d'.repeat(32)),token);
  }finally{g.h.close();}
+});
+
+test('Keep paused sends the removal proposal visible on the saved rule',async()=>{
+ const writes=[],proposal='c'.repeat(32),rule={id:'b'.repeat(16),description:'Willow Studio',version:'d'.repeat(64),lifecycle:'paused',review:{id:proposal,rule_verdict:'propose-removal'}};
+ const element=(type,props)=>({type,props});
+ const nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
+ const h=hookHarness('../app/live/rule-saved.tsx',{
+  './pending-actions':{ActionFeedback:'feedback'},'../../scripts/recurring-ui.mjs':{cadenceLabel:()=>''},
+  '../ui':{dayLabel:x=>x},'../rule-editor':{RuleEditor:'editor'},
+  './rules-api':{useRules:()=>({data:{rules:[rule]}}),useRuleOperation:()=>({operate:async body=>{writes.push(body);return true;}})},
+  'react/jsx-runtime':{jsx:element,jsxs:element,Fragment:'fragment'}
+ });
+ try{
+  const tree=h.render(m=>m.RuleSaved({draft:{result:{audit_id:'receipt',outcome:'added',resume_rules:[rule]}},online:true}));
+  nodes(tree).find(node=>node.type==='button'&&node.props.children==='Keep paused').props.onClick();
+  await h.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)),[{action:'kept',rule_id:rule.id,version:rule.version,review_proposal_id:proposal}]);
+ }finally{h.close();}
 });

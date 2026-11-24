@@ -5,7 +5,7 @@ import json
 import audit
 from jsonschema import Draft202012Validator
 
-from review_decisions import open_issues, targets
+from review_decisions import display_evidence, open_issues, source_title, targets
 from review_lookup import encode, git, validate_evidence
 from rules_service import digest
 
@@ -201,13 +201,21 @@ def display_report(report, rows, base):
         issue = by_id[issue_id]
         source = issue.get('line_id', issue_id)
         resolution = resolutions.get(issue_id)
+        suggestion = issue.get('suggestion', {})
+        proposed = suggestion.get('form', {})
+        if suggestion.get('kind') == 'entry':
+            proposed = proposed['entry']
+        suggestion_label = ' · '.join([proposed['description'],
+            *(' '.join([p['account'], p['amount'], p['commodity']]) for p in proposed['postings'])]) if proposed else None
         decision = dict(id=reference, issue_id=issue_id, source_href=base + 'api/review/sources/' + source,
                         status='resolved' if resolution else 'open', resolution_id=resolution,
                         resolution_href=base + 'api/review/sources/' + resolution if resolution else None,
                         decide=row.get('decide', issue.get('decide', row.get('reason', 'Review the cited record.'))),
-                        evidence=issue.get('evidence_refs', []))
+                        evidence=display_evidence(issue.get('evidence_refs', []), base),
+                        title=source_title(by_id.get(source, {})), note=issue.get('note'), suggestion=suggestion_label,
+                        first_raised=issue['time'] if row['kind'] == 'review-carry-over' else None)
         if row['kind'] == 'rule-review':
-            decision.update(rule_id=row['rule_id'], href=base + 'rules/#rule-' + row['rule_id'])
+            decision.update(rule_id=row['rule_id'], href=base + 'forecast/?section=rules#rule-' + row['rule_id'])
         else:
             decision['href'] = base + 'queue/?review_issue_id=' + issue_id
         decisions.append(decision)

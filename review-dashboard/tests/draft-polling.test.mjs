@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 const source=ts.transpileModule(readFileSync(new URL('../app/live/use-drafts.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const slots=[],effects=[],timers=new Map();let index=0,timerId=0,records=[],statements=[],ledgerCheck={available:false,checking:false,item:null},healthWait=null,listWait=[],calls=0,reloads=0,dirty=false,current;
+let review={revision:'initial',items:[],needs_you:0};
 const window=new EventTarget(),document=new EventTarget();document.hidden=false;
 const changed=(a,b)=>!a||a.length!==b.length||a.some((x,i)=>!Object.is(x,b[i]));
 const hooks={
@@ -15,7 +16,7 @@ const hooks={
  useEffect(fn,deps){const i=index++;if(!slots[i]||changed(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,cleanup:null};effects.push(()=>{old?.cleanup?.();slots[i].cleanup=fn();});}},
 };
 const exports={};
-vm.runInNewContext(source,{exports,window,document,Event,AbortController,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),require:name=>name==='react'?hooks:name==='../data'?{reloadData:async()=>{reloads++;}}:name==='./statements-api'?{statementsApi:{list:async()=>({sessions:statements})}}:{isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:path==='ledger-check'?(ledgerCheck instanceof Error?Promise.reject(ledgerCheck):ledgerCheck):({state:'ready',reason:null}),api:{health:async()=>healthWait || ({ok:true}),list:async()=>{calls++;return listWait.length?listWait.shift():records;}}}});
+vm.runInNewContext(source,{exports,window,document,Event,AbortController,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),require:name=>name==='react'?hooks:name==='../data'?{reloadData:async()=>{reloads++;}}:name==='./statements-api'?{statementsApi:{list:async()=>({sessions:statements})}}:{isRemoved:()=>false,rememberRemoved(){},request:async path=>path==='trash'?{items:[]}:path==='ledger-check'?(ledgerCheck instanceof Error?Promise.reject(ledgerCheck):ledgerCheck):({state:'ready',reason:null}),api:{health:async()=>healthWait || ({ok:true}),queue:async()=>{calls++;const snapshot=review;return {drafts:listWait.length?await listWait.shift():records,review:snapshot};}}}});
 const render=()=>{index=0;dirty=false;current=exports.useDrafts();while(effects.length)effects.shift()();};
 async function settle(){for(let n=0;n<8;n++){await new Promise(r=>setImmediate(r));if(dirty)render();}}
 function delay(){assert.equal(timers.size,1,'Exactly one poll timer must exist');return [...timers.values()][0].delay;}
@@ -36,6 +37,11 @@ ledgerCheck={available:true,checking:false,item:{id:'ledger-check',title:'An ent
 // A failing status read (a 500) keeps the last status and never stops the Queue's own updates.
 ledgerCheck=new Error('Fictional server error');records=[draft('question')];fire();await settle();assert.equal(current.online,true);assert.equal(current.drafts[0].state,'question','Drafts still update');assert.equal(current.ledgerCheck.item.title,'An entry doesn’t balance','The last status stays');
 ledgerCheck={available:true,checking:false,item:null};records=[];fire();await settle();assert.equal(current.attention,0,'The item leaves Needs you when a check passes');
+review={revision:'waiting',items:[{id:'finding',followup:'waiting'}],needs_you:0};await current.refresh();await settle();
+assert.equal(delay(),3000,'An outstanding reviewer reply keeps the active polling interval');assert.equal(current.attention,0);
+review={revision:'replied',items:[{id:'finding'}],needs_you:1};fire();await settle();
+assert.equal(delay(),30000);assert.equal(current.attention,1,'The server’s Needs you count includes the replied finding');
+review={revision:'empty',items:[],needs_you:0};
 statements=[];records=[draft('working')];await current.refresh();await settle();assert.equal(delay(),3000,'Answer/retry transition resets the previous idle timer');
 const before=calls;document.hidden=true;document.dispatchEvent(new Event('visibilitychange'));await settle();assert.equal(timers.size,0);assert.equal(calls,before,'Hidden pages do not fetch');
 document.hidden=false;document.dispatchEvent(new Event('visibilitychange'));await settle();assert.equal(delay(),3000);
@@ -46,7 +52,9 @@ window.dispatchEvent(new Event('pageshow'));await settle();assert.equal(delay(),
 let releaseHealth;healthWait=new Promise(resolve=>{releaseHealth=resolve;});window.dispatchEvent(new Event('focus'));await settle();const beforeLeaving=calls;window.dispatchEvent(new Event('pagehide'));releaseHealth({ok:true});await settle();assert.equal(calls,beforeLeaving,'A late health response must not start draft requests after departure');assert.equal(timers.size,0);healthWait=null;window.dispatchEvent(new Event('pageshow'));await settle();assert.equal(delay(),30000);
 // A mutation requests a fresh pass while an older poll is held open.
 let releaseOld,releaseNew;listWait=[new Promise(r=>releaseOld=r),new Promise(r=>releaseNew=r)];
-const pending=current.refresh();await settle();void current.refresh();releaseOld([{...draft('question'),id:'obsolete'}]);await settle();
+review={revision:'old',items:[{id:'obsolete'}],needs_you:1};
+const pending=current.refresh();await settle();review={revision:'fresh',items:[],needs_you:0};void current.refresh();releaseOld([{...draft('question'),id:'obsolete'}]);await settle();
+assert.equal(current.attention,0,'A superseded review revision cannot restore an old badge');
 assert.equal(current.drafts.some(d=>d.id==='obsolete'),false,'A poll superseded by an action cannot publish its older rows');
 releaseNew([draft('editing')]);await pending;await settle();assert.equal(current.drafts[0].state,'editing');
 for(const slot of slots)slot?.cleanup?.();assert.equal(timers.size,0,'Unmount removes polling');

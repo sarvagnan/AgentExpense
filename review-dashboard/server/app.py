@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import re
 import io
 import json
+import os
 from pathlib import Path
 import secrets
 import shutil
@@ -511,7 +512,9 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def agent_status():
         # Reading status must never start a check or run an agent.
         from adapters import status_details
-        return {**gate.status(), **status_details(settings), 'agent_pause': worker.pause.status(),
+        selector = 'EXPENSES_AGENT' if os.environ.get('EXPENSES_AGENT') else 'ADAPTER'
+        overrides = [key for key in (selector, 'EXPENSES_AGENT_MODEL', 'EXPENSES_AGENT_EFFORT') if os.environ.get(key)]
+        return {**gate.status(), **status_details(settings), 'agent_pause': worker.pause.status(), 'profile_overrides': overrides,
                 'reviewer': {**review_gate.status(), **status_details(reviewer),
                              'inherited': settings.review_profile is None,
                              'agent_pause': worker.review_pause.status()}}
@@ -647,7 +650,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from review import snapshot
         from ledger_lock import ledger_lock
         with ledger_lock(settings.ledger):
-            return snapshot(settings.ledger, clock=review_clock)
+            return snapshot(settings.ledger, clock=review_clock, base=settings.base_path)
 
     @app.get('/api/review/weekly')
     def weekly_status(offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
@@ -718,7 +721,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         from review_decisions import entry_issues, issue_history, published
         root = settings.ledger
         rows = published(root, identity(root, 'main')['commit'])
-        return issue_history(rows, entry_issues(rows).get(entry_id, set()), offset, limit)
+        return issue_history(rows, entry_issues(rows).get(entry_id, set()), offset, limit, base=settings.base_path)
 
     @app.post('/api/review/weekly')
     def weekly_action(body: WeeklyAction):

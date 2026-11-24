@@ -4,11 +4,14 @@ import {ActionFeedback,PendingLabel} from '../live/pending-actions';
 import {useEffect,useRef,useState} from 'react';
 import {dashboard,reloadData} from '../data';
 import {reviewKeys} from '../../scripts/account-metadata.mjs';
-import {Dialog,Icon,PageHeader,dayLabel,evidenceHref,EvidenceName} from '../ui';
+import {Dialog,Icon,PageHeader,dayLabel,evidenceHref,EvidenceName,useQueryState} from '../ui';
 import {commodityAmount} from '../../scripts/formatting.mjs';
 import {formatTimestamp} from '../date-time';
-import {postReview,requestId,type Decision,type Entry,type Item,type History,type Preview,type ReviewChange,type useReview} from './api';
+import {postReview,requestId,type Decision,type Entry,type Item,type History,type Preview,type ReviewChange,type Snapshot,type useReview} from './api';
 import '../styles/server-review.css';
+import {ReviewEvents} from './weekly-history';
+import {ReviewSections,WeeklyReview} from './weekly';
+import type {LiveDrafts} from '../live/use-drafts';
 import {hasExtension} from '../../scripts/ledger-modules.mjs';
 import FuelLog from './fuel-log';
 import {reviewExportRows} from '../../scripts/review-export.mjs';
@@ -26,7 +29,20 @@ const entryMoney=(entry:Entry)=>Object.entries(entry.amounts||{[entry.currency]:
 function EntryIdentity({entry,detail}:{entry:Entry;detail?:string}){return <><div className="review-entry-heading"><strong>{entry.description}</strong><span className="money">{entryMoney(entry)}</span></div><p className="review-entry-meta">{dayLabel(entry.date)} · {entry.accountLabel} · {detail||(entry.statement?'Statement':entry.sources.length?'Receipt':'Ledger entry')}</p></>;}
 /** The saved outcome of a Review action, shown as a success notice rather than a plain line. */
 const reviewDone=(text:string)=>/^(Marked as separate|Separation undone|Same expense settled|Marked for follow-up|Saved decisions moved|Review saved to the ledger)/.test(text);
-export default function Review({live}:{live:ReturnType<typeof useReview>}){
+export default function Review({live,agent,foreground}:{live:ReturnType<typeof useReview>;agent:LiveDrafts['agent'];foreground:boolean}){
+ const [section,setSection]=useQueryState('section','entries');
+ if(section==='weekly')return <WeeklyReview agent={agent} foreground={foreground} onEntries={()=>setSection('entries')} onHistory={()=>setSection('history')}/>;
+ if(section==='history')return <section className="page server-review"><PageHeader title="Review"/>
+   <ReviewSections weekly={false} history select={weekly=>setSection(weekly?'weekly':'entries')}/>
+   <section className="panel panel-body review-history"><h2>Change history</h2>
+     {live.data?<ReviewChanges data={live.data}/>:<p role={live.error?'alert':'status'}>{live.error||'Loading history…'}</p>}
+   </section></section>;
+ return <EntryReview live={live} onWeekly={()=>setSection('weekly')}/>;
+}
+function ReviewChanges({data}:{data:Snapshot}){
+ return <>{!!data.weekly_history?.length&&<ReviewEvents items={data.weekly_history}/>} {data.history.length===0?(data.weekly_history?.length?null:<p className="live-hint">No review changes yet.</p>):data.history.map(h=><div key={h.id}><strong>{h.action==='undo-separate'?'Separation undone':h.action==='separate'?'Marked as separate':h.action==='merge'?'Same expense settled':h.action==='import'?'Imported decisions':h.action==='followup'?'Follow-up recorded':'Review saved'}</strong><span className="live-hint"> · {formatTimestamp(h.time)}</span>{h.changes.map((c,i)=><p key={i}>{data.entries[c.kept_id||c.entry_id]?.description||'Reviewed entry'}{c.decision?.notes?` · ${c.decision.notes}`:''}</p>)}</div>)}</>;
+}
+export function EntryReview({live,onWeekly}:{live:ReturnType<typeof useReview>;onWeekly:()=>void}){
  const {data,error,refresh}=live;
  const guard=useActionGuard();
  const entryForId=(id:string)=>data&&Object.hasOwn(data.entries,id)?data.entries[id]:undefined;
@@ -80,12 +96,13 @@ export default function Review({live}:{live:ReturnType<typeof useReview>}){
  const draft=selected?drafts[selected.id]||(acknowledgedDraft?.id===selected.id?acknowledgedDraft.value:null)||data?.decisions[selected.id]||blank:blank;
  const saveDecision=(action:'resolve'|'followup')=>{if(!selected)return;void run({request_id:requestId(),action,entry_id:selected.id,versions:{[selected.id]:drafts[selected.id]?.version||(acknowledgedDraft?.id===selected.id?acknowledgedDraft.value.version:undefined)||selected.version},decision:{status:action==='resolve'?'resolved':'followup',account:draft.account,label:draft.label,notes:draft.notes,updatedAt:new Date().toISOString()}});};
  const open=(entry:Entry)=>{setAcknowledgedDraft(null);setSelected(entry);setNoticeFor(entry.id);setNotice('');};
- if(!data)return <section {...guard.interaction} className="page server-review"><PageHeader title="Review" subtitle="A second look at entries already in your records."/><div className="panel empty"><p role={error?'alert':'status'}>{error||'Loading review…'}</p>{error&&<button className="button" onClick={()=>void refresh()}>Retry</button>}</div></section>;
+ if(!data)return <section {...guard.interaction} className="page server-review"><PageHeader title="Review" subtitle="A second look at entries already in your records."/><ReviewSections weekly={false} select={onWeekly}/><div className="panel empty"><p role={error?'alert':'status'}>{error||'Loading review…'}</p>{error&&<button className="button" onClick={()=>void refresh()}>Retry</button>}</div></section>;
  const important=data.items.filter(i=>i.important),ordinary=data.items.filter(i=>!i.important);
  const fresh=data.count===0&&data.history.length===0&&pendingLegacy.length===0&&Object.keys(drafts).length===0&&!outbox;
  const kept=merge?.entries.find(e=>e.id===merge.kept_id),removed=merge?.entries.find(e=>e.id!==merge.kept_id);
  return <section {...guard.interaction} className="page server-review" onDragOver={e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();}} onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)void f.text().then(t=>stagePreview(JSON.parse(t))).catch(()=>setNotice('Choose a JSON review export.'));}}>
   <PageHeader title="Review" subtitle={fresh?'A second look at entries already in your records.':`${data.count} waiting · ${data.important?`${data.important} important`:'none important'}`}>{hasExtension(dashboard.meta.ledger,'fuel')&&<button className="button" onClick={()=>setFuelOpen(true)}><Icon name="fuel"/>Fuel Log</button>}{!fresh&&<><button className="button" onClick={exportWork}>Export decisions</button><button className="button plain" disabled={busy} onClick={()=>file.current?.click()}>Import</button></>}</PageHeader>
+  <ReviewSections weekly={false} select={onWeekly}/>
   <ActionFeedback scope="review" match={item=>{const action=JSON.parse(item.body);return !selected&&!merge&&!preview&&action.request_id===outbox?.request_id;}} onRetry={item=>void run(JSON.parse(item.body),item)}/>
   <input ref={file} type="file" className="sr-only" tabIndex={-1} aria-label="Import review decisions" accept="application/json,.json" onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void f.text().then(t=>stagePreview(JSON.parse(t))).catch(()=>setNotice('Choose a JSON review export.'));}}/>
   <div className="server-review-content">
@@ -104,7 +121,7 @@ export default function Review({live}:{live:ReturnType<typeof useReview>}){
    </article>)}</>}
    {ordinary.length>0&&<><div className="review-section-title"><h2>{important.length?'The rest':'Waiting for review'}</h2><span className="count">{ordinary.length}</span></div><section className="panel review-backlog">{(showAll?ordinary:ordinary.slice(0,3)).map(item=>{const entry=item.entries[0];return <div className="review-rest-row" key={item.id}><span className="review-date">{dayLabel(entry.date)}</span><div><strong>{entry.description}</strong><small>{data.decisions[entry.id]?.status==='followup'?'Follow-up · '+data.decisions[entry.id].notes:item.reason}</small></div><span className="money">{entryMoney(entry)}</span><button className="button" onClick={()=>open(entry)}>Review</button></div>;})}{ordinary.length>3&&!showAll&&<div className="panel-body"><p className="live-hint">Showing 3 of {ordinary.length} imported entries.</p><button className="button plain" onClick={()=>setShowAll(true)}>Show {ordinary.length-3} more</button></div>}</section></>}
    {!fresh&&<div className="review-footer-tools"><button className="button plain review-csv" onClick={exportCsv}>Export CSV</button></div>}
-   {!fresh&&<details className="review-history"><summary>Change history</summary>{data.history.length===0?<p className="live-hint">No review changes yet.</p>:data.history.map(h=><div key={h.id}><strong>{h.action==='undo-separate'?'Separation undone':h.action==='separate'?'Marked as separate':h.action==='merge'?'Same expense settled':h.action==='import'?'Imported decisions':h.action==='followup'?'Follow-up recorded':'Review saved'}</strong><span className="live-hint"> · {formatTimestamp(h.time)}</span>{h.changes.map((c,i)=><p key={i}>{data.entries[c.kept_id||c.entry_id]?.description||'Reviewed entry'}{c.decision?.notes?` · ${c.decision.notes}`:''}</p>)}</div>)}</details>}
+   {(!fresh||!!data.weekly_history?.length)&&<details className="review-history"><summary>Change history</summary><ReviewChanges data={data}/></details>}
   </div>
   {fuelOpen&&<Dialog title="Fuel Log" labelId="review-fuel-title" onClose={()=>setFuelOpen(false)}><FuelLog onClose={()=>setFuelOpen(false)}/></Dialog>}
   {selected&&<Dialog title={`Review ${selected.description}`} labelId="review-entry-title" onClose={()=>setSelected(null)}><form className="review-server-form" onSubmit={e=>{e.preventDefault();saveDecision('resolve');}}><EntryIdentity entry={selected}/><div className="review-evidence">{selected.sources.map(s=><p key={s}>{evidenceHref(s)?<a href={evidenceHref(s)!} target="_blank" rel="noopener"><EvidenceName path={s}/></a>:<EvidenceName path={s}/>}</p>)}</div><label>Ledger account<input aria-label="Ledger account" autoFocus className="field" list="review-account-options" value={draft.account} onChange={e=>edit({account:e.target.value})}/></label><datalist id="review-account-options">{data.accounts.map(a=><option key={a} value={a}/>)}</datalist><label>Label (optional)<input aria-label="Label (optional)" className="field" value={draft.label} onChange={e=>edit({label:e.target.value})}/></label><label>Notes (optional)<textarea aria-label="Notes (optional)" className="field" rows={3} value={draft.notes} onChange={e=>edit({notes:e.target.value})}/></label><p className="live-hint">{drafts[selected.id]?'Unsent work is kept in this browser.':'Resolve saves the chosen account, label and notes to the ledger.'}</p><div className="action-error-slot">{notice&&noticeFor===selected.id&&<p role="status">{notice}</p>}</div><ActionFeedback scope="review" match={item=>{const action=JSON.parse(item.body);return action.request_id===outbox?.request_id&&(!selected||action.entry_id===selected.id);}} onRetry={item=>void run(JSON.parse(item.body),item)}/><div className="review-action-row"><button type="button" className="button plain" onClick={()=>setSelected(null)}>Close</button>{(drafts[selected.id]||acknowledgedDraft?.id===selected.id)&&<button type="button" className="button plain" disabled={busy||!drafts[selected.id]} onClick={()=>{const next={...drafts};delete next[selected.id];setDrafts(next);persist(keys.drafts,next);}}><PendingLabel pending={false} text={drafts[selected.id]?'Discard unsent edits':'Edits saved'}>Discard unsent edits</PendingLabel></button>}<button type="button" className="button" disabled={busy} onClick={()=>saveDecision('followup')}>Mark for Follow-up</button><button className="button primary" disabled={busy||!draft.account.trim()} type="submit">{busy?'Saving…':'Resolve'}</button></div></form></Dialog>}

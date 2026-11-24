@@ -17,6 +17,7 @@ async function saveSetting(path:string,body:unknown,owner:WriteOwner) {
   const result=await request<{data_stale?:boolean;data_pending?:boolean}>(path,{...post(body),writeOwner:owner,clearRetained:retainedSnapshot(path==='settings/name'?['settings-name']:path==='settings/default-currency'?['settings-currency']:[])},120000);
   if(result.data_stale&&!result.data_pending)throw new Error('The change was saved, but dashboard data could not refresh. Retry saving to refresh it.');
 }
+const weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const post = (body: unknown): RequestInit => ({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 export function CurrencyOptions({current}: {current:string}) {
   return <>{[...new Set([current,...currencies])].map(code=><option key={code} value={code}>{code}</option>)}</>;
@@ -33,6 +34,13 @@ export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentSt
   const owner=useWriteOwner('settings');
   const [name,setName]=useRetainedState('settings-name',()=>currentSetting('settings/name','name',dashboard.meta.ledger.name)), [currency,setCurrency]=useRetainedState('settings-currency',()=>currentSetting('settings/default-currency','currency',dashboard.meta.ledger.defaultCurrency));
   const guard=useActionGuard(),[dirty,setDirty]=useRetainedState('settings-dirty',{name:false,currency:false,limits:false});
+  const modules=dashboard.meta.ledger.modules;
+  const [schedule,setSchedule]=useState({enabled:modules.weeklyReview===true,day:String(modules.weeklyReviewDay||'Monday')});
+  const scheduleDirty=useRef(false),scheduleRetry=useRef({signature:'',id:''});
+  useEffect(()=>{let active=true;
+    void request<typeof schedule>('review/weekly?limit=1').then(({enabled,day})=>{if(active&&!scheduleDirty.current)setSchedule({enabled,day});},()=>{});
+    return()=>{active=false;};
+  },[]);
   const limitRetry=useRef<{signature:string;id:string}|null>(null);
   const [limits,setLimits,initializeLimits]=useRetainedState<Limits>('settings-limits',{delete_days:7,trash_days:7,saved_hours:24}),[original,setOriginal]=useState<Limits|null>(null),[effects,setEffects]=useState<Effects|null>(null),[previewError,setPreviewError]=useState('');
   useEffect(()=>{let alive=true;void request<Limits>('settings/retention').then(value=>{if(alive){if(!dirty.limits)initializeLimits(value);setOriginal(value);}},e=>{if(alive)setPreviewError(e.message);});return()=>{alive=false;};},[]);
@@ -45,22 +53,27 @@ export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentSt
   // The notice uses the status known when Settings opened; a later reply waits for the next opening.
   const [update]=useState(knownUpdateStatus);
   useEffect(()=>{void refreshUpdateStatus();},[]);
-  const [busy,setBusy]=useState(false), [error,setError]=useCommittedError(write=>write.path==='settings/name'||write.path==='settings/default-currency'||write.path===`retention/operations/${limitRetry.current?.id}`);
+  const [busy,setBusy]=useState(false), [error,setError]=useCommittedError(write=>write.path==='settings/weekly-review'||write.path==='settings/name'||write.path==='settings/default-currency'||write.path===`retention/operations/${limitRetry.current?.id}`);
   const otherAccounts=Object.entries(dashboard.meta.accounts).filter(([,meta])=>meta.kind && meta.currency && isCurrency(meta.currency) && meta.currency!==currency);
   const keptCurrencies=[...new Set(otherAccounts.map(([,meta])=>meta.currency))];
   const keptNames=otherAccounts.map(([path,meta])=>meta.label || path.split(':').at(-1));
   const keptNote=otherAccounts.length>3 ? `${otherAccounts.length} existing accounts keep their own currencies.` : keptCurrencies.length===1 ? `${keptNames.length>1 ? keptNames.slice(0,-1).join(', ')+' and ' : ''}${keptNames.at(-1)} kept ${keptCurrencies[0]}.` : `${otherAccounts.map(([path,meta])=>`${meta.label || path.split(':').at(-1)} (${meta.currency})`).join(', ')} keep their own currencies.`;
-  const latest=useRef({name,currency,limits});latest.current={name,currency,limits};
+  const latest=useRef({name,currency,limits,schedule});latest.current={name,currency,limits,schedule};
   const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   useEffect(()=>{const saved=(event:Event)=>{const detail=(event as CustomEvent<{path:string;body:string;previousReason:string}>).detail;if(!detail)return;const body=JSON.parse(detail.body||'{}');if(detail.path==='settings/name'&&latest.current.name.trim()===body.name)setDirty(value=>({...value,name:false}));if(detail.path==='settings/default-currency'&&latest.current.currency===body.currency)setDirty(value=>({...value,currency:false}));if(detail.path.startsWith('retention/operations/')&&body.action==='settings'&&JSON.stringify(latest.current.limits)===JSON.stringify(body.limits)){setOriginal(body.limits);setDirty(value=>({...value,limits:false}));}};window.addEventListener('direct-write-saved',saved);return()=>window.removeEventListener('direct-write-saved',saved);},[]);
   async function save() {
     if (busy || !name.trim()) return;
-    const ticket=guard.begin(),submitted=JSON.stringify({name,currency,limits});setBusy(true);setError('');
+    const ticket=guard.begin(),submitted=JSON.stringify({name,currency,limits,schedule});setBusy(true);setError('');
     try {
       const writes:Promise<void>[]=[];
       if(dirty.name)writes.push(saveSetting('settings/name',{name:name.trim()},owner).then(()=>{if(mounted.current&&latest.current.name===name)setDirty(value=>({...value,name:false}));}));
       if(dirty.currency)writes.push(saveSetting('settings/default-currency',{currency},owner).then(()=>{if(mounted.current&&latest.current.currency===currency)setDirty(value=>({...value,currency:false}));}));
       if(changed||dirty.limits){const signature=JSON.stringify(limits);if(limitRetry.current?.signature!==signature){const kept=writeSnapshot().filter(item=>item.path.startsWith('retention/operations/')&&item.state!=='saved').findLast(item=>{try{const body=JSON.parse(item.body);return body.action==='settings'&&JSON.stringify(body.limits)===signature;}catch{return false;}});limitRetry.current={signature,id:kept?.path.split('/').at(-1)||crypto.randomUUID().replaceAll('-','')};}writes.push(retentionOperation({action:'settings',limits},limitRetry.current.id,owner).then(()=>{setOriginal(limits);if(mounted.current&&JSON.stringify(latest.current.limits)===signature)setDirty(value=>({...value,limits:false}));if(limitRetry.current?.signature===signature)limitRetry.current=null;}));}
+      if(scheduleDirty.current){
+        const signature=JSON.stringify(schedule);
+        if(scheduleRetry.current.signature!==signature)scheduleRetry.current={signature,id:crypto.randomUUID().replaceAll('-','')};
+        writes.push(saveSetting('settings/weekly-review',{...schedule,request_id:scheduleRetry.current.id},owner));
+      }
       await Promise.all(writes);
       await reloadData();announce('Settings saved.');if(guard.unchanged(ticket)&&JSON.stringify(latest.current)===submitted){clearRetained(['settings-name','settings-currency','settings-dirty','settings-limits']);onClose();}
     } catch(e) {
@@ -79,7 +92,14 @@ export function SettingsDialog({onClose, agent}: {onClose:()=>void;agent:AgentSt
     </section>
     {/* The agent's status can arrive from a poll while Settings is open. Its slot keeps the
         height of the tallest status, so its arrival moves nothing below it. */}
-    <section className="settings-section"><div className="settings-heading-row"><h3>Agent status</h3><span className="live-hint agent-identity">{agentIdentity(agent)}</span></div><div className="agent-status-slot"><AgentNotice status={agent} place="settings"/></div></section>
+    <section className="settings-section"><div className="settings-heading-row"><h3>Agent status</h3><span className="live-hint agent-identity"><strong>Adding expenses</strong> {agentIdentity(agent)}</span></div><div className="agent-status-slot" aria-label="Adding expenses"><AgentNotice status={agent} place="settings"/></div></section>
+    <section className="settings-section"><div className="settings-heading-row"><h3>Weekly review</h3><span className="live-hint agent-identity">{agent.reviewer?.inherited?'Same as adding':agentIdentity(agent.reviewer)}</span></div>
+      <p className="live-hint">To change agents, edit <code>agent</code> or <code>reviewAgent</code> in the server’s <code>local.json</code> and restart AgentExpense.</p>
+      {!!agent.profile_overrides?.length&&<p className="live-hint">Adding expenses uses server overrides {agent.profile_overrides.join(', ')}.</p>}
+      <label><input type="checkbox" checked={schedule.enabled} onChange={e=>{scheduleDirty.current=true;setSchedule({...schedule,enabled:e.target.checked});}}/> Run a review every week</label>
+      <label><span className="field-label" id="settings-review-day-label">Day</span><select aria-labelledby="settings-review-day-label" className="field" value={schedule.day} disabled={!schedule.enabled} onChange={e=>{scheduleDirty.current=true;setSchedule({...schedule,day:e.target.value});}}>{weekdays.map(day=><option key={day}>{day}</option>)}</select></label>
+      <p className="live-hint">Scheduled reviews run when the worker is idle, using the server’s local day.</p>
+    </section>
     <UpdateNotice status={update}/>
     <section className="settings-section retention-settings"><h3>Time limits</h3>{LIMITS.map(([key,label,values])=>timeLimit({key,label,values,unit:key==='saved_hours'?'hours':'days',value:limits[key],disabled:!original,onChange:value=>{guard.touch();setDirty(value=>({...value,limits:true}));setLimits({...limits,[key]:value});},effect:original&&limits[key]!==original[key]?(effects?limitEffect(key,effects):null):undefined,open:shown===key,onToggle:()=>setShown(shown===key?'':key)}))}{previewError&&<p className="live-error" role="alert">{previewError}</p>}<p className="live-hint">Time limits are shared by every device using this ledger.</p></section>
     <section className="settings-section"><button type="button" className="appearance" onClick={()=>setAppearance(appearance==='light'?'dark':'light')}><Icon name={appearance==='light'?'moon':'sun'}/>{appearance==='light'?'Dark':'Light'} appearance</button></section>

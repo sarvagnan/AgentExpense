@@ -118,7 +118,7 @@ def queue(weekly, snapshot, issue, offset, limit):
         items.append(item)
     result = dict(snapshot, items=items, needs_you=sum(item.get('followup') != 'waiting' for item in items))
     if issue:
-        result['history'] = issue_history(rows, {issue}, offset, limit)
+        result['history'] = issue_history(rows, {issue}, offset, limit, base=weekly.settings.base_path)
     return result
 
 

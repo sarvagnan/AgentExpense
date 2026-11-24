@@ -23,7 +23,7 @@ export async function runAddTiming({page,base,stage,persona,expect,control,go,re
   await page.evaluate(({key,seeded})=>{sessionStorage.setItem(key,JSON.stringify([seeded]));window.dispatchEvent(new Event('add-results-changed'));},{key:`ledger-add-visit-${manifest.id}`,seeded});await result.ready;
   await words.fill('Meal during result lookup 18');await upload.hover();const box=await upload.boundingBox();await result.release();await stable(upload,box,expect);await expect(words).toHaveValue('Meal during result lookup 18');await expect(page.locator('.just-added')).toContainText('Working');
  }finally{await result.release();}
- const poll=await holdAddResponse(page,base+'api/drafts?include_added=true');
+ const poll=await holdAddResponse(page,base+'api/drafts?include_added=true&include_review=true');
  try{await refresh();await poll.ready;await control('add-result',{id:seeded.id,state:'question'});await words.fill('Meal during poll 20');await upload.hover();const box=await upload.boundingBox();await refresh();await poll.release();await expect(page.locator('.just-added')).toContainText('Needs an answer');await stable(upload,box,expect);await expect(words).toHaveValue('Meal during poll 20');}finally{await poll.release();}
  record('Add held result lookup and superseded draft poll preserve input and pointer geometry');
  await reset();await control('scenario',{mode:'question'});await words.fill('Fictional payment');await expect(button).toBeEnabled();const save=await holdAddResponse(page,base+'api/drafts/*/save','POST');
