@@ -105,7 +105,8 @@ def _calendar_day(text: str) -> str:
 
 
 def _moment(text: str) -> str:
-    datetime.fromisoformat(text)
+    # RFC 3339 and Python 3.14 accept 24:00 as the end of a day; Python 3.11-3.13 do not.
+    datetime.fromisoformat(re.sub(r'T24:00:00(\.0+)?(?=[+-]|Z)', r'T00:00:00\1', text))
     return text
 
 
