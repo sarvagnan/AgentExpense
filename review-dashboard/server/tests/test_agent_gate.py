@@ -513,7 +513,8 @@ class GateTests(unittest.TestCase):
         dashboard = work / 'review-dashboard'
         dashboard.mkdir(parents=True)
         (work / 'scripts').mkdir()
-        shutil.copy(APPLICATION / 'scripts/dependencies.py', work / 'scripts')
+        for script in ('dependencies.py', 'check_version.py'):
+            shutil.copy(APPLICATION / 'scripts' / script, work / 'scripts')
         lock = dashboard / 'package-lock.json'
         def locked(own, dependency):
             lock.write_text(json.dumps({'version': own, 'packages': {'': {'version': own}, 'node_modules/a': {'version': dependency}}}))

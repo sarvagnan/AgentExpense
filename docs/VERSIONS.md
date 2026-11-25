@@ -12,14 +12,16 @@ means and what a change to it asks of you.
 | Audit lines | `version` on each line of `data/additions/<year>.jsonl` | 1 |
 | Review export files | `reviewVersion` in an exported file | 2 |
 | Node | `.node-version` (selected with fnm) | see the file |
+| Server Python | `review-dashboard/server/.python-version` (selected with uv) | 3.14 |
 
 ## Application version
 
 `VERSION` holds one [semantic version](https://semver.org/). The dashboard's
 `review-dashboard/package.json` (and its lock file) and the server's
 `review-dashboard/server/pyproject.toml` (and `uv.lock`) carry the same number.
-`make check-version` fails when any of them differs, or when `.node-version` lies
-outside `package.json` `engines.node`; `make test` and `make doctor` include it.
+`make check-version` checks these files, the Node pin against `package.json`
+`engines.node`, and the server Python pin against `pyproject.toml` `requires-python`.
+`make test` and `make doctor` include these checks.
 Releases are tagged `vX.Y.Z` and described in [CHANGELOG.md](../CHANGELOG.md),
 whose **Upgrade notes** list the steps for each release. `make update` moves an
 installation between release tags and never downgrades; [RELEASING.md](RELEASING.md)
@@ -105,7 +107,8 @@ Exported Review files carry `reviewVersion` 2. Import accepts that version.
 | --- | --- | --- |
 | Node | the version in `.node-version`, through fnm | One tested runtime for builds, tests and the agent CLIs; without fnm, Node on `PATH` is used with a warning. `engines.node` in `package.json` must include it. |
 | npm | ships with that Node | Installs the locked dashboard and agent CLI packages. |
-| Python | `requires-python` in `review-dashboard/server/pyproject.toml` (3.11+) | Server, ledger tools and tests. |
+| System `python3` | 3.11 or newer | Standard-library launchers such as `make doctor`, `make install` and `make update`. |
+| Server Python | 3.14 in `review-dashboard/server/.python-version` and `>=3.14` in `pyproject.toml` | Server, ledger tools and their tests. uv can install Python 3.14 during `make install`. |
 | uv | any recent release | Runs the server environment from `uv.lock`. |
 | hledger | 1.25 or newer, optional | The second check and the hledger reports; see below. |
 | jj or git | jj 0.47.1+ for writes; git for legacy history | Ledgers are version-controlled; dashboard saves commit with Jujutsu colocated with git. |

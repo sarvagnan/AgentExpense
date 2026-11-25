@@ -8,8 +8,8 @@ agree. Installations update between release tags with `make update`.
 
 1. Start from a green `main`: CI passes (offline suites for every persona, the update
    test, the browser suites and the scans).
-2. Choose the number: patch for fixes, minor for features or a ledger format change,
-   major for removals (see [VERSIONS.md](VERSIONS.md)).
+2. Choose the number: patch for fixes, minor for features, a ledger format change
+   or a raised runtime requirement before 1.0, and major for removals (see [VERSIONS.md](VERSIONS.md)).
 3. Put the number in `VERSION`, `review-dashboard/package.json`,
    `review-dashboard/package-lock.json` (both `version` fields at the top),
    `review-dashboard/server/pyproject.toml` and the `expense-dashboard-server` entry in
@@ -33,7 +33,7 @@ agree. Installations update between release tags with `make update`.
    repository run it with git, which is colocated), then push `main` and the tag.
 8. The **Release** workflow checks that the tag matches `VERSION`, that the versions agree
    and that the changelog section is dated, then publishes a GitHub release whose notes
-   are that section (`python3 scripts/releases.py notes X.Y.Z`).
+   are that section (`uv run --no-sync --project review-dashboard/server python scripts/releases.py notes X.Y.Z`).
 
 A pre-release is tagged `vX.Y.Z-rc.N` with the same steps; `make update` ignores it
 unless run with `--pre`, and the GitHub release is marked as a pre-release.
@@ -65,8 +65,8 @@ one), `--pre` includes pre-releases, `--remote NAME` reads tags from another rem
    **detached at its tag**: `jj new <tag>` in a jj clone colocated with git,
    `git switch --detach <tag>` in a git clone. Detached checkouts work the same in both
    and never move a branch you keep;
-6. reinstalls dependencies only when the installed ones differ from the release's
-   lockfiles (`make install`: `npm ci`, `uv sync --locked`);
+6. runs `make install` to bring the installed dependencies and the server Python
+   interpreter in line with the release's lockfiles and interpreter pin;
 7. runs the release's `make doctor`, then `make upgrade-ledger` for the selected ledger;
 8. runs `make update-checks` to check version agreement (`make check-version`).
    With a selected ledger, it runs `make verify-data` (journal generation, strict

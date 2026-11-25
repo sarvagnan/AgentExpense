@@ -54,6 +54,7 @@ mkdir jj
 tar -xzf jj.tar.gz -C jj
 install jj/jj /usr/local/bin/jj
 cd /opt/agentexpense
+test "${BOX_PYTHON%.*}" = "$(cat review-dashboard/server/.python-version)"
 uv python install "$BOX_PYTHON"
 uv sync --locked --python "$BOX_PYTHON" --directory review-dashboard/server
 # Locked application packages use the npm registry; uv uses the registries in uv.lock.
@@ -122,7 +123,7 @@ PY
 # No source snapshot or application identity belongs in the reusable image.
 rm /opt/agentexpense/.node-version /opt/agentexpense/review-dashboard/package.json \
   /opt/agentexpense/review-dashboard/package-lock.json /opt/agentexpense/review-dashboard/server/pyproject.toml \
-  /opt/agentexpense/review-dashboard/server/uv.lock
+  /opt/agentexpense/review-dashboard/server/.python-version /opt/agentexpense/review-dashboard/server/uv.lock
 rm /opt/agentexpense/scripts/node_toolchain.py /opt/agentexpense/scripts/project_paths.py
 apt-get clean
 uv cache clean

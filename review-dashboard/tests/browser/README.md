@@ -181,7 +181,8 @@ WebKit and their system dependencies. Distribution sources are Debian, the
 tools' official releases, Node's distribution, Playwright's distribution and the
 npm/PyPI registries required by the package locks. Application package lifecycle
 scripts are disabled. These downloads happen only in the builder. The alias
-`browser-box-<hash>` includes `.node-version`, `package-lock.json`, `uv.lock`, the
+`browser-box-<hash>` includes `.node-version`, the server's `.python-version`,
+`package-lock.json`, `uv.lock`, the
 installer and tool pins. An unchanged hash reuses the image. The builder is
 deleted after publishing; build failures also clean it up. Node, Python and
 package dependencies remain at stable absolute paths in the image.

@@ -6,7 +6,7 @@ to exactly the same pixels; the file keeps its name, permissions and modificatio
 formats, 16-bit PNGs and files that don't shrink are left as they are. Directories are searched
 recursively for .jpg, .jpeg and .png files.
 
-    uv run --with pillow --with pyoxipng python scripts/receipts/compress_images.py ledger/Bills/2026-10-27
+    uv run --locked --project review-dashboard/server python scripts/receipts/compress_images.py path/to/evidence
 
 Needs jpegtran on PATH: libjpeg-turbo-progs on Debian, jpeg-turbo on Homebrew.
 """

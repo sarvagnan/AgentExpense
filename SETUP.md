@@ -38,20 +38,22 @@ amount comes from the person.
 make doctor
 ```
 
-It checks Python, fnm and the pinned Node, npm, uv, hledger 1.25 or later (optional),
-jj or git, installed packages, the selected ledger and the agent adapter, offline, and
-prints a fix for each problem. It exits non-zero only for blocking problems (FAIL).
+It checks the system `python3` (3.11 or newer), the server's Python 3.14 environment,
+fnm and the pinned Node, npm, uv, optional hledger 1.25 or later, jj or git,
+installed packages, the selected ledger and the agent adapter. It runs offline
+and prints a fix for each problem. It exits non-zero only for blocking problems (FAIL).
 Typical fixes, with the person's agreement since they download:
 
 ```sh
 fnm install "$(cat .node-version)"   # the pinned Node
-make install                         # dashboard and server packages from the lockfiles
+make install                         # dashboard and server packages and Python 3.14 if needed
 ```
 
-`make install` runs both of the fixes `make doctor` prints for missing packages
-(`npm --prefix review-dashboard ci` and `uv sync --locked --directory review-dashboard/server`).
-Install missing tools (Python, uv, jj, and hledger if they want it) with the person's
-usual package manager. Jujutsu (jj) is required even when git is installed: `make commit`
+`make install` installs missing or changed packages from the lockfiles. uv uses
+`review-dashboard/server/.python-version` and can download a managed Python 3.14
+if needed during installation. Install missing tools (system Python, uv, jj, and
+hledger if they want it) with the person's usual package manager. Jujutsu (jj) is
+required even when git is installed: `make commit`
 and the dashboard save through it. hledger is optional: AgentExpense's own JSON strict
 check guards every save, and the app works fully without it. Without hledger only two
 things are missing: the hledger reports (`hledger -f expense_ledger.ledger …`) and the

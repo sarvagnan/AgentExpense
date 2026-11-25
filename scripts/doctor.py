@@ -51,14 +51,12 @@ def dotted(numbers):
     return '.'.join(map(str, numbers))
 
 
-def check_python(application, python_version):
-    text = (application / 'review-dashboard/server/pyproject.toml').read_text()
-    match = re.search(r'(?m)^requires-python\s*=\s*">=\s*(\d+)\.(\d+)', text)
-    minimum = (int(match.group(1)), int(match.group(2))) if match else (3, 11)
+def check_python(python_version):
+    minimum = (3, 11)
     current = dotted(python_version[:3])
     if tuple(python_version[:2]) < minimum:
         return Row('Python', FAIL, f'python3 is {current}; the app needs {dotted(minimum)} or newer', f'Install Python {dotted(minimum)}+ as python3.')
-    return Row('Python', OK, f'{current} (needs {dotted(minimum)}+)')
+    return Row('Python', OK, f'python3 is {current} (needs {dotted(minimum)}+)')
 
 
 def check_node(application, environ):
@@ -191,15 +189,22 @@ def check_npm_packages(application):
 
 
 def check_python_packages(application, environ):
+    server = application / 'review-dashboard/server'
     uv = shutil.which('uv', path=environ.get('PATH'))
-    fix = 'uv sync --locked --directory review-dashboard/server'
+    fix = 'make install'
     if not uv:
-        return Row('Python packages', FAIL, 'needs uv first', 'Install uv, then ' + fix)
-    if not (application / 'review-dashboard/server/.venv').is_dir():
-        return Row('Python packages', FAIL, 'not installed', fix)
-    if run([uv, 'sync', '--locked', '--check', '--offline', '--directory', str(application / 'review-dashboard/server')], environ) is None:
+        return Row('Python packages', FAIL, 'needs uv first', fix)
+    pin = check_version.python_pin(server)
+    if not pin:
+        return Row('Python packages', FAIL, 'missing server Python pin', 'Restore review-dashboard/server/.python-version from the release.')
+    installed = dependencies.server_python_version(server, environ)
+    if not installed:
+        return Row('Python packages', FAIL, f'no working server interpreter (needs {pin})', fix)
+    if not installed.startswith(pin + '.'):
+        return Row('Python packages', FAIL, f'server Python is {installed} (needs {pin})', fix)
+    if run([uv, 'sync', '--locked', '--check', '--offline', '--directory', str(server)], environ) is None:
         return Row('Python packages', FAIL, 'differ from uv.lock', fix)
-    return Row('Python packages', OK, 'match uv.lock')
+    return Row('Python packages', OK, f'match uv.lock (server Python {installed})')
 
 
 def adapter_packages(application):
@@ -261,7 +266,7 @@ def diagnose(application=APPLICATION, environ=None, python_version=None):
     application = Path(application)
     environ = dict(os.environ if environ is None else environ)
     python_version = tuple(sys.version_info[:3] if python_version is None else python_version)
-    return [check_app(application), check_python(application, python_version), *check_node(application, environ),
+    return [check_app(application), check_python(python_version), *check_node(application, environ),
             *check_tools(environ), check_ledger(application, environ), *check_entry_rules(selected_ledger(application, environ)),
             check_npm_packages(application),
             check_python_packages(application, environ), check_adapter(application, environ)]

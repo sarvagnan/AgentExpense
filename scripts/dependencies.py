@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import sys
 
+from check_version import python_pin
+
 APPLICATION = Path(__file__).resolve().parents[1]
 
 
@@ -35,12 +37,22 @@ def npm_differences(application=APPLICATION):
     return different
 
 
+def server_python_version(server, environ):
+    """Report the installed interpreter directly, without letting uv select a replacement."""
+    try:
+        result = subprocess.run([str(server / '.venv/bin/python'), '--version'], env=environ,
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ''
+    return result.stdout.strip().removeprefix('Python ') if result.returncode == 0 else ''
+
+
 def python_matches(application=APPLICATION, environ=None):
     """Whether the server environment matches uv.lock, checked offline."""
     environ = dict(os.environ if environ is None else environ)
     uv = shutil.which('uv', path=environ.get('PATH'))
     server = Path(application) / 'review-dashboard/server'
-    if not uv or not (server / '.venv').is_dir():
+    if not uv or not server_python_version(server, environ).startswith(python_pin(server) + '.'):
         return False
     result = subprocess.run([uv, 'sync', '--locked', '--check', '--offline', '--directory', str(server)],
                             env=environ, capture_output=True, text=True)
@@ -61,7 +73,10 @@ def install_python(application=APPLICATION, run=subprocess.run, matches=python_m
     if matches(application):
         return False
     print('The server environment differs from uv.lock; running uv sync --locked.', flush=True)
-    run(['uv', 'sync', '--locked', '--directory', str(Path(application) / 'review-dashboard/server')], check=True)
+    environ = dict(os.environ)
+    environ.setdefault('UV_PYTHON_DOWNLOADS', 'automatic')
+    run(['uv', 'sync', '--locked', '--directory', str(Path(application) / 'review-dashboard/server')],
+        check=True, env=environ)
     return True
 
 

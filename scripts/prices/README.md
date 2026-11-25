@@ -34,7 +34,7 @@ shared ledger lock through fetching, dashboard verification/build and the price
 commit, using the existing partial-commit behavior. For an initial dated fetch:
 
 ```sh
-LEDGER_DIR=/absolute/path/to/ledger uv run python scripts/prices/fetch_fund_navs.py --from YYYY-MM-DD --to YYYY-MM-DD
+LEDGER_DIR=/absolute/path/to/ledger uv run --locked --project review-dashboard/server python scripts/prices/fetch_fund_navs.py --from YYYY-MM-DD --to YYYY-MM-DD
 ```
 
 The direct dispatcher also takes the shared lock. `--ledger-locked` is internal

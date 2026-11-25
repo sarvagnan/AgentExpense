@@ -301,9 +301,9 @@ the complete unittest suite and preserves its normal failure/skip reporting;
 `{persona}` is replaced with the selected ledger directory's name.
 
 The daily price job also holds the shared lock through its update, build and
-partial jj commit. Schedule it externally when desired. Other
-manual writers should use `uv run python scripts/ledger/ledger_lock.py -- COMMAND`
-when they can write concurrently with the server.
+partial jj commit. Schedule it externally when desired. From the application root,
+manual writers can take the same lock with
+`uv run --locked --project review-dashboard/server python scripts/ledger/ledger_lock.py -- COMMAND`.
 
 If an interrupted transaction encounters later human edits or commits, automatic
 rollback stops with an error and preserves `transaction.json` for reconciliation.

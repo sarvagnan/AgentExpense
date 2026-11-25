@@ -12,6 +12,14 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+### Changed
+
+- Pin the server, ledger tools and their tests to Python 3.14 through uv.
+
+### Upgrade notes
+
+1. Run `make install` (uv installs Python 3.14 if needed), then run `make doctor`.
+
 ## [0.1.0] - 2026-11-25
 
 The first release.

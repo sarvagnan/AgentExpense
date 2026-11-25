@@ -151,12 +151,12 @@ class DependencyTests(unittest.TestCase):
         calls = []
         self.installed({'node_modules/a': {'version': '1.0.0'}})
         self.assertFalse(dependencies.install_npm(self.root, run=lambda command, check: calls.append(command)))
-        self.assertFalse(dependencies.install_python(self.root, run=lambda command, check: calls.append(command), matches=lambda root: True))
+        self.assertFalse(dependencies.install_python(self.root, run=lambda command, **options: calls.append(command), matches=lambda root: True))
         self.assertEqual(calls, [])
         self.installed({'node_modules/a': {'version': '0.9.0'}})
         with redirect_stdout(io.StringIO()) as said:
             self.assertTrue(dependencies.install_npm(self.root, run=lambda command, check: calls.append(command)))
-            self.assertTrue(dependencies.install_python(self.root, run=lambda command, check: calls.append(command), matches=lambda root: False))
+            self.assertTrue(dependencies.install_python(self.root, run=lambda command, **options: calls.append(command), matches=lambda root: False))
         self.assertEqual(said.getvalue().splitlines(), ['1 npm packages differ from package-lock.json; running npm ci.',
                                                         'The server environment differs from uv.lock; running uv sync --locked.'])
         self.assertEqual(calls, [['npm', '--prefix', str(self.root / 'review-dashboard'), 'ci'],

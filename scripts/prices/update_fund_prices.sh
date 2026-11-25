@@ -3,12 +3,15 @@
 set -eu
 # Resolve caller-relative LEDGER_DIR before changing directory.
 app=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-LEDGER_DIR=$(uv run python "$app/scripts/project_paths.py")
+run_python() {
+  uv run --locked --project "$app/review-dashboard/server" python "$@"
+}
+LEDGER_DIR=$(run_python "$app/scripts/project_paths.py")
 export LEDGER_DIR
 cd "$app"
-uv run python scripts/ledger_manifest.py
+run_python scripts/ledger_manifest.py
 # No source means no lock, file read, fetch, build or commit.
-if uv run python scripts/prices/fetch_fund_navs.py --configured; then
+if run_python scripts/prices/fetch_fund_navs.py --configured; then
   :
 else
   status=$?
@@ -16,12 +19,12 @@ else
   exit "$status"
 fi
 if [ "${1:-}" != "--ledger-locked" ]; then
-  exec uv run python scripts/ledger/ledger_lock.py -- /bin/sh scripts/prices/update_fund_prices.sh --ledger-locked
+  exec uv run --locked --project "$app/review-dashboard/server" python scripts/ledger/ledger_lock.py -- /bin/sh scripts/prices/update_fund_prices.sh --ledger-locked
 fi
 prices="$LEDGER_DIR/data/prices/mutual-funds.prices"
 before=missing
 [ ! -f "$prices" ] || before=$(cksum < "$prices")
-uv run python scripts/prices/fetch_fund_navs.py --ledger-locked
+run_python scripts/prices/fetch_fund_navs.py --ledger-locked
 if [ ! -f "$prices" ] || [ "$(cksum < "$prices")" = "$before" ]; then
   exit 0
 fi

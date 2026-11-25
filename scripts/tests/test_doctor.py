@@ -51,10 +51,13 @@ class DoctorFixture(unittest.TestCase):
             self.write_json(dashboard / 'node_modules' / package / 'package.json', dict(version=self.package['dependencies'][package]))
             (dashboard / 'node_modules/.bin').mkdir(exist_ok=True)
             (dashboard / 'node_modules/.bin' / binary).write_text('')
-        (server / 'pyproject.toml').write_text('[project]\nname = "expense-dashboard-server"\nversion = "0.3.0"\nrequires-python = ">=3.11"\n')
+        (server / '.python-version').write_text('3.14\n')
+        (server / 'pyproject.toml').write_text('[project]\nname = "expense-dashboard-server"\nversion = "0.3.0"\nrequires-python = ">=3.14"\n')
         (server / 'uv.lock').write_text('version = 1\n\n[[package]]\nname = "other"\nversion = "9.9.9"\n\n'
                                         '[[package]]\nname = "expense-dashboard-server"\nversion = "0.3.0"\nsource = { virtual = "." }\n')
-        (server / '.venv').mkdir()
+        (server / '.venv/bin').mkdir(parents=True)
+        self.server_python = server / '.venv/bin/python'
+        executable(self.server_python, 'echo "Python ${SERVER_PYTHON_STUB_VERSION-3.14.7}"\n')
         (server / 'adapters/__init__.py').write_text(PACKAGES)
         self.tools = self.base / 'tools'
         self.node = self.base / 'node-bin'
@@ -74,7 +77,7 @@ class DoctorFixture(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value))
 
-    def rows(self, python=(3, 12, 1), **environ):
+    def rows(self, python=(3, 11, 1), **environ):
         return {row.check: row for row in doctor.diagnose(self.app, {**self.environ, **environ}, python)}
 
     def statuses(self, **environ):
@@ -97,6 +100,8 @@ class DoctorTests(DoctorFixture):
             'AgentExpense': 'ok', 'Python': 'ok', 'fnm': 'ok', 'Node': 'ok', 'Node pin': 'ok', 'npm': 'ok', 'uv': 'ok',
             'hledger': 'ok', 'jj / git': 'ok', 'Ledger': 'info', 'npm packages': 'ok', 'Python packages': 'ok', 'Agent adapter': 'ok'})
         self.assertEqual(rows['Ledger'].detail, 'no ledger selected (tests use fixtures/ledgers/asha)')
+        self.assertIn('3.11.1', rows['Python'].detail)
+        self.assertIn('3.14.7', rows['Python packages'].detail)
         self.assertEqual(rows['hledger'].detail, '1.52.4 (needs 1.25+)')
         self.assertEqual(rows['Agent adapter'].detail, 'codex: pinned CLI 0.166.0 present (sign-in not checked)')
         text = doctor.render(list(rows.values()))
@@ -120,9 +125,22 @@ class DoctorTests(DoctorFixture):
         shutil.rmtree(self.app / 'review-dashboard/server/.venv')
         rows = self.rows()
         self.assertEqual((rows['npm packages'].status, rows['npm packages'].fix), ('FAIL', 'npm --prefix review-dashboard ci'))
-        self.assertEqual((rows['Python packages'].status, rows['Python packages'].fix), ('FAIL', 'uv sync --locked --directory review-dashboard/server'))
+        self.assertEqual((rows['Python packages'].status, rows['Python packages'].fix), ('FAIL', 'make install'))
         self.assertEqual(rows['Agent adapter'].status, 'warn')
         self.assertIn('2 blocking', doctor.render(list(rows.values())))
+
+    def test_wrong_or_broken_server_python_requires_install(self):
+        for version in ('3.13.9', '3.15.2'):
+            with self.subTest(version=version):
+                env = {**self.environ, 'SERVER_PYTHON_STUB_VERSION': version}
+                row = self.rows(**env)['Python packages']
+                self.assertEqual((row.status, row.fix), ('FAIL', 'make install'))
+                self.assertIn(version, row.detail)
+                self.assertIn('3.14', row.detail)
+                self.assertFalse(doctor.dependencies.python_matches(self.app, env))
+        self.server_python.unlink()
+        row = self.rows()['Python packages']
+        self.assertEqual((row.status, row.fix), ('FAIL', 'make install'))
 
     def test_dependencies_must_match_lockfiles(self):
         installed = json.loads((self.app / 'review-dashboard/node_modules/.package-lock.json').read_text())
@@ -240,6 +258,16 @@ class VersionCheckTests(DoctorFixture):
     def test_agreeing_versions(self):
         self.assertEqual(check_version.problems(self.app), [])
         self.assertEqual(self.rows()['AgentExpense'].detail, '0.3.0')
+
+    def test_python_pin_must_match_the_project_minimum(self):
+        pin = self.app / 'review-dashboard/server/.python-version'
+        for wrong in ('3.13\n', '3.15\n', '3.14.7\n'):
+            with self.subTest(wrong=wrong):
+                pin.write_text(wrong)
+                self.assertTrue(any('.python-version' in problem and 'requires-python' in problem
+                                    for problem in check_version.problems(self.app)))
+        pin.unlink()
+        self.assertTrue(any('.python-version' in problem for problem in check_version.problems(self.app)))
 
     def test_each_follower_must_match_version(self):
         (self.app / 'VERSION').write_text('0.4.0\n')

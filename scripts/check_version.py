@@ -1,4 +1,4 @@
-"""One application version, followed by the package files, and a Node pin within engines.
+"""Check the application version and the Node and server Python pins.
 
 Standard library only, so `make doctor` can use it before dependencies exist.
 """
@@ -18,6 +18,13 @@ def read_version(application=APPLICATION):
     if not SEMVER.fullmatch(value):
         raise ValueError(f'VERSION is not a semantic version: {value!r}')
     return value
+
+
+def python_pin(server):
+    try:
+        return (server / '.python-version').read_text().strip()
+    except FileNotFoundError:
+        return ''
 
 
 def parse_version(text):
@@ -90,8 +97,13 @@ def problems(application=APPLICATION):
     expect('review-dashboard/package-lock.json', lock.get('version'))
     expect('review-dashboard/package-lock.json (root package)', lock.get('packages', {}).get('', {}).get('version'))
     server = application / 'review-dashboard/server'
-    expect('review-dashboard/server/pyproject.toml', _toml_version((server / 'pyproject.toml').read_text(), table='project'))
+    project = (server / 'pyproject.toml').read_text()
+    expect('review-dashboard/server/pyproject.toml', _toml_version(project, table='project'))
     expect('review-dashboard/server/uv.lock', _toml_version((server / 'uv.lock').read_text(), package=SERVER_PACKAGE))
+    pin = python_pin(server)
+    requirement = re.search(r"""(?m)^requires-python\s*=\s*["']([^"']+)["']""", project)
+    if not re.fullmatch(r'\d+\.\d+', pin) or not requirement or requirement[1] != '>=' + pin:
+        found.append('review-dashboard/server/.python-version must pin the minor version in pyproject.toml requires-python.')
     found.extend(node_pin_problems(application, package))
     return found
 

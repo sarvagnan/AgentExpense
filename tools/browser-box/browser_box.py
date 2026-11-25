@@ -49,7 +49,8 @@ PINS = {"fnm": "1.39.0", "uv": "0.12.13", "python": "3.14.7",
         "fnm_sha256":"7807664f39d39fc518da1c35ba0181e4b3267603c4b1dedeb4b5fc6ae440a224",  # pragma: allowlist secret (public release checksum)
         "uv_sha256":"745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd",  # pragma: allowlist secret (public release checksum)
         "jj_sha256":"d4b657f622ee50929c8916466dfa3d6a6c17a0a32b50e7b2c793707ec9ebcad7"}  # pragma: allowlist secret (public release checksum)
-LOCKS = (".node-version", "review-dashboard/package-lock.json", "review-dashboard/server/uv.lock")
+LOCKS = (".node-version", "review-dashboard/package-lock.json", "review-dashboard/server/.python-version",
+         "review-dashboard/server/uv.lock")
 IMAGE_HASH_INPUTS = (*LOCKS, "scripts/node_toolchain.py", "scripts/project_paths.py")
 BUILD_INPUTS = (*IMAGE_HASH_INPUTS, "review-dashboard/package.json", "review-dashboard/server/pyproject.toml")
 COLLECT_SCRIPT = """from pathlib import Path
