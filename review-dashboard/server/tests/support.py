@@ -96,6 +96,23 @@ def png():
     return out.getvalue()
 
 
+def fake_oxipng(directory, output):
+    """Install a fixture compressor that checks the CLI options and emits the supplied PNG."""
+    tool = directory / 'oxipng'
+    tool.with_suffix('.png').write_bytes(output)
+    tool.write_text(f'#!{sys.executable}\n' + """\
+from pathlib import Path
+from shutil import copyfile
+import sys
+
+assert sys.argv[1:5] == ['--quiet', '-o', '4', '--out']
+assert sys.argv[6] == '--'
+assert Path(sys.argv[7]).is_file()
+copyfile(Path(__file__).with_suffix('.png'), sys.argv[5])
+""")
+    tool.chmod(0o755)
+
+
 class Fixture(unittest.TestCase):
     def setUp(self):
         before = snapshot(APPLICATION)

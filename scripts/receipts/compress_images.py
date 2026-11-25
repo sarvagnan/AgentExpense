@@ -8,8 +8,11 @@ recursively for .jpg, .jpeg and .png files.
 
     uv run --locked --project review-dashboard/server python scripts/receipts/compress_images.py path/to/evidence
 
-Needs jpegtran on PATH: libjpeg-turbo-progs on Debian, jpeg-turbo on Homebrew.
+For JPEGs, install jpegtran (libjpeg-turbo-progs on Debian, jpeg-turbo on Homebrew).
+For PNGs, install oxipng (the oxipng package on Debian and Homebrew).
+Images are left untouched when their compressor is missing from PATH.
 """
+from functools import lru_cache
 import os
 import shutil
 import subprocess
@@ -17,7 +20,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import oxipng
 from PIL import Image
 
 # Full-page captures can exceed Pillow's decompression-bomb limit.
@@ -25,13 +27,18 @@ Image.MAX_IMAGE_PIXELS = None
 EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
+@lru_cache(maxsize=None)
+def report_missing(tool: str) -> None:
+    print(f"{tool} is missing from PATH. Leaving its images untouched.", file=sys.stderr)
+
+
 def same_pixels(a: Path, b: Path) -> bool:
     with Image.open(a) as x, Image.open(b) as y:
         if x.size != y.size:
             return False
-        if x.mode != y.mode:
-            # oxipng may drop an unused alpha channel or switch to a palette. Comparing as
-            # RGBA is exact because 16-bit PNGs never get this far.
+        if x.mode != y.mode or x.mode == "P" or "transparency" in x.info or "transparency" in y.info:
+            # Compare the colours and alpha after decoding palette entries and transparency.
+            # Comparing as RGBA is exact because 16-bit PNGs never get this far.
             x, y = x.convert("RGBA"), y.convert("RGBA")
         return x.tobytes() == y.tobytes()
 
@@ -39,7 +46,7 @@ def same_pixels(a: Path, b: Path) -> bool:
 def candidates(path: Path, fmt: str, work: Path) -> list[Path]:
     if fmt == "PNG":
         out = work / "oxipng.png"
-        oxipng.optimize(path, out, level=4)
+        subprocess.run(["oxipng", "--quiet", "-o", "4", "--out", str(out), "--", str(path)], check=True)
         return [out]
     outs = []
     for name, extra in (("baseline", []), ("progressive", ["-progressive"])):
@@ -64,6 +71,10 @@ def compress(path: Path) -> tuple[str, int]:
     # A PNG's bit depth is byte 24, in the IHDR chunk.
     if fmt == "PNG" and path.read_bytes()[24] == 16:
         return "left as is: 16-bit PNG", 0
+    tool = "oxipng" if fmt == "PNG" else "jpegtran"
+    if shutil.which(tool) is None:
+        report_missing(tool)
+        return "left as is", 0
     before = path.stat()
     with tempfile.TemporaryDirectory() as work:
         best = min(candidates(path, fmt, Path(work)), key=lambda p: p.stat().st_size)
@@ -100,7 +111,7 @@ def main() -> None:
     for path in files:
         try:
             result, saved = compress(path)
-        except (ValueError, subprocess.CalledProcessError, oxipng.PngError) as error:
+        except (ValueError, subprocess.CalledProcessError) as error:
             result, saved, failed = f"left as is: {error}", 0, failed + 1
         total += saved
         print(f"{path}: {result}")

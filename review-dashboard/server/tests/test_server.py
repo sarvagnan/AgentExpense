@@ -11,13 +11,18 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from support import Fixture, ready, png, SERVER, metadata
+from support import Fixture, ready, png, SERVER, fake_oxipng, metadata
 from agent import command_for, prompt_for, prepare
 from transactions import ledger_lock, Transaction, clean, jj
 
 
 class LifecycleTests(Fixture):
     def test_add_compress_commit_refresh_and_purge(self):
+        optimized = io.BytesIO()
+        with Image.open(io.BytesIO(png())) as receipt:
+            receipt.save(optimized, format='PNG')
+        fake_oxipng(self.base, optimized.getvalue())
+        self.enterContext(patch.dict(os.environ, {'PATH': str(self.base) + os.pathsep + os.environ['PATH']}))
         with self.client() as client:
             identity = self.create(client, 'lunch "100"; $(touch nope)')
             self.save(client, identity)

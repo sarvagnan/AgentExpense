@@ -12,7 +12,6 @@ dependencies = [
     "pydantic>=2.14",
     "pypdfium2>=4.30",
     "pillow>=10.4",
-    "pyoxipng>=9.0",
     "pypdf[crypto]>=6.1",
     "openpyxl>=3.1",
     "xlrd>=2.0",

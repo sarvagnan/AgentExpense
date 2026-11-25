@@ -578,6 +578,11 @@ merge); snapshot/recover/rollback remain the common mutation foundation. Human
 proposals follow the same worker and apply method. `finished_by` retains actor and
 reason; the commit trailer identifies the human. No agent runs for a human save.
 
+Receipt compression uses optional commands on the server's PATH. Install
+`oxipng` for PNGs (`brew install oxipng` or `apt install oxipng`) and
+`jpegtran` for JPEGs (`jpeg-turbo` on Homebrew or `libjpeg-turbo-progs` on
+Debian). The server files receipts unchanged when their compressor is missing.
+
 Weekly review takes idle FIFO turns. A readiness check, one reviewer attempt and
 publication each take separate turns. The worker services runnable Add,
 statement, receipt, ledger-check fix and human save jobs between those turns.
