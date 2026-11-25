@@ -20,8 +20,8 @@ The pending shelf makes the same recovery available after navigation or reload.
 ## Quick start
 
 You need a system `python3` at 3.11 or newer, uv, fnm and Jujutsu (jj), which ledger
-saves commit through. `make install` uses uv to find or install Python 3.14 for
-the server and ledger tools. Optional hledger 1.25+ adds reports and a second check
+saves commit through. `make install` uses uv to find or install the Python pinned in
+`review-dashboard/server/.python-version` for the server and ledger tools. Optional hledger 1.25+ adds reports and a second check
 of every save.
 
 ```sh

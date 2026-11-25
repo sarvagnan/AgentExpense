@@ -44,10 +44,10 @@ def is_stopping():
     if CANCELLED.is_set() and STOP_DEADLINE is None:
         STOP_DEADLINE = time.monotonic()+45
     return CANCELLED.is_set()
-PINS = {"fnm": "1.39.0", "uv": "0.12.13", "python": "3.14.7",
+PINS = {"fnm": "1.39.0", "uv": "0.13.10", "python": "3.15.2",
         "hledger": "1.52.4", "jj": "0.47.1", "playwright": "1.64.1",
         "fnm_sha256":"7807664f39d39fc518da1c35ba0181e4b3267603c4b1dedeb4b5fc6ae440a224",  # pragma: allowlist secret (public release checksum)
-        "uv_sha256":"745765a3b6e360ad76743599ae5c42e9278c7edf8bbff9fc76d05bf2623a04dd",  # pragma: allowlist secret (public release checksum)
+        "uv_sha256":"bf65ac1a0af10f92c522d91ac096c7c0a39657647b155577e7836c2cbbb4526c",  # pragma: allowlist secret (public release checksum)
         "jj_sha256":"d4b657f622ee50929c8916466dfa3d6a6c17a0a32b50e7b2c793707ec9ebcad7"}  # pragma: allowlist secret (public release checksum)
 LOCKS = (".node-version", "review-dashboard/package-lock.json", "review-dashboard/server/.python-version",
          "review-dashboard/server/uv.lock")

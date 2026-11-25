@@ -3,7 +3,7 @@ description: Node from .node-version, Python, a pinned uv, hledger, a pinned jj,
 inputs:
   uv-version:
     description: Exact uv version
-    default: "0.12.13"
+    default: "0.13.10"
   install-python:
     description: Install uv and sync the server dependencies from uv.lock
     default: "true"

@@ -38,7 +38,7 @@ amount comes from the person.
 make doctor
 ```
 
-It checks the system `python3` (3.11 or newer), the server's Python 3.14 environment,
+It checks the system `python3` (3.11 or newer), the server's pinned Python environment,
 fnm and the pinned Node, npm, uv, optional hledger 1.25 or later, jj or git,
 installed packages, the selected ledger and the agent adapter. It runs offline
 and prints a fix for each problem. It exits non-zero only for blocking problems (FAIL).
@@ -46,11 +46,11 @@ Typical fixes, with the person's agreement since they download:
 
 ```sh
 fnm install "$(cat .node-version)"   # the pinned Node
-make install                         # dashboard and server packages and Python 3.14 if needed
+make install                         # dashboard and server packages and the pinned Python if needed
 ```
 
 `make install` installs missing or changed packages from the lockfiles. uv uses
-`review-dashboard/server/.python-version` and can download a managed Python 3.14
+`review-dashboard/server/.python-version` and can download that managed Python
 if needed during installation. Install missing tools (system Python, uv, jj, and
 hledger if they want it) with the person's usual package manager. Jujutsu (jj) is
 required even when git is installed: `make commit`

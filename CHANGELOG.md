@@ -14,14 +14,15 @@ that fails and keep its output.
 
 ### Changed
 
-- Pin the server, ledger tools and their tests to Python 3.14 through uv.
+- Pin the server, ledger tools and their tests to Python 3.15 through uv 0.13.10 or newer.
 - Use the optional `oxipng` command for PNG receipt compression and drop the Python `pyoxipng` package.
 - Check Python and uv upgrades weekly and report Python download support and optional receipt compressors in `make doctor`.
 
 ### Upgrade notes
 
-1. Run `make install` (uv installs Python 3.14 if needed), then run `make doctor`.
-2. To compress PNG receipts, install `oxipng` with `brew install oxipng` or
+1. Update uv to 0.13.10 or newer if `uv --version` is older (it needs to know Python 3.15).
+2. Run `make install` (uv installs Python 3.15 if needed), then run `make doctor`.
+3. To compress PNG receipts, install `oxipng` with `brew install oxipng` or
    `apt install oxipng`.
 
 ## [0.1.0] - 2026-11-25
