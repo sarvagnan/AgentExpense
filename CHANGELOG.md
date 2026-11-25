@@ -12,6 +12,137 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-25
+
+The first release.
+
+### Added
+
+- **Ledger and checks.** JSON in a separate ledger repository is the source of
+  truth; every save passes the JSON strict check (`make verify-data`), and hledger,
+  when installed, checks the generated journal again in the background. Ledger format 2 is a typed store
+  ([docs/STORE.md](docs/STORE.md)): every entry, posting and rule is written in
+  full, in kebab-case, with related facts grouped; Python reads and writes every
+  document through pydantic models, Node validates against the schema generated
+  from them, and each entry balances exactly in every commodity. `ledger.json`
+  holds settings and `data/accounts.json` account metadata. Format 0 and 1 ledgers
+  upgrade with `make upgrade-ledger`, which compares outputs and rolls back on
+  failure; the 1 → 2 step prints counts only, turns inexact unit costs into exact
+  totals and stops, writing nothing, on anything the models can't hold.
+- **Extensions.** Ledger-specific entry fields are named, typed extensions
+  ([docs/EXTENSIONS.md](docs/EXTENSIONS.md)): the built-in `fuel`
+  (`extensions/fuel.json`) and a ledger's own in its `extensions/`, listed in
+  `ledger.json`. The Add agent fills an extension's agent fields when asked; entry
+  details and Edit entry show every field generically; the journal prints each as
+  a comment tag. `make extension-update NAME=…` brings every entry in step after a
+  definition or listing changes. Format 1's policy term becomes a ledger extension.
+- **Accounts and currencies.** Each account keeps its own currency; totals and
+  charts stay separate per currency, and conversions are asked for only when an
+  expense's currency differs from the paying account's. Accounts lists one line per
+  account; each group heading (Banks, Credit cards, Prepaid, People, Loans, Cash)
+  opens a group view with its total over time per currency, a table of the
+  accounts' figures for the period (including the last statement-confirmed balance
+  or filed card statement) and the combined activity, with transfers within the
+  group behind a switch. The dashboard data carries the confirmed balances and card
+  statement summaries this needs.
+- **Dashboard.** Add, Queue, Review, Explorer, Atlas, Journal, Forecast and
+  Accounts, with Rules, Trash and Settings, in Light and Dark, built from generated
+  data (`DASHBOARD_DATA_DIR` chooses where it goes).
+- **Add with an agent.** Typed words, receipts and statements become drafts in a
+  per-ledger Queue. A restricted agent proposes entries; the server validates and
+  writes them with an audit line and a reviewable commit. Adapters for Codex,
+  Claude Code, Pi, OpenCode and a direct API, each pinned and checked offline.
+  Drafts survive agent outages and can be finished by hand.
+- **Recurring rules and bills.** Rules guessed while typing (two distinctive shared
+  words, or one with the rule's amount; a single distinctive word is only a
+  suggestion, and category, account-kind and widely shared words count only as a
+  rule's whole name) or
+  made from repeated payments; rules whose amount varies, with saved bills that
+  stay unpaid until a payment is recorded.
+- **Corrections, Delete and Trash.** Saved entries can be corrected, deleted within
+  the ledger's time limits and restored from Trash with their evidence.
+- **Statements.** A reader interface (version 1) with generic CSV and spreadsheet
+  readers, an example card statement reader for a fictional layout, bank statement
+  summaries and confirmed balances.
+- **Review on the server.** Possible duplicates and other decisions are applied by
+  the server with audit lines; periodic reviews follow
+  `review-dashboard/server/WEEKLY-REVIEW.md`.
+- **Optional modules.** Investments with price sources, an older-ledger lookup and
+  the weekly review, each set in `ledger.json`; fuel is the built-in extension.
+- **Tooling.** `VERSION` as the single application version (`make check-version`),
+  `make doctor` for offline prerequisite checks (it warns when jj is missing or the
+  selected ledger is a git repository without jj, since saves need jj), fictional fixture ledgers
+  (`make personas`), offline test suites with fake agents, headless browser
+  suites, and a personal-data scanner (`make scan`). `npm ci` runs only when the
+  installed packages differ from `package-lock.json` by version (`make install`
+  covers both dependency sets).
+- **The JSON strict check.** `scripts/ledger/strict_check.py` checks on the store
+  what hledger's strict check finds on the journal (balance exactly, no implicit
+  conversion, balance assertions, declared accounts and commodities, date order,
+  recurring rules and their forecasts) without starting a process. It is the gate
+  in `make verify-data` and in the server's previews and saves. Agreement tests run both on
+  every fixture, on generated large ledgers and on one mutation per check kind.
+  Node's validator refuses the same documents as the Python models.
+- **hledger as the background second check.** hledger is optional. Saves no longer
+  wait for it: `make commit` sets `EXPENSES_HLEDGER_CHECK=background`, and the server
+  checks each commit afterwards, coalesced (one running, one waiting, always the latest
+  commit), from a snapshot of the committed store without the ledger lock, and at
+  start-up. The result is kept in the ledger's ignored `drafts/ledger-check.json`. When
+  hledger finds a problem, every screen shows a banner, Queue › Needs you shows a Ledger
+  check item in plain words (with hledger's own text under Details and the entries
+  changed since the last good check), and statement Apply and confirmed balances wait
+  for the accounts involved. The item offers Ask the agent to fix it (a proposal in Edit
+  entry that changes nothing until the person saves it), Edit the entry and Check again,
+  or Copy details when the app and hledger disagree; it closes when a check passes.
+  `make verify-data` and `make verify` run by hand still run hledger at once and report
+  a failure in the same words; without hledger they skip it with a note, and so does
+  `make upgrade-ledger` (it skips hledger's check and report comparison only). `make
+  doctor` warns instead of failing when hledger is missing.
+  Continue creates accounts outside the draft mutex and revalidates before dispatch,
+  avoiding a deadlock with Trash polling. Apply reads refusal and pending state
+  together, passing checks resolve concurrent fix answers safely, and first-run
+  import follows late check results. Queue holds new check rows during interaction;
+  Check again retains the explanation when a last-good commit is missing.
+- **Save timings.** Each save writes one `save-timing` line to the server log with
+  the duration of every step (pickup, prepare, lock wait, journal, store check,
+  the JSON strict check, jj, data rebuild, total; hledger only when kept in the commit);
+  nothing is written into the ledger.
+  `make bench-save` times representative saves on a large fictional ledger from
+  `scripts/fixtures/generate_large.py` in `/tmp`, with the fake agent, and exits
+  non-zero when a target is missed by more than 50%; `BENCH_ENTRIES=100000` is a
+  stress run without targets.
+- **Updates and releases.** `make update` moves an installation to the newest
+  release tag: doctor, a clean checkout, the changelog since the installed version,
+  confirmation (or `--yes`), a detached checkout of the tag, the ledger upgrade,
+  verification, the dashboard build and a restart of the service named in
+  `local.json`; any failure after the checkout restores the previous
+  checkout, the ledger checkpoint and the dashboard. `make upgrade-ledger` runs a
+  chain of migrations, rehearsing it on a scratch copy first. An optional update
+  notice in Settings (off unless `local.json` turns it on) reads the remote's tags at
+  most daily. GitHub workflows run the scans and offline suites on every push, the
+  headless browsers (in Light) and the update test on tags, by hand and weekly,
+  propose agent CLI pins weekly and publish releases from tags; see
+  [docs/RELEASING.md](docs/RELEASING.md).
+- **Setup.** [SETUP.md](SETUP.md) walks a coding agent through setting up a ledger.
+  `make new-ledger` creates one from `templates/ledger/` as its own repository with a
+  verified first commit; `make add-account` and `make opening-balances` declare
+  accounts and opening balances under the ledger lock; `make demo` runs a fictional
+  ledger from `/tmp` with an offline fake agent; `make serve` starts the dashboard
+  locally at `http://127.0.0.1:8701/expenses/` (`/expenses/`, where the build loads
+  its files, is also the server's own default base path); `make private-checks` runs a
+  ledger's own `checks/`. A ledger with no
+  accounts opens the first-run screens in the dashboard: About you, then either
+  Start from today (accounts and opening balances) or Bring in past statements
+  (files read by built-in readers or the agent, each with its account and currency),
+  then Add. Deployment examples
+  for local use, systemd, launchd, a reverse proxy and a tailnet are in
+  [docs/deploy/](docs/deploy/README.md).
+- **General policy.** The general bookkeeping policy is
+  [policy/BOOKKEEPING.md](policy/BOOKKEEPING.md); a ledger's `AGENTS.md` keeps only
+  personal rules. The server gives the dashboard's agent both, read on every run.
+
+### Also added and fixed before release
+
 - Added a separate weekly reviewer profile (`reviewAgent` in `local.json`, defaulting to `agent`), its isolation check (`make agent-check ROLE=review`) and scoped read-only ledger tools.
 - Weekly review validates evidence coverage and commits each batch of verdicts in one recoverable audit transaction; a second verdict for the same audit line is refused.
 - Weekly review runs on demand or on a selected weekday (`modules.weeklyReviewDay`, Monday by default), waits for Add and other foreground work between batches, and resumes from committed progress.
@@ -225,211 +356,6 @@ that fails and keep its output.
 
 ### Upgrade notes
 
-- After upgrading, disable any previous external weekly review job in cron, systemd
-  or launchd. The server now handles the schedule. An existing enabled setting keeps
-  its saved weekday or defaults to Monday, and earlier verdicts still count. See [weekly review help](review-dashboard/server/WEEKLY-REVIEW.md).
-
-- Run `make install` for the updated packages, then restart the server. If Pi is your agent, run
-  `make agent-check ADAPTER=pi`.
-
-- Run `make upgrade-ledger ARGS="--dry-run"` for a ledger from the older app,
-  then run `make upgrade-ledger` to convert the store and retain the audit history.
-
-- Restart the server for the revised Add prompts. Place ledger-specific entry
-  instructions under `## Rules for entries` in the ledger's `AGENTS.md`.
-  `make doctor` reports ledgers that still use the whole-file fallback.
-
-- Use `make commit m="…" by=user` or `by=agent` for hand data changes. Run
-  `make upgrade-ledger` to initialize an older ledger's audit boundary (format 2
-  stays unchanged). Ask who made earlier changes, then backfill with
-  `uv run --locked --project review-dashboard/server python scripts/ledger/audit.py record --commit COMMIT --actor user`
-  (or `--actor agent`; `--changes FILE` batches them). After an interrupted append,
-  run the refusal's exact audit-only restore command, then retry.
-
-- Rebuild with `make dashboard` and reload for the Forecast chart-width fix.
-  No ledger-format migration is needed.
-
-- Rebuild with `make dashboard` and reload for the hand-form Notes input fix.
-  No ledger-format migration is needed.
-
-- Rebuild with `make dashboard` and reload for the Settings identity-label fix.
-  No ledger-format migration is needed.
-
-- Rebuild with `make dashboard` and reload for the Queue, Settings, setup and
-  usual-payment Retry fixes. No ledger format change or migration is needed.
-
-- Rebuild with `make dashboard` and reload the page for the Add autosave ownership
-  fix. No ledger format change or migration is needed.
-
-- Rebuild with `make dashboard` and restart the server for conservative statement
-  bill linking and the Forecast/correction fixes. Review Forecast's restored
-  unpaid commitments; unrelated later actuals no longer hide them. No ledger
-  format change or migration is needed.
-
-- Run `make dashboard` and restart the server for investment rules and statement
-  payment linking. Existing format 2 rules need no migration. Review suggested
-  contributions or use `make rules-backfill` for qualifying history.
-
-- Rebuild the dashboard for the Add input fix and restart the server for
-  failed-fix Save and isolated correction recovery. No
-  ledger format migration is needed; an unsettled journal still needs manual
-  reconciliation and is preserved for that work.
-
-- Rebuild the dashboard with `make dashboard` and restart the server for explicit
-  Edit entry intent, Queue selection, Rules sorting and daily averages. No ledger
-  format migration is needed. Existing kept edits and proposals remain in Queue.
-
-- Restart the server to load deadline/cancellation and recovery fixes. No data-format
-  migration is needed. Existing failed receipt readings can now be dismissed;
-  payments and their evidence remain saved. Recent diagnostic histories are capped
-  at 50 runs when next written; audit records remain intact.
-
-- Restart the server and rebuild the dashboard together for the new attachment
-  limits and bounded upload scheduling. Allow temporary disk space for every PDF
-  page. Prompt transport changes the agent fingerprint: run `make agent-check`
-  and the operator's deliberate readiness probe before agent work resumes. No
-  ledger migration or proxy body-limit increase is needed. Custom adapters should
-  report deadline expiry as `AdapterError(kind="timeout")`.
-
-Rebuild the dashboard and restart the server. No ledger-format migration is
-required. Generated data is repaired at startup when its durable marker is stale.
-
-Kept edit recovery now belongs to its draft rather than just the entry. Server-kept
-forms remain in Queue; legacy browser-only entry-keyed copies are not guessed into
-a different draft. Fixes with an older cancellation snapshot adopt that stored
-proposal on their next claim. No financial store migration is required.
-
-## [0.1.0] - Unreleased
-
-The first release. The date is set when the release is tagged.
-
-### Added
-
-- **Ledger and checks.** JSON in a separate ledger repository is the source of
-  truth; every save passes the JSON strict check (`make verify-data`), and hledger,
-  when installed, checks the generated journal again in the background. Ledger format 2 is a typed store
-  ([docs/STORE.md](docs/STORE.md)): every entry, posting and rule is written in
-  full, in kebab-case, with related facts grouped; Python reads and writes every
-  document through pydantic models, Node validates against the schema generated
-  from them, and each entry balances exactly in every commodity. `ledger.json`
-  holds settings and `data/accounts.json` account metadata. Format 0 and 1 ledgers
-  upgrade with `make upgrade-ledger`, which compares outputs and rolls back on
-  failure; the 1 → 2 step prints counts only, turns inexact unit costs into exact
-  totals and stops, writing nothing, on anything the models can't hold.
-- **Extensions.** Ledger-specific entry fields are named, typed extensions
-  ([docs/EXTENSIONS.md](docs/EXTENSIONS.md)): the built-in `fuel`
-  (`extensions/fuel.json`) and a ledger's own in its `extensions/`, listed in
-  `ledger.json`. The Add agent fills an extension's agent fields when asked; entry
-  details and Edit entry show every field generically; the journal prints each as
-  a comment tag. `make extension-update NAME=…` brings every entry in step after a
-  definition or listing changes. Format 1's policy term becomes a ledger extension.
-- **Accounts and currencies.** Each account keeps its own currency; totals and
-  charts stay separate per currency, and conversions are asked for only when an
-  expense's currency differs from the paying account's. Accounts lists one line per
-  account; each group heading (Banks, Credit cards, Prepaid, People, Loans, Cash)
-  opens a group view with its total over time per currency, a table of the
-  accounts' figures for the period (including the last statement-confirmed balance
-  or filed card statement) and the combined activity, with transfers within the
-  group behind a switch. The dashboard data carries the confirmed balances and card
-  statement summaries this needs.
-- **Dashboard.** Add, Queue, Review, Explorer, Atlas, Journal, Forecast and
-  Accounts, with Rules, Trash and Settings, in Light and Dark, built from generated
-  data (`DASHBOARD_DATA_DIR` chooses where it goes).
-- **Add with an agent.** Typed words, receipts and statements become drafts in a
-  per-ledger Queue. A restricted agent proposes entries; the server validates and
-  writes them with an audit line and a reviewable commit. Adapters for Codex,
-  Claude Code, Pi, OpenCode and a direct API, each pinned and checked offline.
-  Drafts survive agent outages and can be finished by hand.
-- **Recurring rules and bills.** Rules guessed while typing (two distinctive shared
-  words, or one with the rule's amount; a single distinctive word is only a
-  suggestion, and category, account-kind and widely shared words count only as a
-  rule's whole name) or
-  made from repeated payments; rules whose amount varies, with saved bills that
-  stay unpaid until a payment is recorded.
-- **Corrections, Delete and Trash.** Saved entries can be corrected, deleted within
-  the ledger's time limits and restored from Trash with their evidence.
-- **Statements.** A reader interface (version 1) with generic CSV and spreadsheet
-  readers, an example card statement reader for a fictional layout, bank statement
-  summaries and confirmed balances.
-- **Review on the server.** Possible duplicates and other decisions are applied by
-  the server with audit lines; periodic reviews follow
-  `review-dashboard/server/WEEKLY-REVIEW.md`.
-- **Optional modules.** Investments with price sources, an older-ledger lookup and
-  the weekly review, each set in `ledger.json`; fuel is the built-in extension.
-- **Tooling.** `VERSION` as the single application version (`make check-version`),
-  `make doctor` for offline prerequisite checks (it warns when jj is missing or the
-  selected ledger is a git repository without jj, since saves need jj), fictional fixture ledgers
-  (`make personas`), offline test suites with fake agents, headless browser
-  suites, and a personal-data scanner (`make scan`). `npm ci` runs only when the
-  installed packages differ from `package-lock.json` by version (`make install`
-  covers both dependency sets).
-- **The JSON strict check.** `scripts/ledger/strict_check.py` checks on the store
-  what hledger's strict check finds on the journal (balance exactly, no implicit
-  conversion, balance assertions, declared accounts and commodities, date order,
-  recurring rules and their forecasts) without starting a process. It is the gate
-  in `make verify-data` and in the server's previews and saves. Agreement tests run both on
-  every fixture, on generated large ledgers and on one mutation per check kind.
-  Node's validator refuses the same documents as the Python models.
-- **hledger as the background second check.** hledger is optional. Saves no longer
-  wait for it: `make commit` sets `EXPENSES_HLEDGER_CHECK=background`, and the server
-  checks each commit afterwards, coalesced (one running, one waiting, always the latest
-  commit), from a snapshot of the committed store without the ledger lock, and at
-  start-up. The result is kept in the ledger's ignored `drafts/ledger-check.json`. When
-  hledger finds a problem, every screen shows a banner, Queue › Needs you shows a Ledger
-  check item in plain words (with hledger's own text under Details and the entries
-  changed since the last good check), and statement Apply and confirmed balances wait
-  for the accounts involved. The item offers Ask the agent to fix it (a proposal in Edit
-  entry that changes nothing until the person saves it), Edit the entry and Check again,
-  or Copy details when the app and hledger disagree; it closes when a check passes.
-  `make verify-data` and `make verify` run by hand still run hledger at once and report
-  a failure in the same words; without hledger they skip it with a note, and so does
-  `make upgrade-ledger` (it skips hledger's check and report comparison only). `make
-  doctor` warns instead of failing when hledger is missing.
-  Continue creates accounts outside the draft mutex and revalidates before dispatch,
-  avoiding a deadlock with Trash polling. Apply reads refusal and pending state
-  together, passing checks resolve concurrent fix answers safely, and first-run
-  import follows late check results. Queue holds new check rows during interaction;
-  Check again retains the explanation when a last-good commit is missing.
-- **Save timings.** Each save writes one `save-timing` line to the server log with
-  the duration of every step (pickup, prepare, lock wait, journal, store check,
-  the JSON strict check, jj, data rebuild, total; hledger only when kept in the commit);
-  nothing is written into the ledger.
-  `make bench-save` times representative saves on a large fictional ledger from
-  `scripts/fixtures/generate_large.py` in `/tmp`, with the fake agent, and exits
-  non-zero when a target is missed by more than 50%; `BENCH_ENTRIES=100000` is a
-  stress run without targets.
-- **Updates and releases.** `make update` moves an installation to the newest
-  release tag: doctor, a clean checkout, the changelog since the installed version,
-  confirmation (or `--yes`), a detached checkout of the tag, the ledger upgrade,
-  verification, the dashboard build and a restart of the service named in
-  `local.json`; any failure after the checkout restores the previous
-  checkout, the ledger checkpoint and the dashboard. `make upgrade-ledger` runs a
-  chain of migrations, rehearsing it on a scratch copy first. An optional update
-  notice in Settings (off unless `local.json` turns it on) reads the remote's tags at
-  most daily. GitHub workflows run the scans and offline suites on every push, the
-  headless browsers (in Light) and the update test on tags, by hand and weekly,
-  propose agent CLI pins weekly and publish releases from tags; see
-  [docs/RELEASING.md](docs/RELEASING.md).
-- **Setup.** [SETUP.md](SETUP.md) walks a coding agent through setting up a ledger.
-  `make new-ledger` creates one from `templates/ledger/` as its own repository with a
-  verified first commit; `make add-account` and `make opening-balances` declare
-  accounts and opening balances under the ledger lock; `make demo` runs a fictional
-  ledger from `/tmp` with an offline fake agent; `make serve` starts the dashboard
-  locally at `http://127.0.0.1:8701/expenses/` (`/expenses/`, where the build loads
-  its files, is also the server's own default base path); `make private-checks` runs a
-  ledger's own `checks/`. A ledger with no
-  accounts opens the first-run screens in the dashboard: About you, then either
-  Start from today (accounts and opening balances) or Bring in past statements
-  (files read by built-in readers or the agent, each with its account and currency),
-  then Add. Deployment examples
-  for local use, systemd, launchd, a reverse proxy and a tailnet are in
-  [docs/deploy/](docs/deploy/README.md).
-- **General policy.** The general bookkeeping policy is
-  [policy/BOOKKEEPING.md](policy/BOOKKEEPING.md); a ledger's `AGENTS.md` keeps only
-  personal rules. The server gives the dashboard's agent both, read on every run.
-
-### Upgrade notes
-
 There is no earlier release. For a ledger made during development before this
 release:
 
@@ -462,6 +388,23 @@ release:
     `review-dashboard/server/expense-dashboard.service`, move your access settings
     into a drop-in as [docs/deploy/systemd.md](docs/deploy/systemd.md) describes,
     restore the tracked file, and run `make service` with `LEDGER_DIR` set.
+11. If you ran the earlier external weekly review job (a cron entry, systemd timer or
+    launchd plist), disable it. The server now runs the review. An enabled
+    `weeklyReview` setting keeps its saved weekday, or Monday when none is saved, and
+    earlier verdicts still count. See
+    [weekly review help](review-dashboard/server/WEEKLY-REVIEW.md).
+12. Put ledger-specific instructions for the Add agent under `## Rules for entries` in
+    the ledger's `AGENTS.md`. `make doctor` reports a ledger that still relies on the
+    whole-file fallback.
+13. Sign in once with `make agent-login`, then run `make agent-check`. For a separate
+    weekly reviewer profile, set `reviewAgent` in `local.json` and run
+    `make agent-check ROLE=review` (and `make agent-login ROLE=review` if it uses its
+    own CLI).
+14. From now on, record hand changes with `make commit m="…" by=user` (or `by=agent`).
+    Step 6 records where the audit of hand changes starts, so earlier changes are not
+    flagged. To attribute one anyway, run
+    `uv run --locked --project review-dashboard/server python scripts/ledger/audit.py record --commit COMMIT --actor user`.
+15. Restart the server and reload the dashboard.
 
 To add or change an extension later, edit it and run `make extension-update NAME=…`
 ([docs/EXTENSIONS.md](docs/EXTENSIONS.md)).
