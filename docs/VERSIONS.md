@@ -12,7 +12,7 @@ means and what a change to it asks of you.
 | Audit lines | `version` on each line of `data/additions/<year>.jsonl` | 1 |
 | Review export files | `reviewVersion` in an exported file | 2 |
 | Node | `.node-version` (selected with fnm) | see the file |
-| Server Python | `review-dashboard/server/.python-version` (selected with uv) | 3.14 |
+| Server Python | `review-dashboard/server/.python-version` (selected with uv) | see the file |
 
 ## Application version
 
@@ -108,8 +108,9 @@ Exported Review files carry `reviewVersion` 2. Import accepts that version.
 | Node | the version in `.node-version`, through fnm | One tested runtime for builds, tests and the agent CLIs; without fnm, Node on `PATH` is used with a warning. `engines.node` in `package.json` must include it. |
 | npm | ships with that Node | Installs the locked dashboard and agent CLI packages. |
 | System `python3` | 3.11 or newer | Standard-library launchers such as `make doctor`, `make install` and `make update`. |
-| Server Python | 3.14 in `review-dashboard/server/.python-version` and `>=3.14` in `pyproject.toml` | Server, ledger tools and their tests. uv can install Python 3.14 during `make install`. |
-| uv | any recent release | Runs the server environment from `uv.lock`. |
+| Server Python | the minor in `review-dashboard/server/.python-version` and minimum in `pyproject.toml` | Server, ledger tools and their tests. `make install` can download it through uv. Python and uv pins are tested together by the [weekly upgrade check](RELEASING.md#continuous-integration). |
+| uv | a recent release that can provide the pinned Python or use an installed interpreter | Runs the server environment from `uv.lock`. `make doctor` warns when uv offers no stable download and the pinned interpreter is absent. |
+| `jpegtran`, `oxipng` | optional | Compress JPEG and PNG receipts, respectively. Missing tools leave receipts of that format uncompressed. |
 | hledger | 1.25 or newer, optional | The second check and the hledger reports; see below. |
 | jj or git | jj 0.47.1+ for writes; git for legacy history | Ledgers are version-controlled; dashboard saves commit with Jujutsu colocated with git. |
 

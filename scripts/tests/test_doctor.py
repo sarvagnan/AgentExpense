@@ -67,7 +67,14 @@ class DoctorFixture(unittest.TestCase):
         executable(self.node / 'npm', 'echo 11.20.0\n')
         executable(self.tools / 'fnm', f'case "$1" in --version) echo "fnm 1.39.0";; list) echo "* v{PIN}";; '
                                        f'exec) echo "{self.node}/node";; esac\n')
-        executable(self.tools / 'uv', 'case "$1" in --version) echo "uv 0.12.13 (fictional)";; sync) exit "${UV_SYNC_STATUS:-0}";; esac\n')
+        executable(self.tools / 'uv', 'case "$1:$2" in\n'
+                   '  --version:) echo "uv 0.12.13 (fictional)";;\n'
+                   '  sync:*) exit "${UV_SYNC_STATUS:-0}";;\n'
+                   '  python:find) [ "$UV_OFFLINE" = 1 ] && echo "$UV_PYTHON_FIND_RESULT";;\n'
+                   '  python:list) [ "$UV_OFFLINE" = 1 ] && echo "${UV_PYTHON_LIST_RESULT-cpython-3.14.7-linux-x86_64-gnu    <download available>}";;\n'
+                   'esac\n')
+        for tool in ('jpegtran', 'oxipng'):
+            executable(self.tools / tool, 'exit 0\n')
         executable(self.tools / 'hledger', 'echo "hledger ${HLEDGER_STUB_VERSION:-1.52.4}, fictional"\n')
         executable(self.tools / 'jj', 'echo "jj 0.47.1"\n')
         executable(self.tools / 'git', 'echo "git version 2.54.0"\n')
@@ -98,7 +105,8 @@ class DoctorTests(DoctorFixture):
         rows = self.rows()
         self.assertEqual({name: row.status for name, row in rows.items()}, {
             'AgentExpense': 'ok', 'Python': 'ok', 'fnm': 'ok', 'Node': 'ok', 'Node pin': 'ok', 'npm': 'ok', 'uv': 'ok',
-            'hledger': 'ok', 'jj / git': 'ok', 'Ledger': 'info', 'npm packages': 'ok', 'Python packages': 'ok', 'Agent adapter': 'ok'})
+            'hledger': 'ok', 'jpegtran': 'ok', 'oxipng': 'ok', 'jj / git': 'ok', 'Ledger': 'info',
+            'npm packages': 'ok', 'Python packages': 'ok', 'Agent adapter': 'ok'})
         self.assertEqual(rows['Ledger'].detail, 'no ledger selected (tests use fixtures/ledgers/asha)')
         self.assertIn('3.11.1', rows['Python'].detail)
         self.assertIn('3.14.7', rows['Python packages'].detail)
@@ -141,6 +149,28 @@ class DoctorTests(DoctorFixture):
         self.server_python.unlink()
         row = self.rows()['Python packages']
         self.assertEqual((row.status, row.fix), ('FAIL', 'make install'))
+
+    def test_python_download_warning_requires_both_an_absent_install_and_no_stable_download(self):
+        self.server_python.unlink()
+        self.assertNotIn('Python download', self.rows())
+        for downloads in ('', 'cpython-3.14.7rc1-linux-x86_64-gnu    <download available>',
+                          'cpython-3.14.7+freethreaded-linux-x86_64-gnu    <download available>'):
+            with self.subTest(downloads=downloads):
+                row = self.rows(UV_PYTHON_LIST_RESULT=downloads)['Python download']
+                self.assertEqual((row.status, row.fix), ('warn', 'Update uv, then run make install.'))
+                self.assertIn('CPython 3.14', row.detail)
+        self.assertNotIn('Python download', self.rows(UV_PYTHON_LIST_RESULT='',
+                                                       UV_PYTHON_FIND_RESULT='/installed/python3.14'))
+
+    def test_receipt_tools_are_optional_and_offer_install_hints(self):
+        for tool, image, brew, apt in (('jpegtran', 'JPEG', 'jpeg-turbo', 'libjpeg-turbo-progs'),
+                                       ('oxipng', 'PNG', 'oxipng', 'oxipng')):
+            (self.tools / tool).unlink()
+            row = self.rows()[tool]
+            self.assertEqual(row.status, 'warn')
+            self.assertIn(f'{image} receipts are filed uncompressed', row.detail)
+            self.assertIn(f'brew install {brew}', row.fix)
+            self.assertIn(f'apt install {apt}', row.fix)
 
     def test_dependencies_must_match_lockfiles(self):
         installed = json.loads((self.app / 'review-dashboard/node_modules/.package-lock.json').read_text())

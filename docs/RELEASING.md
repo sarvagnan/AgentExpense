@@ -116,7 +116,7 @@ Opening Settings never contacts the remote.
 
 ## Continuous integration
 
-`.github/workflows/` holds four workflows, which run once the repository is published.
+`.github/workflows/` holds five workflows, which run once the repository is published.
 `make check-workflows` checks their structure offline, including that every third-party
 action is pinned to a full commit SHA (the release it came from is noted beside it), that
 every job has a time limit, and the trigger split below.
@@ -142,4 +142,11 @@ up the release's commit SHA or archive digest and change both together.
   temporary folder and checks both tool profiles offline. When they pass, the job
   pins it and opens a pull request. CI never signs in or runs a model. The owner runs
   `make agent-check LIVE=1 ADAPTER=<adapter>` on their own machine before merging.
+- **Python and uv upgrades** (`python-upgrade.yml`), weekly and by hand: verifies the
+  newest stable uv archive against its GitHub release digest, then uses uv to select
+  the newest stable CPython. When either pin moves, the job syncs the server lock,
+  reports package version changes and source builds, and runs the offline ledger,
+  migration and server suites. A passing run opens one pull request for the pins
+  that moved. Merge it for a minor release with numbered Upgrade notes to run
+  `make install`, then `make doctor`.
 - **Release** (`release.yml`), on a `v*` tag: see step 8 above.

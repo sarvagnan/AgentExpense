@@ -4,6 +4,9 @@ inputs:
   uv-version:
     description: Exact uv version
     default: "0.12.13"
+  install-python:
+    description: Install uv and sync the server dependencies from uv.lock
+    default: "true"
   hledger-version:
     description: Exact hledger version, the one development uses (Ubuntu's package is older and words errors differently)
     default: "1.52.4"
@@ -23,6 +26,7 @@ runs:
       with:
         node-version-file: .node-version
     - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      if: inputs.install-python == 'true'
       with:
         version: ${{ inputs.uv-version }}
     - name: Install hledger and jj
@@ -51,8 +55,10 @@ runs:
         echo "${JJ_SHA256}  $archive" | sha256sum --check --strict
         tar -xzf "$archive" -C "$RUNNER_TEMP/jj"
         echo "$RUNNER_TEMP/jj" >> "$GITHUB_PATH"
-    - name: Install dependencies from the lockfiles
+    - name: Install dashboard dependencies
       shell: bash
-      run: |
-        npm --prefix review-dashboard ci
-        UV_PYTHON_DOWNLOADS=automatic uv sync --locked --directory review-dashboard/server
+      run: npm --prefix review-dashboard ci
+    - name: Install server dependencies
+      if: inputs.install-python == 'true'
+      shell: bash
+      run: UV_PYTHON_DOWNLOADS=automatic uv sync --locked --directory review-dashboard/server

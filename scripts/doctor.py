@@ -117,6 +117,13 @@ def check_tools(environ):
         rows.append(Row('hledger', FAIL, f'{dotted(number)} is older than {minimum}', f'Install hledger {minimum} or newer, or remove it (it is optional).'))
     else:
         rows.append(Row('hledger', OK, f'{dotted(number)} (needs {minimum}+)'))
+    for tool, image, brew, debian in (('jpegtran', 'JPEG', 'jpeg-turbo', 'libjpeg-turbo-progs'),
+                                      ('oxipng', 'PNG', 'oxipng', 'oxipng')):
+        if shutil.which(tool, path=environ.get('PATH')):
+            rows.append(Row(tool, OK, 'present'))
+        else:
+            rows.append(Row(tool, WARN, f'not found. {image} receipts are filed uncompressed',
+                            f'brew install {brew} (Homebrew) or apt install {debian} (Debian).'))
     versions = {}
     for name in ('jj', 'git'):
         path = shutil.which(name, path=environ.get('PATH'))
@@ -186,6 +193,22 @@ def check_npm_packages(application):
     if different:
         return Row('npm packages', FAIL, f'{len(different)} differ from package-lock.json', fix)
     return Row('npm packages', OK, 'match package-lock.json')
+
+
+def check_python_download(application, environ):
+    server = application / 'review-dashboard/server'
+    pin = check_version.python_pin(server)
+    uv = shutil.which('uv', path=environ.get('PATH'))
+    if not uv or not pin:
+        return []
+    options = ['--offline', '--no-cache', '--directory', str(server), f'cpython@{pin}']
+    if run([uv, 'python', 'find', '--no-python-downloads', *options], environ):
+        return []
+    downloads = run([uv, 'python', 'list', '--only-downloads', '--all-versions', *options], environ) or ''
+    if re.search(rf'(?m)^cpython-{re.escape(pin)}\.\d+-', downloads):
+        return []
+    return [Row('Python download', WARN, f'CPython {pin} is absent and this uv offers no stable download',
+                'Update uv, then run make install.')]
 
 
 def check_python_packages(application, environ):
@@ -267,7 +290,8 @@ def diagnose(application=APPLICATION, environ=None, python_version=None):
     environ = dict(os.environ if environ is None else environ)
     python_version = tuple(sys.version_info[:3] if python_version is None else python_version)
     return [check_app(application), check_python(python_version), *check_node(application, environ),
-            *check_tools(environ), check_ledger(application, environ), *check_entry_rules(selected_ledger(application, environ)),
+            *check_tools(environ), *check_python_download(application, environ),
+            check_ledger(application, environ), *check_entry_rules(selected_ledger(application, environ)),
             check_npm_packages(application),
             check_python_packages(application, environ), check_adapter(application, environ)]
 

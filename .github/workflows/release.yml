@@ -17,9 +17,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # The uv pin lives in tools/browser-box/browser_box.py, which the upgrade job may rewrite;
+      # a workflow token cannot change files under .github/workflows.
+      - name: Read the uv pin
+        id: pins
+        run: echo "uv=$(python3 scripts/python_upgrade.py pins | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
-          version: "0.12.13"
+          version: ${{ steps.pins.outputs.uv }}
       - name: Install the pinned Python
         working-directory: review-dashboard/server
         run: uv python install
