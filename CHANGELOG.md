@@ -221,6 +221,7 @@ that fails and keep its output.
   and builder invalidations, and keep superseded generations for ten minutes.
   Canonical caches include model identity. Waiting imports, agent pauses and
   claims resume at their deadlines; refresh failures remain retryable.
+- Updates now verify the ledger and build the dashboard. The development test suites run separately.
 
 ### Upgrade notes
 
@@ -400,8 +401,8 @@ The first release. The date is set when the release is tagged.
 - **Updates and releases.** `make update` moves an installation to the newest
   release tag: doctor, a clean checkout, the changelog since the installed version,
   confirmation (or `--yes`), a detached checkout of the tag, the ledger upgrade,
-  verification, the dashboard build and the offline tests, and a restart of a
-  service named in `local.json`; any failure after the checkout restores the previous
+  verification, the dashboard build and a restart of the service named in
+  `local.json`; any failure after the checkout restores the previous
   checkout, the ledger checkpoint and the dashboard. `make upgrade-ledger` runs a
   chain of migrations, rehearsing it on a scratch copy first. An optional update
   notice in Settings (off unless `local.json` turns it on) reads the remote's tags at

@@ -319,8 +319,9 @@ For `make update` to restart a service after an update, name it in `local.json`:
 
 ## 9. Updates
 
-`make update` moves the application to the newest release, upgrades the ledger's
-format if needed, rebuilds and tests, and rolls everything back if a step fails.
+`make update` moves the application to the newest release and checks version agreement.
+When a ledger is selected, it upgrades the format if needed, verifies the ledger and
+builds the dashboard. It rolls everything back if a step fails after checkout.
 The dashboard can also show when a newer release exists, but that contacts GitHub
 once a day, so it is off unless `local.json` turns it on
 (`{"updates": {"notice": true}}`). See [docs/RELEASING.md](docs/RELEASING.md).

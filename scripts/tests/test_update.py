@@ -7,7 +7,7 @@ would contain into a disposable source repository under the test root and tags:
 - v0.2.0: a real test migration, raising the current ledger format by one and adding `testField` to
   ledger.json, with the format, schema and fixture changes a release makes, plus its
   changelog entry;
-- v0.3.0: an injected failure, a ledger test that fails after the ledger migration
+- v0.3.0: an injected ledger verification failure after the ledger migration
   has been committed;
 - v0.4.0-rc.1: a pre-release, which make update ignores without --pre.
 
@@ -58,14 +58,6 @@ def apply(root, result):
     dump(root / 'ledger.json', result[0])
 '''
 
-FAILING_TEST = '''import unittest
-
-
-class InjectedFailure(unittest.TestCase):
-    def test_release_fails_its_own_checks(self):
-        self.fail('Injected failure: this test release must roll back.')
-'''
-
 FAKE_SERVICE = '''#!/bin/sh
 # Records the call; never contacts a real service manager.
 printf '%s %s\\n' "$(basename "$0")" "$*" >> "$FAKE_SERVICE_LOG"
@@ -84,6 +76,11 @@ def run(command, cwd, env, check=True, **options):
     if check and result.returncode:
         raise AssertionError(f'{command} failed:\n{result.stdout[-3000:]}\n{result.stderr[-3000:]}')
     return result.stdout.strip()
+
+
+def update_output_excerpt(output):
+    failures = re.findall(r'(?m)^(?:FAIL|ERROR):[^\n]*', output)
+    return '\n'.join([*failures, output[-6000:]])
 
 
 def replace_once(path, old, new):
@@ -122,10 +119,6 @@ def release_020(root):
     value['properties']['testField'] = {'type': 'boolean'}
     schema.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n')
     (root / f'migrations/{NEXT_FORMAT:04d}_test_field.py').write_text(MIGRATION)
-    # The upgrade test lists the manifest keys a full upgrade produces.
-    replace_once(root / 'scripts/ledger/migration_tests/test_upgrade.py',
-                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review', 'auditStart'])",
-                 "['format', 'id', 'name', 'defaultCurrency', 'locale', 'startDate', 'modules', 'extensions', 'review', 'auditStart', 'testField'])")
     for manifest in sorted((root / 'fixtures/ledgers').glob('*/ledger.json')):
         value = json.loads(manifest.read_text())
         manifest.write_text(json.dumps({**value, 'format': NEXT_FORMAT, 'testField': True}, indent=2, ensure_ascii=False) + '\n')
@@ -134,7 +127,8 @@ def release_020(root):
 
 
 def release_030(root):
-    (root / 'scripts/ledger/tests/test_injected_failure.py').write_text(FAILING_TEST)
+    replace_once(root / 'Makefile', 'verify-data: ledger\n',
+                 "verify-data: ledger\n\t@echo 'Injected failure: this test release must roll back.' >&2\n\t@exit 1\n")
     bump_version(root, '0.2.0', '0.3.0', '### Changed\n\n- A release whose own checks fail (test release).\n\n'
                  '### Upgrade notes\n\n1. Run `make update`.')
 
@@ -255,9 +249,13 @@ class UpdateScenario(unittest.TestCase):
         # make reports any failing recipe as status 2; the output says which outcome it was.
         state['fake_log'].unlink(missing_ok=True)
         command = ['make', '--no-print-directory', 'update'] + (['ARGS=' + ' '.join(arguments)] if arguments else [])
-        result = subprocess.run(command, cwd=self.clone, env=self.environ, input=answer, text=True,
-                                stdin=None if answer is not None else subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=2400)
+        try:
+            result = subprocess.run(command, cwd=self.clone, env=self.environ, input=answer, text=True,
+                                    stdin=None if answer is not None else subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=2400)
+        except subprocess.TimeoutExpired as exc:
+            self.fail(f'Update timed out after {exc.timeout}s.\n'
+                      + update_output_excerpt((exc.output or b'').decode(errors='replace')))
         return result.returncode, result.stdout
 
     def make(self, *targets):
@@ -272,7 +270,7 @@ class UpdateScenario(unittest.TestCase):
             code, output = self.update('--yes')
         finally:
             readme.write_bytes(original)
-        self.assertEqual(code, 2, output[-4000:])
+        self.assertEqual(code, 2, update_output_excerpt(output))
         self.assertIn('The application checkout has local changes (README.md)', output)
         self.assertIn('local.json', output)
         self.assertNotIn('Checking out', output)
@@ -303,13 +301,13 @@ class UpdateScenario(unittest.TestCase):
 
     def check_failure_rolls_back(self):
         code, output = self.update('--yes')
-        self.assertEqual(code, 2, output[-6000:])
+        self.assertEqual(code, 2, update_output_excerpt(output))
         self.assertNotIn('[y/N]', output)
         # The failure came after the ledger migration had been committed.
         self.assertIn('Upgrading the ledger: make upgrade-ledger', output)
         self.assertIn(f'Upgraded ledger to format {NEXT_FORMAT}.', output)
         self.assertIn('Injected failure: this test release must roll back.', output)
-        self.assertIn('Update to 0.3.0 failed during "Verifying, rebuilding and testing"', output)
+        self.assertIn('Update to 0.3.0 failed during "Checking the installation"', output)
         self.assertIn('Nothing from 0.3.0 remains installed.', output)
         self.assertIn(f'restored: ledger restored to its checkpoint {self.checkpoint[:12]}', output)
         self.assertIn('restored: journal and dashboard rebuilt', output)
@@ -327,7 +325,7 @@ class UpdateScenario(unittest.TestCase):
     def check_update_to_020(self, *, prompt):
         arguments = ['--to', 'v0.2.0'] if prompt else ['--yes', '--to', 'v0.2.0']
         code, output = self.update(*arguments, answer='y\n' if prompt else None)
-        self.assertEqual(code, 0, output[-6000:])
+        self.assertEqual(code, 0, update_output_excerpt(output))
         self.assertEqual('Update AgentExpense 0.1.0 to 0.2.0? [y/N]' in output, prompt)
         self.assertIn(f'AgentExpense updated from 0.1.0 to 0.2.0. Ledger format {NEXT_FORMAT}. The server was restarted.', output)
         self.assertIn('## [0.2.0] - 2026-11-05', output)
@@ -362,7 +360,7 @@ class GitCloneUpdate(UpdateScenario):
 
     def test_2_prompt_shows_changes_and_no_cancels(self):
         code, output = self.update(answer='n\n')
-        self.assertEqual(code, 2, output[-4000:])
+        self.assertEqual(code, 2, update_output_excerpt(output))
         self.assertIn('Changes from 0.1.0 to 0.3.0:', output)
         self.assertLess(output.index('## [0.3.0] - 2026-11-05'), output.index('## [0.2.0] - 2026-11-05'))
         self.assertNotIn('## [0.1.0]', output)
@@ -382,7 +380,7 @@ class GitCloneUpdate(UpdateScenario):
 
     def test_5_refuses_to_downgrade(self):
         code, output = self.update('--yes', '--to', 'v0.1.0')
-        self.assertEqual(code, 2, output[-4000:])
+        self.assertEqual(code, 2, update_output_excerpt(output))
         self.assertIn('v0.1.0 is older than the installed 0.2.0; make update never downgrades.', output)
         self.assertEqual((self.clone / 'VERSION').read_text().strip(), '0.2.0')
         self.assertEqual(self.app_commit(), state['commits']['0.2.0'])

@@ -12,8 +12,8 @@
    `git switch --detach <tag>` in a git clone), then reinstall dependencies that differ
    from the release's lockfiles (`make install`).
 6. `make doctor` for the release, then `make upgrade-ledger` for the selected ledger.
-7. `make update-checks`: versions, ledger verification, the dashboard data and build,
-   and the ledger, migration and server tests.
+7. `make update-checks`: version agreement and, when a ledger is selected,
+   `make verify-data` and `make build-dashboard`.
 8. Restart the server when local.json names a service, and wait until it stays up.
 9. On any failure after checkout: return to the previous checkout, reinstall its
    dependencies, restore the ledger to its checkpoint (op restore or reset --keep),
@@ -326,7 +326,7 @@ class Updater:
                 progress['step'] = 'Upgrading the ledger'
                 self.make('upgrade-ledger', step=progress['step'])
                 progress['upgraded'] = ledger.commit()
-            progress['step'] = 'Verifying, rebuilding and testing'
+            progress['step'] = 'Checking the installation'
             self.make('update-checks', step=progress['step'])
             if service:
                 progress['step'] = 'Restarting the server'

@@ -2,8 +2,8 @@
 export PYTHONDONTWRITEBYTECODE = 1
 export npm_config_update_notifier = false
 # Resolve the installed project Node once; helpers never install or download it.
-# doctor, check-version and update need no Node; update runs make for each release.
-ifneq ($(MAKECMDGOALS),$(filter doctor check-version update,$(MAKECMDGOALS)))
+# These targets leave Node resolution to the commands they call.
+ifneq ($(MAKECMDGOALS),$(filter doctor check-version update update-checks,$(MAKECMDGOALS)))
 NODE_BIN := $(shell python3 "$(dir $(abspath $(firstword $(MAKEFILE_LIST))))scripts/node_toolchain.py")
 ifeq ($(strip $(NODE_BIN)),)
 $(error Cannot resolve .node-version; install its version with fnm install $$(cat .node-version))
@@ -106,20 +106,16 @@ build-dashboard: node-modules
 	npm --prefix review-dashboard run data
 	npm --prefix review-dashboard run build
 
-# What make update runs after checking out a release: versions, the selected ledger,
-# its dashboard, and the ledger, migration and server tests (not the browser suites).
-# With no ledger selected there is no dashboard to build; the tests use the fixture.
+# Check release versions, then verify the selected ledger and build its dashboard.
+# Without a ledger, only the version check runs.
 update-checks:
 	$(MAKE) --no-print-directory check-version
 ifneq ($(wildcard $(LEDGER_DIR)/.),)
-	$(MAKE) --no-print-directory verify
+	$(MAKE) --no-print-directory verify-data
 	$(MAKE) --no-print-directory build-dashboard
 else
 	@echo "No ledger selected: no ledger to verify or dashboard to build."
-	$(MAKE) --no-print-directory test-ledger
 endif
-	$(MAKE) --no-print-directory test-migrations
-	$(MAKE) --no-print-directory test-server
 
 # The GitHub workflows' structure, checked offline with the server environment's PyYAML.
 .PHONY: check-workflows

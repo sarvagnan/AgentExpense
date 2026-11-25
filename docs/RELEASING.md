@@ -68,9 +68,11 @@ one), `--pre` includes pre-releases, `--remote NAME` reads tags from another rem
 6. reinstalls dependencies only when the installed ones differ from the release's
    lockfiles (`make install`: `npm ci`, `uv sync --locked`);
 7. runs the release's `make doctor`, then `make upgrade-ledger` for the selected ledger;
-8. runs `make update-checks`: version agreement, `make verify` on the ledger, the
-   dashboard data and build (`make build-dashboard`), and the ledger, migration and
-   server tests. The browser suites aren't run;
+8. runs `make update-checks` to check version agreement (`make check-version`).
+   With a selected ledger, it runs `make verify-data` (journal generation, strict
+   checks and the optional hledger check) and `make build-dashboard` (dashboard
+   data and build). If no ledger is selected, it reports that after checking the
+   versions.
 9. restarts the server when `local.json` names a service, and waits until it stays up:
 
    ```json
