@@ -12,6 +12,8 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-25
+
 ### Changed
 
 - Pin the server, ledger tools and their tests to Python 3.15 through uv 0.13.10 or newer.
