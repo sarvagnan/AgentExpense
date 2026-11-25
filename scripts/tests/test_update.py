@@ -3,13 +3,13 @@
 `make test-update` runs this module. It exports the files a commit of this working copy
 would contain into a disposable source repository under the test root and tags:
 
-- v0.1.0: the export as it is (main stays here, as if cloned when it was the latest);
-- v0.2.0: a real test migration, raising the current ledger format by one and adding `testField` to
+- the installed version (VERSION): the export as it is (main stays here, as if cloned when it was the latest);
+- the next minor: a real test migration, raising the current ledger format by one and adding `testField` to
   ledger.json, with the format, schema and fixture changes a release makes, plus its
   changelog entry;
-- v0.3.0: an injected ledger verification failure after the ledger migration
+- the minor after it: an injected ledger verification failure after the ledger migration
   has been committed;
-- v0.4.0-rc.1: a pre-release, which make update ignores without --pre.
+- the third minor's rc.1: a pre-release, which make update ignores without --pre.
 
 It pushes them to a bare repository, clones it (plain git and jj-colocated), links the
 installed dependencies read-only, makes a fictional ledger repository from the asha
@@ -38,6 +38,10 @@ sys.path.insert(0, str(APPLICATION / 'scripts'))
 from ledger_manifest import CURRENT_FORMAT  # noqa: E402
 
 NEXT_FORMAT = CURRENT_FORMAT + 1
+# The export is the installed release; the test releases are the next minors after it.
+INSTALLED = (APPLICATION / 'VERSION').read_text().strip()
+_major, _minor = map(int, INSTALLED.split('.')[:2])
+NEXT, FAILING, PRE = (f'{_major}.{_minor + step}.0' for step in (1, 2, 3))
 MIGRATION = f'''"""Format {CURRENT_FORMAT} -> {NEXT_FORMAT}, only in make update's test releases: adds testField to ledger.json.
 
 The dashboard copies the manifest into meta.ledger; that is the one declared output change.
@@ -122,14 +126,14 @@ def release_020(root):
     for manifest in sorted((root / 'fixtures/ledgers').glob('*/ledger.json')):
         value = json.loads(manifest.read_text())
         manifest.write_text(json.dumps({**value, 'format': NEXT_FORMAT, 'testField': True}, indent=2, ensure_ascii=False) + '\n')
-    bump_version(root, '0.1.0', '0.2.0', f'### Added\n\n- Ledger format {NEXT_FORMAT}: `ledger.json` gains `testField` (test release).\n\n'
+    bump_version(root, INSTALLED, NEXT, f'### Added\n\n- Ledger format {NEXT_FORMAT}: `ledger.json` gains `testField` (test release).\n\n'
                  f'### Upgrade notes\n\n1. Run `make update`; it upgrades the ledger to format {NEXT_FORMAT}.')
 
 
 def release_030(root):
     replace_once(root / 'Makefile', 'verify-data: ledger\n',
                  "verify-data: ledger\n\t@echo 'Injected failure: this test release must roll back.' >&2\n\t@exit 1\n")
-    bump_version(root, '0.2.0', '0.3.0', '### Changed\n\n- A release whose own checks fail (test release).\n\n'
+    bump_version(root, NEXT, FAILING, '### Changed\n\n- A release whose own checks fail (test release).\n\n'
                  '### Upgrade notes\n\n1. Run `make update`.')
 
 
@@ -165,13 +169,13 @@ def setUpModule():
         run(['git', 'tag', '-a', 'v' + version, '-m', 'AgentExpense ' + version], source, environ)
         commits[version] = run(['git', 'rev-parse', 'HEAD'], source, environ)
 
-    release('0.1.0', 'AgentExpense 0.1.0')
-    run(['git', 'push', '--quiet', str(remote), 'main', 'v0.1.0'], source, environ)
+    release(INSTALLED, f'AgentExpense {INSTALLED}')
+    run(['git', 'push', '--quiet', str(remote), 'main', f'v{INSTALLED}'], source, environ)
     release_020(source)
-    release('0.2.0', f'AgentExpense 0.2.0: test ledger format {NEXT_FORMAT}')
+    release(NEXT, f'AgentExpense {NEXT}: test ledger format {NEXT_FORMAT}')
     release_030(source)
-    release('0.3.0', 'AgentExpense 0.3.0: injected failure')
-    run(['git', 'tag', '-a', 'v0.4.0-rc.1', '-m', 'Pre-release'], source, environ)
+    release(FAILING, f'AgentExpense {FAILING}: injected failure')
+    run(['git', 'tag', '-a', f'v{PRE}-rc.1', '-m', 'Pre-release'], source, environ)
     run(['git', 'push', '--quiet', str(remote), '--tags'], source, environ)
     state.update(base=base, environ=environ, remote=remote, commits=commits, fake_log=base / 'service.log')
 
@@ -289,7 +293,7 @@ class UpdateScenario(unittest.TestCase):
         return json.loads((self.ledger / 'ledger.json').read_text())
 
     def assert_previous_release_intact(self, output):
-        self.assertEqual((self.clone / 'VERSION').read_text().strip(), '0.1.0', output[-4000:])
+        self.assertEqual((self.clone / 'VERSION').read_text().strip(), INSTALLED, output[-4000:])
         self.assertEqual(self.app_commit(), self.initial)
         self.assertTrue(self.clean(self.clone), output[-4000:])
         if self.kind == 'git':
@@ -307,8 +311,8 @@ class UpdateScenario(unittest.TestCase):
         self.assertIn('Upgrading the ledger: make upgrade-ledger', output)
         self.assertIn(f'Upgraded ledger to format {NEXT_FORMAT}.', output)
         self.assertIn('Injected failure: this test release must roll back.', output)
-        self.assertIn('Update to 0.3.0 failed during "Checking the installation"', output)
-        self.assertIn('Nothing from 0.3.0 remains installed.', output)
+        self.assertIn(f'Update to {FAILING} failed during "Checking the installation"', output)
+        self.assertIn(f'Nothing from {FAILING} remains installed.', output)
         self.assertIn(f'restored: ledger restored to its checkpoint {self.checkpoint[:12]}', output)
         self.assertIn('restored: journal and dashboard rebuilt', output)
         self.assertNotIn('NOT restored', output)
@@ -323,15 +327,15 @@ class UpdateScenario(unittest.TestCase):
         self.assertEqual(sum(' restart ' in f' {call} ' or ' kickstart ' in f' {call} ' for call in calls), 1, calls)
 
     def check_update_to_020(self, *, prompt):
-        arguments = ['--to', 'v0.2.0'] if prompt else ['--yes', '--to', 'v0.2.0']
+        arguments = ['--to', f'v{NEXT}'] if prompt else ['--yes', '--to', f'v{NEXT}']
         code, output = self.update(*arguments, answer='y\n' if prompt else None)
         self.assertEqual(code, 0, update_output_excerpt(output))
-        self.assertEqual('Update AgentExpense 0.1.0 to 0.2.0? [y/N]' in output, prompt)
-        self.assertIn(f'AgentExpense updated from 0.1.0 to 0.2.0. Ledger format {NEXT_FORMAT}. The server was restarted.', output)
-        self.assertIn('## [0.2.0] - 2026-11-05', output)
-        self.assertNotIn('## [0.3.0]', output)
-        self.assertEqual((self.clone / 'VERSION').read_text().strip(), '0.2.0')
-        self.assertEqual(self.app_commit(), state['commits']['0.2.0'])
+        self.assertEqual(f'Update AgentExpense {INSTALLED} to {NEXT}? [y/N]' in output, prompt)
+        self.assertIn(f'AgentExpense updated from {INSTALLED} to {NEXT}. Ledger format {NEXT_FORMAT}. The server was restarted.', output)
+        self.assertIn(f'## [{NEXT}] - 2026-11-05', output)
+        self.assertNotIn(f'## [{FAILING}]', output)
+        self.assertEqual((self.clone / 'VERSION').read_text().strip(), NEXT)
+        self.assertEqual(self.app_commit(), state['commits'][NEXT])
         self.assertTrue(self.clean(self.clone))
         self.assertEqual(self.manifest()['format'], NEXT_FORMAT)
         self.assertIs(self.manifest()['testField'], True)
@@ -339,7 +343,7 @@ class UpdateScenario(unittest.TestCase):
         template = 'description' if self.kind == 'jj' else None
         message = (run(['jj', 'log', '-r', '@-', '--no-graph', '-T', template], self.ledger, self.environ) if template else
                    run(['git', 'log', '-1', '--format=%s'], self.ledger, self.environ))
-        self.assertEqual(message.strip(), f'Upgrade ledger format {CURRENT_FORMAT} → {NEXT_FORMAT} (app v0.2.0)')
+        self.assertEqual(message.strip(), f'Upgrade ledger format {CURRENT_FORMAT} → {NEXT_FORMAT} (app v{NEXT})')
         self.assertTrue(self.service_calls(), 'the configured service is restarted')
         doctor = self.make('doctor')
         self.assertEqual(doctor.returncode, 0, doctor.stdout)
@@ -361,11 +365,11 @@ class GitCloneUpdate(UpdateScenario):
     def test_2_prompt_shows_changes_and_no_cancels(self):
         code, output = self.update(answer='n\n')
         self.assertEqual(code, 2, update_output_excerpt(output))
-        self.assertIn('Changes from 0.1.0 to 0.3.0:', output)
-        self.assertLess(output.index('## [0.3.0] - 2026-11-05'), output.index('## [0.2.0] - 2026-11-05'))
-        self.assertNotIn('## [0.1.0]', output)
-        self.assertNotIn('0.4.0', output.split('Changes from')[1])
-        self.assertIn('Update AgentExpense 0.1.0 to 0.3.0? [y/N]', output)
+        self.assertIn(f'Changes from {INSTALLED} to {FAILING}:', output)
+        self.assertLess(output.index(f'## [{FAILING}] - 2026-11-05'), output.index(f'## [{NEXT}] - 2026-11-05'))
+        self.assertNotIn(f'## [{INSTALLED}]', output)
+        self.assertNotIn(PRE, output.split('Changes from')[1])
+        self.assertIn(f'Update AgentExpense {INSTALLED} to {FAILING}? [y/N]', output)
         self.assertIn('Update cancelled; nothing changed.', output)
         self.assert_previous_release_intact(output)
 
@@ -379,11 +383,11 @@ class GitCloneUpdate(UpdateScenario):
         self.assertGreaterEqual(self.service_calls().count('systemctl --user is-active agentexpense-test.service'), 3)
 
     def test_5_refuses_to_downgrade(self):
-        code, output = self.update('--yes', '--to', 'v0.1.0')
+        code, output = self.update('--yes', '--to', f'v{INSTALLED}')
         self.assertEqual(code, 2, update_output_excerpt(output))
-        self.assertIn('v0.1.0 is older than the installed 0.2.0; make update never downgrades.', output)
-        self.assertEqual((self.clone / 'VERSION').read_text().strip(), '0.2.0')
-        self.assertEqual(self.app_commit(), state['commits']['0.2.0'])
+        self.assertIn(f'v{INSTALLED} is older than the installed {NEXT}; make update never downgrades.', output)
+        self.assertEqual((self.clone / 'VERSION').read_text().strip(), NEXT)
+        self.assertEqual(self.app_commit(), state['commits'][NEXT])
         self.assertEqual(self.service_calls(), [])
 
 
