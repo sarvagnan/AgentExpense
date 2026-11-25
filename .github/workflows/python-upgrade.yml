@@ -141,9 +141,11 @@ jobs:
             if [[ "$ledger" == fixtures/ledgers/asha ]]; then
               server_tests=all
             fi
-            check make test-ledger "LEDGER_DIR=$ledger"
-            check make test-migrations "LEDGER_DIR=$ledger"
-            check make test-server "LEDGER_DIR=$ledger" "SERVER_TESTS=$server_tests"
+            # As in ci.yml: an absolute environment variable, never a make command-line variable,
+            # which nested makes in the tests would inherit through MAKEFLAGS.
+            check env "LEDGER_DIR=$PWD/$ledger" make test-ledger
+            check env "LEDGER_DIR=$PWD/$ledger" make test-migrations
+            check env "LEDGER_DIR=$PWD/$ledger" "SERVER_TESTS=$server_tests" make test-server
           done
           exit "$failed"
       - name: Open a pull request with the checked pins
