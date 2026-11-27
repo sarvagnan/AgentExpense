@@ -12,6 +12,8 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-28
+
 ### Fixed
 
 - Restored isolated Claude Code ledger lookups for Add and weekly review, with an offline check of the tools Claude actually loads.
