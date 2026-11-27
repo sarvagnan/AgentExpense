@@ -523,6 +523,7 @@ class ReviewLookup:
                             return {'status': 'visual_unavailable', 'label': label, 'page': page, 'pages': len(pdf)}
             elif not result['visuals']:
                 with Image.open(io.BytesIO(data), formats=['PNG', 'JPEG', 'WEBP']) as image:
+                    # Large images that fit the attachment budget already have a visual.
                     status = 'oversized' if image.width * image.height > PIXELS else 'visual_unavailable'
                 return {'status': status, 'label': label}
         except Image.DecompressionBombError:
@@ -560,10 +561,12 @@ class ReviewLookup:
                                 renders.append((i, render(pdf, i)))
                 else:
                     with Image.open(io.BytesIO(data), formats=['PNG', 'JPEG', 'WEBP']) as image:
-                        if image.width * image.height > PIXELS:
-                            continue
+                        large = image.width * image.height > PIXELS
+                        image_format = image.format
                         image.verify()
-                        renders = [(1, (data, {'PNG':'png', 'JPEG':'jpg', 'WEBP':'webp'}[image.format]))]
+                    attachment = resize_receipt(data, image_format) if large else (
+                        data, {'PNG': 'png', 'JPEG': 'jpg', 'WEBP': 'webp'}[image_format])
+                    renders = [(1, attachment)]
                 for page, (content, suffix) in renders:
                     if len(images) == 8 or total + len(content) > SOURCE:
                         break
@@ -599,6 +602,25 @@ def render(pdf, index):
             output = io.BytesIO()
             bitmap.to_pil().save(output, format='PNG')
     return output.getvalue(), 'png'
+
+
+def resize_receipt(data, image_format):
+    from PIL import Image, ImageOps
+
+    # Pillow requires reopening the original after verify() before decoding it.
+    with Image.open(io.BytesIO(data), formats=[image_format]) as image:
+        ImageOps.exif_transpose(image, in_place=True)
+        scale = (PIXELS / (image.width * image.height)) ** .5
+        width = max(1, min(PIXELS, int(image.width * scale)))
+        height = max(1, min(PIXELS // width, int(image.height * scale)))
+        transparent = image.has_transparency_data
+        resized = image.convert('RGBA' if transparent else 'RGB').resize((width, height), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        if transparent:
+            resized.save(output, format='PNG')
+            return output.getvalue(), 'png'
+        resized.save(output, format='JPEG', quality=85)
+        return output.getvalue(), 'jpg'
 
 
 def review_task(settings, work, grant, prompt, schema, deadline, *, prepared=None, **options):

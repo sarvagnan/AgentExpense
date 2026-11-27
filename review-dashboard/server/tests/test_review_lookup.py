@@ -198,20 +198,16 @@ class CommittedReviewTests(Fixture):
         self.assertIn(dict(tool='review_revision', arguments={'line_id': hand['id'], 'parent_index': 0}), second['required'])
         self.assertEqual(json.loads(tools.call(*calls[1])['data'])['entry']['description'], 'Fictional workshop')
         self.assertEqual(json.loads(tools.call(*calls[2])['data'])['visuals'], [{'page': 1, 'image': 1}])
-        oversized = io.BytesIO()
-        Image.new('1', (2001, 2000)).save(oversized, 'PNG')
-        oversized_store = ReviewLookup(self.ledger, grant)
-        with patch.object(oversized_store, 'source', return_value=oversized.getvalue()):
-            self.assertEqual(oversized_store.evidence(evidence)['status'], 'oversized')
         scan = io.BytesIO()
         Image.new('RGB', (1100, 600), 'white').save(scan, 'PDF')
-        with patch.object(oversized_store, 'source', return_value=scan.getvalue()):
+        scan_store = ReviewLookup(self.ledger, grant)
+        with patch.object(scan_store, 'source', return_value=scan.getvalue()):
             render_work = self.base / 'rendered-proof'
             render_work.mkdir()
-            images = oversized_store.images(render_work)
+            images = scan_store.images(render_work)
             with Image.open(images[0]) as rendered:
                 self.assertLessEqual(rendered.width * rendered.height, 4_000_000)
-            pages = json.loads(oversized_store.evidence(evidence)['data'])
+            pages = json.loads(scan_store.evidence(evidence)['data'])
             self.assertEqual((pages['pages'], pages['visuals']), (1, [{'page': 1, 'image': 1}]))
         payload = ''.join(json.dumps(dict(jsonrpc='2.0', method='tools/call', id=i,
                                            params=dict(name=name, arguments=args))) + '\n'
@@ -222,3 +218,17 @@ class CommittedReviewTests(Fixture):
         for forgery in ({'path': '../ledger.json'}, {'grant': {'lines': []}}):
             with self.assertRaisesRegex(ValueError, 'Invalid lookup arguments'):
                 tools.call('review_evidence', {'evidence_id': evidence, **forgery})
+
+    def test_review_refuses_decompression_bomb(self):
+        from PIL import Image
+        from review_lookup import ReviewLookup, probe_grant
+
+        path = 'Bills/fictional.png'
+        Image.new('1', (2001, 2000)).save(self.ledger / path)
+        grant = replace(probe_grant(self.ledger), evidence={'receipt': {'path': path}})
+        lookup = ReviewLookup(self.ledger, grant)
+        # Lower Pillow's threshold so a small generated file exercises its hard limit.
+        with patch.object(Image, 'MAX_IMAGE_PIXELS', 1_000_000):
+            self.assertEqual(lookup.images(self.base), ())
+            self.assertEqual(lookup.evidence('receipt')['status'], 'oversized')
+        self.assertIsNone(lookup.evidence_pages('receipt'))

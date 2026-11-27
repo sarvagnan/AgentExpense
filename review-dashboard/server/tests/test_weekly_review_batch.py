@@ -148,6 +148,50 @@ class WeeklyReviewBatchTests(Fixture):
         verdict = next(row for row in audit.records(self.ledger) if row['kind'] == 'review')
         self.assertEqual(verdict['decide'], 'Can you supply the receipt?')
 
+    def test_review_can_ok_scaled_receipts(self):
+        from PIL import Image
+        from review_lookup import PIXELS
+        from weekly_review_batch import freeze_run
+
+        photo = Image.new('RGB', (4000, 3000), 'white')
+        photo.paste('red', (0, 0, 2000, 3000))
+        orientation = Image.Exif()
+        orientation[274] = 6  # Rotate 90° clockwise.
+        photo.save(self.ledger / 'Bills/photo.jpg', exif=orientation)
+        Image.new('RGBA', (2500, 2000), (0, 0, 0, 0)).save(self.ledger / 'Bills/scan.png')
+        line = self.add(files=[dict(original_name=name, filed_path='Bills/' + name)
+                               for name in ('photo.jpg', 'scan.png')])
+        self.checkpoint('Fictional large receipts')
+
+        def inspect(task):
+            self.assertEqual(len(task.images), 2)
+            handles = task.lookups.call('review_pending', {})['items'][0]['evidence_ids']
+            self.assertEqual(len(handles), 2)
+            task.lookups.call('review_audit_line', {'line_id': line})
+            for handle in handles:
+                result = task.lookups.call('review_evidence', {'evidence_id': handle})
+                self.assertEqual(result['status'], 'available')
+                proof = json.loads(result['data'])
+                visual, = proof['visuals']
+                self.assertEqual(visual['page'], 1)
+                with Image.open(task.images[visual['image'] - 1]) as image:
+                    self.assertLessEqual(image.width * image.height, PIXELS)
+                    if proof['label'] == 'photo.jpg':
+                        self.assertEqual(image.format, 'JPEG')
+                        self.assertAlmostEqual(image.width, image.height * 3 / 4, delta=1)
+                        self.assertEqual(image.getexif().get(274, 1), 1)
+                        self.assertLess(image.getpixel((10, 10))[1], 20)
+                        self.assertGreater(image.getpixel((10, image.height - 10))[1], 235)
+                    else:
+                        self.assertEqual(image.format, 'PNG')
+                        self.assertAlmostEqual(image.width, image.height * 5 / 4, delta=1)
+                        self.assertEqual(image.getpixel((10, 10))[3], 0)
+            return Result(self.answer(line))
+
+        adapter = self.reviewer(None)
+        adapter.run.side_effect = inspect
+        self.assertEqual(self.run_batch(freeze_run(self.settings), adapter)['status'], 'committed')
+
     def test_review_recovers_after_append_and_after_commit(self):
         from weekly_review_batch import freeze_run
         for after_commit in (False, True):
