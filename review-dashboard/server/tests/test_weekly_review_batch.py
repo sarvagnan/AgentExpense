@@ -37,10 +37,71 @@ class WeeklyReviewBatchTests(Fixture):
     def answer(self, *lines):
         return dict(lines=[dict(line=line, verdict='ok', note='Checked audit record') for line in lines], rules=[])
 
-    def run_batch(self, path, adapter, batch=1):
+    def run_batch(self, path, adapter, batch=1, **options):
         from weekly_review_batch import run_batch
         with patch('adapters.get_adapter', return_value=adapter):
-            return run_batch(replace(self.settings, timeout=15), path, batch)
+            return run_batch(replace(self.settings, timeout=15), path, batch, **options)
+
+    def test_review_retry_names_missing_evidence_page_for_both_profiles(self):
+        from review_lookup import encode
+        from test_agent import pdf_bytes
+        from weekly_review_batch import freeze_run
+
+        (self.ledger / 'Bills/fictional.pdf').write_bytes(pdf_bytes(3))
+        for profile in ('codex', 'claude'):
+            with self.subTest(profile=profile):
+                line = self.add(files=[dict(original_name='Fictional receipt', filed_path='Bills/fictional.pdf')])
+                self.checkpoint('Fictional multipage receipt')
+                path = freeze_run(self.settings)
+                attempt = path.parent / '1/attempt.json'
+
+                def review(task):
+                    pending = task.lookups.call('review_pending', {})['items'][0]
+                    handle, = pending['evidence_ids']
+                    audit_call = dict(tool='review_audit_line', arguments={'line_id': line})
+                    page_two, page_three = (dict(tool='review_evidence', arguments={'evidence_id': handle, 'page': page})
+                                            for page in (2, 3))
+                    self.assertEqual(pending['required'], [audit_call, page_two, page_three])
+                    self.assertIn('make the calls in each item’s required list', task.prompt)
+                    if adapter.run.call_count == 1:
+                        calls = [audit_call, page_two]
+                    else:
+                        missing = {line: [page_three]}
+                        state = json.loads(attempt.read_text())
+                        self.assertEqual(state['missing'], missing)
+                        self.assertEqual(state['failures'], 1)
+                        self.assertIn(state['error'], task.prompt)
+                        self.assertIn('Missing required calls by ID: ' + encode(missing), task.prompt)
+                        calls = pending['required']
+                    for call in calls:
+                        self.assertEqual(task.lookups.call(call['tool'], call['arguments'])['status'], 'available')
+                    return Result(self.answer(line))
+
+                adapter = self.reviewer(None)
+                adapter.run.side_effect = review
+                with patch.object(self, 'settings', replace(self.settings, review_profile=(('adapter', profile),))):
+                    retry = self.run_batch(path, adapter, one_turn=True)
+                    self.assertEqual(retry, dict(status='retry', error='Check all required records and evidence, or report an issue'))
+                    self.assertEqual(self.run_batch(path, adapter, one_turn=True)['status'], 'prepared')
+                    self.assertEqual(self.run_batch(path, adapter, one_turn=True)['status'], 'committed')
+                self.assertEqual(adapter.run.call_count, 2)
+                self.assertEqual(json.loads(attempt.read_text())['error'], retry['error'])
+
+    def test_review_records_validation_reason_without_rejected_answer_content(self):
+        from weekly_review_batch import freeze_run
+        self.add()
+        self.checkpoint('Fictional invalid answer')
+        path = freeze_run(self.settings)
+        adapter = self.reviewer('{"fictional-private-text":0,"fictional-private-text":1}')
+        result = self.run_batch(path, adapter)
+        reason = 'Return valid review JSON with unique keys'
+        self.assertEqual(result, dict(status='failed', error=reason))
+        state = (path.parent / '1/attempt.json').read_text()
+        self.assertEqual(json.loads(state)['error'], reason)
+        self.assertNotIn('fictional-private-text', state)
+        for invocation in adapter.run.call_args_list[1:]:
+            self.assertIn(reason, invocation.args[0].prompt)
+            self.assertNotIn('fictional-private-text', invocation.args[0].prompt)
 
     def test_review_batch_rejects_missing_duplicate_or_stale_ids(self):
         from weekly_review_batch import freeze_run

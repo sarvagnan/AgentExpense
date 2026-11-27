@@ -35,7 +35,7 @@ class ReviewLookupTests(Fixture):
 
     def test_review_lookup_pages_and_budget(self):
         from audit import records
-        from review_lookup import ReviewLookup
+        from review_lookup import PAGE, ReviewLookup, encode
         line = records(self.ledger)[0]['id']
         grant = self.revision(line)
         store = ReviewLookup(self.ledger, grant)
@@ -53,6 +53,28 @@ class ReviewLookupTests(Fixture):
             parts.append(first['data'])
         self.assertLessEqual(len(json.dumps(first).encode()), 24 * 1024)
         self.assertEqual(json.loads(''.join(parts)), value)
+
+        rule = 'c' * 16
+        required = [('audit_line', [line]), *(('evidence', ['e' * 32, page]) for page in range(1, 401))]
+        store = ReviewLookup(self.ledger, replace(grant, rules=(rule,), required={line: required}, rule_sources={rule: [line]}))
+        pending = store.pending()
+        self.assertEqual(pending['status'], 'page_limit')
+        self.assertEqual(pending['items'], [{'id': line}])
+        self.assertEqual(pending['rule_requirements'], {rule: dict(
+            required=[dict(tool='review_rule', arguments={'rule_id': rule})], sources=[line])})
+        self.assertLessEqual(len(encode(pending).encode()), PAGE)
+        result = store.audit_line(line)
+        parts = []
+        while True:
+            self.assertLessEqual(len(encode(result).encode()), PAGE)
+            parts.append(result['data'])
+            if not result['next']:
+                break
+            result = store.audit_line(line, cursor=result['next'])
+        calls = json.loads(''.join(parts))['required']
+        self.assertEqual(calls[0], dict(tool='review_audit_line', arguments={'line_id': line}))
+        self.assertEqual(calls[1:], [dict(tool='review_evidence', arguments={'evidence_id': 'e' * 32, 'page': page})
+                                     for page in range(1, 401)])
 
     def test_review_lookup_refuses_forged_grants_and_paths(self):
         from audit import records
@@ -121,8 +143,9 @@ class CommittedReviewTests(Fixture):
         from audit import audit_path, event
         from audit_changes import change_line
         from PIL import Image
-        from review_lookup import issue_grant, review_task
+        from review_lookup import committed_snapshot, review_task
         from store import dump
+        from weekly_review_batch import scope
 
         proof = self.ledger / 'Bills/folder/receipt.png'
         proof.parent.mkdir()
@@ -148,7 +171,9 @@ class CommittedReviewTests(Fixture):
         dump(expenses, [{**original, 'description': 'Uncommitted edit'}])
         proof.unlink()
         proof.symlink_to(expenses)
-        grant = issue_grant(self.ledger, self.base, revision, [record['id'], hand['id']])
+        snapshot = committed_snapshot(self.ledger, self.base, revision)
+        review, required, _ = scope(self.ledger, self.base, revision, snapshot, dict(lines=[record['id'], hand['id']], rules={}))
+        grant = replace(review.grant, required=required)
         self.assertEqual(len(grant.evidence), 2)
         evidence = next(iter(grant.evidence))
         task = review_task(self.settings, self.base, grant, 'Review the committed batch.', {}, time.monotonic() + 30)
@@ -165,7 +190,12 @@ class CommittedReviewTests(Fixture):
         with self.assertRaisesRegex(ValueError, 'evidence_unavailable'):
             ReviewLookup(self.ledger, grant).source('Bills/folder', original_revision)
         pending = tools.call('review_pending', {'limit': 1})
-        self.assertEqual(tools.call('review_pending', {'limit': 1, 'cursor': pending['next']})['items'][0]['id'], hand['id'])
+        self.assertEqual(pending['items'][0]['required'], [
+            dict(tool='review_audit_line', arguments={'line_id': record['id']}),
+            dict(tool='review_entry', arguments={'entry_id': identity})])
+        second = tools.call('review_pending', {'limit': 1, 'cursor': pending['next']})['items'][0]
+        self.assertEqual(second['id'], hand['id'])
+        self.assertIn(dict(tool='review_revision', arguments={'line_id': hand['id'], 'parent_index': 0}), second['required'])
         self.assertEqual(json.loads(tools.call(*calls[1])['data'])['entry']['description'], 'Fictional workshop')
         self.assertEqual(json.loads(tools.call(*calls[2])['data'])['visuals'], [{'page': 1, 'image': 1}])
         oversized = io.BytesIO()

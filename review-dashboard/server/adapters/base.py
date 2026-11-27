@@ -130,7 +130,13 @@ def strict_json(text):
 
 def review_json(raw):
     from store import _unique_object
-    raw = raw.encode() if isinstance(raw, str) else raw
+    try:
+        raw = raw.encode() if isinstance(raw, str) else raw
+    except UnicodeError:
+        raise ValueError('Return valid UTF-8 review JSON') from None
     if len(raw) > REVIEW_ANSWER_BYTES:
         raise ValueError('Weekly review answer exceeds 128 KiB')
-    return json.loads(raw, object_pairs_hook=_unique_object)
+    try:
+        return json.loads(raw, object_pairs_hook=_unique_object)
+    except ValueError:
+        raise ValueError('Return valid review JSON with unique keys') from None

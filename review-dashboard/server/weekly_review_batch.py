@@ -11,13 +11,13 @@ from tempfile import TemporaryDirectory
 import time
 
 from adapters.base import AdapterError, review_json
-from transactions import Transaction, clean, reject_invisible
+from transactions import Transaction, clean
 
 import audit
 import audit_changes
 from ledger_lock import ledger_lock
 from review_lookup import (ReviewLookup, committed_snapshot, encode, evidence_paths,
-                           git, issue_grant, recorded_revision, review_task)
+                           git, issue_grant, lookup_calls, recorded_revision, review_task)
 from review_decisions import QUESTION, check_suggestion, rule_form_schema, suggestions_current
 from store import entries, ledger_models, load, read_json
 from weekly_review_report import carry_answers, carry_events, carry_plan, carry_scope, reject_repeated_finding, CARRY_SCHEMA
@@ -175,15 +175,22 @@ def output_schema(root):
     return schema
 
 
+class CoverageError(ValueError):
+    def __init__(self, missing):
+        super().__init__('Check all required records and evidence, or report an issue')
+        self.missing = {identity: lookup_calls(calls) for identity, calls in missing.items()}
+
+
 def validate(raw, batch, review, needed, receipt_path):
     from jsonschema import Draft202012Validator
     answer = review_json(encode(raw) if isinstance(raw, dict) else raw)
-    reject_invisible(answer)
+    audit.reject_invisible(answer, error=lambda _: ValueError('Review text contains an invisible or control character'))
     carry = carry_answers(answer, batch.get('carry', []))
     if not Draft202012Validator(SCHEMA).is_valid(answer):
         raise ValueError('Use only the fields and verdicts in the review schema')
     seen = set(receipt_path.read_text().splitlines()) if receipt_path.exists() else set()
-    uncovered = {line for line, calls in needed.items() if any(encode(call) not in seen for call in calls)}
+    uncovered = {line: [call for call in calls if encode(call) not in seen] for line, calls in needed.items()}
+    missing = {}
     for kind, identifier in [('lines', 'line'), ('rules', 'rule')]:
         expected = batch[kind]
         if sorted(item[identifier] for item in answer[kind]) != sorted(expected):
@@ -205,9 +212,15 @@ def validate(raw, batch, review, needed, receipt_path):
                 allowed = {e for e, source in review.grant.evidence.items() if source.get('line') == identity}
                 if set(item['evidence']) - allowed or (allowed and not item['evidence']):
                     raise ValueError('Cite evidence IDs issued for that audit line')
-            elif item['verdict'] == 'ok' and identity in uncovered or item['verdict'] == 'confirm' and (
-                    encode(['rule', [identity]]) not in seen or uncovered.intersection(expected[identity])):
-                raise ValueError('Check all required records and evidence, or report an issue')
+            elif item['verdict'] == 'ok' and uncovered.get(identity):
+                missing[identity] = uncovered[identity]
+            elif item['verdict'] == 'confirm':
+                call = ('rule', [identity])
+                if encode(call) not in seen:
+                    missing[identity] = [call]
+                missing.update((line, uncovered[line]) for line in expected[identity] if uncovered.get(line))
+    if missing:
+        raise CoverageError(missing)
     return {**answer, 'carry': carry}
 
 
@@ -275,6 +288,7 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
             save(path, {})
             return dict(status='stale', remaining=len(selected['lines']))
         error = state.get('error', '') if one_turn and state.get('signature') == signature else ''
+        missing = state.get('missing', {}) if error else {}
         if not state.get('answer'):
             failures = state.get('failures', 0) if error else 0
             if failures >= 3:
@@ -283,7 +297,7 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                 with TemporaryDirectory(dir=work) as attempt:
                     attempt = Path(attempt)
                     state = dict(signature=signature, started=audit.stamp(), attempt=state.get('attempt', 0) + 1,
-                                 error=error, failures=failures)
+                                 error=error, failures=failures, missing=missing)
                     save(path, state)
                     if retry:
                         deadline = time.monotonic() + timeout
@@ -301,17 +315,24 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                         needed[line].extend(('evidence', [handle, page]) for page in sorted({0} if pages is None else pages))
                     rules = {r: sources for r, sources in selected['rules'].items() if not unavailable.intersection(sources)}
                     effective = {**selected, 'rules': rules}
-                    lookup.grant = replace(lookup.grant, rules=tuple(rules))
+                    lookup.grant = replace(lookup.grant, rules=tuple(rules), required=needed, rule_sources=rules)
                     if time.monotonic() >= deadline:
                         raise AdapterError('Review preparation reached its deadline', kind='timeout')
                     if not any(effective.values()):
                         return dict(status='empty')
-                    prompt = ('Review the committed batch. Use review_pending and inspect all required records and evidence. '
+                    prompt = ('Review the committed batch. Use review_pending and make the calls in each item’s required list. '
+                              'On page_limit, read each review_audit_line for its required list. Follow next cursors to the end. '
+                              'For confirm, make the calls in rule_requirements and the required calls for its source line IDs. '
+                              'A null argument or evidence page 0 indicates an unavailable source. Report it as an issue. '
                               'Give verdicts only for these line IDs and rule IDs: '
                               + encode([selected['lines'], list(rules)]) + '. Other source lines are context. '
                               'For issues, propose a complete ready entry answer or a complete rule form '
                               '(description, date, status, postings, schedule, amount, notes) only for a target from that source. '
-                              'Use question-only when unsure and report any unavailable source. ' + error)
+                              'Use question-only when unsure and report any unavailable source.')
+                    if error:
+                        prompt += '\nThe previous answer failed the server checks. ' + error
+                    if missing:
+                        prompt += '\nMissing required calls by ID: ' + encode(missing)
                     schema = output_schema(snapshot)
                     if effective.get('carry'):
                         prompt += context
@@ -319,19 +340,23 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                         schema['required'].append('carry')
                     task = review_task(settings, attempt, lookup.grant, prompt, schema, deadline,
                                        prepared=(lookup, images), **({'cancel': cancel} if cancel is not None else {}))
+                    checking = False
                     try:
                         task.remaining()
                         result = get_adapter(reviewer).run(task)
                         task.remaining()
+                        checking = True
                         answer = validate(result.answer, effective, lookup, needed, lookup.receipts)
+                        checking = False
                         for item in answer['lines']:
                             if item['verdict'] == 'issue':
                                 item['suggestion'] = check_suggestion(settings, lookup, item)
                                 item['evidence_refs'] = [dict(id=handle, **{k: lookup.grant.evidence[handle][k]
                                                           for k in ('path', 'revision')}) for handle in item['evidence']]
-                        state.update(answer=answer, rules=rules, revision=revision)
                         task.remaining()
-                        save(path, state)
+                        prepared = {**state, 'answer': answer, 'rules': rules, 'revision': revision}
+                        save(path, prepared)
+                        state = prepared
                         if one_turn:
                             return dict(status='prepared')
                         break
@@ -339,10 +364,12 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                         if isinstance(exc, AdapterError) and exc.kind != 'bad_answer':
                             raise
                         task.remaining()
-                        error = 'The previous answer failed the server checks. Check verdict coverage, evidence and field types.'
+                        error = str(exc) if checking and isinstance(exc, ValueError) else 'The reviewer did not return a valid answer.'
+                        missing = exc.missing if isinstance(exc, CoverageError) else {}
                         failures += 1
+                        state.update(error=error, failures=failures, missing=missing)
+                        save(path, state)
             else:
-                save(path, {**state, 'error': error, 'failures': failures})
                 return dict(status='failed' if failures >= 3 else 'retry', error=error)
         try:
             with ledger_lock(root, blocking=False) as fd:

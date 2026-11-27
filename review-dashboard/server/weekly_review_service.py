@@ -179,7 +179,7 @@ class WeeklyReview:
             attempt = self.transaction(run).journal.with_name('attempt.json')
             if run.get('error') and attempt.exists():
                 value = read_json(attempt)
-                save(attempt, {**value, 'error': '', 'failures': 0})
+                save(attempt, {**value, 'error': '', 'failures': 0, 'missing': {}})
             run.pop('error', None)
             run.pop('invalid_reports', None)
             agent_timeouts.reset(run)

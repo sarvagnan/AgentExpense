@@ -1,6 +1,6 @@
 """Server-issued capability for a committed review batch."""
 from contextlib import closing
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 import hashlib
 import hmac
@@ -39,6 +39,10 @@ NAMES = {'review_' + name for name in TOOLS}
 
 def encode(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+
+
+def lookup_calls(calls):
+    return [dict(tool='review_' + name, arguments=dict(zip(TOOLS[name][1:], args))) for name, args in calls]
 
 
 def git(root, *args, limit=SOURCE):
@@ -83,6 +87,8 @@ class ReviewGrant:
     key: str
     carry: tuple = ()
     report: dict | None = None
+    required: dict = field(default_factory=dict)
+    rule_sources: dict = field(default_factory=dict)
 
 
 def issue_grant(root, work, revision, lines, evidence=None, *, rules=(), timeout=180, snapshot=None):
@@ -336,6 +342,8 @@ class ReviewLookup:
         for item in rows:
             source = self.lines[item['id']]
             item['evidence_ids'] = list(self.evidence_handles(source))
+            if item['id'] in self.grant.required:
+                item['required'] = lookup_calls(self.grant.required[item['id']])
             if source['kind'] == 'statement':
                 item['statement_id'] = next((s['id'] for s in self.documents[self.ledger/'data/card-statements.json']
                                              if statement_matches(source, s)), None)
@@ -346,10 +354,14 @@ class ReviewLookup:
         end = offset + limit
         result = {'items': rows[offset:end], 'rules': list(self.grant.rules),
                   'next': token(end) if end < len(rows) else None}
+        if self.grant.rule_sources:
+            result['rule_requirements'] = {
+                rule: dict(required=lookup_calls([('rule', [rule])]), sources=sources)
+                for rule, sources in self.grant.rule_sources.items()}
         if self.grant.carry:
             result['carry'] = list(self.grant.carry)
         if len(encode(result).encode()) > PAGE:
-            return {'status': 'page_limit', 'note': 'Read individual audit lines for all source handles.',
+            return {'status': 'page_limit', 'note': 'Read individual audit lines for source handles and required calls.',
                     **result, 'items': [{'id': row['id']} for row in rows[offset:end]]}
         return result
 
@@ -367,7 +379,10 @@ class ReviewLookup:
     def audit_line(self, line_id, cursor=None):
         if line_id not in self.lines:
             return {'status': 'outside_grant'}
-        return self.page('audit_line', [line_id], dict(record=self.lines[line_id], evidence=self.evidence_handles(self.lines[line_id])), cursor)
+        value = dict(record=self.lines[line_id], evidence=self.evidence_handles(self.lines[line_id]))
+        if line_id in self.grant.required:
+            value['required'] = lookup_calls(self.grant.required[line_id])
+        return self.page('audit_line', [line_id], value, cursor)
 
     def entry(self, entry_id, cursor=None):
         changes = [change for line in self.lines.values()
