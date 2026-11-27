@@ -291,6 +291,57 @@ class ExtensionDefinitionTests(unittest.TestCase):
                 m.ledger_extensions(root, {'fuel': {'ask': True}})
 
 
+def strict_output_problems(schema, rules):
+    """What a strict structured-output schema check would refuse, walking every node and reference."""
+    problems, properties = [], [0]
+    if schema.get('type') != 'object' or 'anyOf' in schema:
+        problems.append('the root must be an object')
+
+    def walk(node, where, depth, trail):
+        if not isinstance(node, dict):
+            return
+        for key in node:
+            if key not in rules['keywords']:
+                problems.append(f'{where}: {key}')
+        if 'format' in node and node['format'] not in rules['formats']:
+            problems.append(f'{where}: format {node["format"]}')
+        if rules['min_items'] is not None and node.get('minItems', 0) not in rules['min_items']:
+            problems.append(f'{where}: minItems {node["minItems"]}')
+        if 'pattern' in node and re.search(r'\\[1-9bB]|\(\?<?[=!]', node['pattern']):
+            problems.append(f'{where}: pattern {node["pattern"]}')
+        if node.get('type') == 'object':
+            if node.get('additionalProperties') is not False:
+                problems.append(f'{where}: additionalProperties')
+            if set(node.get('required', [])) != set(node.get('properties', {})):
+                problems.append(f'{where}: required')
+            properties[0] += len(node.get('properties', {}))
+            depth += 1
+            if depth > 10:
+                problems.append(f'{where}: nesting')
+        if '$ref' in node:
+            if len(node) > 1:
+                problems.append(f'{where}: keywords beside $ref')
+            name = node['$ref'].removeprefix('#/$defs/')
+            if name in trail:
+                problems.append(f'{where}: recursion through {name}')
+                return
+            walk(schema['$defs'][name], name, depth, trail | {name})
+        for key, value in node.items():
+            if key == 'properties':
+                for child, item in value.items():
+                    walk(item, f'{where}.{child}', depth, trail)
+            elif key in ('items',):
+                walk(value, f'{where}[]', depth, trail)
+            elif key in ('anyOf', 'allOf'):
+                for item in value:
+                    walk(item, where, depth, trail)
+
+    walk({key: value for key, value in schema.items() if key != '$defs'}, 'answer', 0, frozenset())
+    if properties[0] > 5000:
+        problems.append('more than 5000 properties')
+    return problems
+
+
 class AnswerTests(unittest.TestCase):
     def test_core_answer_schema_holds_exactly_the_agents_fields(self):
         schema = json.loads(m.ANSWER_SCHEMA.read_text(encoding='utf-8'))
@@ -335,54 +386,6 @@ class AnswerTests(unittest.TestCase):
                 with self.subTest(adapter=adapter, schema=name):
                     self.assertEqual(strict_output_problems(schema, rules), [])
 
-
-def strict_output_problems(schema, rules):
-    """What a strict structured-output schema check would refuse, walking every node and reference."""
-    problems, properties = [], [0]
-    if schema.get('type') != 'object' or 'anyOf' in schema:
-        problems.append('the root must be an object')
-
-    def walk(node, where, depth, trail):
-        if not isinstance(node, dict):
-            return
-        for key in node:
-            if key not in rules['keywords']:
-                problems.append(f'{where}: {key}')
-        if 'format' in node and node['format'] not in rules['formats']:
-            problems.append(f'{where}: format {node["format"]}')
-        if rules['min_items'] is not None and node.get('minItems', 0) not in rules['min_items']:
-            problems.append(f'{where}: minItems {node["minItems"]}')
-        if 'pattern' in node and re.search(r'\\[1-9bB]|\(\?<?[=!]', node['pattern']):
-            problems.append(f'{where}: pattern {node["pattern"]}')
-        if node.get('type') == 'object':
-            if node.get('additionalProperties') is not False:
-                problems.append(f'{where}: additionalProperties')
-            if set(node.get('required', [])) != set(node.get('properties', {})):
-                problems.append(f'{where}: required')
-            properties[0] += len(node.get('properties', {}))
-            depth += 1
-            if depth > 10:
-                problems.append(f'{where}: nesting')
-        if '$ref' in node:
-            name = node['$ref'].removeprefix('#/$defs/')
-            if name in trail:
-                problems.append(f'{where}: recursion through {name}')
-                return
-            walk(schema['$defs'][name], name, depth, trail | {name})
-        for key, value in node.items():
-            if key == 'properties':
-                for child, item in value.items():
-                    walk(item, f'{where}.{child}', depth, trail)
-            elif key in ('items',):
-                walk(value, f'{where}[]', depth, trail)
-            elif key in ('anyOf', 'allOf'):
-                for item in value:
-                    walk(item, where, depth, trail)
-
-    walk({key: value for key, value in schema.items() if key != '$defs'}, 'answer', 0, frozenset())
-    if properties[0] > 5000:
-        problems.append('more than 5000 properties')
-    return problems
 
     def test_the_answer_rejects_server_fields_snake_case_whole_numbers_and_empty_groups(self):
         model = m.answer_model(())

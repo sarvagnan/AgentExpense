@@ -958,8 +958,11 @@ WIRE_DROPPED = frozenset({'uniqueItems', 'minimum', 'maximum', 'exclusiveMinimum
 
 
 def _tidy(node: Any, *, wire: bool = False) -> Any:
-    """Drop generated titles; for the wire schema also drop the x- annotations and WIRE_DROPPED keywords."""
+    """Drop generated titles; for the wire schema also drop the x- annotations, WIRE_DROPPED keywords and $ref siblings."""
     if isinstance(node, dict):
+        if wire and '$ref' in node:
+            # Strict structured output refuses keywords beside $ref; the definition keeps its description.
+            return {'$ref': node['$ref']}
         return {key: _tidy(value, wire=wire) for key, value in node.items()
                 if not (key == 'title' and isinstance(value, str))
                 and not (wire and (key.startswith('x-') or key in WIRE_DROPPED))}

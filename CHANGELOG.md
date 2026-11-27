@@ -15,6 +15,7 @@ that fails and keep its output.
 ### Fixed
 
 - Restored isolated Claude Code ledger lookups for Add and weekly review, with an offline check of the tools Claude actually loads.
+- Add with Codex works on ledgers whose extensions the agent fills (such as fuel): the answer schema no longer puts keywords beside `$ref`, which strict structured output refuses.
 
 ### Upgrade notes
 
