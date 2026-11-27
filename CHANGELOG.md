@@ -17,6 +17,7 @@ that fails and keep its output.
 - Restored isolated Claude Code ledger lookups for Add and weekly review, with an offline check of the tools Claude actually loads.
 - Add with Codex works on ledgers whose extensions the agent fills (such as fuel): the answer schema no longer puts keywords beside `$ref`, which strict structured output refuses.
 - Weekly review lists the required lookups for each verdict and explains missing calls when it retries a rejected batch.
+- Weekly review keeps asking a carried-over question until the owner answers it, and its retry names the carried issue.
 
 ### Upgrade notes
 

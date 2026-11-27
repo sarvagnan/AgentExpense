@@ -28,6 +28,17 @@ class WeeklyReviewReportTests(Fixture):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()['run_id']
 
+    def test_carry_over_answers_keep_asking_until_the_owner_answers(self):
+        from weekly_review_report import carry_answers
+        waiting, answered = 'a' * 32, 'b' * 32
+        items = [dict(id=waiting, turns=[dict(actor='agent')]), dict(id=answered, turns=[dict(actor='user')])]
+        with self.assertRaisesRegex(ValueError, f'{waiting}: the owner has not answered it'):
+            carry_answers(dict(carry=[dict(issue=waiting, question=None), dict(issue=answered, question=None)]), items)
+        with self.assertRaisesRegex(ValueError, f'{waiting}: the question needs concrete text'):
+            carry_answers(dict(carry=[dict(issue=waiting, question=' '), dict(issue=answered, question=None)]), items)
+        kept = [dict(issue=waiting, question='Which card paid?'), dict(issue=answered, question=None)]
+        self.assertEqual(carry_answers(dict(carry=kept), items), kept)
+
     def test_carry_over_uses_same_issue_and_partial_answer(self):
         entry_id = test_review.ReviewTests.seed(self)[0]['id']
         manifest = self.ledger / 'ledger.json'
@@ -56,6 +67,7 @@ class WeeklyReviewReportTests(Fixture):
                     carry, = [row for row in rows if row['kind'] == 'review-carry-over']
                     return Result(dict(fine=[], decisions=[carry['id']], patterns=[]))
                 self.assertIn('The order included delivery.', task.prompt)
+                self.assertIn('"owner_answered":true', task.prompt)
                 self.assertIn(question, task.prompt)
                 pending = task.lookups.call('review_pending', {})
                 self.assertEqual(pending['items'], [])
