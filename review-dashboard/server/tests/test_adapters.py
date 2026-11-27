@@ -94,7 +94,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_claude_offline_checks_both_startup_inventories_in_an_unsigned_home(self):
         for role in ('add', 'review'):
-            with self.subTest(role=role), patch.dict(os.environ, {'ANTHROPIC_API_KEY':'fictional-key'}):
+            with self.subTest(role=role), patch.dict(os.environ, {'ANTHROPIC_API_KEY':'fictional-key'}):  # pragma: allowlist secret
                 adapter = self.adapter('claude')
                 adapter = get_adapter(replace(adapter.settings, role=role))
                 adapter.offline_check(self.work)

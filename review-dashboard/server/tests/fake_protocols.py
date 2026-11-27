@@ -31,7 +31,7 @@ def run(settings,config):
                   mcp_servers=[{'name':'ledger','status':'connected','source':'dynamic'}])
         if prompt=='Expense agent isolation check.':
             record('.checks',dict(argv=args,home=os.environ['HOME'],cwd=os.getcwd(),
-                                  api_key_present='ANTHROPIC_API_KEY' in os.environ))
+                                  api_key_present='ANTHROPIC_API_KEY' in os.environ))  # pragma: allowlist secret
             init.update(settings.get('offline_init',{}))
             emit(init)
             emit({'type':'assistant','error':'authentication_failed'})
