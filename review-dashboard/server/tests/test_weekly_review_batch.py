@@ -192,6 +192,127 @@ class WeeklyReviewBatchTests(Fixture):
         adapter.run.side_effect = inspect
         self.assertEqual(self.run_batch(freeze_run(self.settings), adapter)['status'], 'committed')
 
+    def test_review_requires_the_full_markdown_cursor(self):
+        from review_lookup import PAGE
+        from weekly_review_batch import freeze_run
+
+        markdown = '# Fictional receipt\r\n\tLine of evidence\n' * 1200
+        (self.ledger / 'Bills/receipt.md').write_bytes(markdown.encode())
+        line = self.add(files=[dict(original_name='receipt.md', filed_path='Bills/receipt.md')])
+        self.checkpoint('Fictional Markdown receipt')
+
+        def inspect(task):
+            item, = task.lookups.call('review_pending', {})['items']
+            self.assertEqual(task.images, ())
+            audit_call, evidence_call = item['required']
+            task.lookups.call(audit_call['tool'], audit_call['arguments'])
+            self.assertEqual(evidence_call['arguments'], dict(evidence_id=item['evidence_ids'][0], page=1))
+            arguments = evidence_call['arguments']
+            result = task.lookups.call('review_evidence', arguments)
+            self.assertIsNotNone(result['next'])
+            if adapter.run.call_count > 1:
+                parts = []
+                while True:
+                    self.assertEqual(result['status'], 'available')
+                    self.assertLessEqual(len(json.dumps(result).encode()), PAGE)
+                    parts.append(result['data'])
+                    if not result['next']:
+                        break
+                    result = task.lookups.call('review_evidence', {**arguments, 'cursor': result['next']})
+                self.assertEqual(json.loads(''.join(parts))['text'], markdown)
+            return Result(self.answer(line))
+
+        adapter = self.reviewer(None)
+        adapter.run.side_effect = inspect
+        self.assertEqual(self.run_batch(freeze_run(self.settings), adapter)['status'], 'committed')
+        self.assertEqual(adapter.run.call_count, 2)
+
+    def test_review_requires_each_page_of_a_tall_image(self):
+        from PIL import Image
+        from review_lookup import PIXELS
+        from weekly_review_batch import freeze_run
+
+        with Image.new('L', (3800, 30000)) as image:
+            for band in range(6):
+                image.paste(band * 40, (0, band * 5000, 3800, (band + 1) * 5000))
+            image.save(self.ledger / 'Bills/scroll.png')
+        line = self.add(files=[dict(original_name='scroll.png', filed_path='Bills/scroll.png')])
+        self.checkpoint('Fictional scrolling receipt')
+
+        def inspect(task):
+            item, = task.lookups.call('review_pending', {})['items']
+            handle, = item['evidence_ids']
+            self.assertEqual(len(task.images), 6)
+            self.assertEqual(item['required'][1:], [dict(tool='review_evidence', arguments=dict(evidence_id=handle, page=i))
+                                                  for i in range(1, 7)])
+            task.lookups.call('review_audit_line', {'line_id': line})
+            for index, path in enumerate(task.images, 1):
+                if index == 6 and adapter.run.call_count == 1:
+                    continue
+                result = task.lookups.call('review_evidence', {'evidence_id': handle, 'page': index})
+                proof = json.loads(result['data'])
+                self.assertEqual((proof['page'], proof['pages'], proof['visuals']), (index, 6, [dict(page=index, image=index)]))
+                with Image.open(path) as tile:
+                    self.assertGreater(tile.width, 1500)
+                    self.assertLessEqual(tile.width * tile.height, PIXELS)
+                    self.assertAlmostEqual(tile.height / tile.width, 1.5, delta=.1)
+                    self.assertAlmostEqual(tile.getpixel((tile.width // 2, tile.height // 2))[0], (index - 1) * 40, delta=4)
+            return Result(self.answer(line))
+
+        adapter = self.reviewer(None)
+        adapter.run.side_effect = inspect
+        self.assertEqual(self.run_batch(freeze_run(self.settings), adapter)['status'], 'committed')
+        self.assertEqual(adapter.run.call_count, 2)
+
+    def test_review_packs_twelve_images_and_reports_overflow_once(self):
+        from subprocess import run
+        from review_lookup import SOURCE, VISUAL_LIMIT
+        from weekly_review_batch import freeze_run
+
+        content = png()
+        for count in (12, 25):
+            with self.subTest(count=count):
+                names = [f'proof-{i:02}.png' for i in range(count)]
+                for name in names:
+                    (self.ledger / 'Bills' / name).write_bytes(content)
+                line = self.add(files=[dict(original_name=name, filed_path='Bills/' + name) for name in names])
+                self.checkpoint('Fictional image batch')
+
+                def inspect(task):
+                    item, = task.lookups.call('review_pending', {})['items']
+                    record = json.loads(task.lookups.call('review_audit_line', {'line_id': line})['data'])
+                    self.assertEqual(item['required'], [dict(tool='review_audit_line', arguments={'line_id': line})])
+                    self.assertEqual(len(task.images), min(count, VISUAL_LIMIT))
+                    self.assertLessEqual(sum(p.stat().st_size for p in task.images), SOURCE)
+                    omitted = []
+                    for i, (handle, source) in enumerate(record['evidence'].items(), 1):
+                        args = {'evidence_id': handle}
+                        result = task.lookups.call('review_evidence', args)
+                        if i <= VISUAL_LIMIT:
+                            self.assertEqual(json.loads(result['data'])['visuals'], [dict(page=1, image=i)])
+                        else:
+                            self.assertEqual(source['too_many_pages'], {'pages': 1, 'ranges': [[1, 1]]})
+                            self.assertEqual(result, dict(status='too_many_pages', label=source['label'], page=1, pages=1))
+                            omitted.append(handle)
+                    self.assertEqual(len(omitted), max(0, count - VISUAL_LIMIT))
+                    if not omitted or adapter.run.call_count == 1:
+                        return Result(self.answer(line))
+                    self.assertIn(f'Audit line {line} has too many evidence pages to review automatically', task.prompt)
+                    rpc = dict(jsonrpc='2.0', method='tools/call', id=1,
+                               params=dict(name='review_evidence', arguments=args))
+                    output = run(task.lookups.command, input=json.dumps(rpc) + '\n', text=True, capture_output=True, check=True)
+                    self.assertEqual(json.loads(json.loads(output.stdout)['result']['content'][0]['text']), result)
+                    return Result(dict(lines=[dict(line=line, verdict='issue', note='Too many evidence pages to review automatically',
+                                                   decide='Can you review the remaining pages?', evidence=omitted,
+                                                   suggestion={'kind': 'question-only'})], rules=[]))
+
+                adapter = self.reviewer(None)
+                adapter.run.side_effect = inspect
+                self.assertEqual(self.run_batch(freeze_run(self.settings), adapter)['status'], 'committed')
+                self.assertEqual(adapter.run.call_count, 1 if count == 12 else 2)
+                verdicts = [r['verdict'] for r in audit.records(self.ledger) if r.get('line_id') == line]
+                self.assertEqual(verdicts, ['ok'] if count == 12 else ['issue'])
+
     def test_review_recovers_after_append_and_after_commit(self):
         from weekly_review_batch import freeze_run
         for after_commit in (False, True):

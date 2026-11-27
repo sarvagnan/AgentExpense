@@ -25,7 +25,7 @@ if args.review_grant or args.review_probe:
     if args.review_grant:
         config = json.loads(args.review_grant.read_text())
         review = ReviewLookup(args.ledger, ReviewGrant(**config['grant']), config['visuals'],
-                              Path(config['receipts']) if config.get('receipts') else None)
+                              Path(config['receipts']) if config.get('receipts') else None, omitted=config.get('omitted'))
     else:
         review = ReviewLookup(args.ledger, probe_grant(args.ledger))
 store = LookupStore(args.ledger, args.old_ledger, args.cutoff, args.exclude, review=review)

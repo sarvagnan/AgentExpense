@@ -53,7 +53,8 @@ class LookupTools:
             review, images = prepared or (review, review.images(work))
             config = work / 'review-grant.json'
             config.touch(mode=0o600, exist_ok=False)
-            config.write_text(json.dumps(dict(grant=asdict(grant), visuals=review.visuals, receipts=str(review.receipts) if review.receipts else None)))
+            config.write_text(json.dumps(dict(grant=asdict(grant), visuals=review.visuals, omitted=review.omitted,
+                                              receipts=str(review.receipts) if review.receipts else None)))
             options = ('--review-grant', str(config))
         store = LookupStore(settings.ledger, old, review=review)
         return cls((sys.executable, *command[1:], *options), tuple(store.definitions()), store.call, images)

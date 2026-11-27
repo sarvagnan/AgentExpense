@@ -19,6 +19,7 @@ that fails and keep its output.
 - Weekly review lists the required lookups for each verdict and explains missing calls when it retries a rejected batch.
 - Weekly review keeps asking a carried-over question until the owner answers it, and its retry names the carried issue.
 - Weekly review scales large receipt images (phone photos) so the reviewer can read them instead of reporting them as oversized.
+- Weekly review reads Markdown and text evidence, recognizes reconciled bank statement exports, and splits long receipts into pages. It attaches up to 20 visuals and reports one issue per line when the evidence exceeds the batch budget.
 
 ### Upgrade notes
 

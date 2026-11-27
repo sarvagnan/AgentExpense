@@ -64,7 +64,8 @@ def carry_scope(lookup, items):
         evidence = {identity: dict(path=file['path'], line=item['line'], revision=file.get('revision', item['revision']))
                     for identity, file in sources.items()}
         validate_evidence(lookup.root, lookup.grant.revision, evidence.values())
-        lookup.grant.evidence.update(evidence)
+        for identity, source in evidence.items():
+            lookup.grant.evidence.setdefault(identity, source)
         context.append({k: item[k] for k in ('id', 'line', 'note', 'question')} | {'evidence': list(sources),
                         'owner_answered': any(turn.get('actor') == 'user' for turn in item['turns']),
                         'turns': [{k: v for k, v in turn.items() if k != 'message_evidence'} for turn in item['turns']]})

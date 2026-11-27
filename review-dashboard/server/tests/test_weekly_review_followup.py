@@ -95,9 +95,12 @@ class WeeklyReviewFollowupTests(Fixture):
                 self.assertIn('Go ahead', task.prompt)
                 source, = task.lookups.call('review_pending', {})['items']
                 self.assertEqual(source['id'], line)
-                statuses = {task.lookups.call('review_evidence', {'evidence_id': handle})['status']
-                            for handle in source['evidence_ids']}
-                self.assertEqual(statuses, {'available', 'unsupported'})
+                evidence = [task.lookups.call('review_evidence', {'evidence_id': handle})
+                            for handle in source['evidence_ids']]
+                self.assertEqual([result['status'] for result in evidence], ['available', 'available'])
+                proofs = [json.loads(result['data']) for result in evidence]
+                self.assertEqual([p['text'] for p in proofs if 'text' in p], ['Fictional evidence'])
+                self.assertEqual([v for p in proofs for v in p['visuals']], [dict(page=1, image=1)])
                 return Result(dict(text='Please confirm the payment date.',
                                    suggestion=dict(kind='entry', target=entry['id'], answer=proposal)))
             adapter = Mock(run=Mock(side_effect=reply))

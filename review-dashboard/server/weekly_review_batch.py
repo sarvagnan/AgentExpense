@@ -181,7 +181,7 @@ class CoverageError(ValueError):
         self.missing = {identity: lookup_calls(calls) for identity, calls in missing.items()}
 
 
-def validate(raw, batch, review, needed, receipt_path):
+def validate(raw, batch, review, needed, receipt_path, overflow):
     from jsonschema import Draft202012Validator
     answer = review_json(encode(raw) if isinstance(raw, dict) else raw)
     audit.reject_invisible(answer, error=lambda _: ValueError('Review text contains an invisible or control character'))
@@ -212,8 +212,11 @@ def validate(raw, batch, review, needed, receipt_path):
                 allowed = {e for e, source in review.grant.evidence.items() if source.get('line') == identity}
                 if set(item['evidence']) - allowed or (allowed and not item['evidence']):
                     raise ValueError('Cite evidence IDs issued for that audit line')
-            elif item['verdict'] == 'ok' and uncovered.get(identity):
-                missing[identity] = uncovered[identity]
+            elif item['verdict'] == 'ok':
+                if identity in overflow:
+                    raise ValueError(f'Audit line {identity} has too many evidence pages to review automatically. Report one issue.')
+                if uncovered.get(identity):
+                    missing[identity] = uncovered[identity]
             elif item['verdict'] == 'confirm':
                 call = ('rule', [identity])
                 if encode(call) not in seen:
@@ -301,19 +304,23 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                     save(path, state)
                     if retry:
                         deadline = time.monotonic() + timeout
-                    lookup = ReviewLookup(root, replace(review.grant, expires=time.time() + deadline - time.monotonic()), receipts=attempt / 'receipts.jsonl')
+                    lookup = ReviewLookup(root, replace(review.grant, evidence=review.grant.evidence.copy(),
+                                                        expires=time.time() + deadline - time.monotonic()), receipts=attempt / 'receipts.jsonl')
                     context = carry_scope(lookup, selected.get('carry', []))
                     images = lookup.images(attempt)
-                    unavailable, needed = set(), {line: list(calls) for line, calls in required.items()}
-                    for handle, source in lookup.grant.evidence.items():
+                    unavailable, overflow = set(), set()
+                    needed = {line: list(calls) for line, calls in required.items()}
+                    for handle, source in review.grant.evidence.items():
                         line = source['line']
                         if line not in needed:
                             continue
+                        if handle in lookup.omitted:
+                            overflow.add(line)
                         pages = lookup.evidence_pages(handle)
                         if pages is None:
                             unavailable.add(line)
                         needed[line].extend(('evidence', [handle, page]) for page in sorted({0} if pages is None else pages))
-                    rules = {r: sources for r, sources in selected['rules'].items() if not unavailable.intersection(sources)}
+                    rules = {r: sources for r, sources in selected['rules'].items() if not (unavailable | overflow).intersection(sources)}
                     effective = {**selected, 'rules': rules}
                     lookup.grant = replace(lookup.grant, rules=tuple(rules), required=needed, rule_sources=rules)
                     if time.monotonic() >= deadline:
@@ -324,6 +331,8 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                               'On page_limit, read each review_audit_line for its required list. Follow next cursors to the end. '
                               'For confirm, make the calls in rule_requirements and the required calls for its source line IDs. '
                               'A null argument or evidence page 0 indicates an unavailable source. Report it as an issue. '
+                              'If evidence has too_many_pages, report one issue for that line about the page limit for automatic review. '
+                              'For statement_export, use the filed statement without asking for a new file. '
                               'Give verdicts only for these line IDs and rule IDs: '
                               + encode([selected['lines'], list(rules)]) + '. Other source lines are context. '
                               'For issues, propose a complete ready entry answer or a complete rule form '
@@ -346,7 +355,7 @@ def _run_batch(settings, plan_path, batch_number, batch, one_turn, cancel, deadl
                         result = get_adapter(reviewer).run(task)
                         task.remaining()
                         checking = True
-                        answer = validate(result.answer, effective, lookup, needed, lookup.receipts)
+                        answer = validate(result.answer, effective, lookup, needed, lookup.receipts, overflow)
                         checking = False
                         for item in answer['lines']:
                             if item['verdict'] == 'issue':

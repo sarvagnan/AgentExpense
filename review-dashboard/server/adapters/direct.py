@@ -123,6 +123,7 @@ class DirectAPI:
         headers={'x-api-key':key,'anthropic-version':'2023-06-01'} if self.id=='anthropic' else {'Authorization':'Bearer '+key}
         system='Use only the provided read-only ledger lookups. Return one JSON object matching the output schema.\n'+json.dumps(task.schema)
         images=[image_content(path) for path in task.images]
+        review_image_bytes=sum(len(i['data']) for i in images) if self.settings.role=='review' else 0
         if self.id=='anthropic':
             content=[{'type':'text','text':task.prompt},*({'type':'image','source':{'type':'base64','media_type':i['mimeType'],'data':i['data']}} for i in images)]
             messages=[{'role':'user','content':content}]
@@ -139,7 +140,8 @@ class DirectAPI:
                     task.remaining()
                     # A conservative payload-size bound also prevents huge lookup
                     # responses from bypassing a provider's reported token usage.
-                    if len(json.dumps(messages))>self.limits['maxTokens']*16:
+                    # Review attachments already have their own count and byte budget.
+                    if len(json.dumps(messages))-review_image_bytes>self.limits['maxTokens']*16:
                         raise AdapterError('API context size limit reached')
                     payload=dict(model=self.settings.model,messages=messages,tools=tools)
                     output_limit=min(self.limits['maxOutputTokens'],self.limits['maxTokens']-sum(usage.values()))

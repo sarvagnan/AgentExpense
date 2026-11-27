@@ -16,11 +16,14 @@ import time
 from settings import APPLICATION  # Install shared script paths.
 import sys
 sys.path.insert(0, str(APPLICATION / 'scripts/ledger'))
-from audit import records
+from audit import records, reject_invisible
 from audit_changes import IDENTITY, bounded_read, read_jj, require_repository
 from store import entries, load
 
 PAGE, SOURCE, PIXELS = 24 * 1024, 16 * 1024 * 1024, 4_000_000
+VISUAL_LIMIT = 20
+TEXT_EXTENSIONS = {'.md', '.txt'}
+WORKBOOK_EXTENSIONS = {'.xls', '.xlsx'}
 COMMIT = r'[0-9a-f]{40}'
 TOOLS = {
     'pending': ('List the selected audit lines, rule obligations and carry-over questions', None, 'limit'),
@@ -165,10 +168,11 @@ def identifiers(value, key, *, many=False):
 
 
 class ReviewLookup:
-    def __init__(self, root, grant, visuals=None, receipts=None):
+    def __init__(self, root, grant, visuals=None, receipts=None, *, omitted=None):
         self.root, self.grant = root, grant
         self.ledger = Path(grant.snapshot)
         self.visuals = visuals or {}
+        self.omitted = omitted or {}
         self.discovered = set()
         self.receipts = receipts
         self.version = None
@@ -371,7 +375,8 @@ class ReviewLookup:
         return self.page('run_facts', [], self.grant.report, cursor)
 
     def evidence_handles(self, value):
-        return {identity: {'label': source.get('label') or Path(source['path']).name, 'pages': source.get('pages')}
+        return {identity: dict(label=source.get('label') or Path(source['path']).name, pages=source.get('pages'),
+                               **({'too_many_pages': self.omitted[identity]} if identity in self.omitted else {}))
                 for identity, source in self.grant.evidence.items()
                 if source.get('line') == value.get('id') and 'line' in source
                 or encode(source['path']) in encode(value)}
@@ -475,26 +480,41 @@ class ReviewLookup:
             data = git(self.root, 'cat-file', 'blob', row[2].decode()) if int(row[3]) <= SOURCE else None
         return data if data is not None and len(data) <= SOURCE else None
 
+    def statement_export(self, path):
+        if Path(path).suffix.lower() in WORKBOOK_EXTENSIONS:
+            return next((s['id'] for s in self.documents[self.ledger / 'data/card-statements.json']
+                         if s['kind'] == 'bank' and s['source'] == path), None)
+
     def evidence_pages(self, identity):
-        """Available required pages, or None if any page cannot be supplied."""
+        """Pages requiring a lookup, or None for a source that could not be read."""
         import pypdfium2 as pdfium
         source = self.grant.evidence[identity]
         visuals = {v['page'] for v in self.visuals.get(identity, [])}
+        omitted = self.omitted.get(identity, {})
         try:
             data = self.source(source['path'], source.get('revision', self.grant.revision))
-            if data and data.startswith(b'%PDF'):
+            if data is None:
+                return None
+            if Path(source['path']).suffix.lower() in TEXT_EXTENSIONS:
+                evidence_text(data)
+                return {1}
+            if data.startswith(b'%PDF'):
                 with pdfium.PdfDocument(data) as pdf:
                     pages = source.get('pages', range(1, len(pdf)+1))
                     if not 0 < len(pdf) <= 100 or not pages:
                         return None
-                    for index in set(pages) - visuals:
+                    skipped = {i for start, end in omitted.get('ranges', []) for i in range(start, end + 1)}
+                    required = set(pages) - visuals - skipped
+                    for index in required:
                         if not 1 <= index <= len(pdf):
                             return None
                         with closing(pdf[index-1]) as item, closing(item.get_textpage()) as text:
                             if not text.get_text_bounded().strip():
                                 return None
-                    return set(pages) - visuals
-            return set() if visuals else None
+                    return required
+            if len(visuals) > 1 or omitted:
+                return visuals
+            return set() if visuals or self.statement_export(source['path']) else None
         except (OSError, ValueError, pdfium.PdfiumError):
             return None
 
@@ -506,12 +526,24 @@ class ReviewLookup:
         source = self.grant.evidence[evidence_id]
         path = source['path']
         label = source.get('label', Path(path).name)
+        omitted = self.omitted.get(evidence_id, {})
+        if omitted and not 1 <= page <= omitted['pages']:
+            return {'status': 'invalid_page'}
+        if any(first <= page <= last for first, last in omitted.get('ranges', [])):
+            return dict(status='too_many_pages', label=label, page=page, pages=omitted['pages'])
         try:
             data = self.source(path, source.get('revision', self.grant.revision))
             if data is None:
                 return {'status': 'oversized', 'label': label}
             result = dict(label=label, required=source.get('pages', 'all'), visuals=self.visuals.get(evidence_id, []))
-            if data.startswith(b'%PDF'):
+            if Path(path).suffix.lower() in TEXT_EXTENSIONS:
+                if page != 1:
+                    return {'status': 'invalid_page'}
+                result.update(page=1, pages=1, text=evidence_text(data))
+            elif statement_id := self.statement_export(path):
+                return dict(status='statement_export', label=label, statement_id=statement_id,
+                            note='Bank statement export reconciled by Statements. Check the filed statement record.')
+            elif data.startswith(b'%PDF'):
                 with pdfium.PdfDocument(data) as pdf:
                     if not 0 < len(pdf) <= 100:
                         return {'status': 'oversized', 'label': label}
@@ -521,7 +553,12 @@ class ReviewLookup:
                         result.update(page=page, pages=len(pdf), text=text.get_text_bounded())
                         if not result['text'].strip() and not any(v['page'] == page for v in result['visuals']):
                             return {'status': 'visual_unavailable', 'label': label, 'page': page, 'pages': len(pdf)}
-            elif not result['visuals']:
+            elif result['visuals']:
+                visual = next((v for v in result['visuals'] if v['page'] == page), None)
+                if visual is None:
+                    return {'status': 'invalid_page'}
+                result.update(page=page, pages=omitted.get('pages', len(result['visuals'])), visuals=[visual])
+            else:
                 with Image.open(io.BytesIO(data), formats=['PNG', 'JPEG', 'WEBP']) as image:
                     # Large images that fit the attachment budget already have a visual.
                     status = 'oversized' if image.width * image.height > PIXELS else 'visual_unavailable'
@@ -538,11 +575,31 @@ class ReviewLookup:
 
     def images(self, work):
         import pypdfium2 as pdfium
-        from PIL import Image
+        from PIL import Image, ImageOps
         images, total = [], 0
+
+        def attach(page, prepare, *args):
+            nonlocal total
+            if len(images) >= VISUAL_LIMIT:
+                return False
+            content, suffix = prepare(*args)
+            if total + len(content) > SOURCE:
+                return False
+            target = work / f'review-image-{len(images)+1}.{suffix}'
+            target.write_bytes(content)
+            total += len(content)
+            images.append(target)
+            self.visuals.setdefault(identity, []).append(dict(page=page, image=len(images)))
+            return True
+
+        def omit(first, last, count):
+            self.omitted.setdefault(identity, dict(pages=count, ranges=[]))['ranges'].append((first, last))
+
         for identity, source in self.grant.evidence.items():
-            if self.check() or len(images) == 8:
+            if self.check():
                 break
+            if Path(source['path']).suffix.lower() in TEXT_EXTENSIONS | WORKBOOK_EXTENSIONS:
+                continue
             try:
                 data = self.source(source['path'], source.get('revision', self.grant.revision))
                 if not data:
@@ -551,31 +608,44 @@ class ReviewLookup:
                     with pdfium.PdfDocument(data) as pdf:
                         if not 0 < len(pdf) <= 100:
                             continue
-                        with closing(pdf[0]) as first, closing(first.get_textpage()) as text:
-                            default = [1] if text.get_text_bounded().strip() else range(1, len(pdf)+1)
-                        renders = []
-                        for i in source.get('pages', default)[:8-len(images)]:
+                        explicit = source.get('pages')
+                        pages = explicit if explicit is not None else range(1, len(pdf)+1)
+                        for i in pages:
                             if self.check():
                                 break
                             if 1 <= i <= len(pdf):
-                                renders.append((i, render(pdf, i)))
+                                with closing(pdf[i-1]) as item, closing(item.get_textpage()) as text:
+                                    scan = not text.get_text_bounded().strip()
+                                render_page = scan or i == 1 or explicit is not None
+                                if render_page and not attach(i, render, pdf, i) and scan:
+                                    omit(i, i, len(pdf))
                 else:
                     with Image.open(io.BytesIO(data), formats=['PNG', 'JPEG', 'WEBP']) as image:
-                        large = image.width * image.height > PIXELS
+                        count, _ = receipt_tiles(image)
+                        resize = count > 1 or image.width * image.height > PIXELS
                         image_format = image.format
                         image.verify()
-                    attachment = resize_receipt(data, image_format) if large else (
-                        data, {'PNG': 'png', 'JPEG': 'jpg', 'WEBP': 'webp'}[image_format])
-                    renders = [(1, attachment)]
-                for page, (content, suffix) in renders:
-                    if len(images) == 8 or total + len(content) > SOURCE:
-                        break
-                    target = work / f'review-image-{len(images)+1}.{suffix}'
-                    target.write_bytes(content)
-                    total += len(content)
-                    images.append(target)
-                    self.visuals.setdefault(identity, []).append(dict(page=page, image=len(images)))
+                    if len(images) >= VISUAL_LIMIT:
+                        omit(1, count, count)
+                    elif resize:
+                        with Image.open(io.BytesIO(data), formats=[image_format]) as image:
+                            ImageOps.exif_transpose(image, in_place=True)
+                            _, tiles = receipt_tiles(image)
+                            for page, box in enumerate(tiles, 1):
+                                if self.check() or not attach(page, resize_receipt, image, box):
+                                    omit(page, count, count)
+                                    break
+                    else:
+                        suffix = {'PNG': 'png', 'JPEG': 'jpg', 'WEBP': 'webp'}[image_format]
+                        if not attach(1, lambda: (data, suffix)):
+                            omit(1, 1, 1)
             except (ValueError, OSError, SyntaxError, pdfium.PdfiumError, Image.DecompressionBombError):
+                # A render failure leaves the source unavailable, even if some tiles were written.
+                self.omitted.pop(identity, None)
+                for _ in self.visuals.pop(identity, ()):
+                    target = images.pop()
+                    total -= target.stat().st_size
+                    target.unlink()
                 continue
         return tuple(images)
 
@@ -604,23 +674,45 @@ def render(pdf, index):
     return output.getvalue(), 'png'
 
 
-def resize_receipt(data, image_format):
-    from PIL import Image, ImageOps
+def evidence_text(data):
+    text = data.decode('utf-8')
+    # Markdown can use tabs and either Unix or Windows line endings.
+    reject_invisible(text.translate({9: None, 10: None, 13: None}), 'evidence')
+    return text
 
-    # Pillow requires reopening the original after verify() before decoding it.
-    with Image.open(io.BytesIO(data), formats=[image_format]) as image:
-        ImageOps.exif_transpose(image, in_place=True)
-        scale = (PIXELS / (image.width * image.height)) ** .5
-        width = max(1, min(PIXELS, int(image.width * scale)))
-        height = max(1, min(PIXELS // width, int(image.height * scale)))
-        transparent = image.has_transparency_data
-        resized = image.convert('RGBA' if transparent else 'RGB').resize((width, height), Image.Resampling.LANCZOS)
-        output = io.BytesIO()
-        if transparent:
-            resized.save(output, format='PNG')
-            return output.getvalue(), 'png'
-        resized.save(output, format='JPEG', quality=85)
-        return output.getvalue(), 'jpg'
+
+def receipt_tiles(image):
+    short_side, long_side = sorted(image.size)
+    if long_side <= 2 * short_side:
+        return 1, (None,)
+    target = short_side * 3 // 2
+    step = max(1, target * 9 // 10)
+    count = 1 + (long_side - target + step - 1) // step
+    # Equal lengths keep the final tile readable while preserving about 10% overlap.
+    length = (10 * long_side + 9 * count) // (9 * count + 1)
+    starts = ((long_side - length) * i // (count - 1) for i in range(count))
+    if image.height > image.width:
+        boxes = ((0, start, short_side, start + length) for start in starts)
+    else:
+        boxes = ((start, 0, start + length, short_side) for start in starts)
+    return count, boxes
+
+
+def resize_receipt(image, box):
+    from PIL import Image
+
+    image = image.crop(box) if box else image
+    scale = min(1, (PIXELS / (image.width * image.height)) ** .5)
+    width = max(1, min(PIXELS, int(image.width * scale)))
+    height = max(1, min(PIXELS // width, int(image.height * scale)))
+    transparent = image.has_transparency_data
+    resized = image.convert('RGBA' if transparent else 'RGB').resize((width, height), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    if transparent:
+        resized.save(output, format='PNG')
+        return output.getvalue(), 'png'
+    resized.save(output, format='JPEG', quality=85)
+    return output.getvalue(), 'jpg'
 
 
 def review_task(settings, work, grant, prompt, schema, deadline, *, prepared=None, **options):

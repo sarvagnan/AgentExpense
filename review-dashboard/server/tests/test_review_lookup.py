@@ -232,3 +232,95 @@ class CommittedReviewTests(Fixture):
             self.assertEqual(lookup.images(self.base), ())
             self.assertEqual(lookup.evidence('receipt')['status'], 'oversized')
         self.assertIsNone(lookup.evidence_pages('receipt'))
+
+    def test_text_evidence_validation_and_filed_workbook_status(self):
+        from review_lookup import ReviewLookup, probe_grant
+
+        files = {'statement.xlsx': b'Fictional export', 'unfiled.xls': b'Fictional workbook',
+                 'proof.txt': 'Fictional receipt: £2\n'.encode(), 'bad.md': b'\xff',
+                 'control.md': b'\x1b', 'invisible.md': 'text\u200b'.encode()}
+        for name, data in files.items():
+            (self.ledger / 'Bills' / name).write_bytes(data)
+        grant = replace(probe_grant(self.ledger), evidence={name: {'path': f'Bills/{name}'} for name in files})
+        lookup = ReviewLookup(self.ledger, grant)
+        self.assertEqual(lookup.images(self.base), ())
+        self.assertEqual(lookup.evidence_pages('proof.txt'), {1})
+        self.assertEqual(json.loads(lookup.evidence('proof.txt')['data'])['text'], files['proof.txt'].decode())
+        self.assertEqual(lookup.evidence('proof.txt', page=2), {'status': 'invalid_page'})
+        for name in ('bad.md', 'control.md', 'invisible.md'):
+            with self.subTest(name=name):
+                self.assertIsNone(lookup.evidence_pages(name))
+                self.assertEqual(lookup.evidence(name)['status'], 'evidence_unavailable')
+        summary = dict(id='1' * 16, kind='bank', source='Bills/statement.xlsx')
+        lookup.documents = {self.ledger / 'data/card-statements.json': [summary]}
+        self.assertEqual(lookup.evidence_pages('statement.xlsx'), set())
+        export = lookup.evidence('statement.xlsx')
+        self.assertEqual((export['status'], export['statement_id']), ('statement_export', summary['id']))
+        self.assertIn('reconciled by Statements', export['note'])
+        self.assertEqual(lookup.evidence('unfiled.xls')['status'], 'unsupported')
+
+    def test_review_keeps_required_image_when_owner_file_exceeds_byte_budget(self):
+        from review_lookup import ReviewLookup, probe_grant
+        from support import png
+
+        proof = png()
+        sources = {'required': {'path': 'Bills/z-proof.png'}, 'owner': {'path': 'Bills/a-owner.png'}}
+        for source in sources.values():
+            (self.ledger / source['path']).write_bytes(proof)
+        lookup = ReviewLookup(self.ledger, replace(probe_grant(self.ledger), evidence=sources))
+        with patch('review_lookup.SOURCE', len(proof)):
+            self.assertEqual(len(lookup.images(self.base)), 1)
+            self.assertEqual(json.loads(lookup.evidence('required')['data'])['visuals'], [dict(page=1, image=1)])
+            self.assertEqual(lookup.evidence('owner'), dict(status='too_many_pages', label='a-owner.png', page=1, pages=1))
+
+    def test_wide_image_tiles_follow_exif_orientation(self):
+        from PIL import Image
+        from review_lookup import ReviewLookup, probe_grant
+
+        image = Image.new('RGB', (500, 120), 'black')
+        image.paste('white', (250, 0, 500, 120))
+        for rotation, size in ((1, (179, 120)), (6, (120, 179))):
+            with self.subTest(rotation=rotation):
+                orientation = Image.Exif()
+                orientation[274] = rotation
+                image.save(self.ledger / 'Bills/sideways.jpg', exif=orientation)
+                grant = replace(probe_grant(self.ledger), evidence={'receipt': {'path': 'Bills/sideways.jpg'}})
+                lookup = ReviewLookup(self.ledger, grant)
+                images = lookup.images(self.base)
+                self.assertEqual(lookup.evidence_pages('receipt'), {1, 2, 3})
+                with Image.open(images[0]) as first, Image.open(images[-1]) as last:
+                    self.assertEqual(first.size, size)
+                    self.assertEqual(last.size, size)
+                    center = (size[0] // 2, size[1] // 2)
+                    self.assertLess(first.getpixel(center)[0], 20)
+                    self.assertGreater(last.getpixel(center)[0], 235)
+
+    def test_pdf_visual_overflow_keeps_searchable_pages_available(self):
+        from PIL import Image
+        from review_lookup import ReviewLookup, probe_grant
+        from test_agent import pdf_bytes
+
+        with Image.new('RGB', (100, 100), 'white') as scan:
+            scan.save(self.ledger / 'Bills/scan.pdf', save_all=True, append_images=[scan.copy()])
+        (self.ledger / 'Bills/searchable.pdf').write_bytes(pdf_bytes(3))
+        sources = {name: {'path': f'Bills/{name}.pdf'} for name in ('scan', 'searchable')}
+        lookup = ReviewLookup(self.ledger, replace(probe_grant(self.ledger), evidence=sources))
+        with patch('review_lookup.VISUAL_LIMIT', 1):
+            self.assertEqual(len(lookup.images(self.base)), 1)
+        self.assertEqual(lookup.evidence_pages('scan'), set())
+        self.assertEqual(lookup.evidence('scan', page=2)['status'], 'too_many_pages')
+        self.assertEqual(lookup.evidence_pages('searchable'), {1, 2, 3})
+        self.assertEqual(lookup.evidence('searchable', page=1)['status'], 'available')
+
+    def test_tile_render_failure_leaves_the_source_unavailable(self):
+        from PIL import Image
+        from review_lookup import ReviewLookup, probe_grant
+
+        path = 'Bills/scroll.png'
+        Image.new('RGB', (100, 350)).save(self.ledger / path)
+        grant = replace(probe_grant(self.ledger), evidence={'receipt': {'path': path}})
+        lookup = ReviewLookup(self.ledger, grant)
+        with patch('review_lookup.resize_receipt', side_effect=[(b'fictional image', 'jpg'), OSError('Render failed')]):
+            self.assertEqual(lookup.images(self.base), ())
+        self.assertIsNone(lookup.evidence_pages('receipt'))
+        self.assertEqual(lookup.evidence('receipt')['status'], 'visual_unavailable')

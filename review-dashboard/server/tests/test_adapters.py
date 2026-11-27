@@ -446,6 +446,28 @@ class AdapterTests(unittest.TestCase):
                 self.assertEqual(adapter.run(replace(self.task(adapter),prompt=prompt)).answer,{'value':'ok'})
                 self.assertIn(prompt,json.dumps(received[0][1],ensure_ascii=False).replace('\\n','\n'))
 
+    def test_review_images_have_a_separate_budget_from_direct_api_text(self):
+        from random import Random
+        from PIL import Image
+
+        path = self.work / 'fictional.png'
+        Image.frombytes('RGB', (1024, 512), Random(0).randbytes(1024 * 512 * 3)).save(path)
+        for name, response in (
+                ('openai', {'choices': [{'message': {'content': '{"value":"ok"}'}}]}),
+                ('anthropic', {'content': [{'type': 'text', 'text': '{"value":"ok"}'}]})):
+            with self.subTest(adapter=name):
+                adapter = self.api_adapter(name, 'https://example.invalid/v1')
+                task = self.task(adapter, images=[path])
+                reviewer = get_adapter(replace(adapter.settings, role='review'))
+                with patch.object(reviewer, 'request', return_value=response) as request:
+                    self.assertEqual(reviewer.run(task).answer, {'value': 'ok'})
+                    payload = request.await_args.args[2]
+                    self.assertGreater(len(json.dumps(payload['messages'])), 1_600_000)
+                    too_much_text = replace(task, prompt='x' * 1_600_000)
+                    with self.assertRaisesRegex(AdapterError, 'context size limit'):
+                        reviewer.run(too_much_text)
+                    self.assertEqual(request.await_count, 1)
+
     def test_direct_api_tool_loops_schemas_images_usage_retry_and_secret_redaction(self):
         for name in ('openai','anthropic'):
             for mode in ('progress',):
