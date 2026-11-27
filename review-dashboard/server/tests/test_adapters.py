@@ -73,7 +73,8 @@ class AdapterTests(unittest.TestCase):
                 self.assertGreater(progress[-1]['result_bytes'],0)
                 self.assertNotIn(self.account,json.dumps(progress))
                 self.assertEqual(result.answer,{'value':'ok'});self.assertEqual(sum(result.usage.values()),168)
-                self.assertEqual(result.lookups[0]['tool'],'list_accounts');self.assertGreater(result.duration,0)
+                self.assertEqual([item['tool'] for item in result.lookups],['list_accounts'])
+                self.assertGreater(result.duration,0)
                 call=json.loads(self.config.with_suffix('.calls').read_text().splitlines()[-1])
                 self.assertEqual(call['home'],str(adapter.settings.agent_home));self.assertNotEqual(call['cwd'],str(adapter.settings.ledger))
                 if name=='claude':self.assertEqual(call['input']['message']['content'][1]['source']['type'],'base64')
@@ -90,6 +91,64 @@ class AdapterTests(unittest.TestCase):
                     if step.get('kind')=='error':self.assertTrue(getattr(error.exception,'lookups',[]),'Retain successful/failed lookups before the provider error')
                 adapter=self.adapter(name,extra_tool=True)
                 with self.assertRaisesRegex(ValueError,'extra tools|outside the lookup'):adapter.run(self.task(adapter))
+
+    def test_claude_offline_checks_both_startup_inventories_in_an_unsigned_home(self):
+        for role in ('add', 'review'):
+            with self.subTest(role=role), patch.dict(os.environ, {'ANTHROPIC_API_KEY':'fictional-key'}):
+                adapter = self.adapter('claude')
+                adapter = get_adapter(replace(adapter.settings, role=role))
+                adapter.offline_check(self.work)
+                startup = json.loads(self.config.with_suffix('.checks').read_text().splitlines()[-1])
+                tools = startup['argv'][startup['argv'].index('--allowedTools') + 1].split(',')
+                expected = LookupTools.for_settings(adapter.settings, probe=True)
+                self.assertEqual(tools, ['mcp__ledger__' + tool['name'] for tool in expected.definitions])
+                self.assertNotEqual(startup['home'], str(adapter.settings.agent_home))
+                self.assertFalse(startup['api_key_present'])
+
+    def test_claude_offline_rejects_unexpected_startup_inventory(self):
+        for changed, problem in (({'extra_tool':True},'tools'),
+                                 ({'offline_init':{'mcp_servers':[]}},'MCP'),
+                                 ({'offline_init':{'tools':['StructuredOutput']}},'tools'),
+                                 ({'offline_init':{'plugins':[{'name':'fixture-plugin'}]}},'plugins')):
+            with self.subTest(changed=changed):
+                adapter = self.adapter('claude', **changed)
+                with self.assertRaisesRegex(OfflineFailure, problem):
+                    adapter.offline_check(self.task(adapter).work)
+
+    def test_claude_launch_has_explicit_isolation_controls(self):
+        adapter = self.adapter('claude')
+        task = self.task(adapter)
+        with patch.dict(os.environ, {'CLAUDE_CODE_SAFE_MODE':'1'}):
+            command, env, _ = adapter.launch(task)
+        self.assertNotIn('--safe-mode', command)
+        self.assertNotIn('CLAUDE_CODE_SAFE_MODE', env)
+        self.assertEqual(env['HOME'], str(adapter.settings.agent_home))
+        self.assertEqual(env['CLAUDE_CONFIG_DIR'], str(adapter.settings.agent_home / 'config'))
+        for key in ('CLAUDE_CODE_DISABLE_CLAUDE_MDS','CLAUDE_CODE_DISABLE_AUTO_MEMORY',
+                    'CLAUDE_CODE_DISABLE_ORG_MEMORY','CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL',
+                    'CLAUDE_CODE_DISABLE_WORKFLOWS','CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS'):
+            self.assertEqual(env[key], '1')
+        for flag in ('--restricted','--strict-mcp-config','--disable-slash-commands',
+                     '--no-session-persistence','--no-chrome'):
+            self.assertIn(flag, command)
+        for flag, value in (('--setting-sources',''),('--tools',''),('--permission-mode','dontAsk'),
+                            ('--permission-prompts','none')):
+            self.assertEqual(command[command.index(flag) + 1], value)
+        settings = json.loads(command[command.index('--settings') + 1])
+        for key in ('disableAllHooks','disableBundledSkills','disableClaudeAiConnectors'):
+            self.assertIs(settings[key], True)
+        self.assertIs(settings['syncClaudeAiSkills'], False)
+        for name in ('cc-plugin-agents-md@builtin','cc-plugin-plugin-authoring@builtin'):
+            self.assertIs(settings['enabledPlugins'][name], False)
+        mcp = json.loads(Path(command[command.index('--mcp-config') + 1]).read_text())
+        self.assertEqual(list(mcp['mcpServers']), ['ledger'])
+        self.assertEqual(command[command.index('--allowedTools') + 1].split(','),
+                         ['mcp__ledger__' + tool['name'] for tool in task.lookups.definitions])
+
+        exists = Path.exists
+        with patch.object(Path, 'exists', lambda path: path.name == 'managed-settings.json' or exists(path)):
+            with self.assertRaisesRegex(OfflineFailure, 'Managed Claude settings'):
+                adapter.launch(task)
 
     def test_large_prompts_reach_each_cli_intact_only_over_stdin(self):
         from adapters.codex import Codex

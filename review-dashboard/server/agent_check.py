@@ -131,7 +131,7 @@ def fixture(work):
     return ledger, old, account
 
 
-def invoke(command, work, timeout, *, environment, stop=None, data=None):
+def invoke(command, work, timeout, *, environment, stop=None, data=None, exit_codes=(0,)):
     # Match production stdin and process-group handling, including MCP children.
     if stop is not None and stop.is_set():
         raise CheckCancelled()
@@ -161,7 +161,7 @@ def invoke(command, work, timeout, *, environment, stop=None, data=None):
             pass
         process.communicate()
         raise
-    if process.returncode:
+    if process.returncode not in exit_codes:
         # stderr can include host configuration/instruction contents.
         raise DiagnosticUnavailable(f'Codex diagnostic exited {process.returncode}; output withheld')
     return out
@@ -482,4 +482,7 @@ def main():
 
 
 if __name__ == '__main__':
+    import sys
+    # Adapters import the checker to raise its typed, display-safe diagnostics.
+    sys.modules['agent_check'] = sys.modules[__name__]
     raise SystemExit(main())

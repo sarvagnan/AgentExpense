@@ -7,6 +7,8 @@ from pathlib import Path
 import queue
 import re
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 
@@ -22,6 +24,17 @@ OPEN_CODE_BUILTINS = {'read','glob','grep','edit','write','patch','shell','webfe
                       'question','skill','subagent','execute','experimental_image_generate','todowrite'}
 CLEAN = {'instructions': [], 'skills': [], 'plugins': [], 'hooks': [], 'settings': [],
          'extensions': [], 'prompts': [], 'themes': [], 'commands': []}
+# This release can enable bundled plugins even with all settings sources disabled.
+CLAUDE_SETTINGS = {
+    'disableAllHooks': True, 'disableBundledSkills': True,
+    'disableClaudeAiConnectors': True, 'syncClaudeAiSkills': False,
+    'enabledPlugins': {f'cc-plugin-{name}@builtin': False for name in (
+        'sec-default', 'agents-md', 'telemetry', 'plugin-authoring', 'mods-guide', 'tips',
+        'mermaid', 'responsive-mode', 'diff', 'you-should-know', 'easel', 'claude-platform', 'claude-test',
+    )},
+}
+CLAUDE_BUILTINS = {'StructuredOutput'}  # Registered by --json-schema for the final response.
+CLAUDE_DISCOVERY_FIELDS = ('plugins','skills','agents','slash_commands')
 
 
 def inspect_inventory(inventory, expected):
@@ -44,7 +57,10 @@ def child_environment(settings):
                XDG_STATE_HOME=str(home/'state'), XDG_CACHE_HOME=str(home/'cache'), TMPDIR='/tmp',
                PYTHONDONTWRITEBYTECODE='1', NODE_COMPILE_CACHE=str(home/'cache/node'))
     if settings.adapter == 'claude':
-        env.update(CLAUDE_CONFIG_DIR=str(home/'config'), CLAUDE_CODE_SAFE_MODE='1',
+        env.update(CLAUDE_CONFIG_DIR=str(home/'config'), CLAUDE_CODE_DISABLE_CLAUDE_MDS='1',
+                   CLAUDE_CODE_DISABLE_AUTO_MEMORY='1', CLAUDE_CODE_DISABLE_ORG_MEMORY='1',
+                   CLAUDE_CODE_DISABLE_WORKFLOWS='1', CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL='1',
+                   CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS='1',
                    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1', DISABLE_AUTOUPDATER='1')
     elif settings.adapter == 'pi':
         env.update(PI_CODING_AGENT_DIR=str(home/'config'), PI_CODING_AGENT_SESSION_DIR=str(home/'state'),
@@ -56,12 +72,14 @@ def child_environment(settings):
     return env
 
 
-def home_problems(home):
+def home_problems(home, *, claude=False):
     # Names only. Do not open credentials, auth files or session stores.
     forbidden = {'AGENTS.md','AGENTS.override.md','CLAUDE.md','settings.json','settings.local.json',
                  'config.toml','config.json','opencode.json','opencode.jsonc','mcp.json','models.json',
                  'extensions','skills','plugins','hooks','commands','agents','rules','prompts','themes',
                  'SYSTEM.md','APPEND_SYSTEM.md','.claude','.agents','.pi','.opencode'}
+    if claude:
+        forbidden.update(('workflows','output-styles','keybindings.json','cowork-plugins','remote-settings.json'))
     problems = set()
     if home.is_symlink():
         return {'home-symlink'}
@@ -76,6 +94,20 @@ def home_problems(home):
     return problems
 
 
+def require_unmanaged_claude():
+    # Managed settings can override the launch policy.
+    from agent_check import OfflineFailure
+    roots = [Path('/Library/Application Support/ClaudeCode'), Path('/etc/claude-code')]
+    paths = [root / name for root in roots for name in ('managed-settings.json','managed-settings.d','managed-mcp.json')]
+    if sys.platform == 'darwin':
+        import pwd
+        preferences = Path('/Library/Managed Preferences')
+        plist = 'com.anthropic.claudecode.plist'
+        paths.extend((preferences / plist, preferences / pwd.getpwuid(os.getuid()).pw_name / plist))
+    if any(path.exists() or path.is_symlink() for path in paths):
+        raise OfflineFailure(['Managed Claude settings require an isolation policy review'])
+
+
 class CLI:
     def __init__(self, settings):
         self.settings = settings
@@ -86,7 +118,7 @@ class CLI:
     def describe(self):
         names = {'claude':'Claude Code','pi':'Pi','opencode':'OpenCode'}
         enforced = self.id != 'opencode'
-        how = {'claude':'Dedicated HOME/CLAUDE_CONFIG_DIR; safe and restricted modes; no built-ins; strict lookup MCP; empty settings sources.',
+        how = {'claude':'Dedicated HOME/CLAUDE_CONFIG_DIR and empty settings sources. Restricted mode exposes only structured output and ledger lookups.',
                'pi':'Dedicated HOME/PI_CODING_AGENT_DIR; no built-ins/discovery/MCP; only the application lookup extension.',
                'opencode':'Dedicated XDG roots and private server; deny-all permissions with exact lookup exceptions. Built-in tool definitions and managed customization cannot be removed completely.'}[self.id]
         return Description(self.id,names[self.id],pinned_version(self.settings,PACKAGES[self.id][0]),enforced,how)
@@ -144,13 +176,18 @@ class CLI:
                             {'action':'mcp.use','resource':'ledger','effect':'allow'}]}
 
     def launch(self, task):
+        if self.id == 'claude':
+            require_unmanaged_claude()
+            from agent_check import OfflineFailure
+            if home_problems(self.settings.agent_home,claude=True):
+                raise OfflineFailure(['Home names: forbidden configuration or symlink'])
         env = self.environment()
         config = self.config(task)
         target = task.work/'lookup-config.json'
         target.write_text(json.dumps(config))
         schema_instruction = '\nReturn only one JSON object matching this schema: '+json.dumps(task.schema)
         if self.id == 'claude':
-            command = [self.binary,'-p','--safe-mode','--restricted','--setting-sources','',
+            command = [self.binary,'-p','--restricted','--setting-sources','','--settings',json.dumps(CLAUDE_SETTINGS),
                        '--strict-mcp-config','--mcp-config',str(target),'--tools','',
                        '--allowedTools',','.join('mcp__ledger__'+d['name'] for d in task.lookups.definitions),
                        '--disable-slash-commands','--no-session-persistence','--no-chrome',
@@ -189,26 +226,22 @@ class CLI:
         from agent_check import OfflineFailure, invoke, OFFLINE_PROMPT
         self.require_binary()
         self.environment()
-        if home_problems(self.settings.agent_home):
+        if home_problems(self.settings.agent_home,claude=self.id=='claude'):
             raise OfflineFailure(['Home names: forbidden configuration or symlink'])
-        if self.id=='claude':
-            managed=[Path('/Library/Application Support/ClaudeCode/managed-settings.json'),
-                     Path('/etc/claude-code/managed-settings.json')]
-            if any(path.exists() for path in managed):
-                raise OfflineFailure(['Managed Claude settings require an isolation policy review'])
         lookups=LookupTools.for_settings(self.settings, probe=True)
         task=Task(OFFLINE_PROMPT,(),lookups,{'type':'object'},time.monotonic()+self.settings.timeout,
                   stop or threading.Event(),work)
-        command,env,_=self.launch(task)
+        command,env,data=self.launch(task)
         help_args=['run','--help'] if self.id=='opencode' else ['--help']
         help_text=invoke([self.binary,*help_args],work,self.settings.timeout,environment=env,stop=stop)
-        required = {'claude':['--safe-mode','--restricted','--tools','--strict-mcp-config','--setting-sources','--json-schema','--no-session-persistence','--disable-slash-commands','--permission-prompts','--effort'],
+        required = {'claude':['--restricted','--settings','--tools','--allowedTools','--strict-mcp-config','--mcp-config',
+                              '--setting-sources','--json-schema','--no-session-persistence','--disable-slash-commands',
+                              '--no-chrome','--permission-mode','--permission-prompts','--effort'],
                     'pi':['--mode','--no-builtin-tools','--no-extensions','--no-mcp','--no-skills','--no-context-files','--no-prompt-templates','--no-themes','--no-approve','--offline'],
                     'opencode':['--standalone','--format','--file','--model']}[self.id]
         if any(flag not in help_text for flag in required):
             raise OfflineFailure(['Missing isolation flag in pinned CLI help'])
-        # CLI/native packages without a no-model prompt renderer are checked by
-        # exact generated config and flags. Pi exposes its actual resource loader.
+        # Check generated configuration before letting the CLI load it.
         expected=self.expected_inventory(lookups)
         rendered=json.loads((work/'lookup-config.json').read_text())
         inventory={**CLEAN,'tools':[], 'mcp':[]}
@@ -252,12 +285,42 @@ class CLI:
             output=invoke(['node',str(HERE/'pi-render.mjs')],work,self.settings.timeout,environment=env,stop=stop)
             inventory=json.loads(output)
         inspect_inventory(inventory,expected)
+        if self.id == 'claude':
+            self._check_claude_startup(command, data, work, expected['tools'], stop=stop)
         # A second read catches unexpected discovery/config generated by startup.
-        if home_problems(self.settings.agent_home):
+        if home_problems(self.settings.agent_home,claude=self.id=='claude'):
             raise OfflineFailure(['Home names changed during offline check'])
         print('PASS '+self.id+' offline: flags, generated configuration, tool/discovery allow-lists; no model')
         # Login is deliberately not required for the no-model checker. The gate
         # checks it separately before probing. No auth file is opened here.
+
+    def _check_claude_startup(self, command, data, work, lookups, *, stop):
+        from agent_check import OfflineFailure, invoke
+        # A unique config directory also gives Claude a fresh macOS keychain namespace.
+        with tempfile.TemporaryDirectory(dir=work,prefix='claude-unsigned-') as folder:
+            env = CLI(replace(self.settings,state_dir=Path(folder))).environment()
+            env.pop('ANTHROPIC_API_KEY',None)
+            env.pop('OPENAI_API_KEY',None)
+            output = invoke(command,work,self.settings.timeout,environment=env,stop=stop,data=data,exit_codes=(1,))
+        events = [json.loads(line) for line in output.splitlines() if line.strip()]
+        init = [event for event in events if event.get('type') == 'system' and event.get('subtype') == 'init']
+        if len(init) != 1:
+            raise OfflineFailure(['Claude startup did not emit exactly one init event'])
+        startup, = init
+        servers = startup.get('mcp_servers')
+        if (not isinstance(servers,list) or len(servers) != 1 or not isinstance(servers[0],dict) or
+                servers[0].get('name') != 'ledger' or servers[0].get('status') != 'connected'):
+            raise OfflineFailure(['Claude startup MCP servers differ from the connected ledger allow-list'])
+        tools = startup.get('tools')
+        expected = CLAUDE_BUILTINS | {'mcp__ledger__'+name for name in lookups}
+        if (not isinstance(tools,list) or any(not isinstance(name,str) for name in tools) or
+                sorted(tools) != sorted(expected)):
+            raise OfflineFailure(['Claude startup tools differ from the role allow-list'])
+        if any(startup.get(key) for key in CLAUDE_DISCOVERY_FIELDS):
+            raise OfflineFailure(['Claude startup exposed plugins, skills, agents or slash commands'])
+        if not any(event.get('type') == 'assistant' and event.get('error') == 'authentication_failed' for event in events):
+            raise OfflineFailure(['Claude startup did not stop at authentication'])
+        print(f'PASS Claude unsigned startup: ledger connected, {len(lookups)} lookups and StructuredOutput, stopped at authentication')
 
     def signed_in(self, work, *, stop=None):
         from agent_check import invoke, CheckCancelled
@@ -379,6 +442,7 @@ class CLI:
         probe = task.schema.get('required') == ['account', 'shell_unavailable']
         parse_answer = review_json if self.settings.role == 'review' else strict_json
         message_texts={};final_message=None
+        structured_output_ids = set()
         allowed={d['name'] for d in task.lookups.definitions}
         def call(name,args=None,result=None,failed=False):
             if name not in allowed: raise AdapterPolicyError('Agent exposed a tool outside the lookup allow-list',usage=usage,lookups=calls)
@@ -410,22 +474,32 @@ class CLI:
             if kind=='error':continue
             if self.id=='claude':
                 if kind=='system' and event.get('subtype')=='init':
-                    extra=set(event.get('tools',[]))-{'mcp__ledger__'+n for n in allowed}
+                    extra=set(event.get('tools',[]))-CLAUDE_BUILTINS-{'mcp__ledger__'+n for n in allowed}
                     if extra: raise AdapterPolicyError('Agent startup exposed extra tools')
                     if set(s.get('name') for s in event.get('mcp_servers',[])) - {'ledger'}:
                         raise AdapterPolicyError('Agent startup exposed extra MCP servers')
+                    if any(event.get(key) for key in CLAUDE_DISCOVERY_FIELDS):
+                        raise AdapterPolicyError('Agent startup exposed plugins, skills, agents or slash commands')
                 if kind=='assistant':
                     message=event.get('message',{});add_usage(message.get('usage'))
                     for block in message.get('content',[]):
                         if block.get('type')=='tool_use':
                             name=block['name']
+                            if name in CLAUDE_BUILTINS:
+                                # The authoritative answer arrives in result.structured_output.
+                                structured_output_ids.add(block['id'])
+                                continue
                             if not name.startswith('mcp__ledger__') or name.removeprefix('mcp__ledger__') not in allowed:
                                 raise AdapterPolicyError('Agent exposed a tool outside the lookup allow-list')
                             pending[block['id']] = (name.removeprefix('mcp__ledger__'),block.get('input'))
                 if kind=='user':
                     for block in event.get('message',{}).get('content',[]):
                         if block.get('type')=='tool_result':
-                            name,args=pending.pop(block['tool_use_id'])
+                            tool_use_id = block['tool_use_id']
+                            if tool_use_id in structured_output_ids:
+                                structured_output_ids.remove(tool_use_id)
+                                continue
+                            name,args=pending.pop(tool_use_id)
                             call(name,args,block.get('content'),block.get('is_error',False))
                 if kind=='result':
                     if event.get('is_error') or event.get('subtype')!='success':

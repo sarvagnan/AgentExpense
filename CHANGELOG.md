@@ -12,6 +12,15 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored isolated Claude Code ledger lookups for Add and weekly review, with an offline check of the tools Claude actually loads.
+
+### Upgrade notes
+
+1. Rerun `make agent-check ADAPTER=claude` if Add uses Claude Code and `make agent-check ROLE=review` if weekly review uses Claude Code.
+2. If that check reports `Home names: forbidden configuration or symlink` for a Claude Code home used with 0.2.0, delete the `plugins` folder that 0.2.0 left in `<state>/claude-home/config/` (`<state>` is `EXPENSES_STATE_DIR`), then rerun the check. Keep the rest of the home, including its sign-in.
+
 ## [0.2.0] - 2026-11-25
 
 ### Changed

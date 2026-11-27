@@ -16,7 +16,7 @@ def run(settings,config):
         assert sys.stdin.read()==''
         record('.checks',dict(argv=args,home=os.environ['HOME'],cwd=os.getcwd()))
         if args==['--version']:print(settings.get('version','fixture-1'))
-        elif '--help' in args:print('--safe-mode --restricted --setting-sources --tools --strict-mcp-config --json-schema --no-session-persistence --disable-slash-commands --permission-prompts --effort --mode --no-builtin-tools --no-extensions --no-mcp --no-skills --no-context-files --no-prompt-templates --no-themes --no-approve --offline --standalone --format --file --model')
+        elif '--help' in args:print('--safe-mode --restricted --settings --setting-sources --tools --allowedTools --strict-mcp-config --mcp-config --json-schema --no-session-persistence --disable-slash-commands --no-chrome --permission-mode --permission-prompts --effort --mode --no-builtin-tools --no-extensions --no-mcp --no-skills --no-context-files --no-prompt-templates --no-themes --no-approve --offline --standalone --format --file --model')
         elif adapter=='claude':emit({'loggedIn':not settings.get('signed_out',False)})
         elif adapter=='pi':emit({'status':'not_ready' if settings.get('signed_out') else 'ready'})
         else:emit([] if settings.get('signed_out') else [{'id':'anthropic','connections':[{'type':'credential'}]}])
@@ -25,6 +25,17 @@ def run(settings,config):
         message=json.loads(sys.stdin.read());prompt=message['message']['content'][0]['text']
         schema=json.loads(args[args.index('--json-schema')+1])
         lookup=json.loads(Path(args[args.index('--mcp-config')+1]).read_text())['mcpServers']['ledger']['args']
+        tools=['StructuredOutput',*args[args.index('--allowedTools')+1].split(',')]
+        if settings.get('extra_tool'):tools.append('Bash')
+        init=dict(type='system',subtype='init',tools=tools,
+                  mcp_servers=[{'name':'ledger','status':'connected','source':'dynamic'}])
+        if prompt=='Expense agent isolation check.':
+            record('.checks',dict(argv=args,home=os.environ['HOME'],cwd=os.getcwd(),
+                                  api_key_present='ANTHROPIC_API_KEY' in os.environ))
+            init.update(settings.get('offline_init',{}))
+            emit(init)
+            emit({'type':'assistant','error':'authentication_failed'})
+            sys.exit(1)
     elif adapter=='pi':
         message=json.loads(sys.stdin.readline());prompt=message['message'];schema={}
         lookup=json.loads(Path(os.environ['EXPENSES_PI_LOOKUP']).read_text())['command']
@@ -62,7 +73,7 @@ def run(settings,config):
     result=[{'account':account}]
     text='invalid json' if kind=='invalid' else json.dumps(answer)
     if adapter=='claude':
-        emit({'type':'system','subtype':'init','tools':['mcp__ledger__'+tool], 'mcp_servers':[{'name':'ledger'}]})
+        emit(init)
         if step.get('progress'):
             emit({'type':'system','subtype':'api_retry','attempt':1,'max_retries':2,'retry_delay_ms':50,'error_status':503})
             emit({'type':'system','subtype':'status','status':'requesting'})
@@ -70,6 +81,11 @@ def run(settings,config):
             *([{'type':'thinking','thinking':'Checking fictional details'}] if step.get('progress') else []),
             {'type':'tool_use','id':'lookup1','name':'mcp__ledger__'+tool,'input':{'contains':'AgentCheck'}}]}})
         emit({'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'lookup1','content':json.dumps(result)}]}})
+        if kind not in ('invalid','error'):
+            emit({'type':'assistant','message':{'content':[
+                {'type':'tool_use','id':'answer1','name':'StructuredOutput','input':answer}]}})
+            emit({'type':'user','message':{'content':[
+                {'type':'tool_result','tool_use_id':'answer1','content':'Structured output provided successfully'}]}})
         emit({'type':'result','subtype':'error' if kind=='error' else 'success','is_error':kind=='error',
               'structured_output':None if kind=='invalid' else answer,'result':text,'usage':{'input_tokens':123,'output_tokens':45}})
     elif adapter=='pi':
