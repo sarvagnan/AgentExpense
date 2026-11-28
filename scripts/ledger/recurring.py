@@ -3,6 +3,8 @@
 Pure functions share one contract across HTTP, CLI and checked additions. Amounts
 remain exact decimals in their posting commodities; preferences come from the ledger.
 """
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import date, timedelta
 from decimal import Decimal
@@ -22,6 +24,32 @@ GENERIC = {'subscription', 'membership', 'renewal', 'monthly', 'yearly', 'annual
 # Words that name a kind of account (and its group) never identify one usual payment.
 KIND_WORDS = {'bank', 'banks', 'card', 'cards', 'credit', 'cash', 'wallet', 'wallets', 'prepaid', 'loan', 'loans',
               'investment', 'investments', 'person', 'people', 'account', 'accounts'}
+_PASS = ContextVar('recurring_pass', default=None)
+
+
+@contextmanager
+def read_only_pass():
+    """Reuse each entry's payment identity and the points codes while the documents stay unchanged.
+
+    Detection compares every entry with every rule and earlier entry; on a large ledger
+    recomputing these per comparison takes minutes under the ledger lock. Callers must
+    not change entries, rules or accounts inside the block."""
+    token = _PASS.set({})
+    try:
+        yield
+    finally:
+        _PASS.reset(token)
+
+
+def _reused(kind, value, accounts, compute):
+    memo = _PASS.get()
+    if memo is None:
+        return compute()
+    key = (kind, id(value), id(accounts))
+    hit = memo.get(key)
+    if hit is None or hit[0] is not value or hit[1] is not accounts:
+        hit = memo[key] = (value, accounts, compute())
+    return hit[2]
 
 
 def new_rule(**values):
@@ -60,7 +88,7 @@ def main_postings(entry, accounts=None):
 
 
 def rule_postings(entry, accounts):
-    points = points_codes(accounts)
+    points = _reused('points', accounts, accounts, lambda: frozenset(points_codes(accounts)))
     return [p for p in entry['postings'] if p['commodity'] not in points]
 
 
@@ -72,6 +100,10 @@ def paying(entry, accounts):
 
 
 def identity(entry, accounts):
+    return _reused('identity', entry, accounts, lambda: _identity(entry, accounts))
+
+
+def _identity(entry, accounts):
     main, payer = main_postings(entry, accounts), paying(entry, accounts)
     if not main or not payer:
         return None

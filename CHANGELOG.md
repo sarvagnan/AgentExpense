@@ -12,6 +12,10 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+### Fixed
+
+- Rules on Forecast and the usual-payment guesses on Add load in about a second on a large ledger instead of about a minute. Building the rules list compared every entry with every rule and recomputed each payment's accounts every time, while holding the ledger lock, so Add and Forecast waited behind it.
+
 ## [0.2.1] - 2026-11-28
 
 ### Fixed

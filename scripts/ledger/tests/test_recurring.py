@@ -80,6 +80,28 @@ class RecurringTests(unittest.TestCase):
         self.assertEqual(amount_check(r,'500.00',history,accounts)['currency'],'EUR')
         self.assertEqual(match_text([r],'Retirement 30 EUR',accounts,'2026-11-01','EUR')['rule_id'],r['id'])
 
+    def test_read_only_pass_reuses_identities_and_points_and_gives_the_same_detection(self):
+        import recurring
+        from unittest.mock import patch
+        accounts={**ACCOUNTS,'Assets:Miles':dict(kind='points',currency='MILES')}
+        actual=[payment(f'00000000000000{n:02d}', f'2026-{n:02d}-15') for n in range(1, 11)]
+        rules=[rule()]
+        def run():
+            made,suggestions=detect(actual,rules,accounts,{},'2026-10-20')
+            for found in [*made,*(s['rule'] for s in suggestions)]: found['id']=None
+            return made,suggestions,[e['id'] for e in actual if same_payment(e,rules[0],accounts)]
+        with patch('recurring.points_codes',wraps=recurring.points_codes) as plain_points:
+            plain=run()
+        with patch('recurring.points_codes',wraps=recurring.points_codes) as reused_points, recurring.read_only_pass():
+            reused=run()
+            self.assertIs(identity(actual[0],accounts),identity(actual[0],accounts))
+        self.assertEqual(reused,plain)
+        self.assertEqual(reused_points.call_count,1)
+        self.assertGreater(plain_points.call_count,len(actual)*len(rules))
+        # Outside a pass every call computes afresh, so a later change is seen.
+        changed=deepcopy(actual[0]);changed['postings'][1]['account']='Assets:Other'
+        self.assertNotEqual(identity(changed,accounts),identity(actual[0],accounts))
+
     def test_identity_uses_main_accounts_and_payer_not_fee_or_amount(self):
         a=payment();b=payment(amount='21.00');b['postings'].insert(1,full_posting('Expenses:Fees','1.00','EUR'))
         self.assertEqual(identity(a,ACCOUNTS),identity(b,ACCOUNTS))

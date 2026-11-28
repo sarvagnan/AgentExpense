@@ -11,7 +11,7 @@ import shutil
 from transactions import BalanceRefusal, LedgerBusy, Transaction, clean, jj, refresh
 from currency_settings import SettingsRecords
 from store import load, entries, dump, validate, store_paths, new_id
-from recurring import (active, advance, amounts, candidate, detect, identity, main_postings,
+from recurring import (active, advance, amounts, candidate, detect, identity, main_postings, read_only_pass,
                        match_text, paying, payee_match, period_for, same_payment, stale_rules,
                        simple_payment, payment_history, recompute_estimate, varying_details, amount_check, amount_doubt,
                        new_rule, rule_postings, occurrence as calendar_occurrence)
@@ -514,6 +514,11 @@ def review_proposals(lines):
 
 
 def snapshot(settings, clock=None):
+    with read_only_pass():
+        return _snapshot(settings, clock)
+
+
+def _snapshot(settings, clock):
     root=settings.ledger; documents=load(root); lines=records(root); accounts=documents[root/'data/accounts.json']['accounts']
     ignored=ignored_entries(lines)
     actual=[e for e in entries(documents) if e['id'] not in ignored]
