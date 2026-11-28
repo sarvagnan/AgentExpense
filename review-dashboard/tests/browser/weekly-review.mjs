@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {hold,settleTasks} from './held.mjs';
+import {forward,hold,settleTasks} from './held.mjs';
 import {fixtureContext} from './suites.mjs';
 
 const runId = 'a'.repeat(32);
@@ -119,13 +119,36 @@ export async function runWeeklyReview({page:shared,base,persona,theme,expect,rec
 export async function runWeeklyReviewIssue({page,base,expect,go,control,refresh,record,snap,quiesce}) {
   await quiesce();
   await control('reset-review',{});
-  const seed = await control('weekly-review-issue',{});
+  const seed = await control('weekly-review-issue',{carried:true});
   const url = 'queue/?review_issue_id='+seed.id, queue = '**/api/drafts?include_added=true&include_review=true';
   const dialog = page.getByRole('dialog',{name:'Keep as is'});
   const issue = page.getByRole('article',{name:'Review item'});
+  const legacyQueue = forward(page,async(response,route)=>{
+    const payload=await response.json();
+    const item=payload.review.items.find(row=>row.id===seed.id);
+    if(item)item.decide='Review the cited record.';
+    await route.fulfill({response,json:payload});
+  });
   try {
+    await page.route(queue,legacyQueue);
+    try{
+      await go(url);
+      await expect(issue.getByText('Confirm the shop on the receipt.')).toBeVisible();
+      await expect(issue.getByRole('heading',{name:'What to decide'})).toHaveCount(0);
+    }finally{await page.unroute(queue,legacyQueue);}
     await go(url);
-    await expect(issue.getByText('Which shop was this?')).toBeVisible();
+    await expect(issue.getByRole('heading',{name:'What to decide'}).locator('..')).toContainText('Which shop was this?');
+    await expect(issue.getByText(/Raised before/)).toBeVisible();
+    await expect(issue.getByText(/closes the issue without changing the entry and records your decision and any note/)).toBeVisible();
+    const card=await issue.boundingBox(), buttons=[];
+    for(const name of ['Apply suggestion','Keep as is','Answer','Explain more']){
+      const rect=await issue.getByRole('button',{name,exact:true}).boundingBox();
+      assert.ok(rect.x>card.x+8 && rect.x+rect.width<card.x+card.width-8,`${name} fits within the card padding`);
+      buttons.push(rect);
+    }
+    if(page.viewportSize().width>=1001)for(const rect of buttons)assert.ok(Math.abs(rect.y-buttons[0].y)<1,'The review actions share a row');
+    await snap('weekly-review-issue-actions');
+    record('Carried issue actions fit inside the card and legacy issues omit the generic question');
     await issue.getByRole('button',{name:'Apply suggestion'}).click();
     const editor = page.getByRole('article',{name:'Edit entry'});
     await expect(editor.getByLabel('Description',{exact:true})).toHaveValue('Paper Kite Workshop');

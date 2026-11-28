@@ -75,7 +75,10 @@ function ResultRow({type,value,live,onOpen}:{onOpen:(id:string)=>void;type:Visit
   <a className="result-link" href={href}>{s.state==='applied'?'View the filed statement':status==='Needs decisions'?'Decide in Queue':'Open in Queue'}<Icon name="chevron-right"/></a></article>;
  }
  const d=value as Draft,status=draftStatus(d),r=d.result,facts=r?resultFacts(r):{total:'',account:''};
- const title=(r?.description||d.text||'Expense with an attachment')+(facts.total?` · ${facts.total}`:'');
+ const expenses=d.proposal?.entry.postings.filter(p=>p.account.startsWith('Expenses:'))||[];
+ const planned=r?.usual_payment?.estimated&&expenses.length===1&&expenses[0].cost&&expenses[0].cost.commodity!==expenses[0].commodity?expenses[0]:null;
+ const total=planned&&facts.total?`${money(Number(planned.amount),planned.commodity)} (${facts.total} planned)`:facts.total;
+ const title=(r?.description||d.text||'Expense with an attachment')+(total?` · ${total}`:'');
  // Added items and saved bills have left the Queue: link the entry or the rule's bill instead.
  const entryReady=!!r?.entry_id&&dashboard.transactions.some(entry=>entry.id===r.entry_id||entry.storeId===r.entry_id);
  const link=r?.entry_id?<a className="result-link" aria-disabled={!entryReady||undefined} href={`?entry=${r.entry_id}`} onClick={e=>{e.preventDefault();if(entryReady)onOpen(r.entry_id!);}}>Open entry<Icon name="chevron-right"/></a>

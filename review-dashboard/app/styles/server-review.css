@@ -32,3 +32,5 @@
 .weekly-review .server-review-content { display:grid; gap:var(--space-4); }
 .weekly-review .server-review-content > button { justify-self:start; }
 .weekly-status > .review-action-row, .weekly-activity .review-action-row { padding:0; }
+.weekly-issue-actions { display:grid; gap:var(--space-2); padding:var(--space-4); border-top:1px solid var(--separator); }
+.weekly-issue-actions .review-action-row { padding:0; }

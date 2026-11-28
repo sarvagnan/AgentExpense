@@ -25,6 +25,7 @@ REASONS = {'amount-date-gap': 'Same amount, but the dates are more than three da
            'several-candidates': 'Several entries could match this expense.',
            'overlapping-statements': 'Overlapping statements may contain the same row.',
            'imported-after-start': 'Later imported history may repeat this expense.'}
+DOUBT_WINDOW = timedelta(days=7)
 
 
 def digest(value):
@@ -99,6 +100,17 @@ def statement_members(documents, root):
     return {m['entry-id'] for s in documents[root/'data/card-statements.json'] for m in s.get('members',[]) if m.get('entry-id')}
 
 
+def timed_snapshot(root, at, *, base=None):
+    lines = records(root)
+    times = (datetime.fromisoformat(line['time']) for line in lines
+             if line['kind'] == 'draft' and line.get('outcome') == 'added' and line.get('doubts'))
+    # The bounds in snapshot are inclusive. A doubt ages out on the following microsecond.
+    changes = [change for t in times for change in (t, t + DOUBT_WINDOW + timedelta.resolution)]
+    start = max((change for change in changes if change <= at), default=None)
+    end = min((change for change in changes if change > at), default=None)
+    return snapshot(root, clock=lambda: at, lines=lines, base=base), start, end
+
+
 def snapshot(root, *, clock=None, documents=None, lines=None, base=None):
     documents = load(root) if documents is None else documents
     actual = entries(documents)
@@ -110,7 +122,7 @@ def snapshot(root, *, clock=None, documents=None, lines=None, base=None):
     for identity in bank_members:
         public[identity]['statement'] = True
     at = clock() if clock else datetime.now(timezone.utc)
-    cutoff = at - timedelta(days=7)
+    cutoff = at - DOUBT_WINDOW
     reviewed = {c['entry_id'] for line in lines if line['kind'] == 'review-action' for c in line['changes'] if c.get('decision', {}).get('status') == 'resolved'}
     verdicts = {line['line_id']: line['verdict'] for line in lines if line['kind'] == 'review'}
     accepted_audits = {identity for identity, verdict in verdicts.items() if verdict == 'ok'}

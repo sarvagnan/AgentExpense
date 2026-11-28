@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+from app import create_app
 from support import Fixture, ready, png, entry as store_entry, posting, rule as store_rule
 from store import load, entries, dump
 from drafts import Drafts
@@ -725,7 +727,12 @@ class ReceiptTests(Fixture):
         e['postings'][0].update(amount='20.00',commodity=foreign,cost=dict(amount='100.00',commodity=self.currency,per='total'))
         dump(self.ledger/'data/expenses/2026.json',[e]);self.checkpoint('Fictional conversion')
         drafts,d,worker=self.receipt(e,amount='120.00')
-        with self.assertRaisesRegex(ValueError,'currency conversion'):choose(self.settings,drafts,d,'use')
+        client = TestClient(create_app(self.settings, start_worker=False))
+        self.addCleanup(client.close)
+        refusal = client.post(f"/api/drafts/{d['id']}/receipt-choice", json={'choice':'use'})
+        self.assertEqual(refusal.status_code, 409, refusal.text)
+        self.assertEqual(refusal.json()['detail']['kind'], 'receipt_edit_required')
+        self.assertIn('Use Edit entry to allocate it, or Keep the entry.', refusal.json()['detail']['message'])
         choose(self.settings,drafts,d,'keep')
         e=entries(load(self.ledger))[0]
         with patch('receipts.choose',side_effect=RuntimeError('interrupted before correction')):
@@ -733,6 +740,23 @@ class ReceiptTests(Fixture):
         queued=next(x for x in drafts.all() if x['receipt_reading']['state']=='ready')
         with patch('agent.run',side_effect=AssertionError('Receipt was read twice')): read(worker,queued)
         self.assertEqual(drafts.get(queued['id'])['receipt_reading']['state'],'done')
+
+    def test_foreign_receipt_agrees_with_the_expense_at_a_planned_conversion(self):
+        entry = self.seed()
+        entry['postings'][0].update(amount='10.00', commodity='USD', cost=dict(amount='1000.00', commodity='INR', per='total'))
+        entry['postings'][1]['amount'] = '-1000.00'
+        dump(self.ledger/'data/expenses/2026.json', [entry])
+        self.checkpoint('Fictional planned conversion')
+        _, draft, _ = self.receipt(entry, amount='10.00', currency='USD')
+        self.assertEqual(draft['receipt_reading']['state'], 'done')
+        self.assertEqual(entries(load(self.ledger))[0]['postings'], entry['postings'])
+        self.assertEqual(records(self.ledger)[-1]['receipt']['choice'], 'agree')
+
+        current = entries(load(self.ledger))[0]
+        drafts, draft, _ = self.receipt(current, amount='10.00', currency='USD', date='2026-10-28')
+        self.assertEqual(draft['receipt_reading']['state'], 'question')
+        self.assertEqual(choose(self.settings, drafts, draft, 'use')['receipt_reading']['state'], 'done')
+        self.assertEqual(entries(load(self.ledger))[0]['postings'], entry['postings'])
 
     def test_active_receipt_cannot_be_discarded_and_missing_record_keeps_worker_alive(self):
         import threading

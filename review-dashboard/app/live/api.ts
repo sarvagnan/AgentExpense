@@ -10,7 +10,7 @@ export type AgentPause = {kind:'usage_limit'|'auth'|'transient';reason:string;re
 export type HandChecks = {refusal?:BalanceRefusal;unchanged?:boolean;ok:boolean;checks:string[];new_accounts:string[];proposal_hash:string};
 export type Draft = {correction_save?:string;hand_form?:Proposal|null;proposal?:Proposal|null;trashed_at?:string|null;refusal?:BalanceRefusal;
   intake_complete?:boolean;intake_result?:{statements:{id:string}[];drafts:{id:string}[]};
-  correction?:{review_issue_id?:string;review_suggestion_id?:string;original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;version?:string;reask?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
+  correction?:{review_issue_id?:string;review_suggestion_id?:string;original_form?:Proposal;entry_id:string;version:string;locked:boolean;balance_locks?:BalanceLock[];reason?:string;before:{description:string;postings:Proposal['entry']['postings'];[key:string]:unknown};sources:string[]}; receipt_reading?:{refusal?:BalanceRefusal;state:string;message?:string;version?:string;reask?:string;answer?:{date:string|null;amount:string|null;currency:string|null;paying_account:string|null};entry?:{date:string};entry_totals?:Record<string,string>;entry_expense?:{amount:string;currency:string}|null}; claim?:{expires_at:string}; agent_pause?:AgentPause|null; finished_by?:{actor:string;reason:string};
   account_question?:{proposal_hash:string;accounts:string[];postings:Proposal['entry']['postings']};
   rule_question?:{id:string;index:number};
   ledger_fix?:{entry_id?:string;state:'queued'|'working'|'ready'|'question'|'failed'|'resolved';title:string;summary:string;question?:string|null;message?:string|null;doubts?:string[]};
@@ -27,12 +27,20 @@ export const apiUrl = (path: string, base = import.meta.env.BASE_URL) => `${base
 export class ApiError extends Error {
   readonly status: number;
   readonly refusal?:BalanceRefusal;
-  constructor(status: number, message: string, body?:unknown) { super(message); const detail=(body as {detail?:BalanceRefusal}|null)?.detail;this.refusal=detail?.kind==='confirmed_balance'?detail:undefined;this.status=status; this.name='ApiError'; }
+  readonly retryable?:boolean;
+  constructor(status: number, message: string, body?:unknown) {
+    super(message);
+    const detail=(body as {detail?:BalanceRefusal|{kind:'receipt_edit_required'}}|null)?.detail;
+    this.refusal=detail?.kind==='confirmed_balance'?detail:undefined;
+    if(detail?.kind==='receipt_edit_required')this.retryable=false;
+    this.status=status;this.name='ApiError';
+  }
 }
 export function errorMessage(status: number, body: unknown) {
   const detail = typeof body === 'object' && body !== null && 'detail' in body ? (body as {detail: unknown}).detail : null;
   if (typeof detail === 'object' && detail!==null && 'kind' in detail && detail.kind==='confirmed_balance') return 'Not saved: a confirmed balance would change.';
   if (typeof detail === 'object' && detail!==null && 'kind' in detail && detail.kind==='amount_check') return 'The recent payment range changed. Check the amount and explicitly add it anyway.';
+  if (typeof detail === 'object' && detail!==null && 'kind' in detail && detail.kind==='receipt_edit_required' && 'message' in detail && typeof detail.message==='string') return detail.message;
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) return 'Please check the entered values and try again.';
   return `The server could not complete this action (HTTP ${status}). Try again.`;

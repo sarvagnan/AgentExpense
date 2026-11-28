@@ -483,16 +483,24 @@ def load(root: Path = ROOT) -> dict[Path, Any]:
     return load_parsed(root)[0]
 
 
+def file_signature(paths):
+    """Identify atomic replacements and in-place edits without reading document bodies."""
+    return tuple((path, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+                 for path in paths for s in [path.stat()])
+
+
+def store_signature(root: Path, paths=None):
+    """The typed store files, manifest and selected extension definitions."""
+    paths = store_paths(root) if paths is None else paths
+    return ledger_models(root), file_signature([*paths, root/'ledger.json'])
+
+
 def load_parsed(root: Path = ROOT) -> tuple[dict[Path, Any], dict[Path, Any]]:
     """The validated documents and their models (``validate``'s result)."""
     read_manifest(root)
     paths = store_paths(root)
     memo = _model_memos.get(root.resolve())
-    def signature():
-        selected = [*paths, root/'ledger.json']
-        return (ledger_models(root), tuple((path, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
-                for path in selected for s in [path.stat()]))
-    stamp = signature() if memo else None
+    stamp = store_signature(root, paths) if memo else None
     if memo:
         with memo.lock:
             if memo.loaded and memo.loaded[0] == stamp:
@@ -502,7 +510,7 @@ def load_parsed(root: Path = ROOT) -> tuple[dict[Path, Any], dict[Path, Any]]:
                 return {Path(path): value for path, value in json.loads(encoded).items()}, parsed
     documents = {path: read_json(path) for path in paths}
     parsed = validate(documents, root)
-    if memo and signature() == stamp:
+    if memo and store_signature(root, paths) == stamp:
         encoded = json.dumps({str(path): value for path, value in documents.items()}, ensure_ascii=False, separators=(',', ':'))
         with memo.lock:
             memo.loaded = stamp, encoded, parsed

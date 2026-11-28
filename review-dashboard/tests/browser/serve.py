@@ -650,7 +650,7 @@ def recurring_controls(body: dict):
     declarations=read_json(settings.ledger/'data/accounts.json')
     accounts=declarations['accounts']
     pay=next(a for a,m in accounts.items() if m.get('kind')=='bank' and m['currency']==currency)
-    foreign='EUR' if currency!='EUR' else 'GBP'
+    foreign='USD' if body.get('plannedReceipt') else 'EUR' if currency!='EUR' else 'GBP'
     if foreign not in declarations['commodities']: declarations['commodities'].append(foreign)
     accounts['Equity:Rule Unassigned']={}
     rules=[]
@@ -663,8 +663,9 @@ def recurring_controls(body: dict):
         r=store_rule(day,label,[posting(category,amount,currency),posting(pay,'-'+amount,currency)],id=f'f00000000000a{i:03x}',lifecycle='paused' if i==6 else 'ended' if i==10 else 'active',origin=origin('owner'))
         if i==4:r['postings'][-1]['account']='Equity:Rule Unassigned'
         if i==5:
-            r['postings'][0].update(commodity=foreign,cost=dict(amount='12.00',commodity=currency,per='total'))
-            r['postings'][-1]['amount']='-12.00'
+            cost='1000.00' if body.get('plannedReceipt') else '12.00'
+            r['postings'][0].update(commodity=foreign,cost=dict(amount=cost,commodity=currency,per='total'))
+            r['postings'][-1]['amount']='-'+cost
         rules.append(r)
     if body.get('investment'):
         destination='Assets:Rule Reserve'
@@ -715,7 +716,7 @@ def receipt_answer(body: dict):
         config.with_suffix('.progress').write_text('finish')
         return dict(released=True)
     from ledger_manifest import read_manifest
-    currency=read_manifest(settings.ledger)['defaultCurrency']
+    currency=body.get('currency') or read_manifest(settings.ledger)['defaultCurrency']
     answer=dict(read_ok=True,references=['willow-receipt-reference'],payment_datetime=None,payee='Willow recipient',date=body.get('date'),amount=body.get('amount','120.00'),currency=currency,paying_account=None,notes=['Printed receipt details'])
     step = dict(answer=answer)
     if body.get('hold'):
@@ -1184,7 +1185,7 @@ def review_action_scenario():
     return dict(ids=ids,category=category,**update_settings(settings,lambda:documents,dict(seeded=True),'Fictional review action cases'))
 
 @app.post('/__test/weekly-review-issue')
-def weekly_review_issue():
+def weekly_review_issue(body: dict | None = None):
     from audit import event
     from corrections import wire_entry
     from ledger_lock import ledger_lock
@@ -1203,10 +1204,14 @@ def weekly_review_issue():
     suggestion = dict(kind='entry', id=secrets.token_hex(16), target=entry_id, version=entry_hash(entry), form=form)
     finding = event('review', line_id=source['id'], verdict='issue', reviewer='Offline fixture reviewer',
                     note='Confirm the shop on the receipt.', decide='Which shop was this?', suggestion=suggestion)
+    rows = [source, finding]
+    if (body or {}).get('carried'):
+        rows.append(event('review-carry-over', run_id=secrets.token_hex(16), review_issue_id=finding['id'],
+                          decide=finding['decide'], prior_turns=[]))
     tx = owner_transaction(settings)
     with ledger_lock(settings.ledger) as fd:
         tx.journal.parent.mkdir(parents=True, exist_ok=True)
-        tx.publish_audit([source, finding], 'Fictional weekly review finding', fd)
+        tx.publish_audit(rows, 'Fictional weekly review finding', fd)
     return fixture_refresh(dict(id=finding['id'], entry_id=entry_id, suggestion_id=suggestion['id'], saved=baseline['entry']['description']))
 
 

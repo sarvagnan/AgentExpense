@@ -519,25 +519,32 @@ def snapshot(settings, clock=None):
 
 
 def _snapshot(settings, clock):
+    day = today(clock)
     root=settings.ledger; documents=load(root); lines=records(root); accounts=documents[root/'data/accounts.json']['accounts']
     ignored=ignored_entries(lines)
     actual=[e for e in entries(documents) if e['id'] not in ignored]
     rules=documents[root/'data/forecast.json']; stale={r['id'] for r,e in stale_rules(actual,rules,accounts)}
     proposals, review_states = review_proposals(lines)
-    _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),today(clock))
+    _,suggestions=detect(actual,rules,accounts,documents.get(root/'data/recurring-settings.json',{}),day)
     public=[]
     for rule in rules:
         paid=payment_history(rule,actual,accounts) if rule['amount']=='varies' else [e for e in actual if (e['rule'] or {}).get('id')==rule['id'] or same_payment(e,rule,accounts)]
         last=max(paid,key=lambda e:e['date']) if paid else None
         life=rule['lifecycle']
-        status=life if life!='active' else 'bill-received' if rule['bill'] else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<today(clock) else 'due' if rule['date']==today(clock) else 'on-track'
+        status=life if life!='active' else 'bill-received' if rule['bill'] else 'stale' if rule['id'] in stale else 'overdue' if rule['date']<day else 'due' if rule['date']==day else 'on-track'
         public.append(dict(rule, version=digest(rule),last_payment=last,next_due=(rule['bill'] or {}).get('pay-by') or rule['date'],payments=[dict(id=e['id'],date=e['date'],**({'rule':e['rule']} if e['rule'] else {})) for e in paid],rule_status=status,review=proposals.get(rule['id']),review_state=review_states.get(rule['id'],'waiting'),**varying_details(rule,actual,accounts)))
     return dict(rules=public,suggestions=suggestions,history=[line for line in lines if line['kind'] in ('rule','rule-review')])
 
 
-def match(settings,text,day=None,currency=None):
-    documents=load(settings.ledger);manifest=read_manifest(settings.ledger)
-    return match_text(documents[settings.ledger/'data/forecast.json'],text,documents[settings.ledger/'data/accounts.json']['accounts'],day or today(),currency or manifest['defaultCurrency'],manifest.get('locale'))
+def match_inputs(settings):
+    root = settings.ledger
+    documents, manifest = load(root), read_manifest(root)
+    return documents[root/'data/forecast.json'], documents[root/'data/accounts.json']['accounts'], manifest
+
+
+def match(settings,text,day=None,currency=None,*,inputs=None):
+    rules, accounts, manifest = match_inputs(settings) if inputs is None else inputs
+    return match_text(rules,text,accounts,day or today(),currency or manifest['defaultCurrency'],manifest.get('locale'))
 
 
 def from_entry(settings,identity):

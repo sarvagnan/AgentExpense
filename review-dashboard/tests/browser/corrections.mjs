@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import {hold} from './held.mjs';
+import {expectInjectedHttp} from './expected-errors.mjs';
 
 export async function runCorrections({page,base,persona,expect,control,go,refresh,overflow,snap,record,quiesce,resetDrafts}) {
   await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});await control('gate',{state:'ready'});
@@ -94,7 +96,67 @@ export async function runCorrections({page,base,persona,expect,control,go,refres
   assert.ok(evidence.actionsTop<evidence.nameBottom&&evidence.actionsLeft>=evidence.nameRight-1,`Open sits beside the file name (${JSON.stringify(evidence)})`);
   await snap('receipt-question-inspector');await receiptInspector.getByRole('button',{name:'Close details'}).click();record('6f C pending receipt questions remain reachable from Explorer without the Add visit');
   await go('add/?draft='+added.id);await page.locator('.receipt-inline').getByRole('button',{name:'More',exact:true}).click();const question=page.getByRole('region',{name:'Receipt reading'});await expect(question).toContainText('The receipt says');await overflow('receipt question');await snap('receipt-question');
+  if(page.viewportSize().width>=1001){
+    const widths=await page.locator('.add-page').evaluate(node=>{
+      const style=getComputedStyle(node),available=node.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+      const regions=['.page-header','.add-layout','.add-savebar','.just-added'].map(selector=>[selector,node.querySelector(selector).getBoundingClientRect().width]);
+      return {available,regions};
+    });
+    assert.ok(widths.available>1130,'The desktop case has space beyond the former cap');
+    for(const [region,width] of widths.regions)assert.ok(Math.abs(width-widths.available)<1,`${region} uses the available Add width`);
+    record('Add header, composer, save bar, and Just added fill the desktop width');
+  }
   await question.getByRole('button',{name:'Keep the entry'}).click();await expect(question).toContainText('Entry kept. Receipt notes saved.',{timeout:180000});
+  const savedRule=page.locator('.just-added-row').getByText('Usual payment saved',{exact:true});
+  await expect(savedRule).toBeVisible();
+  const receiptStatus=await question.getByText('Entry kept. Receipt notes saved.',{exact:true}).boundingBox(),ruleHeading=await savedRule.boundingBox();
+  assert.ok(ruleHeading.y-receiptStatus.y-receiptStatus.height<32,'The resolved receipt releases its feedback space');
+  record('Keeping the entry collapses the receipt feedback space');
   record('6d usual saves first, reads filed receipt afterwards and records the owner choice');
   await quiesce();await control('reset-review',{});await resetDrafts({persona,empty:true});
+  if(persona!=='asha')return;
+
+  const date='2026-11-02';
+  for(const amount of ['10.00','11.00']){
+    await control('gate',{state:'ready'});await control('rules',{plannedReceipt:true});
+    await control('receipt-answer',{date,amount,currency:'USD'});
+    await page.clock.setFixedTime(new Date(date+'T12:00:00Z'));await go('add/');
+    await words.fill('Lantern journal 10 USD today');
+    await page.getByLabel('Upload files',{exact:true}).setInputFiles({name:'Lantern-receipt.png',mimeType:'image/png',buffer:receipt});
+    await expect(page.locator('.pending-upload')).toHaveCount(0);
+    const add=guess.getByRole('button',{name:'Add as usual'});
+    await expect(add).toBeEnabled();await add.click();
+    const card=page.locator('.just-added-row').filter({has:page.getByRole('heading',{name:/Lantern journal/})}).first();
+    await expect(card.getByRole('heading')).toHaveText(/Lantern journal · \$10\.00 \(₹1,000\.00 planned\)/,{timeout:180000});
+    const reading=card.getByRole('region',{name:'Receipt reading'});
+    if(amount==='10.00'){
+      await expect(reading).toContainText('Receipt details saved.',{timeout:180000});
+      await expect(reading.getByRole('button',{name:'Use the receipt'})).toHaveCount(0);
+      await snap('planned-receipt-agrees');
+      record('Just added shows the original and planned amounts and accepts an equal foreign receipt');
+    }else{
+      const use=reading.getByRole('button',{name:'Use the receipt'}),keep=reading.getByRole('button',{name:'Keep the entry'});
+      await expect(reading).toContainText('Receipt: $11.00 · Entry: $10.00',{timeout:180000});
+      const held=await hold(page,'**/api/drafts/*/receipt-choice',{method:'POST',transform:(body,response)=>{
+        if(response.status()===409)expectInjectedHttp(page,response.url(),409);
+        return body;
+      }});
+      try{
+        const before=await keep.boundingBox();await use.click();await held.ready;
+        const during=await keep.boundingBox();
+        for(const key of ['x','y','width','height'])assert.ok(Math.abs(during[key]-before[key])<1,key);
+        await words.fill('Another fictional purchase');
+      }finally{await held.release();}
+      await expect(card).toContainText('Use Edit entry to allocate it, or Keep the entry.');
+      await expect(page.getByText(/The receipt changes a split payment or currency conversion/)).toHaveCount(1);
+      await expect(card.getByRole('button',{name:'Retry',exact:true})).toHaveCount(0);
+      await expect(keep).toBeEnabled();
+      await expect(words).toHaveValue('Another fictional purchase');
+      await snap('planned-receipt-needs-edit');
+      await keep.click();await expect(reading).toContainText('Entry kept. Receipt notes saved.',{timeout:180000});
+      record('A held foreign receipt refusal preserves composer input and appears once without Retry');
+    }
+    await overflow('planned conversion receipt');await quiesce();
+    await control('reset-review',{});await resetDrafts({persona,empty:true});
+  }
 }

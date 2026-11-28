@@ -12,6 +12,14 @@ that fails and keep its output.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reuse unchanged Rules and Review results without waiting for the ledger lock, and reuse ledger data for Queue receipts, rule matches, account details, setup, and the statement list.
+- Use the full available width on Add at desktop sizes.
+- Align weekly review actions inside Queue cards, explain Keep as is, and hide the generic decision prompt when there is no specific question.
+- Collapse receipt feedback after saving a choice and show the expense and planned payment amounts together in Just added.
+- Compare foreign-currency receipts with the expense amount and show a single actionable message when changing a conversion requires Edit entry.
+
 ## [0.2.2] - 2026-11-28
 
 ### Fixed

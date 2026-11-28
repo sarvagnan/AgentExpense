@@ -404,6 +404,9 @@ html { scroll-padding-bottom: var(--live-bottom-space, 24px); }
 .add-page>.page-header,.add-page>.add-blocking-notice,.add-page>.add-savebar,.just-added{max-width:1130px}
 /* Queue's header tools end where its notice and workspace end (Review and Rules do the same). */
 .drafts-page>.page-header{max-width:1130px}
+@media(min-width:1001px){
+ .add-page>:is(.page-header,.add-blocking-notice,.add-layout,.live-notice,.add-examples,.add-savebar,.just-added){max-width:none}
+}
 .add-page .add-layout{align-items:stretch;min-height:320px;gap:16px}
 .add-page .composer-panel{display:flex;flex-direction:column}
 .add-page .composer-panel>.panel-body{display:flex;flex:1;flex-direction:column;padding:18px;min-height:260px}

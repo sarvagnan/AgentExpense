@@ -102,23 +102,45 @@ def payment_rows(entry, accounts):
     return rows
 
 
-def compare_entry(reading, entry, accounts):
-    answer = reading['answer']
-    payments = payment_rows(entry, accounts)
+def payment_totals(payments):
     totals = {}
     for row in payments:
         code = row['commodity']
         totals[code] = format(Decimal(totals.get(code, '0')) - Decimal(row['amount']), 'f')
+    return totals
+
+
+def printed_currency_total(entry, totals, currency):
+    if not currency:
+        return next(iter(totals.values())) if len(totals) == 1 else None
+    if currency in totals:
+        return totals[currency]
+    expenses = [p for p in entry['postings'] if p['account'].startswith('Expenses:')]
+    if len(expenses) == 1:
+        expense = expenses[0]
+        if expense['commodity'] == currency and (expense['cost'] or {}).get('commodity') in totals:
+            return expense['amount']
+    return None
+
+
+def amount_differs(answer, total):
+    if total is None:
+        return bool(answer['currency'] or answer['amount'] is not None)
+    return answer['amount'] is not None and Decimal(answer['amount']) != Decimal(total)
+
+
+def compare_entry(reading, entry, accounts):
+    answer = reading['answer']
+    payments = payment_rows(entry, accounts)
+    totals = payment_totals(payments)
     currency = answer['currency']
-    total = totals.get(currency)
-    if not currency and len(totals) == 1:
-        total = next(iter(totals.values()))
+    total = printed_currency_total(entry, totals, currency)
     disagrees = (answer['date'] and answer['date'] != entry['date']
-                 or currency and currency not in totals
-                 or answer['amount'] is not None and (total is None or Decimal(answer['amount']) != Decimal(total))
+                 or amount_differs(answer, total)
                  or answer['paying_account'] and {row['account'] for row in payments} != {answer['paying_account']})
     reading.update(version=entry_hash(entry), entry=deepcopy(entry), entry_totals=totals,
                    state='question' if disagrees else 'ready')
+    reading['entry_expense'] = dict(amount=total, currency=currency) if currency and currency not in totals and total is not None else None
 
 
 def resume_cancelled(worker, identity, run=None):
@@ -245,6 +267,10 @@ def choose(settings, drafts, draft, choice, version=None):
     return draft
 
 
+class ReceiptEditRequired(ValueError):
+    pass
+
+
 def correction_body(settings, reading, choice, accounts):
     before=reading['entry'];answer=reading['answer'];proposal=wire_entry(settings,before);entry=proposal['entry']
     notes=list(entry['notes'])
@@ -260,13 +286,16 @@ def correction_body(settings, reading, choice, accounts):
     entry['notes']=notes
     if choice=='use':
         payers=payment_rows(before,accounts)
-        financial_change=answer['amount'] is not None and (len(payers)!=1 or Decimal(answer['amount'])!=-Decimal(payers[0]['amount'])) or answer['currency'] and any(p['commodity']!=answer['currency'] for p in payers) or answer['paying_account'] and {p['account'] for p in payers}!={answer['paying_account']}
+        total = printed_currency_total(before, payment_totals(payers), answer['currency'])
+        financial_change = (amount_differs(answer, total) or
+                            answer['paying_account'] and {p['account'] for p in payers} != {answer['paying_account']})
         if financial_change and (len(entry['postings'])!=2 or len(payers)!=1 or any(p['cost'] for p in entry['postings']) or len({p['commodity'] for p in entry['postings']})!=1):
-            raise ValueError('The receipt changes a split payment or currency conversion. Use Edit entry to allocate it, or Keep the entry.')
+            raise ReceiptEditRequired('The receipt changes a split payment or currency conversion. Use Edit entry to allocate it, or Keep the entry.')
         if answer['date']: entry['date']=answer['date']
         if financial_change:
             code=answer['currency'] or payers[0]['commodity'];account=answer['paying_account'] or payers[0]['account']
-            if accounts.get(account,{}).get('kind') not in ('bank','card','cash','wallet') or accounts[account]['currency']!=code: raise ValueError('The receipt account or currency needs Edit entry.')
+            if accounts.get(account,{}).get('kind') not in ('bank','card','cash','wallet') or accounts[account]['currency']!=code:
+                raise ReceiptEditRequired('Use Edit entry to change the receipt account or currency, or Keep the entry.')
             value=answer['amount'] or str(-Decimal(payers[0]['amount']))
             for p in entry['postings']:
                 if p['account']==payers[0]['account']: p.update(account=account,amount='-'+value,commodity=code)

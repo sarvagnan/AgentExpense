@@ -7,6 +7,8 @@ import subprocess
 import threading
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+from app import create_app
 from support import Fixture, entry as store_entry, posting, metadata
 from store import dump, load, read_json, entries
 from audit import records, event, append
@@ -142,6 +144,34 @@ class ReviewTests(Fixture):
         apply(self.settings,self.body('import',payload=portable,preview_token=preview['token']),clock=lambda:AT)
         self.assertEqual(snapshot(self.ledger,clock=lambda:AT)['important'],1)
         self.assertEqual(entries(load(self.ledger))[0]['postings'],rows[0]['postings'])
+
+    def test_review_cache_ages_out_doubts_and_reads_a_committed_decision(self):
+        row = self.seed()[0]
+        line = event('draft', draft_id='fictional', outcome='added', text='Willow workshop', saved_at=None,
+                     pieces=None, files=[], questions=[], runs=[], proposal=None, doubts=['Check the category'],
+                     check_errors=[], error=None, entry_id=row['id'])
+        line['time'] = (AT - timedelta(days=7)).isoformat()
+        append(self.ledger, line)
+        self.checkpoint('Fictional review doubt')
+        at = AT
+        app = create_app(self.settings, start_worker=False, review_clock=lambda: at)
+        with TestClient(app) as client, patch('review.snapshot', wraps=snapshot) as build:
+            first = client.get('/api/review').json()
+            self.assertEqual(first['important'], 1)
+            with patch('ledger_lock.ledger_lock', side_effect=AssertionError('Cache hit acquired the ledger lock')):
+                self.assertEqual(client.get('/api/review').json(), first)
+            self.assertEqual(build.call_count, 1)
+
+            at += timedelta.resolution
+            expired = client.get('/api/review').json()
+            self.assertEqual(expired['important'], 0)
+            self.assertEqual(expired['count'], first['count'])
+            self.assertEqual(build.call_count, 2)
+
+            apply(self.settings, self.body('resolve', row['id'], decision=self.decide()), clock=lambda: at)
+            before = build.call_count
+            self.assertEqual(client.get('/api/review').json()['count'], expired['count'] - 1)
+            self.assertEqual(build.call_count, before + 1)
 
 
     def test_import_preview_old_ids_changed_unknown_one_commit_and_replay(self):

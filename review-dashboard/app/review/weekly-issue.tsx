@@ -82,7 +82,8 @@ export function ReviewIssue({id,item,revision,onChange,onClose}:{id:string;item?
   const finding=current?.kind==='review-issue',suggestion=current?.suggestion;
   const proposed=suggestion?.kind==='entry'?suggestion.form.entry:suggestion?.kind==='rule'?suggestion.form:null;
   const open=!!item&&!done, waiting=current?.followup==='waiting';
-  const decide=current?.decide;
+  const decide=current?.decide?.trim();
+  const question=decide==='Review the cited record.'?undefined:decide;
   return <article className="panel draft-detail weekly-issue" aria-label="Review item">
     <div className="panel-header"><div>{current?.first_raised&&<p className="live-hint">Raised before · {formatTimestamp(current.first_raised)}</p>}
       <h2 tabIndex={-1}>{current?reviewItemTitle(current):revision?'Weekly review issue':'Loading review item…'}</h2></div></div>
@@ -96,7 +97,7 @@ export function ReviewIssue({id,item,revision,onChange,onClose}:{id:string;item?
       {(finding||!current)&&<ReviewHistory issue={id} revision={revision} paused={!!(form||rule)}/>}
       {proposed&&<section className="live-notice"><div><h3>Suggested fix</h3><p>{proposed.description} · {dayLabel(proposed.date)}</p>
         <p>{proposed.postings.map(posting=>[accountLabel(posting.account),posting.amount,posting.commodity].join(' ')).join(' · ')}</p></div></section>}
-      {finding&&decide&&<section><h3>What to decide</h3><p>{decide}</p>
+      {finding&&question&&<section><h3>What to decide</h3><p>{question}</p>
         {current?.choices&&<ul>{current.choices.map((choice,i)=><li key={i}>{choice}</li>)}</ul>}</section>}
       {current?.kind==='rule-removal'&&<a className="button" href={current.href}>Open Rules</a>}
       {!open&&revision&&(!current||finding)&&<p role="status">This issue is closed or no longer available.</p>}
@@ -110,11 +111,14 @@ export function ReviewIssue({id,item,revision,onChange,onClose}:{id:string;item?
           <button className="button primary" disabled={busy||!text.trim()&&!file}>{busy?'Sending…':'Send answer'}</button></div>
       </form>}
     </div>
-    {open&&finding&&form!=='answer'&&<footer className="detail-footer">
-      {suggestion&&suggestion.kind!=='question-only'&&<button className="button primary" disabled={busy||stale===suggestion.id} onClick={()=>void apply()}>Apply suggestion</button>}
-      <button className="button" disabled={busy} onClick={()=>{setError('');setText('');setForm('keep');}}>Keep as is</button>
-      <button className="button" ref={answerButton} disabled={busy||waiting} onClick={()=>{setError('');setText('');setForm('answer');}}>Answer</button>
-      <button className="button" disabled={busy||waiting} onClick={()=>void act('explain')}>Explain more</button>
+    {open&&finding&&form!=='answer'&&<footer className="weekly-issue-actions">
+      <div className="review-action-row">
+        {suggestion&&suggestion.kind!=='question-only'&&<button className="button primary" disabled={busy||stale===suggestion.id} onClick={()=>void apply()}>Apply suggestion</button>}
+        <button className="button" disabled={busy} onClick={()=>{setError('');setText('');setForm('keep');}}>Keep as is</button>
+        <button className="button" ref={answerButton} disabled={busy||waiting} onClick={()=>{setError('');setText('');setForm('answer');}}>Answer</button>
+        <button className="button" disabled={busy||waiting} onClick={()=>void act('explain')}>Explain more</button>
+      </div>
+      <p className="live-hint">Keep as is closes the issue without changing the entry and records your decision and any note.</p>
     </footer>}
     {open&&current?.kind==='missing-actor'&&<footer className="detail-footer">
       <button className="button" disabled={busy} onClick={()=>void act('attribute','user')}>You</button>
@@ -122,7 +126,7 @@ export function ReviewIssue({id,item,revision,onChange,onClose}:{id:string;item?
     </footer>}
     {form==='keep'&&<Dialog title="Keep as is" labelId="weekly-keep" initialFocus="#weekly-keep-note" onClose={()=>{if(!busy)setForm(null);}}>
       <form onSubmit={e=>{e.preventDefault();void act('keep');}}>
-        <div className="settings-body"><p>{current&&reviewItemTitle(current)} · {decide}</p>
+        <div className="settings-body"><p>{current&&reviewItemTitle(current)}{question&&` · ${question}`}</p>
           <label>Resolution note (optional)<textarea id="weekly-keep-note" className="field" maxLength={2000} value={text} disabled={busy} onChange={e=>setText(e.target.value)}/></label>
           <p className="live-hint">Your note appears in Review › Change history.</p>{error&&<p className="live-error" role="alert">{error}</p>}</div>
         <footer className="dialog-footer"><button type="button" className="button" disabled={busy} onClick={()=>setForm(null)}>Cancel</button>

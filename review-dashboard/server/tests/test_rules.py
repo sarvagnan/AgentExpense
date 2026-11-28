@@ -1,5 +1,6 @@
 """Real checked recurring writes in disposable ledgers; all agents are offline fakes."""
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -10,6 +11,8 @@ import subprocess
 import threading
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+from app import create_app
 from persona_guard import persona_sensitive
 from support import Fixture, ready, entry as store_entry, posting, rule as store_rule, meta
 from store import dump, entries, load, read_json
@@ -441,6 +444,66 @@ class RuleTests(Fixture):
             entry_id=added['result']['entry_id'];self.assertEqual(client.get('/api/rules/from-entry/'+entry_id).status_code,200)
         with self.client(worker=False,dev=False) as client:
             response=client.post('/api/rules/operations/'+'1'*32,json=dict(action='paused',rule_id='f000000000000001'));self.assertEqual(response.status_code,403)
+
+    def test_rules_cache_hit_date_settings_and_checked_save(self):
+        rule = payment_rule(day='2026-11-15')
+        declarations = read_json(self.ledger/'data/accounts.json')
+        category = 'Expenses:Reed Workshop'
+        declarations['accounts'][category] = declarations['accounts']['Expenses:Food'].copy()
+        dump(self.ledger/'data/accounts.json', declarations)
+        rows = [store_entry(f'{i:016x}', day, 'Reed workshop', [posting(category, '12.00'), posting('Assets:Cash', '-12.00')])
+                for i, day in enumerate(('2026-08-03', '2026-10-22'), 1)]
+        self.seed(rule, rows)
+        at = datetime(2026, 11, 15, 12, tzinfo=timezone.utc)
+        app = create_app(self.settings, start_worker=False, agent_clock=lambda: at)
+        with TestClient(app) as client, patch('rules_service.snapshot', wraps=snapshot) as build:
+            first = client.get('/api/rules').json()
+            self.assertEqual(first['rules'][0]['rule_status'], 'due')
+            self.assertEqual(len(first['suggestions']), 1)
+            with patch('ledger_lock.ledger_lock', side_effect=AssertionError('Cache hit acquired the ledger lock')):
+                self.assertEqual(client.get('/api/rules').json(), first)
+            self.assertEqual(build.call_count, 1)
+
+            at += timedelta(days=1)
+            self.assertEqual(client.get('/api/rules').json()['rules'][0]['rule_status'], 'overdue')
+            self.assertEqual(build.call_count, 2)
+            dump(self.ledger/'data/recurring-settings.json', {'never-automatic': [category]})
+            self.assertEqual(client.get('/api/rules').json()['suggestions'], [])
+            self.assertEqual(build.call_count, 3)
+            self.checkpoint('Fictional recurring settings')
+
+            _, _, saved = self.add_direct()
+            rule = client.get('/api/rules').json()['rules'][0]
+            self.assertEqual(rule['last_payment']['id'], saved['entry_id'])
+            self.assertEqual(rule['next_due'], '2026-12-15')
+            self.assertEqual(build.call_count, 4)
+
+    def test_rules_cache_concurrent_misses_share_one_snapshot(self):
+        self.seed()
+        started, second, release = threading.Event(), threading.Event(), threading.Event()
+        at = datetime(2026, 11, 15, 12, tzinfo=timezone.utc)
+
+        def clock():
+            if started.is_set():
+                second.set()
+            return at
+
+        def held_snapshot(*args, **kwargs):
+            started.set()
+            self.assertTrue(release.wait(10))
+            return snapshot(*args, **kwargs)
+
+        app = create_app(self.settings, start_worker=False, agent_clock=clock)
+        with TestClient(app) as client, patch('rules_service.snapshot', side_effect=held_snapshot) as build, ThreadPoolExecutor(2) as pool:
+            first = pool.submit(client.get, '/api/rules')
+            try:
+                self.assertTrue(started.wait(10))
+                later = pool.submit(client.get, '/api/rules')
+                self.assertTrue(second.wait(10))
+            finally:
+                release.set()
+            self.assertEqual(first.result().json(), later.result().json())
+            self.assertEqual(build.call_count, 1)
 
     def test_a_failed_commit_answers_409_with_its_reason_and_keeps_the_rule(self):
         # CI, 2026-11-06: a rule save answered a bare 500. Whatever fails after the checks

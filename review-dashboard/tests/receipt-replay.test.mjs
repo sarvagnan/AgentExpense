@@ -30,6 +30,27 @@ test('Ordinary receipt choice and repeated committed notifications refresh once'
  try{h.render(m=>m.default({draft,onAction:async()=>{actions++;},compact:true}));nodes(h.current).find(node=>node.type==='button'&&node.props.children==='Keep the entry').props.onClick();await h.settle();assert.equal(actions,1);h.events.dispatchEvent(new CustomEvent('direct-write-saved',{detail:{id:'normal-job',path:'drafts/'+id+'/receipt-choice',body:'{}',result:done}}));await h.settle();assert.equal(actions,1);}finally{h.close();}
 });
 
+test('The old recheck notice leaves room for a permanent receipt refusal',async()=>{
+ const jsx=(type,props)=>({type,props}),nodes=node=>!node||typeof node!=='object'?[]:Array.isArray(node)?node.flatMap(nodes):[node,...nodes(node.props?.children)];
+ class ApiError extends Error {retryable=false;}
+ const draft={id:'d'.repeat(32),receipt_reading:{state:'question',version:'rechecked',reask:'The entry changed.',answer:{amount:'11.00',currency:'USD'},entry_totals:{INR:'1000.00'}}};
+ const h=hookHarness('../app/live/receipt-reading.tsx',{
+  '../ui':{money:String},'../data':{dashboard:{meta:{accounts:{}}}},'./balance-refusal':{},
+  './pending-actions':{ActionFeedback:'action-feedback',useWriteOwner:()=>({id:'choice'})},
+  './api':{api:{receiptChoice:async()=>{throw new ApiError('Use Edit entry or Keep the entry.');}},ApiError},
+  'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},
+ });
+ try{
+  h.render(m=>m.default({draft,onAction:async()=>{},compact:true}));
+  const feedback=()=>nodes(h.current).find(node=>node.type==='action-feedback');
+  assert.equal(feedback().props.notice,'The entry changed.');
+  nodes(h.current).find(node=>node.type==='button'&&node.props.children==='Use the receipt').props.onClick();
+  await h.settle();
+  assert.equal(feedback().props.notice,undefined);
+  assert.equal(nodes(h.current).some(node=>node.props?.role==='alert'),false,'The pending action owns the permanent refusal.');
+ }finally{h.close();}
+});
+
 for(const recovered of [false,true])test(`Receipt completion follows the real ${recovered?'recovered':'shelf'} queue Retry without another choice`,async()=>{
  const stored=new Map(),storage={getItem:key=>stored.get(key)??null,setItem:(key,value)=>stored.set(key,value),removeItem:key=>stored.delete(key)},id='b'.repeat(32),path='drafts/'+id+'/receipt-choice';let actions=0,fail=true,receipt,requests=[];
  const draft={id,receipt_reading:{state:'question',version:'original-entry-version',answer:{amount:'12.00',currency:'EUR'},entry_totals:{EUR:'10.00'},entry:{date:'2026-11-02'}}},done={...draft,receipt_reading:{...draft.receipt_reading,state:'done',message:'Receipt details saved.'}};

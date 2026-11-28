@@ -1,5 +1,5 @@
 """Live expense backend. Run from this directory with uv run app.py."""
-from contextlib import asynccontextmanager, ExitStack
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import re
@@ -198,7 +198,15 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     ledger_check.on_finished = lambda: worker.wake.set()
     from save_service import SaveService
     from data_refresh import DataRefresh
+    from read_cache import ReadCache, audit_signature, ledger_signature
     saves, data_refresh = SaveService(settings), DataRefresh(settings)
+    rules_cache = ReadCache(settings.ledger, signature=ledger_signature)
+    review_cache = ReadCache(settings.ledger, signature=lambda root: (ledger_signature(root), retention.history.head))
+    receipt_audit_cache = ReadCache(settings.ledger, signature=audit_signature)
+    rule_match_cache = ReadCache(settings.ledger)
+    account_details_cache = ReadCache(settings.ledger)
+    setup_cache = ReadCache(settings.ledger)
+    statement_metadata_cache = ReadCache(settings.ledger)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -339,38 +347,32 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
         values = list(values)
         if not any(isinstance(d.get('result'), dict) and d['result'].get('audit_id') for d in values):
             return [public(d, receipt_lines=False) for d in values]
-        from ledger_lock import ledger_lock
         from audit import records
         deadline = time.monotonic() + 1
-        with ExitStack() as stack:
-            while True:
-                try:
-                    # jj snapshots the working copy even for its cleanliness read.
-                    stack.enter_context(ledger_lock(settings.ledger, blocking=False))
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        return [public(d, receipt_lines=False) for d in values]
-                    time.sleep(.01)
-            # One wait budget and one stable audit snapshot for the whole response.
-            # A brief competing reader must not starve receipt eligibility polling.
-            lines = records(settings.ledger)
-            return [public(d, receipt_lines=lines) for d in values]
+        while True:
+            try:
+                # Use one audit snapshot for the response, with a bounded wait for a miss.
+                lines = receipt_audit_cache.get(lambda: records(settings.ledger), blocking=False)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return [public(d, receipt_lines=False) for d in values]
+                time.sleep(.01)
+        return [public(d, receipt_lines=lines) for d in values]
 
     @app.get('/api/rules')
     def list_rules():
-        from rules_service import snapshot
-        from ledger_lock import ledger_lock
-        with ledger_lock(settings.ledger):
-            return snapshot(settings, clock=agent_clock)
+        from rules_service import snapshot, today
+        at = agent_clock() if agent_clock else datetime.now().astimezone()
+        clock = lambda: at
+        return rules_cache.get(lambda: snapshot(settings, clock=clock), key=today(clock))
 
     @app.get('/api/rules/match')
     def match_rules(text: str = '', today: str | None = None, currency: str | None = None):
-        from rules_service import match
-        from ledger_lock import ledger_lock
+        from rules_service import match, match_inputs
         try:
-            with ledger_lock(settings.ledger):
-                return match(settings, text, today, currency)
+            inputs = rule_match_cache.get(lambda: match_inputs(settings))
+            return match(settings, text, today, currency, inputs=inputs)
         except (ValueError, TypeError) as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -459,7 +461,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     @app.post('/api/drafts/{identity}/receipt-choice')
     def receipt_choice(identity: str, body: dict):
-        from receipts import choose
+        from receipts import ReceiptEditRequired, choose
         draft=get(identity)
         try: return public(worker.call(lambda: choose(settings,drafts,draft,body.get('choice'),body.get('version')), kind='receipt-choice'))
         except BalanceRefusal as exc:
@@ -468,6 +470,8 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
                 latest['receipt_reading']['refusal']=exc.refusal
                 drafts.put(latest)
                 return public(latest)
+        except ReceiptEditRequired as exc:
+            raise HTTPException(409, dict(kind='receipt_edit_required', message=str(exc))) from exc
         except (ValueError,TypeError,KeyError,ArithmeticError,FileNotFoundError) as exc: raise HTTPException(409,error_detail(exc)) from exc
 
     @app.get('/api/health')
@@ -551,7 +555,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def account_details_read(account: str):
         from currency_settings import account_details
         try:
-            return account_details(settings, account)
+            return account_details_cache.get(lambda: account_details(settings, account), key=account)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
@@ -582,7 +586,7 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     @app.get('/api/setup')
     def first_run_status():
         from first_run import status
-        return status(settings)
+        return setup_cache.get(lambda: status(settings))
 
     @app.post('/api/setup/about')
     def first_run_about(body: dict = Body(...)):
@@ -647,10 +651,14 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
 
     @app.get('/api/review')
     def review_queue():
-        from review import snapshot
-        from ledger_lock import ledger_lock
-        with ledger_lock(settings.ledger):
-            return snapshot(settings.ledger, clock=review_clock, base=settings.base_path)
+        from review import timed_snapshot
+        at = review_clock() if review_clock else datetime.now(timezone.utc)
+        def usable(value):
+            _, start, end = value
+            return (start is None or start <= at) and (end is None or at < end)
+        result, _, _ = review_cache.get(lambda: timed_snapshot(settings.ledger, at, base=settings.base_path),
+                                        key=(at.astimezone().date(), settings.base_path), usable=usable)
+        return result
 
     @app.get('/api/review/weekly')
     def weekly_status(offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
@@ -1371,8 +1379,16 @@ def create_app(settings=None, *, start_worker=True, review_clock=None, agent_clo
     def statement_list():
         from store import load
         statements.purge()
-        documents = load(settings.ledger)
-        return dict(sessions=[s for s in statements.all() if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')], recoverable=[s for s in statements.all() if s.get('discarded_until') and not s.get('trashed_at') and not s.get('handover_undone')], filed=documents[settings.ledger/'data/card-statements.json'], accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']), readers=__import__('statement_readers').Registry(settings.ledger).describe())
+        def ledger_metadata():
+            documents = load(settings.ledger)
+            return dict(filed=documents[settings.ledger/'data/card-statements.json'],
+                        accounts=list(documents[settings.ledger/'data/accounts.json']['accounts']))
+        metadata = statement_metadata_cache.get(ledger_metadata)
+        sessions = statements.all()
+        return dict(**metadata,
+                    sessions=[s for s in sessions if not s.get('discarded_until') and s['state'] not in ('applied','already_filed')],
+                    recoverable=[s for s in sessions if s.get('discarded_until') and not s.get('trashed_at') and not s.get('handover_undone')],
+                    readers=__import__('statement_readers').Registry(settings.ledger).describe())
 
     @app.get('/api/statements/filed/{end}')
     def filed_statement(end: str, account: str | None = None):
